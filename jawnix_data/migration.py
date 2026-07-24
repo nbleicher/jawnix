@@ -661,7 +661,7 @@ def _import_scraper_postgresql(
     checksum: str,
 ) -> dict:
     _postgres_prepare_scraper_staging(session)
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
     connection.row_factory = sqlite3.Row
     source_rows = quarantined = 0
     query = """
@@ -727,7 +727,7 @@ def import_scraper_sqlite(session: Session, path: Path, expected_checksum: str |
         return {"skipped": True, "sourceRows": existing_audit.source_rows, "imported": existing_audit.imported_rows}
     if _is_postgresql(session):
         return _import_scraper_postgresql(session, path, checksum)
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
     connection.row_factory = sqlite3.Row
     source_rows = imported = quarantined = 0
     query = """
