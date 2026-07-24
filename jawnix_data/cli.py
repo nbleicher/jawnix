@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from jawnix.config import get_settings
 from jawnix.database import SessionLocal
 from jawnix.delivery import deliver_request, mark_delivery_failed
 from jawnix.maintenance import expire_batch_files
-from jawnix.models import Lead, LeadRequest, RequestStatus
+from jawnix.models import Agent, CustomerProfile, DistributionEvent, Lead, LeadRequest, RequestStatus
 from jawnix.states import normalize_states
 
 from .migration import import_agent_config, import_distribution_history, import_manifest, import_scraper_sqlite, import_supabase_jsonl
@@ -125,6 +126,87 @@ def inventory(states: str = ""):
         if selected:
             query = query.where(Lead.state.in_(selected))
         emit({state: count for state, count in session.execute(query)})
+
+
+@app.command("dry-run-allocation")
+def dry_run_allocation(
+    agent_slug: str = typer.Option("noah", "--agent"),
+    lead_count: int = typer.Option(100_000, "--count", min=1, max=100_000),
+    states: str = typer.Option("TX", "--states"),
+):
+    """Exercise allocation and CSV generation, then roll back every database write."""
+    selected = normalize_states([value for value in states.split(",") if value])
+    if not selected:
+        raise typer.BadParameter("at least one state is required")
+    artifact_path: Path | None = None
+    session = SessionLocal()
+    started = time.perf_counter()
+    try:
+        agent = session.scalar(select(Agent).where(Agent.slug == agent_slug, Agent.active.is_(True)))
+        if agent is None:
+            raise typer.BadParameter(f"agent was not found or is inactive: {agent_slug}")
+        profile = session.scalar(
+            select(CustomerProfile)
+            .where(
+                CustomerProfile.agent_id == agent.id,
+                CustomerProfile.mapping_confirmed_at.is_not(None),
+            )
+            .limit(1)
+        )
+        if profile is None:
+            raise typer.BadParameter(f"agent has no confirmed customer profile: {agent_slug}")
+        request = LeadRequest(
+            user_id=profile.user_id,
+            agent_id=agent.id,
+            lead_count=lead_count,
+            state_mode="selected",
+            states_snapshot=selected,
+            delivery_email=profile.email,
+            status=RequestStatus.approved.value,
+            status_message="Rollback-only allocation dry run.",
+        )
+        session.add(request)
+        session.flush()
+        result = allocate_request(session, request.id, get_settings())
+        if result.allocated != lead_count:
+            raise RuntimeError(
+                f"dry run allocated {result.allocated:,} of {lead_count:,} requested rows"
+            )
+        artifact = request.artifact
+        if artifact is None or artifact.row_count != lead_count:
+            raise RuntimeError("dry-run artifact row count did not match the allocation")
+        artifact_path = Path(artifact.path)
+        event_count = int(
+            session.scalar(
+                select(func.count(DistributionEvent.id)).where(
+                    DistributionEvent.request_id == request.id
+                )
+            )
+            or 0
+        )
+        if event_count != lead_count:
+            raise RuntimeError("dry-run event count did not match the allocation")
+        elapsed = time.perf_counter() - started
+        output = {
+            "rolledBack": True,
+            "agent": agent_slug,
+            "states": selected,
+            "requested": lead_count,
+            "allocated": result.allocated,
+            "events": event_count,
+            "csvRows": artifact.row_count,
+            "csvBytes": artifact.byte_count,
+            "csvSha256": artifact.sha256,
+            "elapsedSeconds": round(elapsed, 3),
+            "underFiveMinutes": elapsed < 300,
+        }
+        session.rollback()
+        emit(output)
+    finally:
+        session.rollback()
+        session.close()
+        if artifact_path is not None:
+            artifact_path.unlink(missing_ok=True)
 
 
 @app.command("expire-artifacts")
