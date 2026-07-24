@@ -5,6 +5,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 external_root="${JAWNIX_EXTERNAL_BACKUP_ROOT:-/Volumes/Peely SSD/Jawnix Backups}"
 ssh_target="${JAWNIX_VPS_SSH_TARGET:-root@159.195.15.51}"
+ssh_key="${JAWNIX_VPS_SSH_KEY:-$HOME/.ssh/jawnix_vps}"
 source_repository="${JAWNIX_VPS_RESTIC_REPOSITORY:-/srv/jawnix/restic-repository}"
 retention_days="${JAWNIX_EXTERNAL_BACKUP_RETENTION_DAYS:-14}"
 telegram_chat_id="${TELEGRAM_CHAT_ID:-6775236603}"
@@ -33,6 +34,7 @@ fail() {
 
 command -v restic >/dev/null 2>&1 || fail "restic is not installed on the Mac."
 [ -d "/Volumes/Peely SSD" ] || fail "Peely SSD is not mounted."
+[ -f "$ssh_key" ] || fail "The dedicated Jawnix VPS SSH key is missing."
 mkdir -p "$external_root"
 
 task_tmp="$(mktemp -d)"
@@ -51,6 +53,7 @@ fi
 
 RESTIC_PASSWORD_FILE="$task_tmp/external-password" \
   restic -r "$destination_repository" copy \
+  -o "sftp.command=ssh -i $ssh_key -o BatchMode=yes $ssh_target -s sftp" \
   --from-repo "sftp:${ssh_target}:${source_repository}" \
   --from-password-file "$task_tmp/source-password"
 

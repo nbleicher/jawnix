@@ -170,6 +170,261 @@ def _record_sources(
             item.metadata_json = metadata
 
 
+def _is_postgresql(session: Session) -> bool:
+    return session.get_bind().dialect.name == "postgresql"
+
+
+def _postgres_driver_connection(session: Session):
+    return session.connection().connection.driver_connection
+
+
+def _postgres_prepare_manifest_staging(session: Session) -> None:
+    connection = _postgres_driver_connection(session)
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL synchronous_commit = off")
+        cursor.execute("SET LOCAL work_mem = '256MB'")
+        cursor.execute(
+            """
+            CREATE TEMP TABLE manifest_import_stage (
+                phone text NOT NULL,
+                title text NOT NULL,
+                state text NOT NULL,
+                source_flow text NOT NULL,
+                first_seen_at timestamptz,
+                last_distributed_at timestamptz,
+                agent_slug text,
+                row_number bigint NOT NULL
+            ) ON COMMIT DROP
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TEMP TABLE migration_quarantine_stage (
+                source_path text NOT NULL,
+                row_number bigint NOT NULL,
+                reason text NOT NULL,
+                raw_data jsonb NOT NULL
+            ) ON COMMIT DROP
+            """
+        )
+
+
+def _postgres_copy_manifest_rows(
+    session: Session,
+    valid: list[dict],
+    invalid: list[tuple[str, int, str, str]],
+) -> None:
+    connection = _postgres_driver_connection(session)
+    with connection.cursor() as cursor:
+        if valid:
+            with cursor.copy(
+                """
+                COPY manifest_import_stage (
+                    phone, title, state, source_flow, first_seen_at,
+                    last_distributed_at, agent_slug, row_number
+                ) FROM STDIN
+                """
+            ) as copy:
+                for row in valid:
+                    copy.write_row(
+                        (
+                            row["phone"],
+                            row["title"],
+                            row["state"],
+                            row["source_flow"],
+                            row["first_seen_at"],
+                            row["last_distributed_at"],
+                            row["agent_slug"],
+                            row["row_number"],
+                        )
+                    )
+        if invalid:
+            with cursor.copy(
+                """
+                COPY migration_quarantine_stage (
+                    source_path, row_number, reason, raw_data
+                ) FROM STDIN
+                """
+            ) as copy:
+                for row in invalid:
+                    copy.write_row(row)
+
+
+def _postgres_finish_manifest(
+    session: Session,
+    path: Path,
+    checksum: str,
+    source_rows: int,
+    imported: int,
+    quarantined: int,
+) -> dict:
+    source = f"manifest:{checksum[:16]}"
+    connection = _postgres_driver_connection(session)
+    with connection.cursor() as cursor:
+        cursor.execute("CREATE INDEX manifest_import_stage_phone_idx ON manifest_import_stage (phone)")
+        cursor.execute(
+            """
+            INSERT INTO lead_inventory (
+                phone, title, state, first_seen_at, source_flow, last_distributed_at
+            )
+            SELECT
+                phone,
+                COALESCE(MAX(NULLIF(title, '')), ''),
+                MAX(state),
+                COALESCE(MIN(first_seen_at), now()),
+                COALESCE(MAX(NULLIF(source_flow, '')), 'manifest'),
+                MAX(last_distributed_at)
+            FROM manifest_import_stage
+            GROUP BY phone
+            ON CONFLICT (phone) DO UPDATE SET
+                title = COALESCE(NULLIF(EXCLUDED.title, ''), lead_inventory.title),
+                state = EXCLUDED.state,
+                source_flow = COALESCE(NULLIF(EXCLUDED.source_flow, ''), lead_inventory.source_flow),
+                first_seen_at = LEAST(lead_inventory.first_seen_at, EXCLUDED.first_seen_at),
+                last_distributed_at = CASE
+                    WHEN lead_inventory.last_distributed_at IS NULL THEN EXCLUDED.last_distributed_at
+                    WHEN EXCLUDED.last_distributed_at IS NULL THEN lead_inventory.last_distributed_at
+                    ELSE GREATEST(lead_inventory.last_distributed_at, EXCLUDED.last_distributed_at)
+                END
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO lead_sources (
+                lead_id, source, source_key, metadata_json, first_seen_at, last_seen_at
+            )
+            SELECT
+                inventory.id,
+                %s,
+                stage.phone,
+                jsonb_build_object(
+                    'flow', COALESCE(MAX(stage.source_flow), ''),
+                    'row', MIN(stage.row_number)
+                ),
+                now(),
+                now()
+            FROM manifest_import_stage AS stage
+            JOIN lead_inventory AS inventory ON inventory.phone = stage.phone
+            GROUP BY inventory.id, stage.phone
+            ON CONFLICT (source, source_key) DO UPDATE SET
+                lead_id = EXCLUDED.lead_id,
+                metadata_json = EXCLUDED.metadata_json,
+                last_seen_at = EXCLUDED.last_seen_at
+            """,
+            (source,),
+        )
+        cursor.execute(
+            """
+            INSERT INTO distribution_events (
+                lead_id, agent_id, request_id, delivered_at, source
+            )
+            SELECT DISTINCT
+                inventory.id,
+                agent.id,
+                NULL,
+                stage.last_distributed_at,
+                CASE WHEN agent.id IS NULL
+                    THEN 'legacy_unknown_recipient'
+                    ELSE 'manifest'
+                END
+            FROM manifest_import_stage AS stage
+            JOIN lead_inventory AS inventory ON inventory.phone = stage.phone
+            LEFT JOIN agents AS agent ON agent.slug = stage.agent_slug
+            WHERE stage.last_distributed_at IS NOT NULL
+              AND NULLIF(stage.agent_slug, '') IS NOT NULL
+            ON CONFLICT DO NOTHING
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO quarantined_rows (
+                source_path, row_number, reason, raw_data, created_at
+            )
+            SELECT source_path, row_number, reason, raw_data, now()
+            FROM migration_quarantine_stage
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO migration_audits (
+                source_path, checksum, source_rows, imported_rows,
+                quarantined_rows, completed_at
+            ) VALUES (%s, %s, %s, %s, %s, now())
+            """,
+            (str(path), checksum, source_rows, imported, quarantined),
+        )
+    return {
+        "sourceRows": source_rows,
+        "imported": imported,
+        "quarantined": quarantined,
+        "checksum": checksum,
+    }
+
+
+def _import_manifest_postgresql(
+    session: Session,
+    path: Path,
+    checksum: str,
+) -> dict:
+    _postgres_prepare_manifest_staging(session)
+    source_rows = imported = quarantined = 0
+    with path.open(newline="", encoding="utf-8", errors="replace") as stream:
+        reader = csv.DictReader(stream)
+        required = {"phone", "title", "state", "first_seen", "flow", "agent", "date_distributed"}
+        if not required.issubset(set(reader.fieldnames or [])):
+            raise ValueError("Manifest header does not match the expected schema.")
+        for batch in chunks(reader, size=50_000):
+            valid: list[dict] = []
+            invalid: list[tuple[str, int, str, str]] = []
+            for row in batch:
+                source_rows += 1
+                row_number = source_rows + 1
+                phone = normalize_phone(row.get("phone"))
+                state = str(row.get("state") or "").strip().upper()
+                if not phone or state not in US_STATES:
+                    invalid.append(
+                        (
+                            str(path),
+                            row_number,
+                            "invalid phone or state",
+                            json.dumps(dict(row), ensure_ascii=False),
+                        )
+                    )
+                    quarantined += 1
+                    continue
+                first_seen = None
+                if row.get("first_seen"):
+                    try:
+                        first_seen = datetime.combine(
+                            date.fromisoformat(row["first_seen"]), time.min, tzinfo=timezone.utc
+                        )
+                    except ValueError:
+                        pass
+                delivered_at = None
+                if row.get("date_distributed"):
+                    try:
+                        delivered_at = datetime.combine(
+                            date.fromisoformat(row["date_distributed"]), time.min, tzinfo=timezone.utc
+                        )
+                    except ValueError:
+                        pass
+                valid.append(
+                    {
+                        "phone": phone,
+                        "title": str(row.get("title") or ""),
+                        "state": state,
+                        "source_flow": str(row.get("flow") or "manifest"),
+                        "first_seen_at": first_seen,
+                        "last_distributed_at": delivered_at,
+                        "agent_slug": str(row.get("agent") or "").strip(),
+                        "row_number": row_number,
+                    }
+                )
+            _postgres_copy_manifest_rows(session, valid, invalid)
+            imported += len(valid)
+    return _postgres_finish_manifest(session, path, checksum, source_rows, imported, quarantined)
+
+
 def import_manifest(session: Session, path: Path, expected_checksum: str | None = None) -> dict:
     checksum = require_checksum(path, expected_checksum)
     existing_audit = session.scalar(
@@ -177,6 +432,8 @@ def import_manifest(session: Session, path: Path, expected_checksum: str | None 
     )
     if existing_audit:
         return {"skipped": True, "sourceRows": existing_audit.source_rows, "imported": existing_audit.imported_rows}
+    if _is_postgresql(session):
+        return _import_manifest_postgresql(session, path, checksum)
 
     agents = {agent.slug: agent for agent in session.scalars(select(Agent))}
     source_rows = imported = quarantined = 0
@@ -269,6 +526,198 @@ def import_manifest(session: Session, path: Path, expected_checksum: str | None 
     return {"sourceRows": source_rows, "imported": imported, "quarantined": quarantined, "checksum": checksum}
 
 
+def _postgres_prepare_scraper_staging(session: Session) -> None:
+    connection = _postgres_driver_connection(session)
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL synchronous_commit = off")
+        cursor.execute("SET LOCAL work_mem = '256MB'")
+        cursor.execute(
+            """
+            CREATE TEMP TABLE scraper_import_stage (
+                phone text NOT NULL,
+                title text NOT NULL,
+                state text NOT NULL,
+                source_flow text NOT NULL
+            ) ON COMMIT DROP
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TEMP TABLE migration_quarantine_stage (
+                source_path text NOT NULL,
+                row_number bigint NOT NULL,
+                reason text NOT NULL,
+                raw_data jsonb NOT NULL
+            ) ON COMMIT DROP
+            """
+        )
+
+
+def _postgres_copy_scraper_rows(
+    session: Session,
+    valid: list[dict],
+    invalid: list[tuple[str, int, str, str]],
+) -> None:
+    connection = _postgres_driver_connection(session)
+    with connection.cursor() as cursor:
+        if valid:
+            with cursor.copy(
+                "COPY scraper_import_stage (phone, title, state, source_flow) FROM STDIN"
+            ) as copy:
+                for row in valid:
+                    copy.write_row((row["phone"], row["title"], row["state"], row["source_flow"]))
+        if invalid:
+            with cursor.copy(
+                """
+                COPY migration_quarantine_stage (
+                    source_path, row_number, reason, raw_data
+                ) FROM STDIN
+                """
+            ) as copy:
+                for row in invalid:
+                    copy.write_row(row)
+
+
+def _postgres_finish_scraper(
+    session: Session,
+    path: Path,
+    checksum: str,
+    source_rows: int,
+    quarantined: int,
+) -> dict:
+    source = f"scraper:{path.name}"[:80]
+    connection = _postgres_driver_connection(session)
+    with connection.cursor() as cursor:
+        cursor.execute("CREATE INDEX scraper_import_stage_phone_idx ON scraper_import_stage (phone)")
+        cursor.execute(
+            """
+            INSERT INTO lead_inventory (
+                phone, title, state, first_seen_at, source_flow, last_distributed_at
+            )
+            SELECT
+                phone,
+                COALESCE(MAX(NULLIF(title, '')), ''),
+                MAX(state),
+                now(),
+                COALESCE(MAX(NULLIF(source_flow, '')), 'scraper:unknown'),
+                NULL
+            FROM scraper_import_stage
+            GROUP BY phone
+            ON CONFLICT (phone) DO NOTHING
+            """
+        )
+        imported = cursor.rowcount
+        cursor.execute(
+            """
+            INSERT INTO lead_sources (
+                lead_id, source, source_key, metadata_json, first_seen_at, last_seen_at
+            )
+            SELECT
+                inventory.id,
+                %s,
+                stage.phone,
+                jsonb_build_object('flow', COALESCE(MAX(stage.source_flow), '')),
+                now(),
+                now()
+            FROM scraper_import_stage AS stage
+            JOIN lead_inventory AS inventory ON inventory.phone = stage.phone
+            GROUP BY inventory.id, stage.phone
+            ON CONFLICT (source, source_key) DO UPDATE SET
+                lead_id = EXCLUDED.lead_id,
+                metadata_json = EXCLUDED.metadata_json,
+                last_seen_at = EXCLUDED.last_seen_at
+            """,
+            (source,),
+        )
+        cursor.execute(
+            """
+            INSERT INTO quarantined_rows (
+                source_path, row_number, reason, raw_data, created_at
+            )
+            SELECT source_path, row_number, reason, raw_data, now()
+            FROM migration_quarantine_stage
+            """
+        )
+        cursor.execute(
+            """
+            INSERT INTO migration_audits (
+                source_path, checksum, source_rows, imported_rows,
+                quarantined_rows, completed_at
+            ) VALUES (%s, %s, %s, %s, %s, now())
+            """,
+            (str(path), checksum, source_rows, imported, quarantined),
+        )
+    return {
+        "sourceRows": source_rows,
+        "imported": imported,
+        "quarantined": quarantined,
+        "checksum": checksum,
+    }
+
+
+def _import_scraper_postgresql(
+    session: Session,
+    path: Path,
+    checksum: str,
+) -> dict:
+    _postgres_prepare_scraper_staging(session)
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection.row_factory = sqlite3.Row
+    source_rows = quarantined = 0
+    query = """
+        SELECT phone,
+               MAX(NULLIF(TRIM(company), '')) AS company,
+               MAX(NULLIF(TRIM(full_name), '')) AS full_name,
+               MAX(NULLIF(TRIM(niche), '')) AS niche,
+               MAX(NULLIF(UPPER(TRIM(state)), '')) AS state,
+               MAX(NULLIF(TRIM(source), '')) AS source,
+               COUNT(*) AS source_count
+        FROM leads
+        WHERE phone IS NOT NULL AND TRIM(phone) != ''
+        GROUP BY phone
+    """
+    try:
+        cursor = connection.execute(query)
+        while True:
+            rows = cursor.fetchmany(50_000)
+            if not rows:
+                break
+            valid: list[dict] = []
+            invalid: list[tuple[str, int, str, str]] = []
+            for row in rows:
+                source_rows += int(row["source_count"] or 1)
+                phone = normalize_phone(row["phone"])
+                state = str(row["state"] or "").upper()
+                if state not in US_STATES and phone:
+                    state = derive_state(phone) or ""
+                if not phone or state not in US_STATES:
+                    invalid.append(
+                        (
+                            str(path),
+                            source_rows,
+                            "invalid scraper phone or state",
+                            json.dumps(
+                                {"phone": row["phone"], "state": row["state"], "source": row["source"]},
+                                ensure_ascii=False,
+                            ),
+                        )
+                    )
+                    quarantined += 1
+                    continue
+                valid.append(
+                    {
+                        "phone": phone,
+                        "title": str(row["company"] or row["full_name"] or row["niche"] or ""),
+                        "state": state,
+                        "source_flow": f"scraper:{row['source'] or 'unknown'}",
+                    }
+                )
+            _postgres_copy_scraper_rows(session, valid, invalid)
+    finally:
+        connection.close()
+    return _postgres_finish_scraper(session, path, checksum, source_rows, quarantined)
+
+
 def import_scraper_sqlite(session: Session, path: Path, expected_checksum: str | None = None) -> dict:
     checksum = require_checksum(path, expected_checksum)
     existing_audit = session.scalar(
@@ -276,6 +725,8 @@ def import_scraper_sqlite(session: Session, path: Path, expected_checksum: str |
     )
     if existing_audit:
         return {"skipped": True, "sourceRows": existing_audit.source_rows, "imported": existing_audit.imported_rows}
+    if _is_postgresql(session):
+        return _import_scraper_postgresql(session, path, checksum)
     connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     source_rows = imported = quarantined = 0
