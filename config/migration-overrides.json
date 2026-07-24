@@ -1,0 +1,16 @@
+{
+  "state_corrections": {
+    "CN": "CT",
+    "IO": "IA"
+  },
+  "agent_additions": [
+    {
+      "slug": "matthew",
+      "agency": "summit"
+    },
+    {
+      "slug": "ali",
+      "agency": "summit"
+    }
+  ]
+}

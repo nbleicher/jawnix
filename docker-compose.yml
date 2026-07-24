@@ -69,7 +69,8 @@ services:
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data:ro
-      - backup_staging:/srv/jawnix/backups
+      - ${JAWNIX_BACKUP_EXPORT_DIR:-/srv/jawnix/backups}:/srv/jawnix/backups
+      - ${JAWNIX_RESTIC_REPOSITORY_DIR:-/srv/jawnix/restic-repository}:/srv/jawnix/restic-repository
 
   caddy:
     image: caddy:2.10-alpine
@@ -101,8 +102,6 @@ volumes:
   scraper_data:
   caddy_data:
   caddy_config:
-  backup_staging:
-
 networks:
   private:
     internal: false

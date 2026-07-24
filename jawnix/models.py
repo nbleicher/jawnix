@@ -162,12 +162,13 @@ class Job(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
-class SlackNotification(Base):
-    __tablename__ = "slack_notifications"
+class Notification(Base):
+    __tablename__ = "notifications"
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     request_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("lead_requests.id", ondelete="CASCADE"), unique=True)
-    channel_id: Mapped[str] = mapped_column(String(80), nullable=False)
-    message_ts: Mapped[str] = mapped_column(String(80), nullable=False)
+    provider: Mapped[str] = mapped_column(String(40), default="telegram", nullable=False)
+    destination_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    message_id: Mapped[str] = mapped_column(String(120), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 

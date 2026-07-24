@@ -1,14 +1,16 @@
 # Jawnix VPS batch platform
 
-Jawnix is a customer batch-request portal backed by FastAPI and private PostgreSQL. Supabase remains the identity provider; application data lives on the VPS. Slack handles approval and Resend delivers an exact `phone,title` CSV.
+Jawnix is a customer batch-request portal backed by FastAPI and private PostgreSQL. Supabase remains the identity provider; application data lives on the VPS. Telegram handles approval and Resend delivers an exact `phone,title` CSV from `Jawnix <hai@jawnix.com>`.
 
 Billing, invoice, Stripe, and finance code remains in the repository for rollback, but the VPS application does not serve those routes and the new UI does not expose them. Keep `JAWNIX_ENABLE_BILLING=false`.
+
+Pitch Perfect, Sales God, and CRM outcome/recommendation tracking are intentionally absent. That work remains deferred until the replacement CRM is selected.
 
 ## Services
 
 - Caddy: public HTTP/HTTPS and static portal
-- FastAPI: session, profile, request, admin, Slack, and Resend APIs
-- Worker: durable approval, allocation, Slack, and delivery jobs
+- FastAPI: session, profile, request, admin, Telegram, and Resend APIs
+- Worker: durable approval, allocation, Telegram, and delivery jobs
 - PostgreSQL 18: private inventory and permanent allocation history
 - Scheduler: nightly scraper sync and 30-day CSV cleanup
 - Backup worker: encrypted Restic dump and WAL backup with 14-day retention

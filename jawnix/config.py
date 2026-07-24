@@ -21,14 +21,14 @@ class Settings(BaseSettings):
     supabase_anon_key: str = Field(default="", alias="JAWNIX_SUPABASE_ANON_KEY")
     supabase_service_role_key: str = Field(default="", alias="SUPABASE_SERVICE_ROLE_KEY")
 
-    slack_bot_token: str = Field(default="", alias="SLACK_BOT_TOKEN")
-    slack_signing_secret: str = Field(default="", alias="SLACK_SIGNING_SECRET")
-    slack_channel_id: str = Field(default="", alias="SLACK_CHANNEL_ID")
-    slack_approver_user_ids: str = Field(default="", alias="SLACK_APPROVER_USER_IDS")
+    telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
+    telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
+    telegram_approver_user_ids: str = Field(default="", alias="TELEGRAM_APPROVER_USER_IDS")
+    telegram_webhook_secret: str = Field(default="", alias="TELEGRAM_WEBHOOK_SECRET")
 
     resend_api_key: str = Field(default="", alias="RESEND_API_KEY")
     resend_webhook_secret: str = Field(default="", alias="RESEND_WEBHOOK_SECRET")
-    batch_from_email: str = Field(default="Jawnix Batches <batches@jawnix.com>", alias="JAWNIX_BATCH_FROM_EMAIL")
+    batch_from_email: str = Field(default="Jawnix <hai@jawnix.com>", alias="JAWNIX_BATCH_FROM_EMAIL")
     batch_dir: Path = Field(default=Path("./batches"), alias="JAWNIX_BATCH_DIR")
     batch_retention_days: int = Field(default=30, alias="JAWNIX_BATCH_RETENTION_DAYS")
     global_cooldown_days: int = Field(default=7, alias="JAWNIX_GLOBAL_COOLDOWN_DAYS")
@@ -45,8 +45,8 @@ class Settings(BaseSettings):
     )
 
     @property
-    def slack_approvers(self) -> set[str]:
-        return {value.strip() for value in self.slack_approver_user_ids.split(",") if value.strip()}
+    def telegram_approvers(self) -> set[str]:
+        return {value.strip() for value in self.telegram_approver_user_ids.split(",") if value.strip()}
 
 
 @lru_cache

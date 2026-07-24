@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import uuid
 from datetime import datetime, timezone
-from urllib.parse import parse_qs
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -21,8 +18,9 @@ from .database import get_db
 from .jobs import enqueue_job
 from .models import Agent, BatchArtifact, CustomerProfile, LeadRequest, RequestStatus, WebhookReceipt, utcnow
 from .schemas import CustomerCreate, ProfileOut, ProfileUpdate, RecipientMappingUpdate, RequestCreate, RequestOut, SessionExchange
-from .slack import verify_slack_request
 from .states import normalize_states
+from .telegram import TelegramClient, parse_callback_data, verify_telegram_secret
+from .transitions import TransitionError, transition_request
 
 
 app = FastAPI(title="Jawnix VPS API", version="1.0.0")
@@ -134,7 +132,7 @@ def create_request(
         states_snapshot=states,
         delivery_email=profile.email,
         status=RequestStatus.pending.value,
-        status_message="Awaiting Slack approval.",
+        status_message="Awaiting Telegram approval.",
     )
     db.add(request)
     db.flush()
@@ -161,7 +159,7 @@ def cancel_request(
         raise HTTPException(status_code=409, detail="Only pending requests can be canceled.")
     item.status = RequestStatus.canceled.value
     item.status_message = "Canceled by customer."
-    enqueue_job(db, "update_slack", item.id)
+    enqueue_job(db, "update_notification", item.id)
     db.commit()
     return {"ok": True}
 
@@ -331,35 +329,6 @@ async def create_customer(
     return {"ok": True, "userId": str(profile.user_id), "mappingConfirmed": False}
 
 
-def transition_request(db: Session, request_id: uuid.UUID, action: str) -> LeadRequest:
-    item = db.scalar(select(LeadRequest).where(LeadRequest.id == request_id).with_for_update())
-    if item is None:
-        raise HTTPException(status_code=404, detail="Request was not found.")
-    if action == "approve" and item.status == RequestStatus.pending.value:
-        item.status = RequestStatus.approved.value
-        item.approved_at = utcnow()
-        item.status_message = "Approved; allocation is queued."
-        enqueue_job(db, "allocate_request", item.id)
-    elif action == "retry" and item.status in {RequestStatus.waiting_inventory.value, RequestStatus.failed.value}:
-        item.status = RequestStatus.approved.value
-        item.status_message = "Retry approved; allocation is queued."
-        enqueue_job(db, "allocate_request", item.id)
-    elif action == "retry_delivery" and item.status == RequestStatus.failed.value:
-        if db.scalar(select(BatchArtifact).where(BatchArtifact.request_id == item.id)) is None:
-            raise HTTPException(status_code=409, detail="No generated artifact is available for delivery retry.")
-        item.status = RequestStatus.generated.value
-        item.status_message = "Delivery retry queued."
-        enqueue_job(db, "deliver_request", item.id)
-    elif action == "reject" and item.status in {RequestStatus.pending.value, RequestStatus.waiting_inventory.value}:
-        item.status = RequestStatus.rejected.value
-        item.status_message = "Rejected by admin."
-        enqueue_job(db, "update_slack", item.id)
-    else:
-        raise HTTPException(status_code=409, detail=f"Action {action} is not valid while request is {item.status}.")
-    db.flush()
-    return item
-
-
 @app.post("/api/admin/requests/{request_id}/{action}")
 def admin_request_action(
     request_id: uuid.UUID,
@@ -369,55 +338,62 @@ def admin_request_action(
 ):
     if action not in {"approve", "reject", "retry", "retry_delivery"}:
         raise HTTPException(status_code=404, detail="Unknown action.")
-    item = transition_request(db, request_id, action)
+    try:
+        item = transition_request(db, request_id, action)
+    except TransitionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
     db.commit()
     return _request_dict(item)
 
 
-@app.post("/api/integrations/slack/actions")
-async def slack_actions(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    body = await request.body()
-    if not verify_slack_request(
-        body,
-        request.headers.get("X-Slack-Request-Timestamp", ""),
-        request.headers.get("X-Slack-Signature", ""),
-        settings.slack_signing_secret,
+@app.post("/api/integrations/telegram/webhook")
+async def telegram_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    if not verify_telegram_secret(
+        request.headers.get("X-Telegram-Bot-Api-Secret-Token", ""),
+        settings.telegram_webhook_secret,
     ):
-        raise HTTPException(status_code=401, detail="Invalid Slack signature.")
-    form = parse_qs(body.decode("utf-8"))
+        raise HTTPException(status_code=401, detail="Invalid Telegram webhook secret.")
     try:
-        payload = json.loads(form["payload"][0])
-        user_id = str(payload["user"]["id"])
-        action = payload["actions"][0]
-        action_map = {
-            "approve_request": "approve",
-            "reject_request": "reject",
-            "retry_request": "retry",
-            "retry_delivery": "retry_delivery",
-        }
-        transition = action_map[action["action_id"]]
-        request_id = uuid.UUID(action["value"])
-    except (KeyError, IndexError, ValueError, json.JSONDecodeError):
-        raise HTTPException(status_code=400, detail="Malformed Slack action.") from None
-    if user_id not in settings.slack_approvers:
-        raise HTTPException(status_code=403, detail="This Slack user is not an authorized approver.")
-    replay_key = hashlib.sha256(
-        request.headers.get("X-Slack-Request-Timestamp", "").encode("ascii") + b":" + body
-    ).hexdigest()
+        payload = await request.json()
+        update_id = str(payload["update_id"])
+        callback = payload.get("callback_query")
+    except (KeyError, ValueError):
+        raise HTTPException(status_code=400, detail="Malformed Telegram update.") from None
+    if not callback:
+        return {"ok": True, "ignored": True}
+    try:
+        callback_query_id = str(callback["id"])
+        user_id = str(callback["from"]["id"])
+        chat_id = str(callback["message"]["chat"]["id"])
+        action, request_id = parse_callback_data(str(callback["data"]))
+    except (KeyError, ValueError):
+        raise HTTPException(status_code=400, detail="Malformed Telegram callback.") from None
+
+    telegram = TelegramClient(settings)
+    if user_id not in settings.telegram_approvers or chat_id != settings.telegram_chat_id:
+        background_tasks.add_task(telegram.answer_callback, callback_query_id, "Not authorized")
+        return {"ok": True, "ignored": True}
     try:
         with db.begin_nested():
-            db.add(WebhookReceipt(provider="slack", event_key=replay_key))
+            db.add(WebhookReceipt(provider="telegram", event_key=update_id))
             db.flush()
     except IntegrityError:
-        return {"response_type": "ephemeral", "text": "This Slack action was already processed."}
-    try:
-        item = transition_request(db, request_id, transition)
-        db.commit()
-    except HTTPException as exc:
-        if exc.status_code == 409:
-            return JSONResponse({"response_type": "ephemeral", "text": exc.detail}, status_code=200)
-        raise
-    return {"response_type": "ephemeral", "text": f"Request {item.id}: {item.status.replace('_', ' ')}"}
+        background_tasks.add_task(telegram.answer_callback, callback_query_id, "Already processed")
+        return {"ok": True, "duplicate": True}
+    enqueue_job(
+        db,
+        "telegram_action",
+        request_id,
+        payload={"action": action, "callback_query_id": callback_query_id, "approver_user_id": user_id},
+    )
+    db.commit()
+    background_tasks.add_task(telegram.answer_callback, callback_query_id, "Queued")
+    return {"ok": True, "queued": True}
 
 
 @app.post("/api/integrations/resend/webhook")
@@ -450,6 +426,6 @@ async def resend_webhook(request: Request, db: Session = Depends(get_db), settin
             if item:
                 item.status = RequestStatus.failed.value
                 item.status_message = f"Email provider reported {event_type.replace('email.', '')}."
-                enqueue_job(db, "update_slack", item.id)
+                enqueue_job(db, "update_notification", item.id)
     db.commit()
     return {"ok": True}

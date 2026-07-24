@@ -17,9 +17,9 @@ Validated on 2026-07-21 against the isolated `vps-batch-platform` worktree.
 
 ## Requires deployment credentials or external coordination
 
-- Live Slack posting/buttons with the production app, channel, signing secret, and approver IDs.
+- Live Telegram posting/buttons with the bot, chat, webhook secret, and approver IDs.
 - Live Resend send/delivery/bounce/complaint flow with verified `jawnix.com` DNS.
-- Full source import after explicit corrections are supplied for configured `IO` and `CN` states.
-- Manual confirmation of all customer-to-agent mappings.
+- Full source import using the approved staging-only corrections `IO → IA` and `CN → CT`.
+- Supabase customer invitations and verification of the eight confirmed Summit mappings.
 - VPS firewall, offsite backup repository, staging hostname, DNS cutover, and the 48-hour production observation window.
 - Visual in-app browser review was unavailable in the current environment; API behavior, HTML source, and container serving were validated, but a signed-in visual pass remains part of staging acceptance.

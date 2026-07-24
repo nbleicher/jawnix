@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
+import uuid
 
 import pytest
 from pydantic import ValidationError
 
 from jawnix.schemas import RequestCreate
-from jawnix.slack import verify_slack_request
 from jawnix.states import derive_state, normalize_phone, normalize_states
+from jawnix.telegram import callback_data, parse_callback_data, verify_telegram_secret
 
 
 def test_normalization_and_request_limit():
@@ -24,12 +23,12 @@ def test_normalization_and_request_limit():
         RequestCreate(lead_count=1, state_mode="selected", states=[])
 
 
-def test_slack_signature_timestamp_and_tampering():
-    body = b"payload=%7B%22ok%22%3Atrue%7D"
-    timestamp = "1700000000"
-    secret = "signing-secret"
-    base = b"v0:" + timestamp.encode() + b":" + body
-    signature = "v0=" + hmac.new(secret.encode(), base, hashlib.sha256).hexdigest()
-    assert verify_slack_request(body, timestamp, signature, secret, now=1700000000)
-    assert not verify_slack_request(body + b"x", timestamp, signature, secret, now=1700000000)
-    assert not verify_slack_request(body, timestamp, signature, secret, now=1700000301)
+def test_telegram_secret_and_callback_validation():
+    request_id = uuid.uuid4()
+    encoded = callback_data("retry_delivery", request_id)
+    assert parse_callback_data(encoded) == ("retry_delivery", request_id)
+    assert verify_telegram_secret("webhook-secret", "webhook-secret")
+    assert not verify_telegram_secret("wrong", "webhook-secret")
+    assert not verify_telegram_secret("", "webhook-secret")
+    with pytest.raises(ValueError, match="Malformed"):
+        parse_callback_data("invalid")

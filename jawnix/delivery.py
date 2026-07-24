@@ -20,7 +20,7 @@ def mark_delivery_failed(session: Session, request_id: uuid.UUID, error: str) ->
     if request is not None:
         request.status = RequestStatus.failed.value
         request.status_message = "Email delivery failed. The existing batch is preserved for retry."
-        enqueue_job(session, "update_slack", request.id)
+        enqueue_job(session, "update_notification", request.id)
     if artifact is not None:
         artifact.delivery_status = "failed"
         artifact.last_error = error[:2000]
@@ -72,6 +72,6 @@ def deliver_request(session: Session, request_id: uuid.UUID, settings: Settings)
     request.status = RequestStatus.delivered.value
     request.delivered_at = artifact.sent_at
     request.status_message = f"CSV emailed to {request.delivery_email}."
-    enqueue_job(session, "update_slack", request.id)
+    enqueue_job(session, "update_notification", request.id)
     session.flush()
     return message_id

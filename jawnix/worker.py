@@ -11,21 +11,29 @@ from .config import get_settings
 from .database import SessionLocal
 from .delivery import deliver_request, mark_delivery_failed
 from .jobs import claim_next_job, enqueue_job
-from .models import Job, JobStatus, LeadRequest, RequestStatus, SlackNotification
-from .slack import SlackClient
+from .models import Job, JobStatus, LeadRequest, Notification, RequestStatus
+from .telegram import TelegramClient
+from .transitions import TransitionError, transition_request
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("jawnix.worker")
 
 
-def _update_slack(session, request: LeadRequest, slack: SlackClient) -> None:
-    notification = session.scalar(select(SlackNotification).where(SlackNotification.request_id == request.id))
+def _update_notification(session, request: LeadRequest, telegram: TelegramClient) -> None:
+    notification = session.scalar(select(Notification).where(Notification.request_id == request.id))
     if notification is None:
-        channel, message_ts = slack.post_request(request)
-        session.add(SlackNotification(request_id=request.id, channel_id=channel, message_ts=message_ts))
+        chat_id, message_id = telegram.post_request(request)
+        session.add(
+            Notification(
+                request_id=request.id,
+                provider="telegram",
+                destination_id=chat_id,
+                message_id=message_id,
+            )
+        )
     else:
-        slack.update_request(request, notification.channel_id, notification.message_ts)
+        telegram.update_request(request, notification.destination_id, notification.message_id)
 
 
 def process_job(job_id: int) -> None:
@@ -36,10 +44,18 @@ def process_job(job_id: int) -> None:
             if job is None:
                 return
             request = session.get(LeadRequest, job.request_id) if job.request_id else None
-            if job.kind == "notify_request" or job.kind == "update_slack":
+            telegram = TelegramClient(settings)
+            if job.kind in {"notify_request", "update_notification"}:
                 if request is None:
                     raise LookupError("Request was not found.")
-                _update_slack(session, request, SlackClient(settings))
+                _update_notification(session, request, telegram)
+            elif job.kind == "telegram_action":
+                if request is None:
+                    raise LookupError("Request was not found.")
+                try:
+                    transition_request(session, request.id, str(job.payload.get("action") or ""))
+                except TransitionError as exc:
+                    log.info("Telegram action for request %s was ignored: %s", request.id, exc.detail)
             elif job.kind == "allocate_request":
                 allocate_request(session, uuid.UUID(str(job.request_id)), settings)
             elif job.kind == "deliver_request":
@@ -70,7 +86,7 @@ def process_job(job_id: int) -> None:
                 if job.kind == "deliver_request":
                     mark_delivery_failed(session, request.id, str(exc))
                 else:
-                    enqueue_job(session, "update_slack", request.id)
+                    enqueue_job(session, "update_notification", request.id)
 
 
 def run() -> None:

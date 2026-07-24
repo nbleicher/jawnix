@@ -18,14 +18,16 @@ Do not stop Railway or delete old Supabase application tables during provisionin
 
 1. Provision a Linux VPS with Docker Engine, the Compose plugin, SSH-key access, and a firewall allowing only TCP 22/80/443 and UDP 443.
 2. Clone this branch, copy `.env.example` to `.env`, and replace every placeholder. Generate independent database, session, and Restic passwords.
-3. Configure a private Slack app channel, interactive request URL `https://jawnix.com/api/integrations/slack/actions`, bot token, signing secret, and comma-separated authorized Slack user IDs.
-4. Verify `jawnix.com` in Resend, configure `batches@jawnix.com`, and set the webhook to `https://jawnix.com/api/integrations/resend/webhook` for delivered, bounced, and complained events.
-5. Configure a private encrypted Restic repository and credentials. Do not reuse the database or session secret as its password. The backup service writes a logical dump daily, includes archived WAL, creates a physical base backup on the configured UTC weekday, and expires local/offsite material after 14 days.
+3. Configure the Telegram webhook at `https://jawnix.com/api/integrations/telegram/webhook` with the bot token, random webhook secret, destination chat ID, and comma-separated authorized Telegram user IDs. Register it with Telegram's `setWebhook` API using the same `secret_token`.
+4. Verify `jawnix.com` in Resend, configure `Jawnix <hai@jawnix.com>`, and set the webhook to `https://jawnix.com/api/integrations/resend/webhook` for delivered, bounced, complained, and failed events.
+5. Configure a private encrypted Restic repository and credentials. Do not reuse the database or session secret as its password. The backup service writes a logical dump daily, includes archived WAL, creates a physical base backup on the configured UTC weekday, and expires VPS material after 14 days. Install `ops/com.jawnix.external-backup.plist` on the Mac so `ops/macos-backup-pull.sh` creates the second encrypted copy under `/Volumes/Peely SSD/Jawnix Backups`.
 6. Run `./scripts/render-config.sh`, then `docker compose config` and `docker compose build`.
 7. Run `docker compose up -d postgres`, `docker compose run --rm migrate`, then `docker compose up -d`.
 8. Confirm `/api/healthz`, `/api/readyz`, container health/logs, PostgreSQL `archive_mode`, and a Restic snapshot before importing production data. Force one initial physical base backup with `docker compose run --rm -e JAWNIX_FORCE_BASEBACKUP=true backup /app/ops/backup.sh`.
 
-`config.js` contains only the Supabase browser URL and publishable/anon key. Service-role, Slack, Resend, PostgreSQL, and Restic secrets remain server-side.
+The current VPS already has an edge Caddy container for another application. Staging therefore uses `docker-compose.staging.yml`: the Jawnix Caddy listens only on the shared Docker edge network, while the existing edge Caddy terminates TLS for `staging.jawnix.com`. Do not bind a second container to host ports 80/443 or stop the existing `buzz-prod` stack.
+
+`config.js` contains only the Supabase browser URL and publishable/anon key. Service-role, Telegram, Resend, PostgreSQL, and Restic secrets remain server-side.
 
 The PostgreSQL initialization hook enables password-authenticated replication only for physical backups on the private Docker network. If attaching this stack to an already-initialized PostgreSQL volume, add the equivalent `host replication` rule to `pg_hba.conf` and reload PostgreSQL before forcing the first base backup.
 
@@ -39,9 +41,12 @@ Treat the Mac `dat` directory as read-only. Copy pinned source files to a stagin
 | `global/all_combined.csv` | 4,511,654 | `3ac5bb7b79454d438562f96bb9e7511e849e86846604c271e27e022401fa1dde` |
 | `health_leads/data/leads.db` | 5,735,955 rows / 2,305,030 distinct phones | `00ccc0eba3362da64fb47817efeed722dde824f7d30221108fe6e1103faf7dea` |
 
-Run imports in this order:
+Create the corrected staging copy, then run imports in this order:
 
 ```sh
+docker compose run --rm -v /srv/jawnix/migration:/migration api python -m jawnix_data prepare-config \
+  /migration/config.source.json /migration/config.json \
+  --overrides /app/config/migration-overrides.json
 docker compose run --rm -v /srv/jawnix/migration:/migration:ro api python -m jawnix_data import-config /migration/config.json
 docker compose run --rm -v /srv/jawnix/migration:/migration:ro api python -m jawnix_data import-manifest \
   /migration/manifest.csv \
@@ -51,9 +56,11 @@ docker compose run --rm -v /srv/jawnix/migration:/migration:ro api python -m jaw
   /migration/leads.db \
   --expected-sha256 00ccc0eba3362da64fb47817efeed722dde824f7d30221108fe6e1103faf7dea
 docker compose run --rm -v /srv/jawnix/migration:/migration:ro api python -m jawnix_data import-supabase /migration/supabase-export
+docker compose run --rm api python -m jawnix_data provision-customer-mappings \
+  /app/config/customer-agent-mappings.csv --invite-missing
 ```
 
-The config import intentionally blocks on invalid configured states. The pinned config contains `IO` and `CN`; correct those in a staging copy only, document the chosen corrections, and rerun. Do not guess or edit the original.
+The config import intentionally blocks on invalid configured states. The committed overrides apply the explicit decisions `IO → IA` and `CN → CT` only in the staging copy, then add Matthew and Ali to Summit. The source file remains read-only.
 
 Manifest data wins on phone collisions. Scraper-only rows use their valid source state, then phone-derived state; titles fall back through company, full name, and niche. Malformed records enter `quarantined_rows`. Migration checksums and counts enter `migration_audits`, so identical reruns are skipped.
 
@@ -65,14 +72,14 @@ Sign in with an existing Supabase admin, open Recipients, and synchronize Supaba
 
 Before cutover, prove:
 
-- existing Supabase login and VPS session exchange;
+- invited-user Supabase login and VPS session exchange against the clean Auth project;
 - profile state save and all/subset request validation;
 - 1 and 100,000-row boundaries;
-- Slack Approve/Reject, authorized-user checks, replay behavior, and duplicate clicks;
+- Telegram Approve/Reject, webhook-secret and authorized-user checks, replay behavior, and duplicate clicks;
 - exact CSV row count, unique phones, state scope, `phone,title` header, and recorded checksum;
 - shortage creates zero distribution events and Retry works after inventory arrives;
 - generation failure commits no allocation and delivery failure reuses its artifact;
-- Resend delivery, bounce, and complaint webhooks update state and Slack;
+- Resend delivery, bounce, complaint, and failed webhooks update state and Telegram;
 - two concurrent allocations have no overlapping phone IDs;
 - staging restore from Restic and `git bundle verify` both pass.
 
@@ -92,8 +99,8 @@ python scripts/postgres_load_test.py \
 3. Announce a short request/redistribution pause. Disable only new requests and local redistribution; leave login and history available.
 4. Export/import the final Supabase and source-data delta, reconcile counts, and verify every active customer mapping.
 5. Take and verify a VPS database backup and Restic snapshot.
-6. Change the `jawnix.com` A/AAAA records to the VPS. Confirm Caddy certificate issuance and the complete login → request → Slack approval → CSV email → delivered flow.
-7. Re-enable requests and monitor API errors, worker failures, queued/running jobs, PostgreSQL locks/storage, Slack notifications, Resend bounces/complaints, backups, and DNS from multiple resolvers for 48 hours.
+6. Change the `jawnix.com` A/AAAA records to the VPS. Confirm Caddy certificate issuance and the complete login → request → Telegram approval → CSV email → delivered flow.
+7. Re-enable requests and monitor API errors, worker failures, queued/running jobs, PostgreSQL locks/storage, Telegram notifications, Resend bounces/complaints, backups, and DNS from multiple resolvers for 48 hours.
 8. After 48 clean hours, Railway may be scaled down only after explicit approval. Do not delete Railway, Supabase tables, the rollback tag, or the recovery bundle as part of this change.
 
 ## Rollback

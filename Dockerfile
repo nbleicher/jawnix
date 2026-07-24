@@ -19,6 +19,7 @@ RUN for tool in pg_dump pg_restore pg_basebackup psql pg_isready createdb dropdb
 COPY pyproject.toml ./
 COPY jawnix ./jawnix
 COPY jawnix_data ./jawnix_data
+COPY config ./config
 COPY alembic.ini ./
 COPY alembic ./alembic
 RUN pip install --no-cache-dir .

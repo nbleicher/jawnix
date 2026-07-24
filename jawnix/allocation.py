@@ -125,7 +125,7 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
         request.status = RequestStatus.generated.value
         request.status_message = "Batch generated; email delivery is queued."
         enqueue_job(session, "deliver_request", request.id)
-        enqueue_job(session, "update_slack", request.id)
+        enqueue_job(session, "update_notification", request.id)
         return AllocationResult(request.status, len(leads), len(leads), artifact.id)
 
     if request.status not in {RequestStatus.approved.value, RequestStatus.processing.value}:
@@ -147,7 +147,7 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
         request.status = RequestStatus.waiting_inventory.value
         request.available_count = available
         request.status_message = f"Inventory shortage: requested {request.lead_count:,}; available {available:,}. No rows were allocated."
-        enqueue_job(session, "update_slack", request.id)
+        enqueue_job(session, "update_notification", request.id)
         return AllocationResult(request.status, 0, available)
 
     distributed_at = datetime.now(timezone.utc)
@@ -168,6 +168,6 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
     request.processed_at = distributed_at
     request.status_message = "Batch generated; email delivery is queued."
     enqueue_job(session, "deliver_request", request.id)
-    enqueue_job(session, "update_slack", request.id)
+    enqueue_job(session, "update_notification", request.id)
     session.flush()
     return AllocationResult(request.status, len(candidates), len(candidates), artifact.id)

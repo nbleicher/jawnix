@@ -17,6 +17,8 @@ from jawnix.states import normalize_states
 
 from .migration import import_agent_config, import_distribution_history, import_manifest, import_scraper_sqlite, import_supabase_jsonl
 from .scraper import sync_scraper
+from .configuration import prepare_agent_config
+from .customer_mappings import provision_customer_mappings
 
 
 app = typer.Typer(no_args_is_help=True, help="Jawnix data migration and batch operations")
@@ -30,6 +32,24 @@ def emit(value: object) -> None:
 def import_config(path: Path):
     with SessionLocal.begin() as session:
         emit(import_agent_config(session, path))
+
+
+@app.command("prepare-config")
+def prepare_config(
+    source: Path,
+    destination: Path,
+    overrides: Path = typer.Option(Path("config/migration-overrides.json"), "--overrides"),
+):
+    emit(prepare_agent_config(source, destination, overrides))
+
+
+@app.command("provision-customer-mappings")
+def provision_mappings(
+    path: Path = typer.Argument(Path("config/customer-agent-mappings.csv")),
+    invite_missing: bool = typer.Option(False, "--invite-missing"),
+):
+    with SessionLocal.begin() as session:
+        emit(provision_customer_mappings(session, get_settings(), path, invite_missing=invite_missing))
 
 
 @app.command("import-manifest")
