@@ -104,7 +104,10 @@ class TelegramClient:
         )
         data = response.json()
         if response.status_code != 200 or not data.get("ok"):
-            raise RuntimeError(f"Telegram {method} failed: {data.get('description', response.text)}")
+            description = str(data.get("description") or response.text)
+            if method == "editMessageText" and "message is not modified" in description.lower():
+                return data
+            raise RuntimeError(f"Telegram {method} failed: {description}")
         return data
 
     def post_request(self, request: LeadRequest) -> tuple[str, str]:
