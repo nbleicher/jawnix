@@ -721,10 +721,16 @@ def _import_scraper_postgresql(
 def import_scraper_sqlite(session: Session, path: Path, expected_checksum: str | None = None) -> dict:
     checksum = require_checksum(path, expected_checksum)
     existing_audit = session.scalar(
-        select(MigrationAudit).where(MigrationAudit.source_path == str(path), MigrationAudit.checksum == checksum)
+        select(MigrationAudit).where(MigrationAudit.checksum == checksum)
     )
     if existing_audit:
-        return {"skipped": True, "sourceRows": existing_audit.source_rows, "imported": existing_audit.imported_rows}
+        return {
+            "skipped": True,
+            "sourceRows": existing_audit.source_rows,
+            "imported": existing_audit.imported_rows,
+            "quarantined": existing_audit.quarantined_rows,
+            "checksum": checksum,
+        }
     if _is_postgresql(session):
         return _import_scraper_postgresql(session, path, checksum)
     connection = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)

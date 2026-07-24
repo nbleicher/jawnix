@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import pytest
 from sqlalchemy import func, select
@@ -63,6 +64,26 @@ def test_scraper_deduplicates_and_manifest_wins(session, tmp_path):
     assert result["sourceRows"] == 3
     assert session.scalar(select(func.count(Lead.id))) == 2
     assert session.scalar(select(Lead.title).where(Lead.phone == "2145550001")) == "Manifest title"
+
+
+def test_scraper_checksum_is_idempotent_across_snapshot_paths(session, tmp_path):
+    original = tmp_path / "leads.db"
+    connection = sqlite3.connect(original)
+    connection.execute("CREATE TABLE leads (phone TEXT, company TEXT, full_name TEXT, niche TEXT, state TEXT, source TEXT)")
+    connection.execute("INSERT INTO leads VALUES ('3055550002', 'Acme', '', '', 'FL', 'one')")
+    connection.commit()
+    connection.close()
+    first = import_scraper_sqlite(session, original)
+    session.commit()
+
+    copied = tmp_path / "snapshot-copy.db"
+    shutil.copyfile(original, copied)
+    second = import_scraper_sqlite(session, copied)
+
+    assert first["imported"] == 1
+    assert second["skipped"] is True
+    assert second["checksum"] == first["checksum"]
+    assert session.scalar(select(func.count(Lead.id))) == 1
 
 
 def test_identifiable_csv_history_is_imported(session, tmp_path):
