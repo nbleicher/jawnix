@@ -321,7 +321,7 @@ def _postgres_finish_manifest(
             SELECT DISTINCT
                 inventory.id,
                 agent.id,
-                NULL,
+                NULL::uuid,
                 stage.last_distributed_at,
                 CASE WHEN agent.id IS NULL
                     THEN 'legacy_unknown_recipient'
