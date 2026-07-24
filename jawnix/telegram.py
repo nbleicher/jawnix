@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import logging
 import uuid
 
 import httpx
@@ -8,6 +9,9 @@ import httpx
 from .config import Settings
 from .models import LeadRequest
 
+
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 ACTION_PREFIX = "jawnix"
 ALLOWED_ACTIONS = {"approve", "reject", "retry", "retry_delivery"}
