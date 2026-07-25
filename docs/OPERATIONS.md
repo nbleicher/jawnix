@@ -49,6 +49,14 @@ The 16 profiles are customer recipients. The separate Supabase Auth identity
 profile or agent mapping. `noah@urpriorityhealth.com` remains the customer
 mapped to the `noah` agent in Summit.
 
+Admin deletion of an agent or agency is intentionally reversible at the
+database level. It sets `deleted_at`, disables the affected records, removes
+them from active hierarchy and mapping choices, and unassigns customers. It
+does not delete lead requests or distribution events. Deleting an agency
+applies the same tombstone to every member agent. Restore only with an audited
+database update that clears `deleted_at`; customer mappings must still be
+reviewed and reconfirmed.
+
 ## Source migration
 
 Treat the Mac `dat` directory as read-only. Copy pinned source files to a staging volume on the VPS; never mount or run migration commands against the originals. The accepted source snapshot is:

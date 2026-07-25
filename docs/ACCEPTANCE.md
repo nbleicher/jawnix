@@ -32,6 +32,9 @@ Git rollback tag/bundle, and the read-only `dat` source remain available.
 - The Recipients page includes an expandable agency → agent → customer
   hierarchy. Agency names/statuses and agent names/memberships/statuses are
   editable; immutable slugs preserve distribution-history identifiers.
+  Typed-slug deletion removes agents or whole agencies from the active
+  hierarchy, unassigns affected customers, and retains tombstone records so
+  requests, allocation history, and permanent no-repeat enforcement survive.
 - Telegram points to the production webhook with zero pending updates or
   errors. Resend delivery/failure webhooks point to production; a password
   reset produced a verified Resend receipt in PostgreSQL.

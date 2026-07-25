@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from svix.webhooks import Webhook, WebhookVerificationError
@@ -21,6 +21,7 @@ from .schemas import (
     AgencyUpdate,
     AgentUpdate,
     CustomerCreate,
+    DeleteConfirmation,
     ProfileOut,
     ProfileUpdate,
     RecipientMappingUpdate,
@@ -133,7 +134,11 @@ def create_request(
         profile is None
         or profile.agent is None
         or not profile.agent.active
-        or (profile.agent.agency is not None and not profile.agent.agency.active)
+        or profile.agent.deleted_at is not None
+        or (
+            profile.agent.agency is not None
+            and (not profile.agent.agency.active or profile.agent.agency.deleted_at is not None)
+        )
         or profile.mapping_confirmed_at is None
     ):
         raise HTTPException(
@@ -212,8 +217,8 @@ def admin_requests(_: Principal = Depends(require_admin), db: Session = Depends(
 @app.get("/api/admin/recipients")
 def admin_recipients(_: Principal = Depends(require_admin), db: Session = Depends(get_db)):
     profiles = list(db.scalars(select(CustomerProfile).order_by(CustomerProfile.email)))
-    agencies = list(db.scalars(select(Agency).order_by(Agency.name)))
-    agents = list(db.scalars(select(Agent).order_by(Agent.name)))
+    agencies = list(db.scalars(select(Agency).where(Agency.deleted_at.is_(None)).order_by(Agency.name)))
+    agents = list(db.scalars(select(Agent).where(Agent.deleted_at.is_(None)).order_by(Agent.name)))
     return {
         "recipients": [
             {
@@ -251,7 +256,16 @@ async def sync_recipients(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    agents = {agent.slug: agent for agent in db.scalars(select(Agent).where(Agent.active.is_(True)))}
+    agents = {
+        agent.slug: agent
+        for agent in db.scalars(
+            select(Agent).where(
+                Agent.active.is_(True),
+                Agent.deleted_at.is_(None),
+            )
+        )
+        if agent.agency is None or (agent.agency.active and agent.agency.deleted_at is None)
+    }
     seen = created = proposed = 0
     page = 1
     while True:
@@ -312,7 +326,14 @@ def map_recipient(
     agent = db.get(Agent, payload.agent_id)
     if profile is None or agent is None:
         raise HTTPException(status_code=404, detail="Recipient or agent was not found.")
-    if not agent.active or (agent.agency is not None and not agent.agency.active):
+    if (
+        not agent.active
+        or agent.deleted_at is not None
+        or (
+            agent.agency is not None
+            and (not agent.agency.active or agent.agency.deleted_at is not None)
+        )
+    ):
         raise HTTPException(status_code=409, detail="Recipients can only be mapped to an active agent and agency.")
     profile.agent_id = agent.id
     profile.mapping_confirmed_at = datetime.now(timezone.utc) if payload.confirmed else None
@@ -328,7 +349,7 @@ def update_agency(
     db: Session = Depends(get_db),
 ):
     agency = db.get(Agency, agency_id)
-    if agency is None:
+    if agency is None or agency.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Agency was not found.")
     name = payload.name.strip()
     if not name:
@@ -347,10 +368,10 @@ def update_agent(
     db: Session = Depends(get_db),
 ):
     agent = db.get(Agent, agent_id)
-    if agent is None:
+    if agent is None or agent.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Agent was not found.")
     agency = db.get(Agency, payload.agency_id) if payload.agency_id is not None else None
-    if payload.agency_id is not None and agency is None:
+    if payload.agency_id is not None and (agency is None or agency.deleted_at is not None):
         raise HTTPException(status_code=404, detail="Agency was not found.")
     name = payload.name.strip()
     if not name:
@@ -360,6 +381,112 @@ def update_agent(
     agent.active = payload.active
     db.commit()
     return {"ok": True}
+
+
+@app.delete("/api/admin/agents/{agent_id}")
+def delete_agent(
+    agent_id: int,
+    payload: DeleteConfirmation,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    agent = db.get(Agent, agent_id)
+    if agent is None or agent.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Agent was not found.")
+    if payload.confirm_slug != agent.slug:
+        raise HTTPException(status_code=409, detail="Agent slug confirmation did not match.")
+    active_requests = int(
+        db.scalar(
+            select(func.count(LeadRequest.id)).where(
+                LeadRequest.agent_id == agent.id,
+                LeadRequest.status.notin_(
+                    [
+                        RequestStatus.delivered.value,
+                        RequestStatus.rejected.value,
+                        RequestStatus.canceled.value,
+                    ]
+                ),
+            )
+        )
+        or 0
+    )
+    if active_requests:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Resolve {active_requests} active request(s) before deleting this agent.",
+        )
+    profiles = list(db.scalars(select(CustomerProfile).where(CustomerProfile.agent_id == agent.id)))
+    for profile in profiles:
+        profile.agent_id = None
+        profile.mapping_confirmed_at = None
+    agent.active = False
+    agent.deleted_at = utcnow()
+    db.commit()
+    return {"ok": True, "unassignedRecipients": len(profiles), "historyPreserved": True}
+
+
+@app.delete("/api/admin/agencies/{agency_id}")
+def delete_agency(
+    agency_id: int,
+    payload: DeleteConfirmation,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    agency = db.get(Agency, agency_id)
+    if agency is None or agency.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Agency was not found.")
+    if payload.confirm_slug != agency.slug:
+        raise HTTPException(status_code=409, detail="Agency slug confirmation did not match.")
+    agents = list(db.scalars(select(Agent).where(Agent.agency_id == agency.id)))
+    agent_ids = [agent.id for agent in agents]
+    active_requests = (
+        int(
+            db.scalar(
+                select(func.count(LeadRequest.id)).where(
+                    LeadRequest.agent_id.in_(agent_ids),
+                    LeadRequest.status.notin_(
+                        [
+                            RequestStatus.delivered.value,
+                            RequestStatus.rejected.value,
+                            RequestStatus.canceled.value,
+                        ]
+                    ),
+                )
+            )
+            or 0
+        )
+        if agent_ids
+        else 0
+    )
+    if active_requests:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Resolve {active_requests} active request(s) before deleting this agency.",
+        )
+    profiles = (
+        list(db.scalars(select(CustomerProfile).where(CustomerProfile.agent_id.in_(agent_ids))))
+        if agent_ids
+        else []
+    )
+    for profile in profiles:
+        profile.agent_id = None
+        profile.mapping_confirmed_at = None
+    now = utcnow()
+    deleted_agents = 0
+    for agent in agents:
+        if agent.deleted_at is None:
+            deleted_agents += 1
+        agent.active = False
+        agent.deleted_at = agent.deleted_at or now
+    agency.active = False
+    agency.deleted_at = now
+    db.commit()
+    return {
+        "ok": True,
+        "deletedAgents": deleted_agents,
+        "unassignedRecipients": len(profiles),
+        "historyPreserved": True,
+    }
 
 
 async def _supabase_admin(settings: Settings, method: str, path: str, payload: dict | None = None):

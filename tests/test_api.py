@@ -9,7 +9,7 @@ from jawnix.api import app
 from jawnix.auth import Principal, require_admin, require_principal
 from jawnix.config import get_settings
 from jawnix.database import get_db
-from jawnix.models import Agency, Agent, CustomerProfile, Job, LeadRequest, utcnow
+from jawnix.models import Agency, Agent, CustomerProfile, DistributionEvent, Job, Lead, LeadRequest, utcnow
 from jawnix.telegram import callback_data
 
 
@@ -115,6 +115,7 @@ def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
     first_agency = Agency(slug="first-agency", name="First Agency")
     second_agency = Agency(slug="second-agency", name="Second Agency", active=False)
     agent = Agent(slug="hierarchy-agent", name="Hierarchy Agent", agency=first_agency, active=False)
+    cascade_agent = Agent(slug="cascade-agent", name="Cascade Agent", agency=first_agency)
     profile = CustomerProfile(
         user_id=uuid.uuid4(),
         email="hierarchy@example.com",
@@ -122,7 +123,18 @@ def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
         agent=agent,
         mapping_confirmed_at=utcnow(),
     )
-    session.add_all([first_agency, second_agency, agent, profile])
+    cascade_profile = CustomerProfile(
+        user_id=uuid.uuid4(),
+        email="cascade@example.com",
+        licensed_states=["FL"],
+        agent=cascade_agent,
+        mapping_confirmed_at=utcnow(),
+    )
+    lead = Lead(phone="2125550100", title="Test", state="NY")
+    session.add_all([first_agency, second_agency, agent, cascade_agent, profile, cascade_profile, lead])
+    session.flush()
+    event = DistributionEvent(lead_id=lead.id, agent_id=agent.id, source="test")
+    session.add(event)
     session.commit()
 
     def database_override():
@@ -182,6 +194,77 @@ def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
             f"/api/admin/agencies/{first_agency.id}",
             json={"name": "Agency", "active": True, "slug": "cannot-change"},
         ).status_code == 422
+
+        assert client.request(
+            "DELETE",
+            f"/api/admin/agents/{agent.id}",
+            json={"confirm_slug": "wrong"},
+        ).status_code == 409
+        deleted_agent = client.request(
+            "DELETE",
+            f"/api/admin/agents/{agent.id}",
+            json={"confirm_slug": agent.slug},
+        )
+        assert deleted_agent.status_code == 200
+        assert deleted_agent.json() == {
+            "ok": True,
+            "unassignedRecipients": 1,
+            "historyPreserved": True,
+        }
+        session.refresh(agent)
+        session.refresh(profile)
+        session.refresh(event)
+        assert agent.active is False
+        assert agent.deleted_at is not None
+        assert profile.agent_id is None
+        assert profile.mapping_confirmed_at is None
+        assert event.agent_id == agent.id
+
+        active_request = LeadRequest(
+            user_id=cascade_profile.user_id,
+            agent_id=cascade_agent.id,
+            lead_count=10,
+            state_mode="all_saved",
+            states_snapshot=["FL"],
+            delivery_email=cascade_profile.email,
+            status="pending",
+        )
+        session.add(active_request)
+        session.commit()
+        blocked_agency_delete = client.request(
+            "DELETE",
+            f"/api/admin/agencies/{first_agency.id}",
+            json={"confirm_slug": first_agency.slug},
+        )
+        assert blocked_agency_delete.status_code == 409
+        assert blocked_agency_delete.json()["detail"] == "Resolve 1 active request(s) before deleting this agency."
+        active_request.status = "canceled"
+        session.commit()
+
+        deleted_agency = client.request(
+            "DELETE",
+            f"/api/admin/agencies/{first_agency.id}",
+            json={"confirm_slug": first_agency.slug},
+        )
+        assert deleted_agency.status_code == 200
+        assert deleted_agency.json() == {
+            "ok": True,
+            "deletedAgents": 1,
+            "unassignedRecipients": 1,
+            "historyPreserved": True,
+        }
+        session.refresh(first_agency)
+        session.refresh(cascade_agent)
+        session.refresh(cascade_profile)
+        assert first_agency.deleted_at is not None
+        assert cascade_agent.deleted_at is not None
+        assert cascade_profile.agent_id is None
+        assert cascade_profile.mapping_confirmed_at is None
+
+        remaining = client.get("/api/admin/recipients").json()
+        assert "first-agency" not in {item["slug"] for item in remaining["agencies"]}
+        assert "hierarchy-agent" not in {item["slug"] for item in remaining["agents"]}
+        assert "cascade-agent" not in {item["slug"] for item in remaining["agents"]}
     finally:
         app.dependency_overrides.clear()
 

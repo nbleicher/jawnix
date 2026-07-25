@@ -62,6 +62,12 @@ class AgentUpdate(BaseModel):
     active: bool
 
 
+class DeleteConfirmation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirm_slug: str = Field(min_length=1, max_length=80)
+
+
 class CustomerCreate(BaseModel):
     email: EmailStr
     first_name: str = Field(default="", max_length=120)
