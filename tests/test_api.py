@@ -122,11 +122,44 @@ def test_admin_session_does_not_create_customer_profile(session, settings, monke
     monkeypatch.setattr("jawnix.api.verify_supabase_token", fake_verify)
     try:
         client = TestClient(app)
-        response = client.post("/api/auth/session", json={"access_token": "test-access-token-long-enough"})
+        response = client.post(
+            "/api/auth/session",
+            json={"access_token": "test-access-token-long-enough", "requested_next": "/admin.html"},
+        )
         assert response.status_code == 200
         assert response.json()["role"] == "admin"
         assert response.json()["next"] == "/admin.html"
         assert session.get(CustomerProfile, admin_id) is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_customer_session_cannot_target_admin_portal(session, settings, monkeypatch):
+    customer_id = uuid.uuid4()
+
+    async def fake_verify(_token, _settings):
+        return {
+            "id": str(customer_id),
+            "email": "customer@example.com",
+            "app_metadata": {"jawnix_role": "customer"},
+            "user_metadata": {},
+        }
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    monkeypatch.setattr("jawnix.api.verify_supabase_token", fake_verify)
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/auth/session",
+            json={"access_token": "test-access-token-long-enough", "requested_next": "/admin.html"},
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Sign in with noah@jawnix.com to access administration."
+        assert session.get(CustomerProfile, customer_id) is None
     finally:
         app.dependency_overrides.clear()
 

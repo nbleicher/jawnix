@@ -10,6 +10,7 @@ from .states import normalize_states
 
 class SessionExchange(BaseModel):
     access_token: str = Field(min_length=20)
+    requested_next: str | None = Field(default=None, max_length=200)
 
 
 class ProfileUpdate(BaseModel):
@@ -76,4 +77,3 @@ class RequestOut(BaseModel):
     status_message: str
     created_at: datetime
     delivered_at: datetime | None
-

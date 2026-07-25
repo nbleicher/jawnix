@@ -45,6 +45,9 @@ async def create_session(
     settings: Settings = Depends(get_settings),
 ):
     user = await verify_supabase_token(payload.access_token, settings)
+    role = str((user.get("app_metadata") or {}).get("jawnix_role") or "customer")
+    if payload.requested_next == "/admin.html" and role != "admin":
+        raise HTTPException(status_code=403, detail="Sign in with noah@jawnix.com to access administration.")
     principal = issue_session(response, user, settings)
     profile = db.get(CustomerProfile, principal.user_id)
     if profile is None and principal.role != "admin":
