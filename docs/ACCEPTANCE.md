@@ -12,7 +12,7 @@ Git rollback tag/bundle, and the read-only `dat` source remain available.
 - The attached `dat` directory was used only as migration input. Its manifest,
   SQLite database, CSVs, history, configuration, and scripts were not edited,
   moved, or deleted.
-- Python compilation, Ruff, dependency checks, and 21 automated tests passed.
+- Python compilation, Ruff, dependency checks, and 24 automated tests passed.
   Docker images build with Python 3.12 and PostgreSQL 18 client tools.
 - Caddy, FastAPI, PostgreSQL 18, the worker, scheduler, and backup worker are
   running on the VPS. Production and staging readiness pass over HTTPS,
@@ -29,6 +29,9 @@ Git rollback tag/bundle, and the read-only `dat` source remain available.
 - The admin portal can synchronize users, confirm mappings, create customers,
   and send password setup/reset emails. Supabase Auth uses Resend custom SMTP
   from `hai@jawnix.com` and permits production and staging redirect URLs.
+- The Recipients page includes an expandable agency → agent → customer
+  hierarchy. Agency names/statuses and agent names/memberships/statuses are
+  editable; immutable slugs preserve distribution-history identifiers.
 - Telegram points to the production webhook with zero pending updates or
   errors. Resend delivery/failure webhooks point to production; a password
   reset produced a verified Resend receipt in PostgreSQL.

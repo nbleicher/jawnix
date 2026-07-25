@@ -16,8 +16,18 @@ from .auth import Principal, clear_session, issue_session, require_admin, requir
 from .config import Settings, get_settings
 from .database import get_db
 from .jobs import enqueue_job
-from .models import Agent, BatchArtifact, CustomerProfile, LeadRequest, RequestStatus, WebhookReceipt, utcnow
-from .schemas import CustomerCreate, ProfileOut, ProfileUpdate, RecipientMappingUpdate, RequestCreate, RequestOut, SessionExchange
+from .models import Agency, Agent, BatchArtifact, CustomerProfile, LeadRequest, RequestStatus, WebhookReceipt, utcnow
+from .schemas import (
+    AgencyUpdate,
+    AgentUpdate,
+    CustomerCreate,
+    ProfileOut,
+    ProfileUpdate,
+    RecipientMappingUpdate,
+    RequestCreate,
+    RequestOut,
+    SessionExchange,
+)
 from .states import normalize_states
 from .telegram import TelegramClient, parse_callback_data, verify_telegram_secret
 from .transitions import TransitionError, transition_request
@@ -119,8 +129,17 @@ def create_request(
     db: Session = Depends(get_db),
 ):
     profile = db.get(CustomerProfile, principal.user_id)
-    if profile is None or profile.agent_id is None or profile.mapping_confirmed_at is None:
-        raise HTTPException(status_code=409, detail="Your distribution mapping must be confirmed before requesting a batch.")
+    if (
+        profile is None
+        or profile.agent is None
+        or not profile.agent.active
+        or (profile.agent.agency is not None and not profile.agent.agency.active)
+        or profile.mapping_confirmed_at is None
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Your distribution mapping must be active and confirmed before requesting a batch.",
+        )
     saved_states = normalize_states(profile.licensed_states)
     if not saved_states:
         raise HTTPException(status_code=422, detail="Save at least one licensed state first.")
@@ -193,7 +212,8 @@ def admin_requests(_: Principal = Depends(require_admin), db: Session = Depends(
 @app.get("/api/admin/recipients")
 def admin_recipients(_: Principal = Depends(require_admin), db: Session = Depends(get_db)):
     profiles = list(db.scalars(select(CustomerProfile).order_by(CustomerProfile.email)))
-    agents = list(db.scalars(select(Agent).where(Agent.active.is_(True)).order_by(Agent.name)))
+    agencies = list(db.scalars(select(Agency).order_by(Agency.name)))
+    agents = list(db.scalars(select(Agent).order_by(Agent.name)))
     return {
         "recipients": [
             {
@@ -207,8 +227,19 @@ def admin_recipients(_: Principal = Depends(require_admin), db: Session = Depend
             }
             for profile in profiles
         ],
+        "agencies": [
+            {"id": agency.id, "slug": agency.slug, "name": agency.name, "active": agency.active}
+            for agency in agencies
+        ],
         "agents": [
-            {"id": agent.id, "slug": agent.slug, "name": agent.name, "agency": agent.agency.name if agent.agency else ""}
+            {
+                "id": agent.id,
+                "slug": agent.slug,
+                "name": agent.name,
+                "active": agent.active,
+                "agencyId": agent.agency_id,
+                "agency": agent.agency.name if agent.agency else "",
+            }
             for agent in agents
         ],
     }
@@ -279,10 +310,54 @@ def map_recipient(
 ):
     profile = db.get(CustomerProfile, user_id)
     agent = db.get(Agent, payload.agent_id)
-    if profile is None or agent is None or not agent.active:
+    if profile is None or agent is None:
         raise HTTPException(status_code=404, detail="Recipient or agent was not found.")
+    if not agent.active or (agent.agency is not None and not agent.agency.active):
+        raise HTTPException(status_code=409, detail="Recipients can only be mapped to an active agent and agency.")
     profile.agent_id = agent.id
     profile.mapping_confirmed_at = datetime.now(timezone.utc) if payload.confirmed else None
+    db.commit()
+    return {"ok": True}
+
+
+@app.patch("/api/admin/agencies/{agency_id}")
+def update_agency(
+    agency_id: int,
+    payload: AgencyUpdate,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    agency = db.get(Agency, agency_id)
+    if agency is None:
+        raise HTTPException(status_code=404, detail="Agency was not found.")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Agency name is required.")
+    agency.name = name
+    agency.active = payload.active
+    db.commit()
+    return {"ok": True}
+
+
+@app.patch("/api/admin/agents/{agent_id}")
+def update_agent(
+    agent_id: int,
+    payload: AgentUpdate,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    agent = db.get(Agent, agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent was not found.")
+    agency = db.get(Agency, payload.agency_id) if payload.agency_id is not None else None
+    if payload.agency_id is not None and agency is None:
+        raise HTTPException(status_code=404, detail="Agency was not found.")
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Agent name is required.")
+    agent.name = name
+    agent.agency_id = agency.id if agency else None
+    agent.active = payload.active
     db.commit()
     return {"ok": True}
 

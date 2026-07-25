@@ -47,6 +47,21 @@ class RecipientMappingUpdate(BaseModel):
     confirmed: bool = True
 
 
+class AgencyUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    active: bool
+
+
+class AgentUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    agency_id: int | None = None
+    active: bool
+
+
 class CustomerCreate(BaseModel):
     email: EmailStr
     first_name: str = Field(default="", max_length=120)

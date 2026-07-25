@@ -9,7 +9,7 @@ from jawnix.api import app
 from jawnix.auth import Principal, require_admin, require_principal
 from jawnix.config import get_settings
 from jawnix.database import get_db
-from jawnix.models import Agent, CustomerProfile, Job, LeadRequest, utcnow
+from jawnix.models import Agency, Agent, CustomerProfile, Job, LeadRequest, utcnow
 from jawnix.telegram import callback_data
 
 
@@ -45,6 +45,7 @@ def test_request_mapping_state_validation_cancel_and_billing_404(session):
         profile.agent_id = agent.id
         profile.mapping_confirmed_at = utcnow()
         session.commit()
+        session.expire(profile, ["agent"])
         outside = client.post(
             "/api/me/requests",
             json={"lead_count": 10, "state_mode": "selected", "states": ["PA"]},
@@ -62,6 +63,13 @@ def test_request_mapping_state_validation_cancel_and_billing_404(session):
         assert client.delete(f"/api/me/requests/{request_id}").status_code == 200
         assert session.get(LeadRequest, uuid.UUID(request_id)).status == "canceled"
         assert client.delete(f"/api/me/requests/{request_id}").status_code == 409
+
+        agent.active = False
+        session.commit()
+        assert client.post(
+            "/api/me/requests",
+            json={"lead_count": 10, "state_mode": "selected", "states": ["TX"]},
+        ).status_code == 409
     finally:
         app.dependency_overrides.clear()
 
@@ -99,6 +107,81 @@ def test_admin_can_send_recipient_password_reset(session, settings, monkeypatch)
         assert response.json() == {"ok": True, "email": profile.email}
         assert sent == [profile.email]
         assert client.post(f"/api/admin/recipients/{uuid.uuid4()}/send-password-reset").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
+    first_agency = Agency(slug="first-agency", name="First Agency")
+    second_agency = Agency(slug="second-agency", name="Second Agency", active=False)
+    agent = Agent(slug="hierarchy-agent", name="Hierarchy Agent", agency=first_agency, active=False)
+    profile = CustomerProfile(
+        user_id=uuid.uuid4(),
+        email="hierarchy@example.com",
+        licensed_states=["TX"],
+        agent=agent,
+        mapping_confirmed_at=utcnow(),
+    )
+    session.add_all([first_agency, second_agency, agent, profile])
+    session.commit()
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    try:
+        client = TestClient(app)
+        hierarchy = client.get("/api/admin/recipients")
+        assert hierarchy.status_code == 200
+        data = hierarchy.json()
+        assert {item["slug"] for item in data["agencies"]} == {"first-agency", "second-agency"}
+        returned_agent = next(item for item in data["agents"] if item["slug"] == agent.slug)
+        assert returned_agent == {
+            "id": agent.id,
+            "slug": "hierarchy-agent",
+            "name": "Hierarchy Agent",
+            "active": False,
+            "agencyId": first_agency.id,
+            "agency": "First Agency",
+        }
+
+        agency_update = client.patch(
+            f"/api/admin/agencies/{second_agency.id}",
+            json={"name": "Renamed Agency", "active": True},
+        )
+        assert agency_update.status_code == 200
+        session.refresh(second_agency)
+        assert second_agency.name == "Renamed Agency"
+        assert second_agency.active is True
+
+        agent_update = client.patch(
+            f"/api/admin/agents/{agent.id}",
+            json={"name": "Renamed Agent", "agency_id": second_agency.id, "active": True},
+        )
+        assert agent_update.status_code == 200
+        session.refresh(agent)
+        assert agent.name == "Renamed Agent"
+        assert agent.agency_id == second_agency.id
+        assert agent.active is True
+
+        assert client.patch(
+            f"/api/admin/agents/{agent.id}",
+            json={"name": "Agent", "agency_id": 999_999, "active": True},
+        ).status_code == 404
+        assert client.patch(
+            f"/api/admin/agencies/{first_agency.id}",
+            json={"name": " ", "active": True},
+        ).status_code == 422
+        assert client.patch(
+            f"/api/admin/agencies/{first_agency.id}",
+            json={"name": "Agency", "active": True, "slug": "cannot-change"},
+        ).status_code == 422
     finally:
         app.dependency_overrides.clear()
 
