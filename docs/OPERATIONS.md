@@ -31,17 +31,18 @@ The current VPS already has an edge Caddy container for another application. Sta
 
 The PostgreSQL initialization hook enables password-authenticated replication only for physical backups on the private Docker network. If attaching this stack to an already-initialized PostgreSQL volume, add the equivalent `host replication` rule to `pg_hba.conf` and reload PostgreSQL before forcing the first base backup.
 
-## Staging deployment record
+## Production deployment record
 
-The VPS staging deployment is available at `https://staging.jawnix.com`.
-Production `jawnix.com` DNS remains on the legacy Cloudflare/Railway path. The
-VPS database is additive and does not overwrite legacy Supabase application
-tables.
+Production DNS cut over to the VPS on 2026-07-25 at approximately 03:33 UTC.
+`jawnix.com`, `www.jawnix.com`, and `staging.jawnix.com` resolve to
+`159.195.15.51`; production and staging are served by the same application
+stack. Railway and the legacy Supabase project remain live for rollback through
+the observation window.
 
-Current reconciled staging totals are 8,579,356 unique inventory phones,
-8,870,024 provenance rows, 4,588,285 distribution events, 16 profiles, two
-migration audits, and 115,875 quarantined rows. See `ACCEPTANCE.md` for the
-complete evidence and remaining production gates.
+Current reconciled production totals are 9,244,326 unique inventory phones,
+9,541,530 provenance rows, 4,588,286 distribution events, 16 profiles, one
+delivered production smoke request, three migration audits, and 143,037
+quarantined rows. See `ACCEPTANCE.md` for the complete evidence.
 
 ## Source migration
 
@@ -84,6 +85,12 @@ and 92,591 manifest quarantines. Scraper deduplication produced 2,305,025
 valid distinct phones: 290,668 manifest overlaps and 2,014,357 new inventory
 phones. Eighty-eight history files had an unambiguous dated recipient and were
 imported; 89 ambiguous files were skipped rather than guessed.
+
+The first production scheduler cycle downloaded the July 2026 NPPES V2 archive
+from the CMS index. It atomically refreshed 7,369,238 SQLite rows before
+merging them into PostgreSQL, added 664,970 new inventory phones, and
+quarantined 27,162 unusable rows. The collector leaves the previous SQLite
+database untouched unless download, parsing, and validation all succeed.
 
 ## Customer mapping and acceptance
 
@@ -129,13 +136,33 @@ Run the installed Mac pull whenever Peely SSD is mounted:
 The pull uses a dedicated read-only SSH key, copies snapshots into an
 independently encrypted Restic repository, applies the same 14-day retention,
 and runs `restic check`. Restic copy is resumable and deduplicated; an
-interrupted run can be rerun safely. Verify that the database and WAL snapshot
-IDs appear in the external repository before cutover.
+interrupted run can be rerun safely. Restic assigns new snapshot IDs in the
+destination repository; verify corresponding timestamps, tags, paths, and
+sizes rather than expecting the VPS snapshot IDs to remain unchanged.
 
 The launch agent runs daily at 01:00 local time but only while the Mac and drive
 are available. A missed run does not affect the VPS repository.
 
+## Cutover monitoring
+
+The installed `jawnix-cutover-monitor.timer` runs every five minutes. It checks
+production readiness, billing-disable health, and that all six Compose services
+are running. Results are written to journald under
+`jawnix-cutover-monitor`; state changes generate Telegram alerts.
+
+```sh
+systemctl status jawnix-cutover-monitor.timer
+journalctl -t jawnix-cutover-monitor --since "1 hour ago"
+```
+
+Keep this timer active after the 48-hour window as basic availability
+monitoring. It supplements rather than replaces review of failed jobs, email
+events, database storage, backup results, and application logs.
+
 ## Cutover
+
+The initial production cutover completed on 2026-07-25. Preserve this checklist
+for future migrations or a repeated cutover after rollback.
 
 1. Keep Railway live while the VPS is populated and tested.
 2. Rotate all credentials disclosed during staging and update only the VPS and required provider configurations. Recheck health before continuing.

@@ -1,8 +1,8 @@
-# Implementation acceptance record
+# Production acceptance record
 
-Validated on 2026-07-24 against the isolated `vps-batch-platform` worktree and
-`https://staging.jawnix.com`. Production DNS, Railway, the legacy Supabase
-project, and the read-only `dat` source remain unchanged.
+Validated on 2026-07-25 against `https://jawnix.com`. DNS cut over to the VPS
+at approximately 03:33 UTC. Railway, the legacy Supabase project, the protected
+Git rollback tag/bundle, and the read-only `dat` source remain available.
 
 ## Passed
 
@@ -12,74 +12,81 @@ project, and the read-only `dat` source remain unchanged.
 - The attached `dat` directory was used only as migration input. Its manifest,
   SQLite database, CSVs, history, configuration, and scripts were not edited,
   moved, or deleted.
-- Python compilation, Ruff, dependency checks, and 19 automated tests passed.
+- Python compilation, Ruff, dependency checks, and 21 automated tests passed.
   Docker images build with Python 3.12 and PostgreSQL 18 client tools.
 - Caddy, FastAPI, PostgreSQL 18, the worker, scheduler, and backup worker are
-  running on the VPS. `healthz` and `readyz` pass over HTTPS and report billing
-  disabled. PostgreSQL is private to the Docker network.
+  running on the VPS. Production and staging readiness pass over HTTPS,
+  billing is disabled, and PostgreSQL is private to the Docker network.
+- `jawnix.com` and `www.jawnix.com` resolve directly to `159.195.15.51` with
+  five-minute TTLs. Caddy obtained valid Let's Encrypt certificates. The exact
+  prior Railway and Porkbun DNS records are saved outside Git for rollback.
 - The new Supabase Auth project is in `us-east-1`. Sixteen Auth/profile UUIDs
-  are synchronized, including nine legacy identities. All eight approved
-  customer mappings are confirmed against the Summit agency:
+  are synchronized, including nine legacy identities. Noah's existing UUID is
+  the admin and retains its customer profile and confirmed agent mapping.
+- All eight approved customer mappings are confirmed against Summit:
   `noah`, `jack`, `jo`, `max`, `tim`, `spencer`, `matthew`, and `ali`.
-- A legacy-UUID login exchanged a Supabase token for the secure VPS session,
-  loaded the mapped profile, and saved licensed-state data through the VPS API.
-- The production-size import reconciled to:
+- The admin portal can synchronize users, confirm mappings, create customers,
+  and send password setup/reset emails. Supabase Auth uses Resend custom SMTP
+  from `hai@jawnix.com` and permits production and staging redirect URLs.
+- Telegram points to the production webhook with zero pending updates or
+  errors. Resend delivery/failure webhooks point to production; a password
+  reset produced a verified Resend receipt in PostgreSQL.
+- The final legacy Supabase delta contained nine profiles and zero requests.
+  Source checksums matched the pinned import exactly before cutover.
+- The current production database reconciles to:
 
   | Destination | Rows |
   |---|---:|
-  | Unique inventory phones | 8,579,356 |
-  | Source provenance | 8,870,024 |
-  | Distribution events | 4,588,285 |
+  | Unique inventory phones | 9,244,326 |
+  | Source provenance | 9,541,530 |
+  | Distribution events | 4,588,286 |
   | Customer profiles | 16 |
-  | Migration audits | 2 |
-  | Quarantined rows | 115,875 |
+  | Requests | 1 delivered smoke request |
+  | Confirmed customer mappings | 8 |
+  | Migration audits | 3 |
+  | Quarantined rows | 143,037 |
+  | Failed jobs | 0 |
 
-- Manifest import processed 6,657,590 CSV-aware source rows: 6,564,999 valid
-  inventory phones and 92,591 quarantines. Scraper import processed 5,735,955
-  rows into 2,305,025 valid distinct phones; 290,668 overlapped the manifest
-  and 2,014,357 extended inventory. The manifest won every overlap.
-- All 177 history files copied with aggregate SHA-256
-  `24e4f385ad23f91b8d4f361c56802f60ea7b63590181ac2eec09dc9077e2c72d`.
-  Eighty-eight unambiguous recipient files were imported and 89 ambiguous
-  files were safely skipped.
+- The first live scheduled collector downloaded
+  `NPPES_Data_Dissemination_July_2026_V2.zip`, SHA-256
+  `82b43e03504550112bd375d66c3498a259dbaa2172824d57dc3f3241e9994adf`.
+  It atomically refreshed 7,369,238 NPPES rows, added 664,970 unique inventory
+  phones, and quarantined 27,162 unusable rows. The resulting SQLite checksum
+  is `7bba3b4f8b0aab3acc3e035aa5bfd36185180524e11d4c3c6a206541ab3ba55a`.
 - Two concurrent 50-row allocations produced 100 unique distribution events
-  with no overlap. A rollback-only 100,000-row allocation and CSV generation
-  against the 8.58-million-row staging inventory completed in 80.14 seconds,
-  returned exactly 100,000 unique phones, and left no acceptance data behind.
-- Telegram request notification and the authorized approval workflow operate
-  against the staging webhook. A live two-row end-to-end request generated one
-  `phone,title` CSV and Resend accepted delivery from
-  `Jawnix <hai@jawnix.com>`.
-- The nightly scraper synchronization uses an immutable SQLite snapshot and
-  skips unchanged sources by checksum. The initial source synchronized and a
-  completed scraper run was recorded.
-- Restic database/base and WAL snapshots completed independently, including
-  database snapshots `aea53f8e` and `523cb85a` and WAL snapshots `9b1dfd2f`
-  and `8e9cac95`. Repository integrity passed across all seven snapshots.
-- The logical dump in Restic snapshot `aea53f8e` restored into a disposable
-  PostgreSQL 18 database and exactly reproduced 8,579,356 inventory phones,
-  4,588,285 events, 8,870,024 provenance rows, 16 profiles, and two audits.
-- The rollback-only acceptance data, disposable databases, temporary restore
-  files, and synthetic CSV artifacts were removed after verification.
+  without overlap. A rollback-only 100,000-row allocation and CSV generation
+  completed in 80.14 seconds against production-size inventory.
+- The production smoke request
+  `19f4867b-ce7d-47d0-80e2-3dc45e29198f` completed:
+  Telegram notification, approval, one unique TX allocation, exact
+  `phone,title` CSV, and Resend delivery. The two-line artifact SHA-256 is
+  `dc737760070d2352e51543cc04cb089b88864466c69532679d28d99fb400e1c0`.
+  Noah's saved states were restored to their pre-test empty value afterward.
+- The VPS Restic repository passed integrity checking across all 14 snapshots
+  after the production
+  import. Current database snapshots include `05c6d273` and the post-smoke
+  snapshot `ba2a7468`; current WAL snapshot `f8f4f36d` covers the cutover.
+- The encrypted Peely SSD repository copied all 14 corresponding snapshots,
+  including destination snapshot `55b59a90` for the post-smoke database.
+  Its independent full repository check passed with the 14-day retention
+  policy applied.
+- VPS root, application session, PostgreSQL, Telegram webhook, and VPS Restic
+  credentials were rotated after cutover and stored in macOS Keychain.
+- `jawnix-cutover-monitor.timer` checks both health endpoints and all six
+  services every five minutes. It records to journald and sends Telegram
+  alerts on healthy/unhealthy transitions.
 
-## Deferred before production cutover
+## Remaining operational actions
 
-- Copy the verified VPS Restic snapshots into the second encrypted repository
-  at `/Volumes/Peely SSD/Jawnix Backups`. The launch agent and pull script are
-  installed; this copy was explicitly deferred so the Mac could be closed.
-- Register the Resend webhook for `email.delivered`, `email.bounced`,
-  `email.complained`, and `email.failed`. The staging API key is send-only and
-  cannot administer webhooks; use a full-access key or the Resend dashboard.
-  The endpoint and signature-validation tests are already implemented.
-- Supply the collector command in `JAWNIX_SCRAPER_COMMAND` if the VPS must run
-  the upstream scraper itself. With the current blank value, the scheduler
-  synchronizes a changed scraper database but does not execute collector code.
-- Activate/reset passwords for migrated customers before production. Supported
-  Supabase administration preserves their UUIDs but cannot import legacy
-  password hashes.
-- Rotate every credential shared during staging: VPS/root, Cloudflare,
-  Supabase, Telegram, Resend, PostgreSQL/session/encryption, and Restic.
-- Run the final source/application delta import, switch production DNS only
-  with explicit approval, execute the production smoke test, and complete the
-  48-hour observation window. Railway and legacy Supabase tables must remain
-  available throughout that window.
+- Rotate provider-managed credentials that cannot be safely replaced from the
+  application: the Cloudflare API token, Supabase management/legacy JWT keys,
+  Telegram bot token through BotFather, and Resend API key/webhook secret.
+  Update the VPS/Keychain and reverify each integration immediately afterward.
+- Use the admin Recipients page to send password setup/reset emails when each
+  customer should be activated. Do not send them in bulk without review.
+- Keep Railway and legacy Supabase data live through at least
+  2026-07-27 03:33 UTC. Review the five-minute monitor, application/worker
+  errors, failed jobs, Telegram, Resend failures, PostgreSQL storage, and
+  backups throughout that window.
+- Do not scale down Railway or delete any rollback material without explicit
+  approval after the observation window.
