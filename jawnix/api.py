@@ -47,7 +47,7 @@ async def create_session(
     user = await verify_supabase_token(payload.access_token, settings)
     principal = issue_session(response, user, settings)
     profile = db.get(CustomerProfile, principal.user_id)
-    if profile is None:
+    if profile is None and principal.role != "admin":
         metadata = user.get("user_metadata") or {}
         profile = CustomerProfile(
             user_id=principal.user_id,
@@ -57,7 +57,7 @@ async def create_session(
             licensed_states=[],
         )
         db.add(profile)
-    else:
+    elif profile is not None:
         profile.email = principal.email
     db.commit()
     return {"ok": True, "role": principal.role, "next": "/admin.html" if principal.role == "admin" else "/portal.html"}

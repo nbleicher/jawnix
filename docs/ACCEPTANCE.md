@@ -20,9 +20,10 @@ Git rollback tag/bundle, and the read-only `dat` source remain available.
 - `jawnix.com` and `www.jawnix.com` resolve directly to `159.195.15.51` with
   five-minute TTLs. Caddy obtained valid Let's Encrypt certificates. The exact
   prior Railway and Porkbun DNS records are saved outside Git for rollback.
-- The new Supabase Auth project is in `us-east-1`. Sixteen Auth/profile UUIDs
-  are synchronized, including nine legacy identities. Noah's existing UUID is
-  the admin and retains its customer profile and confirmed agent mapping.
+- The new Supabase Auth project is in `us-east-1`. It has 17 Auth identities
+  and 16 customer profiles, including nine legacy customer identities.
+  `noah@jawnix.com` is the dedicated admin and has no customer profile;
+  `noah@urpriorityhealth.com` remains the confirmed `noah`/Summit customer.
 - All eight approved customer mappings are confirmed against Summit:
   `noah`, `jack`, `jo`, `max`, `tim`, `spencer`, `matthew`, and `ali`.
 - The admin portal can synchronize users, confirm mappings, create customers,

@@ -44,6 +44,11 @@ Current reconciled production totals are 9,244,326 unique inventory phones,
 delivered production smoke request, three migration audits, and 143,037
 quarantined rows. See `ACCEPTANCE.md` for the complete evidence.
 
+The 16 profiles are customer recipients. The separate Supabase Auth identity
+`noah@jawnix.com` is the administrator and intentionally has no customer
+profile or agent mapping. `noah@urpriorityhealth.com` remains the customer
+mapped to the `noah` agent in Summit.
+
 ## Source migration
 
 Treat the Mac `dat` directory as read-only. Copy pinned source files to a staging volume on the VPS; never mount or run migration commands against the originals. The accepted source snapshot is:

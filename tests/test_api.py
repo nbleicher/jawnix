@@ -103,6 +103,34 @@ def test_admin_can_send_recipient_password_reset(session, settings, monkeypatch)
         app.dependency_overrides.clear()
 
 
+def test_admin_session_does_not_create_customer_profile(session, settings, monkeypatch):
+    admin_id = uuid.uuid4()
+
+    async def fake_verify(_token, _settings):
+        return {
+            "id": str(admin_id),
+            "email": "noah@jawnix.com",
+            "app_metadata": {"jawnix_role": "admin"},
+            "user_metadata": {"first_name": "Noah", "last_name": "Bleicher"},
+        }
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    monkeypatch.setattr("jawnix.api.verify_supabase_token", fake_verify)
+    try:
+        client = TestClient(app)
+        response = client.post("/api/auth/session", json={"access_token": "test-access-token-long-enough"})
+        assert response.status_code == 200
+        assert response.json()["role"] == "admin"
+        assert response.json()["next"] == "/admin.html"
+        assert session.get(CustomerProfile, admin_id) is None
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_telegram_webhook_authorization_replay_and_async_queue(session, settings, monkeypatch):
     user_id = uuid.uuid4()
     agent = Agent(slug="telegram-agent", name="Telegram Agent")
