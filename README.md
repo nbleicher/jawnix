@@ -49,6 +49,7 @@ python -m jawnix_data redistribute --request-id UUID
 python -m jawnix_data sync-scrapers
 python -m jawnix_data sync-scrapers --source NAME
 python -m jawnix_data inventory --states TX,FL
+python -m jawnix_data dry-run-allocation --agent-slug SLUG --quantity 100000 --states TX,FL
 python -m jawnix_data retry-delivery --request-id UUID
 ```
 
