@@ -298,6 +298,39 @@ async def _supabase_admin(settings: Settings, method: str, path: str, payload: d
     return response.json()
 
 
+async def _send_password_reset(settings: Settings, email: str) -> None:
+    if not settings.supabase_url or not settings.supabase_anon_key:
+        raise HTTPException(status_code=503, detail="Supabase password recovery is not configured.")
+    redirect_to = f"{settings.public_base_url.rstrip('/')}/portal-accept.html"
+    headers = {
+        "apikey": settings.supabase_anon_key,
+        "Authorization": f"Bearer {settings.supabase_anon_key}",
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            f"{settings.supabase_url.rstrip('/')}/auth/v1/recover",
+            params={"redirect_to": redirect_to},
+            headers=headers,
+            json={"email": email},
+        )
+    if response.status_code >= 300:
+        raise HTTPException(status_code=502, detail=f"Supabase password recovery failed: {response.text}")
+
+
+@app.post("/api/admin/recipients/{user_id}/send-password-reset")
+async def send_recipient_password_reset(
+    user_id: uuid.UUID,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    profile = db.get(CustomerProfile, user_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Recipient was not found.")
+    await _send_password_reset(settings, profile.email)
+    return {"ok": True, "email": profile.email}
+
+
 @app.post("/api/admin/customers", status_code=201)
 async def create_customer(
     payload: CustomerCreate,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 import shutil
 import subprocess
@@ -75,7 +76,10 @@ def sync_scraper(session: Session, settings: Settings, source: str | None = None
         command = shlex.split(settings.scraper_command)
         if source:
             command.extend(["--sources", source])
-        subprocess.run(command, check=True)
+        environment = os.environ.copy()
+        if nppes_version:
+            environment["JAWNIX_NPPES_SOURCE_URL"] = nppes_version[0]
+        subprocess.run(command, check=True, env=environment)
         if nppes_version and (settings.scraper_db_path.parent / "nppes.zip").is_file():
             upstream_url, marker = nppes_version
             marker.write_text(upstream_url + "\n", encoding="utf-8")

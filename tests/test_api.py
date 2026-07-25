@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from jawnix.api import app
-from jawnix.auth import Principal, require_principal
+from jawnix.auth import Principal, require_admin, require_principal
 from jawnix.config import get_settings
 from jawnix.database import get_db
 from jawnix.models import Agent, CustomerProfile, Job, LeadRequest, utcnow
@@ -62,6 +62,43 @@ def test_request_mapping_state_validation_cancel_and_billing_404(session):
         assert client.delete(f"/api/me/requests/{request_id}").status_code == 200
         assert session.get(LeadRequest, uuid.UUID(request_id)).status == "canceled"
         assert client.delete(f"/api/me/requests/{request_id}").status_code == 409
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_can_send_recipient_password_reset(session, settings, monkeypatch):
+    user_id = uuid.uuid4()
+    profile = CustomerProfile(
+        user_id=user_id,
+        email="activation@example.com",
+        licensed_states=[],
+    )
+    session.add(profile)
+    session.commit()
+    sent: list[str] = []
+
+    async def fake_send(_settings, email):
+        sent.append(email)
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    monkeypatch.setattr("jawnix.api._send_password_reset", fake_send)
+    try:
+        client = TestClient(app)
+        response = client.post(f"/api/admin/recipients/{user_id}/send-password-reset")
+        assert response.status_code == 200
+        assert response.json() == {"ok": True, "email": profile.email}
+        assert sent == [profile.email]
+        assert client.post(f"/api/admin/recipients/{uuid.uuid4()}/send-password-reset").status_code == 404
     finally:
         app.dependency_overrides.clear()
 
