@@ -26,11 +26,12 @@ if ! restic snapshots >/dev/null 2>&1; then
   restic init
 fi
 
-set -- "$dump_path" "$wal_dir"
+set -- "$dump_path"
 if [ "$include_base" = "true" ]; then
   set -- "$@" "$base_dir"
 fi
-restic backup "$@"
+restic backup --tag database "$@"
+restic backup --tag wal "$wal_dir"
 restic forget --keep-within 14d --prune
 rm -f "$dump_path"
 if [ "$include_base" = "true" ]; then
