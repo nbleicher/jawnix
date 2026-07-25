@@ -1,0 +1,8 @@
+[Unit]
+Description=Jawnix production cutover health check
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/jawnix/app
+ExecStart=/srv/jawnix/app/ops/cutover-monitor.sh
