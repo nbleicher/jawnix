@@ -4,6 +4,7 @@ import sqlite3
 import subprocess
 import json
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -55,12 +56,45 @@ def _google_maps_dataset(path):
 def test_google_maps_dataset_sync_is_versioned_and_checksum_idempotent(
     session,
     tmp_path,
+    monkeypatch,
 ):
     dataset = tmp_path / "leads.db"
     _google_maps_dataset(dataset)
     settings = Settings(
         JAWNIX_SCRAPER_DB_PATH=dataset,
-        JAWNIX_SCRAPER_COMMAND="",
+        JAWNIX_SCRAPER_COMMAND="fake-google-maps",
+    )
+    configuration = ScraperConfiguration(
+        version=1,
+        checksum="0" * 64,
+        status="active",
+        anomaly_thresholds={},
+        created_by=uuid.uuid4(),
+        reason="Versioned sync test",
+        segments=[
+            SourceSegment(
+                key="google_maps",
+                niche="Roofing",
+                query="roofing",
+                geography="Texas",
+                parameters={},
+            )
+        ],
+    )
+    session.add(configuration)
+    session.flush()
+    monkeypatch.setattr(
+        "jawnix_data.scraper.subprocess.run",
+        lambda *_args, **_kwargs: None,
+    )
+    published = run_scrape(session, settings, configuration.id)
+    session.commit()
+    assert published["status"] == "published"
+    monkeypatch.setattr(
+        "jawnix_data.scraper.subprocess.run",
+        lambda *_args, **_kwargs: pytest.fail(
+            "sync-scrapers must not launch acquisition"
+        ),
     )
 
     first = sync_scraper(session, settings)
@@ -69,20 +103,24 @@ def test_google_maps_dataset_sync_is_versioned_and_checksum_idempotent(
 
     assert first["imported"] == 1
     assert second == {
-        "skipped": True,
-        "reason": "dataset checksum already synchronized",
-        "sourceVersion": first["checksum"],
+        "status": "complete",
+        "datasetVersion": published["datasetVersion"],
+        "checksum": published["checksum"],
+        "duplicate": True,
     }
     run = session.query(ScraperRun).one()
     assert run.source == "google_maps"
     assert run.source_version == first["checksum"]
     assert run.checksum == first["checksum"]
-    review = session.query(NightlyReview).one()
-    assert review.scraper_run_id == run.id
-    assert review.summary["scraper"]["observed"] == 1
-    assert review.summary["scraper"]["valid"] == 1
-    assert review.summary["scraper"]["quarantined"] == 0
-    assert session.query(Job).filter_by(kind="notify_nightly_review").count() == 1
+    publication = session.query(DatasetPublication).one()
+    assert publication.sync_status == "complete"
+    assert (
+        session.query(InventorySyncAttempt).filter_by(
+            dataset_publication_id=publication.id,
+            status="complete",
+        ).count()
+        == 1
+    )
 
 
 def test_nppes_is_not_an_acquisition_source(session, tmp_path):
@@ -94,6 +132,21 @@ def test_nppes_is_not_an_acquisition_source(session, tmp_path):
         sync_scraper(session, settings, source="nppes")
 
     assert not hasattr(settings, "nppes_index_url")
+
+
+def test_sync_scrapers_rejects_an_unversioned_dataset(
+    session,
+    tmp_path,
+):
+    dataset = tmp_path / "leads.db"
+    _google_maps_dataset(dataset)
+    settings = Settings(JAWNIX_SCRAPER_DB_PATH=dataset)
+
+    with pytest.raises(LookupError, match="committed"):
+        sync_scraper(session, settings)
+
+    assert session.query(ScraperRun).count() == 0
+    assert session.query(InventorySyncAttempt).count() == 0
 
 
 def test_scrape_run_stages_then_atomically_publishes_or_preserves_previous_dataset(
@@ -320,6 +373,235 @@ def test_suspicious_segment_is_held_before_dataset_publication(
         "anomalyId": str(anomaly.id),
     }
     assert session.query(DatasetPublication).count() == 1
+
+
+@pytest.mark.parametrize(
+    (
+        "history_runs",
+        "valid_count",
+        "expected_status",
+        "expected_reason",
+    ),
+    [
+        (0, 1, "published", None),
+        (7, 0, "held_anomaly", "zero_valid_listings"),
+        (7, 30, "held_anomaly", "more_than_200_percent_up"),
+    ],
+    ids=["new-segment", "zero-results", "large-increase"],
+)
+def test_segment_anomaly_boundaries(
+    session,
+    tmp_path,
+    monkeypatch,
+    history_runs,
+    valid_count,
+    expected_status,
+    expected_reason,
+):
+    dataset = tmp_path / "leads.db"
+    _google_maps_dataset(dataset)
+    configuration = ScraperConfiguration(
+        version=1,
+        checksum="e" * 64,
+        status="active",
+        anomaly_thresholds={
+            "down_fraction": 0.5,
+            "up_multiplier": 2.0,
+            "history_runs": 7,
+        },
+        created_by=uuid.uuid4(),
+        reason="Boundary acceptance configuration",
+        segments=[
+            SourceSegment(
+                key="boundary-segment",
+                niche="Roofing",
+                query="roofing",
+                geography="Texas",
+                parameters={},
+            )
+        ],
+    )
+    session.add(configuration)
+    session.flush()
+    for index in range(history_runs):
+        historical_run = ScraperRun(
+            source="google_maps",
+            source_version=f"boundary-history-{index}",
+            configuration_id=configuration.id,
+            status="complete",
+        )
+        session.add(historical_run)
+        session.flush()
+        session.add(
+            ScrapeSegmentResult(
+                scraper_run_id=historical_run.id,
+                segment_key="boundary-segment",
+                niche="Roofing",
+                geography="Texas",
+                observed_count=10,
+                valid_count=10,
+                new_count=10,
+                duplicate_count=0,
+                quarantined_count=0,
+                anomalous=False,
+                anomaly_reasons=[],
+            )
+        )
+    session.commit()
+    settings = Settings(
+        JAWNIX_SCRAPER_DB_PATH=dataset,
+        JAWNIX_SCRAPER_COMMAND="fake-google-maps",
+    )
+
+    def boundary_scraper(_command, check, env):
+        assert check is True
+        with sqlite3.connect(env["JAWNIX_SCRAPER_DB_PATH"]) as connection:
+            connection.execute("DELETE FROM leads")
+            connection.executemany(
+                """
+                INSERT INTO leads
+                VALUES (?, ?, '', 'Roofing', 'TX', 'boundary-segment')
+                """,
+                [
+                    (f"737555{number:04d}", f"Boundary {number}")
+                    for number in range(valid_count)
+                ],
+            )
+
+    monkeypatch.setattr(
+        "jawnix_data.scraper.subprocess.run",
+        boundary_scraper,
+    )
+    result = run_scrape(session, settings, configuration.id)
+    session.commit()
+
+    assert result["status"] == expected_status
+    anomaly = session.query(ScrapeAnomaly).one_or_none()
+    if expected_reason is None:
+        assert anomaly is None
+    else:
+        assert anomaly is not None
+        segment_result = session.query(ScrapeSegmentResult).filter_by(
+            scraper_run_id=result["runId"]
+        ).one()
+        assert segment_result.anomaly_reasons == [expected_reason]
+
+
+def test_stale_anomaly_confirmation_cannot_replace_newer_output(
+    session,
+    tmp_path,
+    monkeypatch,
+):
+    dataset = tmp_path / "leads.db"
+    _google_maps_dataset(dataset)
+    configuration = ScraperConfiguration(
+        version=1,
+        checksum="f" * 64,
+        status="active",
+        anomaly_thresholds={
+            "down_fraction": 0.5,
+            "up_multiplier": 2.0,
+            "history_runs": 7,
+        },
+        created_by=uuid.uuid4(),
+        reason="Stale decision acceptance configuration",
+        segments=[
+            SourceSegment(
+                key="stale-segment",
+                niche="Roofing",
+                query="roofing",
+                geography="Texas",
+                parameters={},
+            )
+        ],
+    )
+    session.add(configuration)
+    session.flush()
+    for index in range(7):
+        historical_run = ScraperRun(
+            source="google_maps",
+            source_version=f"stale-history-{index}",
+            configuration_id=configuration.id,
+            status="complete",
+        )
+        session.add(historical_run)
+        session.flush()
+        session.add(
+            ScrapeSegmentResult(
+                scraper_run_id=historical_run.id,
+                segment_key="stale-segment",
+                niche="Roofing",
+                geography="Texas",
+                observed_count=100,
+                valid_count=100,
+                new_count=100,
+                duplicate_count=0,
+                quarantined_count=0,
+                anomalous=False,
+                anomaly_reasons=[],
+            )
+        )
+    session.commit()
+    settings = Settings(
+        JAWNIX_SCRAPER_DB_PATH=dataset,
+        JAWNIX_SCRAPER_COMMAND="fake-google-maps",
+    )
+    result_counts = iter([20, 100])
+
+    def changing_scraper(_command, check, env):
+        assert check is True
+        valid_count = next(result_counts)
+        with sqlite3.connect(env["JAWNIX_SCRAPER_DB_PATH"]) as connection:
+            connection.execute("DELETE FROM leads")
+            connection.executemany(
+                """
+                INSERT INTO leads
+                VALUES (?, ?, '', 'Roofing', 'TX', 'stale-segment')
+                """,
+                [
+                    (f"817555{number:04d}", f"Stale {number}")
+                    for number in range(valid_count)
+                ],
+            )
+
+    monkeypatch.setattr(
+        "jawnix_data.scraper.subprocess.run",
+        changing_scraper,
+    )
+    held = run_scrape(session, settings, configuration.id)
+    session.commit()
+    assert held["status"] == "held_anomaly"
+    anomaly = session.query(ScrapeAnomaly).filter_by(
+        scraper_run_id=held["runId"]
+    ).one()
+    held_run = session.get(ScraperRun, held["runId"])
+    held_path = held_run.staged_path
+
+    newer = run_scrape(session, settings, configuration.id)
+    session.commit()
+    assert newer["status"] == "published"
+    assert file_sha256(dataset) == newer["checksum"]
+
+    stale = decide_scrape_anomaly(
+        session,
+        settings,
+        anomaly.id,
+        action="confirm",
+        actor_id="telegram:6775236603",
+        reason="Late callback for older output",
+    )
+    session.commit()
+
+    assert stale == {
+        "status": "superseded",
+        "anomalyId": str(anomaly.id),
+        "newerScraperRunId": newer["runId"],
+    }
+    assert not Path(held_path).exists()
+    assert file_sha256(dataset) == newer["checksum"]
+    assert session.query(DatasetPublication).count() == 1
+    session.refresh(held_run)
+    assert held_run.status == "superseded"
 
 
 def test_published_dataset_sync_failure_rolls_back_and_retries_same_version(

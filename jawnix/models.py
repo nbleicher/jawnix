@@ -344,6 +344,10 @@ class DistributionEvent(Base):
         """Canonical domain name for the legacy-compatible agent_id column."""
         return self.agent_id
 
+    @customer_id.setter
+    def customer_id(self, value: int | None) -> None:
+        self.agent_id = value
+
 
 class LeadOutcome(Base):
     __tablename__ = "lead_outcomes"
@@ -868,6 +872,20 @@ class NightlyReview(Base):
     summary: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     telegram_message_id: Mapped[str] = mapped_column(
         String(120),
+        default="",
+        nullable=False,
+    )
+    telegram_delivery_state: Mapped[str] = mapped_column(
+        String(24),
+        default="pending",
+        index=True,
+        nullable=False,
+    )
+    telegram_delivery_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    telegram_delivery_error: Mapped[str] = mapped_column(
+        Text,
         default="",
         nullable=False,
     )

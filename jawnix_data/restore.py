@@ -20,7 +20,7 @@ from jawnix.models import (
 )
 
 from .migration import file_sha256
-from .scraper import sync_dataset_version
+from .scraper import lock_scraper_dataset, sync_dataset_version
 
 
 def validate_or_replay_restored_dataset(
@@ -40,6 +40,8 @@ def validate_or_replay_restored_dataset(
         raise ValueError(
             "Restored Scraper Dataset checksum does not match metadata."
         )
+    if apply:
+        lock_scraper_dataset(session)
     synchronized_version = int(
         session.scalar(
             select(func.max(DatasetPublication.version)).where(

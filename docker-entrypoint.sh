@@ -6,4 +6,3 @@ if [ "${JAWNIX_RUN_MIGRATIONS:-false}" = "true" ]; then
 fi
 
 exec "$@"
-

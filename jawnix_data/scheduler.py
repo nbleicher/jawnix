@@ -4,9 +4,10 @@ import logging
 import time
 from datetime import datetime, timedelta, timezone
 
-from jawnix.config import get_settings
+from jawnix.config import Settings, get_settings
 from jawnix.database import SessionLocal
 from jawnix.maintenance import expire_batch_files
+from jawnix.models import NightlyReview
 
 from .scraper import run_nightly_attempt
 
@@ -23,13 +24,17 @@ def seconds_until(hour_utc: int) -> float:
     return (target - now).total_seconds()
 
 
+def run_nightly_scraper(settings: Settings) -> NightlyReview:
+    with SessionLocal.begin() as session:
+        return run_nightly_attempt(session, settings)
+
+
 def run() -> None:
     settings = get_settings()
     while True:
         time.sleep(seconds_until(settings.scraper_hour_utc))
         try:
-            with SessionLocal.begin() as session:
-                review = run_nightly_attempt(session, settings)
+            review = run_nightly_scraper(settings)
             log.info(
                 "Nightly review %s created with status %s",
                 review.id,

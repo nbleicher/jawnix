@@ -33,8 +33,10 @@ from .models import (
     LeadCorrectionEvent,
     ListingObservation,
     LeadRequest,
+    NightlyReview,
     RequestStatus,
     ScraperConfiguration,
+    ScrapeAnomaly,
     SourceRecommendation,
     SourceSegment,
     UserAccount,
@@ -47,6 +49,7 @@ from .schemas import (
     LeadCorrectionApply,
     LeadReportCreate,
     LeadReportResolve,
+    NightlyDeliveryReconcile,
     CustomerUpdate,
     CustomerCreate,
     CustomerDelete,
@@ -85,6 +88,121 @@ def healthz(settings: Settings = Depends(get_settings)):
 def readyz(db: Session = Depends(get_db)):
     db.execute(text("SELECT 1"))
     return {"ok": True}
+
+
+@app.get("/api/admin/nightly-reviews")
+def list_nightly_reviews(
+    telegram_delivery_state: str | None = None,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    if telegram_delivery_state not in {
+        None,
+        "pending",
+        "sending",
+        "sent",
+        "unknown",
+    }:
+        raise HTTPException(
+            status_code=422,
+            detail="Unknown Telegram delivery state.",
+        )
+    query = select(NightlyReview).order_by(
+        NightlyReview.created_at.desc(),
+        NightlyReview.id,
+    )
+    if telegram_delivery_state is not None:
+        query = query.where(
+            NightlyReview.telegram_delivery_state
+            == telegram_delivery_state
+        )
+    return [
+        {
+            "id": str(review.id),
+            "scraperRunId": review.scraper_run_id,
+            "status": review.status,
+            "summary": review.summary,
+            "telegramDeliveryState": (
+                review.telegram_delivery_state
+            ),
+            "telegramMessageId": review.telegram_message_id,
+            "telegramDeliveryError": review.telegram_delivery_error,
+            "telegramDeliveryStartedAt": (
+                review.telegram_delivery_started_at
+            ),
+            "createdAt": review.created_at,
+        }
+        for review in db.scalars(query)
+    ]
+
+
+@app.post(
+    "/api/admin/nightly-reviews/{review_id}/"
+    "telegram-delivery/reconcile"
+)
+def reconcile_nightly_review_telegram_delivery(
+    review_id: uuid.UUID,
+    payload: NightlyDeliveryReconcile,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    review = db.scalar(
+        select(NightlyReview)
+        .where(NightlyReview.id == review_id)
+        .with_for_update()
+    )
+    if review is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Nightly Review was not found.",
+        )
+    if review.telegram_delivery_state != "unknown":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Only an unknown Nightly Review delivery can be "
+                "reconciled."
+            ),
+        )
+    if payload.outcome == "delivered":
+        review.telegram_message_id = payload.message_id or ""
+        review.telegram_delivery_state = "sent"
+        anomaly = db.scalar(
+            select(ScrapeAnomaly).where(
+                ScrapeAnomaly.scraper_run_id
+                == review.scraper_run_id
+            )
+        )
+        if anomaly is not None:
+            anomaly.telegram_message_id = review.telegram_message_id
+    else:
+        review.telegram_message_id = ""
+        review.telegram_delivery_state = "pending"
+        enqueue_job(
+            db,
+            "notify_nightly_review",
+            payload={"review_id": str(review.id)},
+        )
+    review.telegram_delivery_error = ""
+    _audit(
+        db,
+        principal,
+        (
+            "nightly_review_telegram_delivered"
+            if payload.outcome == "delivered"
+            else "nightly_review_telegram_not_delivered"
+        ),
+        "nightly_review",
+        review.id,
+        payload.reason,
+        {"messageId": review.telegram_message_id},
+    )
+    db.commit()
+    return {
+        "id": str(review.id),
+        "telegramDeliveryState": review.telegram_delivery_state,
+        "telegramMessageId": review.telegram_message_id,
+    }
 
 
 @app.post("/api/auth/session")

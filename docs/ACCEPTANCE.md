@@ -5,16 +5,30 @@
 Issue #27 repository verification passed against a disposable PostgreSQL
 instance upgraded through the full Alembic chain:
 
-- 45 local tests passed; the environment-gated PostgreSQL acceptance test is
+- 56 local tests passed; the environment-gated PostgreSQL acceptance test is
   the only normal skip in the local run.
 - The real-PostgreSQL flow covered versioned Google Maps publication, a
   separate Inventory Sync transaction, delivery failure/retry, Customer
   outcomes and reports, reversible suppression and correction, artifact
   regeneration, anomaly and Inventory Conflict decisions, Nightly Review,
-  recommendation approval, version-aware restore validation, and concurrent
-  User Account replacement and configuration activation.
+  recommendation approval and denial, version-aware restore validation,
+  crash-safe Nightly Review delivery reconciliation, and concurrent User
+  Account replacement, Inventory Sync visibility, agency-first Fulfillment
+  Rotation, Inventory Conflict decisions/allocation, same-request allocation,
+  and configuration activation. The scheduler, Telegram webhook, durable job
+  claim, and worker seams are exercised directly. Inventory Conflict, Scrape
+  Anomaly, and Source Recommendation records are generated through their
+  production services rather than inserted as acceptance shortcuts. Boundary
+  tests cover new segments, zero-result runs, large increases, duplicate
+  decisions, and superseding stale anomalous output after a newer run. A
+  dataset-wide PostgreSQL transaction lock also serializes publication,
+  scheduled activation, cross-configuration anomaly decisions, restore
+  application, and committed-dataset reads by manual Inventory Sync. The
+  `sync-scrapers` command never launches acquisition against the active file;
+  it resolves the latest committed Dataset Publication and records an
+  Inventory Sync Attempt for that exact version.
 - Downgrade to revision `20260725_0007` and upgrade through
-  `20260726_0019` passed.
+  `20260726_0020` passed.
 - The public OpenAPI document contains only Customer/User Account
   terminology; legacy Agent/Recipient names remain hidden persistence and
   route compatibility details.

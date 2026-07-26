@@ -25,6 +25,7 @@ from jawnix.models import (
     LeadCorrectionEvent,
     LeadReport,
     LeadRequest,
+    NightlyReview,
     ScraperConfiguration,
     ScrapeAnomaly,
     ScraperRun,
@@ -35,6 +36,237 @@ from jawnix.models import (
 )
 from jawnix.telegram import anomaly_callback_data, callback_data
 from jawnix.performance import build_source_recommendations
+
+
+def test_admin_reconciles_unknown_nightly_delivery_without_duplicate_send(
+    session,
+):
+    run = ScraperRun(
+        source="google_maps",
+        source_version="unknown-delivery",
+        status="complete",
+        details={},
+    )
+    session.add(run)
+    session.flush()
+    review = NightlyReview(
+        scraper_run_id=run.id,
+        summary={"run": {"id": run.id}},
+        telegram_delivery_state="unknown",
+        telegram_delivery_error="Worker interrupted",
+    )
+    session.add(review)
+    session.commit()
+
+    def database_override():
+        yield session
+
+    admin_id = uuid.uuid4()
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=admin_id,
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    try:
+        response = TestClient(app).post(
+            (
+                f"/api/admin/nightly-reviews/{review.id}/"
+                "telegram-delivery/reconcile"
+            ),
+            json={
+                "outcome": "not_delivered",
+                "reason": "Confirmed no message appeared in Telegram",
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["telegramDeliveryState"] == "pending"
+        session.refresh(review)
+        assert review.telegram_delivery_state == "pending"
+        assert session.scalar(
+            select(func.count(Job.id)).where(
+                Job.kind == "notify_nightly_review",
+                Job.payload["review_id"].as_string() == str(review.id),
+            )
+        ) == 1
+        audit = session.scalar(
+            select(AuditEntry).where(
+                AuditEntry.action
+                == "nightly_review_telegram_not_delivered"
+            )
+        )
+        assert audit is not None
+        assert audit.actor_user_id == str(admin_id)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_can_inspect_unknown_nightly_review_delivery(session):
+    run = ScraperRun(
+        source="google_maps",
+        source_version="inspect-unknown-delivery",
+        status="complete",
+        details={},
+    )
+    session.add(run)
+    session.flush()
+    review = NightlyReview(
+        scraper_run_id=run.id,
+        summary={"run": {"id": run.id, "status": "complete"}},
+        telegram_delivery_state="unknown",
+        telegram_delivery_error="Worker interrupted after dispatch",
+    )
+    session.add(review)
+    session.commit()
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    try:
+        response = TestClient(app).get(
+            "/api/admin/nightly-reviews",
+            params={"telegram_delivery_state": "unknown"},
+        )
+        assert response.status_code == 200
+        assert response.json() == [
+            {
+                "id": str(review.id),
+                "scraperRunId": run.id,
+                "status": "complete",
+                "summary": review.summary,
+                "telegramDeliveryState": "unknown",
+                "telegramMessageId": "",
+                "telegramDeliveryError": (
+                    "Worker interrupted after dispatch"
+                ),
+                "telegramDeliveryStartedAt": None,
+                "createdAt": review.created_at.isoformat(),
+            }
+        ]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_cannot_reconcile_an_inflight_nightly_delivery(session):
+    run = ScraperRun(
+        source="google_maps",
+        source_version="inflight-delivery",
+        status="complete",
+        details={},
+    )
+    session.add(run)
+    session.flush()
+    review = NightlyReview(
+        scraper_run_id=run.id,
+        summary={"run": {"id": run.id}},
+        telegram_delivery_state="sending",
+        telegram_delivery_started_at=utcnow(),
+    )
+    session.add(review)
+    session.commit()
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    try:
+        response = TestClient(app).post(
+            (
+                f"/api/admin/nightly-reviews/{review.id}/"
+                "telegram-delivery/reconcile"
+            ),
+            json={
+                "outcome": "not_delivered",
+                "reason": "Attempted too early",
+            },
+        )
+        assert response.status_code == 409
+        session.refresh(review)
+        assert review.telegram_delivery_state == "sending"
+        assert not list(
+            session.scalars(
+                select(Job).where(
+                    Job.kind == "notify_nightly_review"
+                )
+            )
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_confirms_unknown_nightly_review_was_delivered(session):
+    run = ScraperRun(
+        source="google_maps",
+        source_version="confirm-delivery",
+        status="held_anomaly",
+        details={},
+    )
+    session.add(run)
+    session.flush()
+    anomaly = ScrapeAnomaly(
+        scraper_run_id=run.id,
+        configuration_id=uuid.uuid4(),
+        dataset_checksum="a" * 64,
+    )
+    review = NightlyReview(
+        scraper_run_id=run.id,
+        summary={"run": {"id": run.id}},
+        telegram_delivery_state="unknown",
+    )
+    session.add_all([anomaly, review])
+    session.commit()
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    try:
+        response = TestClient(app).post(
+            (
+                f"/api/admin/nightly-reviews/{review.id}/"
+                "telegram-delivery/reconcile"
+            ),
+            json={
+                "outcome": "delivered",
+                "message_id": "9876",
+                "reason": "Located the accepted message in Telegram",
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["telegramDeliveryState"] == "sent"
+        session.refresh(review)
+        session.refresh(anomaly)
+        assert review.telegram_message_id == "9876"
+        assert anomaly.telegram_message_id == "9876"
+        assert not list(
+            session.scalars(
+                select(Job).where(
+                    Job.kind == "notify_nightly_review"
+                )
+            )
+        )
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_request_mapping_state_validation_cancel_and_billing_404(session):

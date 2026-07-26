@@ -71,6 +71,28 @@ class UserAccountReplace(BaseModel):
     )
 
 
+class NightlyDeliveryReconcile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: str = Field(pattern="^(delivered|not_delivered)$")
+    message_id: str | None = Field(default=None, max_length=120)
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def delivered_requires_message_id(self):
+        if self.outcome == "delivered" and not self.message_id:
+            raise ValueError(
+                "A delivered Nightly Review requires its Telegram "
+                "message ID."
+            )
+        if self.outcome == "not_delivered" and self.message_id is not None:
+            raise ValueError(
+                "A Nightly Review confirmed not delivered cannot have "
+                "a Telegram message ID."
+            )
+        return self
+
+
 class AgencyUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

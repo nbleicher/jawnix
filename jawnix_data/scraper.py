@@ -37,6 +37,24 @@ from jawnix.states import US_STATES, normalize_phone
 from .migration import import_scraper_sqlite
 
 
+_SCRAPER_DATASET_LOCK_NAMESPACE = 0x4A41574E
+_SCRAPER_DATASET_LOCK_RESOURCE = 0x49584442
+
+
+def lock_scraper_dataset(session: Session) -> None:
+    """Serialize every PostgreSQL transaction that can replace the dataset."""
+    if session.get_bind().dialect.name != "postgresql":
+        return
+    session.execute(
+        select(
+            func.pg_advisory_xact_lock(
+                _SCRAPER_DATASET_LOCK_NAMESPACE,
+                _SCRAPER_DATASET_LOCK_RESOURCE,
+            )
+        )
+    ).one()
+
+
 def _file_checksum(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -243,6 +261,7 @@ def sync_dataset_version(
     session: Session,
     settings: Settings,
     dataset_version: int,
+    force: bool = False,
 ) -> dict:
     publication = session.scalar(
         select(DatasetPublication)
@@ -251,7 +270,7 @@ def sync_dataset_version(
     )
     if publication is None:
         raise LookupError("Scraper Dataset version was not found.")
-    if publication.sync_status == "complete":
+    if publication.sync_status == "complete" and not force:
         return {
             "status": "complete",
             "datasetVersion": publication.version,
@@ -624,6 +643,7 @@ def run_nightly_attempt(
     session: Session,
     settings: Settings,
 ) -> NightlyReview:
+    lock_scraper_dataset(session)
     scheduled = session.scalar(
         select(ScraperConfiguration)
         .where(ScraperConfiguration.status == "scheduled")
@@ -685,7 +705,12 @@ def run_scrape(
     manual: bool = False,
     nightly: bool = False,
 ) -> dict:
-    configuration = session.get(ScraperConfiguration, configuration_id)
+    lock_scraper_dataset(session)
+    configuration = session.scalar(
+        select(ScraperConfiguration)
+        .where(ScraperConfiguration.id == configuration_id)
+        .with_for_update()
+    )
     if configuration is None:
         raise LookupError("Scraper Configuration was not found.")
     active_path = Path(settings.scraper_db_path)
@@ -840,6 +865,7 @@ def decide_scrape_anomaly(
 ) -> dict:
     if action not in {"confirm", "deny"}:
         raise ValueError("Scrape Anomaly action must be confirm or deny.")
+    lock_scraper_dataset(session)
     anomaly = session.scalar(
         select(ScrapeAnomaly)
         .where(ScrapeAnomaly.id == anomaly_id)
@@ -860,6 +886,15 @@ def decide_scrape_anomaly(
     )
     if run is None or run.status != "held_anomaly":
         raise RuntimeError("Held Scrape Run was not found.")
+    configuration = session.scalar(
+        select(ScraperConfiguration)
+        .where(
+            ScraperConfiguration.id == anomaly.configuration_id
+        )
+        .with_for_update()
+    )
+    if configuration is None:
+        raise RuntimeError("Scraper Configuration was not found.")
     staged_path = Path(run.staged_path).resolve()
     staging_root = (
         Path(settings.scraper_db_path).parent / ".staging"
@@ -871,6 +906,87 @@ def decide_scrape_anomaly(
         raise RuntimeError("Held staged dataset checksum changed.")
 
     now = datetime.now(timezone.utc)
+    newer_run = session.scalar(
+        select(ScraperRun)
+        .where(
+            ScraperRun.id > run.id,
+            ScraperRun.source == run.source,
+            ScraperRun.status.in_(
+                {
+                    "held_anomaly",
+                    "published",
+                    "skipped_duplicate",
+                    "complete",
+                    "sync_failed",
+                }
+            ),
+        )
+        .order_by(ScraperRun.id.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    if newer_run is not None:
+        staged_path.unlink()
+        anomaly.status = "superseded"
+        anomaly.decision_by = actor_id
+        anomaly.decision_reason = reason.strip()
+        anomaly.decided_at = now
+        run.status = "superseded"
+        run.staged_path = ""
+        run.details = {
+            **run.details,
+            "anomalyDecision": "superseded",
+            "requestedAction": action,
+            "newerScraperRunId": newer_run.id,
+        }
+        run.finished_at = now
+        session.add(
+            AuditEntry(
+                action="scrape_anomaly_superseded",
+                target_type="scrape_anomaly",
+                target_id=str(anomaly.id),
+                actor_user_id=actor_id,
+                reason=reason.strip(),
+                details={
+                    "scraperRunId": run.id,
+                    "datasetChecksum": checksum,
+                    "requestedAction": action,
+                    "newerScraperRunId": newer_run.id,
+                },
+            )
+        )
+        nightly_review = session.scalar(
+            select(NightlyReview).where(
+                NightlyReview.scraper_run_id == run.id
+            )
+        )
+        if nightly_review is not None:
+            nightly_review.summary = {
+                **nightly_review.summary,
+                "run": {
+                    **(nightly_review.summary.get("run") or {}),
+                    "status": run.status,
+                    "anomalyStatus": anomaly.status,
+                },
+            }
+            enqueue_job(
+                session,
+                "update_nightly_review_notification",
+                payload={"review_id": str(nightly_review.id)},
+            )
+        else:
+            enqueue_job(
+                session,
+                "update_scrape_anomaly_notification",
+                payload={"anomaly_id": str(anomaly.id)},
+            )
+        session.flush()
+        return {
+            "status": anomaly.status,
+            "anomalyId": str(anomaly.id),
+            "newerScraperRunId": newer_run.id,
+        }
+
     anomaly.status = "confirmed" if action == "confirm" else "denied"
     anomaly.decision_by = actor_id
     anomaly.decision_reason = reason.strip()
@@ -966,87 +1082,33 @@ def decide_scrape_anomaly(
     return result
 
 
-def sync_scraper(session: Session, settings: Settings, source: str | None = None, force: bool = False) -> dict:
-    if source and source.lower() == "nppes":
-        raise ValueError("All future acquisition must use the Google Maps Scraper.")
-    if settings.scraper_command:
-        command = shlex.split(settings.scraper_command)
-        if source:
-            command.extend(["--sources", source])
-        environment = os.environ.copy()
-        subprocess.run(command, check=True, env=environment)
-    path = Path(settings.scraper_db_path)
-    if not path.is_file():
-        raise FileNotFoundError(f"Scraper database was not found: {path}")
-    source_name = "google_maps"
-    source_version = _file_checksum(path)
-    previous = session.scalar(
-        select(ScraperRun)
-        .where(ScraperRun.source == source_name, ScraperRun.status == "complete")
-        .order_by(ScraperRun.finished_at.desc())
+def sync_scraper(
+    session: Session,
+    settings: Settings,
+    source: str | None = None,
+    force: bool = False,
+) -> dict:
+    """Synchronize the current committed Scraper Dataset into PostgreSQL."""
+    if source and source.lower().replace("-", "_") not in {
+        "gmaps",
+        "google_maps",
+    }:
+        raise ValueError(
+            "All future acquisition must use the Google Maps Scraper."
+        )
+    lock_scraper_dataset(session)
+    publication = session.scalar(
+        select(DatasetPublication)
+        .order_by(DatasetPublication.version.desc())
         .limit(1)
     )
-    if previous and previous.source_version == source_version and not force:
-        return {
-            "skipped": True,
-            "reason": "dataset checksum already synchronized",
-            "sourceVersion": source_version,
-        }
-    run = ScraperRun(source=source_name, source_version=source_version, status="running")
-    session.add(run)
-    session.flush()
-    try:
-        result = import_scraper_sqlite(session, path, expected_checksum=source_version)
-        run.status = "complete"
-        run.checksum = result.get("checksum", "")
-        run.rows_seen = result.get("sourceRows", 0)
-        run.rows_imported = result.get("imported", 0)
-        run.details = result
-        run.finished_at = datetime.now(timezone.utc)
-        review = NightlyReview(
-            scraper_run_id=run.id,
-            summary={
-                "scraper": {
-                    "observed": int(result.get("sourceRows", 0)),
-                    "valid": int(result.get("sourceRows", 0))
-                    - int(result.get("quarantined", 0)),
-                    "new": int(result.get("imported", 0)),
-                    "duplicate": max(
-                        0,
-                        int(result.get("sourceRows", 0))
-                        - int(result.get("quarantined", 0))
-                        - int(result.get("imported", 0)),
-                    ),
-                    "quarantined": int(result.get("quarantined", 0)),
-                    "anomalous": 0,
-                },
-                "inventory": {
-                    "leads": int(
-                        session.scalar(select(func.count(Lead.id))) or 0
-                    ),
-                    "waitingRequests": int(
-                        session.scalar(
-                            select(func.count(LeadRequest.id)).where(
-                                LeadRequest.status
-                                == RequestStatus.waiting_inventory.value
-                            )
-                        )
-                        or 0
-                    ),
-                },
-            },
+    if publication is None:
+        raise LookupError(
+            "No committed Scraper Dataset publication is available."
         )
-        session.add(review)
-        session.flush()
-        enqueue_job(
-            session,
-            "notify_nightly_review",
-            payload={"review_id": str(review.id)},
-        )
-        enqueue_job(session, "fulfill_round_robin")
-        return result
-    except Exception as exc:
-        run.status = "failed"
-        run.details = {"error": str(exc)}
-        run.finished_at = datetime.now(timezone.utc)
-        raise
+    return sync_dataset_version(
+        session,
+        settings,
+        publication.version,
+        force=force,
+    )

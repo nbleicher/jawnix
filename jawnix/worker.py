@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 
@@ -46,8 +47,110 @@ def _update_notification(session, request: LeadRequest, telegram: TelegramClient
         telegram.update_request(request, notification.destination_id, notification.message_id)
 
 
+def _process_initial_nightly_review_notification(
+    job_id: int,
+    settings,
+) -> None:
+    with SessionLocal.begin() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            return
+        review = session.scalar(
+            select(NightlyReview)
+            .where(
+                NightlyReview.id
+                == uuid.UUID(str(job.payload.get("review_id")))
+            )
+            .with_for_update()
+        )
+        if review is None:
+            job.status = JobStatus.failed.value
+            job.last_error = "Nightly Review was not found."
+            return
+        if review.telegram_message_id:
+            review.telegram_delivery_state = "sent"
+            review.telegram_delivery_error = ""
+            job.status = JobStatus.complete.value
+            job.last_error = ""
+            return
+        if review.telegram_delivery_state in {"sending", "unknown"}:
+            review.telegram_delivery_state = "unknown"
+            review.telegram_delivery_error = (
+                "Telegram delivery outcome is unknown after a worker "
+                "interruption; operator reconciliation is required."
+            )
+            job.status = JobStatus.failed.value
+            job.last_error = review.telegram_delivery_error
+            return
+        review.telegram_delivery_state = "sending"
+        review.telegram_delivery_started_at = datetime.now(timezone.utc)
+        review.telegram_delivery_error = ""
+        review_id = review.id
+        scraper_run_id = review.scraper_run_id
+
+    try:
+        with SessionLocal() as session:
+            review = session.get(NightlyReview, review_id)
+            anomaly = session.scalar(
+                select(ScrapeAnomaly).where(
+                    ScrapeAnomaly.scraper_run_id == scraper_run_id
+                )
+            )
+            message_id = TelegramClient(settings).post_nightly_review(
+                review,
+                anomaly,
+            )
+    except Exception as exc:
+        log.exception(
+            "Nightly Review Telegram delivery outcome is unknown"
+        )
+        with SessionLocal.begin() as session:
+            review = session.get(NightlyReview, review_id)
+            job = session.get(Job, job_id)
+            if review is not None:
+                review.telegram_delivery_state = "unknown"
+                review.telegram_delivery_error = str(exc)[:4000]
+            if job is not None:
+                job.status = JobStatus.failed.value
+                job.last_error = (
+                    "Telegram delivery outcome is unknown; operator "
+                    "reconciliation is required. "
+                    + str(exc)
+                )[:4000]
+        return
+
+    with SessionLocal.begin() as session:
+        review = session.get(NightlyReview, review_id)
+        job = session.get(Job, job_id)
+        if review is None or job is None:
+            return
+        review.telegram_message_id = message_id
+        review.telegram_delivery_state = "sent"
+        review.telegram_delivery_error = ""
+        anomaly = session.scalar(
+            select(ScrapeAnomaly).where(
+                ScrapeAnomaly.scraper_run_id == scraper_run_id
+            )
+        )
+        if anomaly is not None:
+            anomaly.telegram_chat_id = settings.telegram_chat_id
+            anomaly.telegram_message_id = message_id
+        job.status = JobStatus.complete.value
+        job.last_error = ""
+
+
 def process_job(job_id: int) -> None:
     settings = get_settings()
+    with SessionLocal() as session:
+        job_kind = session.scalar(
+            select(Job.kind).where(Job.id == job_id)
+        )
+    if job_kind == "notify_nightly_review":
+        _process_initial_nightly_review_notification(
+            job_id,
+            settings,
+        )
+        return
     try:
         with SessionLocal.begin() as session:
             job = session.get(Job, job_id)
@@ -74,10 +177,7 @@ def process_job(job_id: int) -> None:
                 allocate_request(session, uuid.UUID(str(job.request_id)), settings)
             elif job.kind == "fulfill_round_robin":
                 fulfill_round_robin(session, settings)
-            elif job.kind in {
-                "notify_nightly_review",
-                "update_nightly_review_notification",
-            }:
+            elif job.kind == "update_nightly_review_notification":
                 review = session.scalar(
                     select(NightlyReview)
                     .where(
@@ -96,12 +196,12 @@ def process_job(job_id: int) -> None:
                         == review.scraper_run_id
                     )
                 )
-                if review.telegram_message_id:
-                    telegram.update_nightly_review(review, anomaly)
-                else:
-                    review.telegram_message_id = (
-                        telegram.post_nightly_review(review, anomaly)
+                if not review.telegram_message_id:
+                    raise RuntimeError(
+                        "A Nightly Review cannot be updated before its "
+                        "Telegram delivery is reconciled."
                     )
+                telegram.update_nightly_review(review, anomaly)
                 if anomaly is not None:
                     anomaly.telegram_chat_id = settings.telegram_chat_id
                     anomaly.telegram_message_id = (
