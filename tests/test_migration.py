@@ -6,7 +6,7 @@ import sqlite3
 import pytest
 from sqlalchemy import func, select
 
-from jawnix.models import Agent, DistributionEvent, Lead, LeadSource
+from jawnix.models import Agent, DistributionEvent, Lead, LeadSource, ListingObservation
 from jawnix_data.migration import import_agent_config, import_distribution_history, import_manifest, import_scraper_sqlite
 
 
@@ -40,7 +40,7 @@ def test_quoted_manifest_is_idempotent_and_preserves_provenance(session, tmp_pat
     assert session.scalar(select(func.count(LeadSource.id))) == 1
 
 
-def test_scraper_deduplicates_and_manifest_wins(session, tmp_path):
+def test_scraper_deduplicates_and_valid_google_maps_listing_supersedes_legacy(session, tmp_path):
     manifest_lead = Lead(phone="2145550001", title="Manifest title", state="TX", source_flow="manifest")
     session.add(manifest_lead)
     session.commit()
@@ -63,7 +63,97 @@ def test_scraper_deduplicates_and_manifest_wins(session, tmp_path):
 
     assert result["sourceRows"] == 3
     assert session.scalar(select(func.count(Lead.id))) == 2
-    assert session.scalar(select(Lead.title).where(Lead.phone == "2145550001")) == "Manifest title"
+    assert session.scalar(select(Lead.title).where(Lead.phone == "2145550001")) == "Scraper overwrite"
+
+
+def test_google_maps_sync_preserves_observations_and_uses_latest_valid_listing(
+    session,
+    tmp_path,
+):
+    path = tmp_path / "leads.db"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE leads (
+                phone TEXT,
+                company TEXT,
+                full_name TEXT,
+                niche TEXT,
+                state TEXT,
+                source TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        connection.executemany(
+            "INSERT INTO leads VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    "4155550100",
+                    "Old Valid Listing",
+                    "",
+                    "Roofing",
+                    "CA",
+                    "google_maps",
+                    "2026-07-20T01:00:00+00:00",
+                ),
+                (
+                    "4155550100",
+                    "",
+                    "",
+                    "Roofing",
+                    "NV",
+                    "google_maps",
+                    "2026-07-21T01:00:00+00:00",
+                ),
+                (
+                    "4155550100",
+                    "Most Recent Valid Listing",
+                    "",
+                    "Roofing",
+                    "TX",
+                    "google_maps",
+                    "2026-07-22T01:00:00+00:00",
+                ),
+                (
+                    "3055550101",
+                    "No Business State",
+                    "",
+                    "Roofing",
+                    "",
+                    "google_maps",
+                    "2026-07-22T01:00:00+00:00",
+                ),
+            ],
+        )
+
+    result = import_scraper_sqlite(session, path)
+    session.commit()
+
+    lead = session.scalar(select(Lead).where(Lead.phone == "4155550100"))
+    assert lead.title == "Most Recent Valid Listing"
+    assert lead.state == "TX"
+    assert lead.current_listing_observation_id is not None
+    assert result == {
+        "sourceRows": 4,
+        "imported": 1,
+        "quarantined": 2,
+        "observations": 4,
+        "checksum": result["checksum"],
+    }
+    observations = list(
+        session.scalars(
+            select(ListingObservation).order_by(
+                ListingObservation.observed_at,
+                ListingObservation.row_number,
+            )
+        )
+    )
+    assert len(observations) == 4
+    assert [item.valid for item in observations] == [True, False, True, False]
+    assert session.scalar(
+        select(Lead).where(Lead.phone == "3055550101")
+    ) is None
 
 
 def test_scraper_checksum_is_idempotent_across_snapshot_paths(session, tmp_path):

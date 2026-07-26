@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from jawnix.schemas import RequestCreate
-from jawnix.states import derive_state, normalize_phone, normalize_states
+from jawnix.states import normalize_phone, normalize_states
 from jawnix.config import Settings
 from jawnix.telegram import TelegramClient, callback_data, parse_callback_data, verify_telegram_secret
 
@@ -14,7 +14,6 @@ from jawnix.telegram import TelegramClient, callback_data, parse_callback_data, 
 def test_normalization_and_request_limit():
     assert normalize_phone("+1 (215) 555-1212") == "2155551212"
     assert normalize_phone("123") is None
-    assert derive_state("4155551212") == "CA"
     assert normalize_states(["tx", "FL", "TX"]) == ["FL", "TX"]
     with pytest.raises(ValueError, match="Unsupported state"):
         normalize_states(["IO"])

@@ -6,12 +6,19 @@ import uuid
 
 from sqlalchemy import select
 
-from .allocation import allocate_request
+from .allocation import allocate_request, fulfill_round_robin
 from .config import get_settings
 from .database import SessionLocal
 from .delivery import deliver_request, mark_delivery_failed
 from .jobs import claim_next_job, enqueue_job
-from .models import Job, JobStatus, LeadRequest, Notification, RequestStatus
+from .models import (
+    Job,
+    JobStatus,
+    LeadRequest,
+    NightlyReview,
+    Notification,
+    RequestStatus,
+)
 from .telegram import TelegramClient
 from .transitions import TransitionError, transition_request
 
@@ -45,7 +52,11 @@ def process_job(job_id: int) -> None:
                 return
             request = session.get(LeadRequest, job.request_id) if job.request_id else None
             telegram = TelegramClient(settings)
-            if job.kind in {"notify_request", "update_notification"}:
+            if job.kind in {
+                "notify_request",
+                "update_notification",
+                "licensed_states_changed",
+            }:
                 if request is None:
                     raise LookupError("Request was not found.")
                 _update_notification(session, request, telegram)
@@ -58,6 +69,16 @@ def process_job(job_id: int) -> None:
                     log.info("Telegram action for request %s was ignored: %s", request.id, exc.detail)
             elif job.kind == "allocate_request":
                 allocate_request(session, uuid.UUID(str(job.request_id)), settings)
+            elif job.kind == "fulfill_round_robin":
+                fulfill_round_robin(session, settings)
+            elif job.kind == "notify_nightly_review":
+                review = session.get(
+                    NightlyReview,
+                    uuid.UUID(str(job.payload.get("review_id"))),
+                )
+                if review is None:
+                    raise LookupError("Nightly Review was not found.")
+                review.telegram_message_id = telegram.post_nightly_review(review)
             elif job.kind == "deliver_request":
                 deliver_request(session, uuid.UUID(str(job.request_id)), settings)
             else:

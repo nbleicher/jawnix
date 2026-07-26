@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import uuid
+from pathlib import Path
 
 from jawnix.models import Agency, Agent, CustomerProfile
 from jawnix_data.configuration import prepare_agent_config
@@ -75,3 +76,15 @@ def test_confirmed_customer_mapping_requires_expected_agency(session, settings, 
     assert result["profilesCreated"] == 1
     assert profile.agent_id == agent.id
     assert profile.mapping_confirmed_at is not None
+
+
+def test_backup_covers_postgresql_and_persistent_scraper_dataset():
+    compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+    backup = Path("ops/backup.sh").read_text(encoding="utf-8")
+    restore = Path("ops/restore.sh").read_text(encoding="utf-8")
+
+    assert "- scraper_data:/data:ro" in compose
+    assert 'scraper_dataset=/data/health_leads/data/leads.db' in backup
+    assert 'restic backup --tag scraper-dataset "$scraper_dataset"' in backup
+    assert "JAWNIX_SCRAPER_RESTORE_PATH" in restore
+    assert "scraper-dataset.sha256" in backup

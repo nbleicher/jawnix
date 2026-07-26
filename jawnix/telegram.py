@@ -7,7 +7,7 @@ import uuid
 import httpx
 
 from .config import Settings
-from .models import LeadRequest
+from .models import LeadRequest, NightlyReview
 
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -45,14 +45,14 @@ def parse_callback_data(value: str) -> tuple[str, uuid.UUID]:
 
 def _request_text(request: LeadRequest) -> str:
     customer = request.profile
-    agent = request.agent
+    customer_identity = request.agent
     name = " ".join(part for part in (customer.first_name, customer.last_name) if part).strip() or customer.email
     lines = [
         "Jawnix batch request",
         "",
         f"Customer: {name}",
         f"Email: {customer.email}",
-        f"Agent: {agent.name}",
+        f"Customer: {customer_identity.name}",
         f"Rows: {request.lead_count:,}",
         f"States: {', '.join(request.states_snapshot)}",
         f"Status: {request.status.replace('_', ' ').title()}",
@@ -143,3 +143,33 @@ class TelegramClient:
             {"callback_query_id": callback_query_id, "text": text[:200]},
             timeout=5,
         )
+
+    def post_nightly_review(self, review: NightlyReview) -> str:
+        if not self.settings.telegram_chat_id:
+            raise RuntimeError("TELEGRAM_CHAT_ID is not configured.")
+        scraper = review.summary.get("scraper") or {}
+        inventory = review.summary.get("inventory") or {}
+        text = "\n".join(
+            [
+                "Jawnix Nightly Review",
+                "",
+                f"Observed: {int(scraper.get('observed', 0)):,}",
+                f"Valid: {int(scraper.get('valid', 0)):,}",
+                f"New: {int(scraper.get('new', 0)):,}",
+                f"Duplicate: {int(scraper.get('duplicate', 0)):,}",
+                f"Quarantined: {int(scraper.get('quarantined', 0)):,}",
+                f"Anomalous: {int(scraper.get('anomalous', 0)):,}",
+                f"Inventory: {int(inventory.get('leads', 0)):,}",
+                f"Waiting requests: {int(inventory.get('waitingRequests', 0)):,}",
+                "",
+                f"Review: {self.settings.public_base_url}/admin.html#nightly-{review.id}",
+            ]
+        )
+        data = self._call(
+            "sendMessage",
+            {
+                "chat_id": self.settings.telegram_chat_id,
+                "text": text,
+            },
+        )
+        return str(data["result"]["message_id"])

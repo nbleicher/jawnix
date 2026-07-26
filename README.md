@@ -4,7 +4,9 @@ Jawnix is a customer batch-request portal live at `https://jawnix.com`, backed b
 
 Billing, invoice, Stripe, and finance code remains in the repository for rollback, but the VPS application does not serve those routes and the new UI does not expose them. Keep `JAWNIX_ENABLE_BILLING=false`.
 
-Pitch Perfect, Sales God, and CRM outcome/recommendation tracking are intentionally absent. That work remains deferred until the replacement CRM is selected.
+Customer feedback is intentionally lightweight: quality, positive-response,
+and appointment milestones are retained with correction history and summarized
+by Google Maps Source Segment.
 
 ## Services
 
@@ -12,8 +14,8 @@ Pitch Perfect, Sales God, and CRM outcome/recommendation tracking are intentiona
 - FastAPI: session, profile, request, admin, Telegram, and Resend APIs
 - Worker: durable approval, allocation, Telegram, and delivery jobs
 - PostgreSQL 18: private inventory and permanent allocation history
-- Scheduler: nightly versioned NPPES collection/sync and 30-day CSV cleanup
-- Backup worker: encrypted Restic dump and WAL backup with 14-day retention
+- Scheduler: nightly Google Maps dataset synchronization, Nightly Review, waiting-request retry, and 30-day CSV cleanup
+- Backup worker: encrypted Restic PostgreSQL, WAL, and persistent Scraper Dataset backup with 14-day retention
 - Cutover monitor: five-minute production health/service checks with Telegram state-change alerts
 
 Only Caddy publishes ports. PostgreSQL, the API, worker, and schedulers remain on the Docker network.

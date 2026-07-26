@@ -39,11 +39,6 @@ class Settings(BaseSettings):
     scraper_db_path: Path = Field(default=Path("/data/health_leads/data/leads.db"), alias="JAWNIX_SCRAPER_DB_PATH")
     scraper_command: str = Field(default="", alias="JAWNIX_SCRAPER_COMMAND")
     scraper_hour_utc: int = Field(default=3, alias="JAWNIX_SCRAPER_HOUR_UTC")
-    nppes_index_url: str = Field(
-        default="https://download.cms.gov/nppes/NPI_Files.html",
-        alias="JAWNIX_NPPES_INDEX_URL",
-    )
-
     @property
     def telegram_approvers(self) -> set[str]:
         return {value.strip() for value in self.telegram_approver_user_ids.split(",") if value.strip()}

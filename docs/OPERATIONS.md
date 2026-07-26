@@ -99,7 +99,7 @@ valid distinct phones: 290,668 manifest overlaps and 2,014,357 new inventory
 phones. Eighty-eight history files had an unambiguous dated recipient and were
 imported; 89 ambiguous files were skipped rather than guessed.
 
-The first production scheduler cycle downloaded the July 2026 NPPES V2 archive
+Historical note: the first production scheduler cycle downloaded the July 2026 NPPES V2 archive
 from the CMS index. It atomically refreshed 7,369,238 SQLite rows before
 merging them into PostgreSQL, added 664,970 new inventory phones, and
 quarantined 27,162 unusable rows. The collector leaves the previous SQLite

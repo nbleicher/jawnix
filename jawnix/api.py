@@ -16,12 +16,25 @@ from .auth import Principal, clear_session, issue_session, require_admin, requir
 from .config import Settings, get_settings
 from .database import get_db
 from .jobs import enqueue_job
-from .models import Agency, Agent, BatchArtifact, CustomerProfile, LeadRequest, RequestStatus, WebhookReceipt, utcnow
+from .models import (
+    Agency,
+    Agent,
+    BatchArtifact,
+    CustomerProfile,
+    DistributionEvent,
+    LeadOutcome,
+    LeadRequest,
+    RequestStatus,
+    WebhookReceipt,
+    utcnow,
+)
 from .schemas import (
     AgencyUpdate,
     AgentUpdate,
     CustomerCreate,
     DeleteConfirmation,
+    OutcomeCreate,
+    OutcomeOut,
     ProfileOut,
     ProfileUpdate,
     RecipientMappingUpdate,
@@ -101,13 +114,72 @@ def update_profile(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
-    profile = db.get(CustomerProfile, principal.user_id)
+    profile = db.scalar(
+        select(CustomerProfile)
+        .where(CustomerProfile.user_id == principal.user_id)
+        .with_for_update()
+    )
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile was not found.")
+    previous_states = normalize_states(profile.licensed_states)
+    next_states = normalize_states(payload.licensed_states)
+    removed_states = sorted(set(previous_states) - set(next_states))
+    added_states = sorted(set(next_states) - set(previous_states))
+
+    if removed_states:
+        unallocated_statuses = {
+            RequestStatus.pending.value,
+            RequestStatus.approved.value,
+            RequestStatus.waiting_inventory.value,
+        }
+        requests = list(
+            db.scalars(
+                select(LeadRequest)
+                .where(
+                    LeadRequest.user_id == principal.user_id,
+                    LeadRequest.status.in_(unallocated_statuses),
+                )
+                .order_by(LeadRequest.created_at, LeadRequest.id)
+                .with_for_update()
+            )
+        )
+        for item in requests:
+            narrowed_states = [
+                state for state in item.states_snapshot if state in next_states
+            ]
+            if narrowed_states == item.states_snapshot:
+                continue
+            item.states_snapshot = narrowed_states
+            if narrowed_states:
+                action = "narrowed"
+                item.status_message = (
+                    "Licensed States changed. Removed "
+                    f"{', '.join(removed_states)}; request now covers "
+                    f"{', '.join(narrowed_states)}. Existing approval remains valid."
+                )
+            else:
+                action = "canceled"
+                item.status = RequestStatus.canceled.value
+                item.status_message = (
+                    "Canceled because no requested states remain in the "
+                    "Customer's Licensed States."
+                )
+            enqueue_job(
+                db,
+                "licensed_states_changed",
+                item.id,
+                {
+                    "added": added_states,
+                    "removed": removed_states,
+                    "requestAction": action,
+                    "states": narrowed_states,
+                },
+            )
+
     profile.first_name = payload.first_name.strip()
     profile.last_name = payload.last_name.strip()
     profile.phone = payload.phone.strip()
-    profile.licensed_states = payload.licensed_states
+    profile.licensed_states = next_states
     profile.updated_at = utcnow()
     db.commit()
     db.refresh(profile)
@@ -121,6 +193,212 @@ def list_my_requests(principal: Principal = Depends(require_principal), db: Sess
             select(LeadRequest).where(LeadRequest.user_id == principal.user_id).order_by(LeadRequest.created_at.desc())
         )
     )
+
+
+_OUTCOME_METRICS = {
+    "good": "quality",
+    "poor": "quality",
+    "positive_response": "positive_response",
+    "appointment_booked": "appointment_booked",
+    "appointment_canceled": "appointment_canceled",
+    "appointment_no_show": "appointment_no_show",
+}
+
+
+def _customer_distribution(
+    db: Session,
+    principal: Principal,
+    event_id: int,
+) -> tuple[CustomerProfile, DistributionEvent]:
+    profile = db.get(CustomerProfile, principal.user_id)
+    if profile is None or profile.agent_id is None:
+        raise HTTPException(status_code=404, detail="Customer was not found.")
+    event = db.scalar(
+        select(DistributionEvent).where(
+            DistributionEvent.id == event_id,
+            DistributionEvent.agent_id == profile.agent_id,
+        )
+    )
+    if event is None:
+        raise HTTPException(status_code=404, detail="Delivered Lead was not found.")
+    return profile, event
+
+
+@app.get(
+    "/api/me/distributions/{event_id}/outcomes",
+    response_model=list[OutcomeOut],
+)
+def list_outcomes(
+    event_id: int,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    _, event = _customer_distribution(db, principal, event_id)
+    return list(
+        db.scalars(
+            select(LeadOutcome)
+            .where(LeadOutcome.distribution_event_id == event.id)
+            .order_by(LeadOutcome.created_at, LeadOutcome.id)
+        )
+    )
+
+
+@app.post(
+    "/api/me/distributions/{event_id}/outcomes",
+    response_model=OutcomeOut,
+    status_code=201,
+)
+def create_outcome(
+    event_id: int,
+    payload: OutcomeCreate,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    profile, event = _customer_distribution(db, principal, event_id)
+    metric = _OUTCOME_METRICS[payload.kind]
+    history = list(
+        db.scalars(
+            select(LeadOutcome)
+            .where(LeadOutcome.distribution_event_id == event.id)
+            .order_by(LeadOutcome.created_at, LeadOutcome.id)
+            .with_for_update()
+        )
+    )
+    superseded_ids = {
+        item.supersedes_outcome_id
+        for item in history
+        if item.supersedes_outcome_id is not None
+    }
+    active_by_metric = {
+        item.metric: item
+        for item in history
+        if item.id not in superseded_ids
+    }
+    if payload.kind in {"appointment_canceled", "appointment_no_show"}:
+        if "appointment_booked" not in active_by_metric:
+            raise HTTPException(
+                status_code=409,
+                detail="Book an appointment before reporting its later status.",
+            )
+    if payload.supersedes_outcome_id is not None:
+        previous = next(
+            (
+                item
+                for item in history
+                if item.id == payload.supersedes_outcome_id
+            ),
+            None,
+        )
+        if (
+            previous is None
+            or previous.metric != metric
+            or previous.id in superseded_ids
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The selected outcome cannot be superseded.",
+            )
+    elif metric in active_by_metric:
+        raise HTTPException(
+            status_code=409,
+            detail="This milestone is already recorded; submit a correction instead.",
+        )
+    outcome = LeadOutcome(
+        distribution_event_id=event.id,
+        customer_id=profile.agent_id,
+        kind=payload.kind,
+        metric=metric,
+        appointment_at=payload.appointment_at,
+        note=payload.note.strip(),
+        supersedes_outcome_id=payload.supersedes_outcome_id,
+    )
+    db.add(outcome)
+    db.commit()
+    db.refresh(outcome)
+    return outcome
+
+
+@app.get("/api/admin/source-performance")
+def source_performance(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    events = list(
+        db.scalars(
+            select(DistributionEvent).order_by(DistributionEvent.id)
+        )
+    )
+    outcomes = list(
+        db.scalars(
+            select(LeadOutcome).order_by(
+                LeadOutcome.created_at,
+                LeadOutcome.id,
+            )
+        )
+    )
+    superseded_ids = {
+        item.supersedes_outcome_id
+        for item in outcomes
+        if item.supersedes_outcome_id is not None
+    }
+    active = {
+        (item.distribution_event_id, item.metric): item
+        for item in outcomes
+        if item.id not in superseded_ids
+    }
+    segments: dict[str, dict] = {}
+    legacy_delivered = 0
+    for event in events:
+        if event.source_kind != "google_maps":
+            legacy_delivered += 1
+            continue
+        item = segments.setdefault(
+            event.source_segment_key,
+            {
+                "segment": event.source_segment_key,
+                "niche": event.source_niche,
+                "delivered": 0,
+                "rated": 0,
+                "good": 0,
+                "poor": 0,
+                "positiveResponses": 0,
+                "appointmentsBooked": 0,
+            },
+        )
+        item["delivered"] += 1
+        quality = active.get((event.id, "quality"))
+        if quality is not None:
+            item["rated"] += 1
+            item[quality.kind] += 1
+        if (event.id, "positive_response") in active:
+            item["positiveResponses"] += 1
+        if (event.id, "appointment_booked") in active:
+            item["appointmentsBooked"] += 1
+    results = []
+    for item in sorted(segments.values(), key=lambda value: value["segment"]):
+        rated = item["rated"]
+        delivered = item["delivered"]
+        item["goodRate"] = item["good"] / rated if rated else 0.0
+        item["positiveResponseRate"] = (
+            item["positiveResponses"] / delivered if delivered else 0.0
+        )
+        item["appointmentRate"] = (
+            item["appointmentsBooked"] / delivered if delivered else 0.0
+        )
+        item["qualityStatus"] = (
+            "ranked" if rated >= 30 else "insufficient_data"
+        )
+        item["conversionStatus"] = (
+            "ranked" if delivered >= 100 else "insufficient_data"
+        )
+        results.append(item)
+    return {
+        "segments": results,
+        "legacy": {
+            "delivered": legacy_delivered,
+            "excludedFromRecommendations": True,
+        },
+    }
 
 
 @app.post("/api/me/requests", response_model=RequestOut, status_code=201)
@@ -247,6 +525,33 @@ def admin_recipients(_: Principal = Depends(require_admin), db: Session = Depend
             }
             for agent in agents
         ],
+    }
+
+
+@app.get("/api/admin/customers")
+def admin_customers(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    customers = list(
+        db.scalars(
+            select(Agent)
+            .where(Agent.deleted_at.is_(None))
+            .order_by(Agent.name)
+        )
+    )
+    return {
+        "customers": [
+            {
+                "id": customer.id,
+                "slug": customer.slug,
+                "name": customer.name,
+                "active": customer.active,
+                "agencyId": customer.agency_id,
+                "agency": customer.agency.name if customer.agency else "",
+            }
+            for customer in customers
+        ]
     }
 
 

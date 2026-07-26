@@ -98,3 +98,37 @@ class RequestOut(BaseModel):
     status_message: str
     created_at: datetime
     delivered_at: datetime | None
+
+
+class OutcomeCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str = Field(
+        pattern=(
+            "^(good|poor|positive_response|appointment_booked|"
+            "appointment_canceled|appointment_no_show)$"
+        )
+    )
+    appointment_at: datetime | None = None
+    note: str = Field(default="", max_length=2000)
+    supersedes_outcome_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def validate_appointment(self):
+        if self.kind == "appointment_booked" and self.appointment_at is None:
+            raise ValueError("Appointment Booked requires a scheduled date and time.")
+        if self.kind != "appointment_booked" and self.appointment_at is not None:
+            raise ValueError("Only Appointment Booked accepts a scheduled date and time.")
+        return self
+
+
+class OutcomeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    distribution_event_id: int
+    kind: str
+    appointment_at: datetime | None
+    note: str
+    supersedes_outcome_id: uuid.UUID | None
+    created_at: datetime

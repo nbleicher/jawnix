@@ -19,12 +19,13 @@ from jawnix.models import (
     DistributionEvent,
     Lead,
     LeadSource,
+    ListingObservation,
     LeadRequest,
     MigrationAudit,
     QuarantinedRow,
     RequestStatus,
 )
-from jawnix.states import US_STATES, derive_state, normalize_phone
+from jawnix.states import US_STATES, normalize_phone
 
 
 def file_sha256(path: Path) -> str:
@@ -688,8 +689,6 @@ def _import_scraper_postgresql(
                 source_rows += int(row["source_count"] or 1)
                 phone = normalize_phone(row["phone"])
                 state = str(row["state"] or "").upper()
-                if state not in US_STATES and phone:
-                    state = derive_state(phone) or ""
                 if not phone or state not in US_STATES:
                     invalid.append(
                         (
@@ -731,62 +730,161 @@ def import_scraper_sqlite(session: Session, path: Path, expected_checksum: str |
             "quarantined": existing_audit.quarantined_rows,
             "checksum": checksum,
         }
-    if _is_postgresql(session):
-        return _import_scraper_postgresql(session, path, checksum)
     connection = sqlite3.connect(f"file:{path}?mode=ro&immutable=1", uri=True)
     connection.row_factory = sqlite3.Row
-    source_rows = imported = quarantined = 0
-    query = """
-        SELECT phone,
-               MAX(NULLIF(TRIM(company), '')) AS company,
-               MAX(NULLIF(TRIM(full_name), '')) AS full_name,
-               MAX(NULLIF(TRIM(niche), '')) AS niche,
-               MAX(NULLIF(UPPER(TRIM(state)), '')) AS state,
-               MAX(NULLIF(TRIM(source), '')) AS source,
-               COUNT(*) AS source_count
-        FROM leads
-        WHERE phone IS NOT NULL AND TRIM(phone) != ''
-        GROUP BY phone
-    """
+    source_rows = imported = quarantined = observations = 0
+    latest_valid: dict[str, dict] = {}
+    leads: dict[str, Lead] = {}
     try:
-        cursor = connection.execute(query)
-        while True:
-            rows = cursor.fetchmany(10_000)
-            if not rows:
-                break
-            valid: list[dict] = []
-            for row in rows:
-                source_rows += int(row["source_count"] or 1)
-                phone = normalize_phone(row["phone"])
-                state = str(row["state"] or "").upper()
-                if state not in US_STATES and phone:
-                    state = derive_state(phone) or ""
-                if not phone or state not in US_STATES:
-                    session.add(
-                        QuarantinedRow(
-                            source_path=str(path),
-                            row_number=source_rows,
-                            reason="invalid scraper phone or state",
-                            raw_data={"phone": row["phone"], "state": row["state"], "source": row["source"]},
-                        )
-                    )
-                    quarantined += 1
-                    continue
-                valid.append(
-                    {
-                        "phone": phone,
-                        "title": str(row["company"] or row["full_name"] or row["niche"] or ""),
-                        "state": state,
-                        "source_flow": f"scraper:{row['source'] or 'unknown'}",
-                    }
+        columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(leads)")
+        }
+        required = {"phone", "company", "full_name", "niche", "state", "source"}
+        missing = sorted(required - columns)
+        if missing:
+            raise ValueError(
+                "Google Maps Scraper Dataset is missing column(s): "
+                + ", ".join(missing)
+            )
+        observed_expression = (
+            "created_at"
+            if "created_at" in columns
+            else "NULL"
+        )
+        cursor = connection.execute(
+            f"""
+            SELECT rowid AS source_row_number,
+                   phone,
+                   company,
+                   full_name,
+                   niche,
+                   state,
+                   source,
+                   {observed_expression} AS observed_at
+            FROM leads
+            WHERE UPPER(COALESCE(source, '')) != 'NPPES'
+            ORDER BY COALESCE({observed_expression}, ''), rowid
+            """
+        )
+        for row in cursor:
+            source_rows += 1
+            row_number = int(row["source_row_number"])
+            phone = normalize_phone(row["phone"])
+            title = str(
+                row["company"]
+                or row["full_name"]
+                or ""
+            ).strip()
+            state = str(row["state"] or "").strip().upper()
+            source = str(row["source"] or "unknown").strip()
+            niche = str(row["niche"] or "").strip()
+            raw_observed_at = str(row["observed_at"] or "").strip()
+            try:
+                observed_at = datetime.fromisoformat(
+                    raw_observed_at.replace("Z", "+00:00")
                 )
-            before = {lead.phone for lead in session.scalars(select(Lead).where(Lead.phone.in_([row["phone"] for row in valid])))}
-            leads = _upsert_lead_batch(session, valid, manifest_wins=False)
-            _record_sources(session, leads, valid, f"scraper:{path.name}"[:80])
-            imported += len({row["phone"] for row in valid} - before)
+                if observed_at.tzinfo is None:
+                    observed_at = observed_at.replace(tzinfo=timezone.utc)
+            except ValueError:
+                observed_at = datetime(1970, 1, 1, tzinfo=timezone.utc)
+                observed_at = observed_at.replace(
+                    microsecond=row_number % 1_000_000
+                )
+
+            valid = bool(phone and title and state in US_STATES)
+            lead = None
+            if phone:
+                lead = leads.get(phone)
+                if lead is None:
+                    lead = session.scalar(
+                        select(Lead).where(Lead.phone == phone)
+                    )
+                    if lead is not None:
+                        leads[phone] = lead
+            if valid and lead is None:
+                lead = Lead(
+                    phone=phone,
+                    title=title,
+                    state=state,
+                    source_flow=f"google_maps:{source}"[:80],
+                )
+                session.add(lead)
+                session.flush()
+                leads[phone] = lead
+                imported += 1
+
+            observation = ListingObservation(
+                lead_id=lead.id if lead else None,
+                dataset_checksum=checksum,
+                row_number=row_number,
+                normalized_phone=phone or "",
+                title=title,
+                state=state if state in US_STATES else "",
+                source=source[:160],
+                niche=niche[:160],
+                valid=valid,
+                observed_at=observed_at,
+                raw_data={
+                    "phone": row["phone"],
+                    "company": row["company"],
+                    "full_name": row["full_name"],
+                    "niche": row["niche"],
+                    "state": row["state"],
+                    "source": row["source"],
+                    "observed_at": row["observed_at"],
+                },
+            )
+            session.add(observation)
             session.flush()
+            observations += 1
+
+            if not valid:
+                missing_fields = []
+                if not phone:
+                    missing_fields.append("valid US phone")
+                if not title:
+                    missing_fields.append("title")
+                if state not in US_STATES:
+                    missing_fields.append("Google Maps business state")
+                session.add(
+                    QuarantinedRow(
+                        source_path=str(path),
+                        row_number=row_number,
+                        reason="invalid Google Maps listing: "
+                        + ", ".join(missing_fields),
+                        raw_data=observation.raw_data,
+                    )
+                )
+                quarantined += 1
+                continue
+
+            if (
+                lead.current_listing_observation_id is None
+                and not lead.legacy_title
+                and not lead.source_flow.startswith("google_maps:")
+            ):
+                lead.legacy_title = lead.title
+                lead.legacy_state = lead.state
+            lead.title = title
+            lead.state = state
+            lead.source_flow = f"google_maps:{source}"[:80]
+            lead.current_listing_observation_id = observation.id
+            latest_valid[phone] = {
+                "phone": phone,
+                "title": title,
+                "state": state,
+                "source_flow": lead.source_flow,
+            }
     finally:
         connection.close()
+    if latest_valid:
+        _record_sources(
+            session,
+            leads,
+            list(latest_valid.values()),
+            f"google_maps:{path.name}"[:80],
+        )
     session.add(
         MigrationAudit(
             source_path=str(path),
@@ -796,7 +894,13 @@ def import_scraper_sqlite(session: Session, path: Path, expected_checksum: str |
             quarantined_rows=quarantined,
         )
     )
-    return {"sourceRows": source_rows, "imported": imported, "quarantined": quarantined, "checksum": checksum}
+    return {
+        "sourceRows": source_rows,
+        "imported": imported,
+        "quarantined": quarantined,
+        "observations": observations,
+        "checksum": checksum,
+    }
 
 
 def import_supabase_jsonl(session: Session, directory: Path) -> dict:
@@ -953,6 +1057,17 @@ def import_distribution_history(session: Session, directory: Path) -> dict:
                         DistributionEvent(
                             lead_id=lead.id,
                             agent_id=agent.id,
+                            customer_name=agent.name,
+                            agency_id=agent.agency_id,
+                            agency_name=agent.agency.name if agent.agency else "",
+                            phone=lead.phone,
+                            title=lead.title,
+                            state=lead.state,
+                            listing_provenance={
+                                "kind": "legacy",
+                                "source": lead.source_flow,
+                            },
+                            source_kind="legacy",
                             delivered_at=delivered_at,
                             source=source,
                         )

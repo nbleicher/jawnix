@@ -25,12 +25,12 @@ def transition_request(db: Session, request_id: uuid.UUID, action: str) -> LeadR
         item.approved_at = utcnow()
         item.status_message = "Approved; allocation is queued."
         enqueue_job(db, "update_notification", item.id)
-        enqueue_job(db, "allocate_request", item.id)
+        enqueue_job(db, "fulfill_round_robin")
     elif action == "retry" and item.status in {RequestStatus.waiting_inventory.value, RequestStatus.failed.value}:
         item.status = RequestStatus.approved.value
         item.status_message = "Retry approved; allocation is queued."
         enqueue_job(db, "update_notification", item.id)
-        enqueue_job(db, "allocate_request", item.id)
+        enqueue_job(db, "fulfill_round_robin")
     elif action == "retry_delivery" and item.status == RequestStatus.failed.value:
         if db.scalar(select(BatchArtifact).where(BatchArtifact.request_id == item.id)) is None:
             raise TransitionError("No generated artifact is available for delivery retry.")

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
-from jawnix.allocation import allocate_request
+from jawnix.allocation import allocate_request, fulfill_round_robin
 from jawnix.models import Agency, Agent, BatchArtifact, DistributionEvent, Lead, RequestStatus
 
 from conftest import make_request
@@ -103,3 +103,109 @@ def test_retry_reuses_existing_allocation(session, settings):
     assert first.allocated == second.allocated == 1
     assert session.scalar(select(func.count(DistributionEvent.id))) == 1
     assert session.scalar(select(DistributionEvent.id).where(DistributionEvent.request_id == request.id)) == event_id
+
+
+def test_allocation_snapshots_customer_agency_and_delivered_listing(session, settings):
+    original_agency = Agency(slug="original-agency", name="Original Agency")
+    moved_agency = Agency(slug="moved-agency", name="Moved Agency")
+    customer = Agent(
+        slug="snapshot-customer",
+        name="Snapshot Customer",
+        agency=original_agency,
+    )
+    lead = Lead(
+        phone="2145553001",
+        title="Original Listing",
+        state="TX",
+        source_flow="google_maps",
+    )
+    session.add_all([original_agency, moved_agency, customer, lead])
+    session.flush()
+    request = make_request(session, customer, 1)
+
+    allocate_request(session, request.id, settings)
+    session.commit()
+    event = session.scalar(
+        select(DistributionEvent).where(DistributionEvent.request_id == request.id)
+    )
+    assert event.customer_id == customer.id
+    assert event.customer_name == "Snapshot Customer"
+    assert event.agency_id == original_agency.id
+    assert event.agency_name == "Original Agency"
+    assert event.phone == "2145553001"
+    assert event.title == "Original Listing"
+    assert event.state == "TX"
+    assert event.listing_provenance == {"kind": "legacy", "source": "google_maps"}
+
+    customer.name = "Renamed Customer"
+    customer.agency = moved_agency
+    lead.title = "Changed Listing"
+    lead.state = "FL"
+    artifact = session.scalar(
+        select(BatchArtifact).where(BatchArtifact.request_id == request.id)
+    )
+    assert artifact is not None
+    artifact_path = artifact.path
+    session.commit()
+
+    # Regeneration and delivery retries use the immutable event values, not
+    # mutable Customer membership or the Lead's current listing.
+    import os
+
+    os.unlink(artifact_path)
+    request.status = RequestStatus.approved.value
+    allocate_request(session, request.id, settings)
+    session.commit()
+    with open(artifact.path, newline="", encoding="utf-8") as stream:
+        assert list(csv.DictReader(stream)) == [
+            {"phone": "2145553001", "title": "Original Listing"}
+        ]
+
+    session.refresh(event)
+    assert event.customer_name == "Snapshot Customer"
+    assert event.agency_id == original_agency.id
+    assert event.agency_name == "Original Agency"
+
+
+def test_agency_first_round_robin_fulfills_at_most_one_request_per_agency_turn(
+    session,
+    settings,
+):
+    shared = Agency(slug="round-robin", name="Round Robin")
+    first = Agent(slug="first-customer", name="First Customer", agency=shared)
+    second = Agent(slug="second-customer", name="Second Customer", agency=shared)
+    standalone = Agent(slug="standalone-customer", name="Standalone Customer")
+    session.add_all([shared, first, second, standalone])
+    session.flush()
+    first_request = make_request(session, first, 1)
+    second_request = make_request(session, second, 1)
+    standalone_request = make_request(session, standalone, 1)
+    session.add_all(
+        [
+            Lead(phone="2145554001", title="One", state="TX"),
+            Lead(phone="2145554002", title="Two", state="TX"),
+            Lead(phone="2145554003", title="Three", state="TX"),
+        ]
+    )
+
+    first_round = fulfill_round_robin(session, settings)
+    session.commit()
+
+    assert first_round == {
+        "agenciesVisited": 2,
+        "requestsFulfilled": 2,
+        "requestsWaiting": 0,
+    }
+    assert first_request.status == RequestStatus.generated.value
+    assert standalone_request.status == RequestStatus.generated.value
+    assert second_request.status == RequestStatus.approved.value
+    assert shared.last_fulfilled_at is not None
+    assert first.last_fulfilled_at is not None
+    assert second.last_fulfilled_at is None
+    assert standalone.last_fulfilled_at is not None
+
+    second_round = fulfill_round_robin(session, settings)
+    session.commit()
+    assert second_round["requestsFulfilled"] == 1
+    assert second_request.status == RequestStatus.generated.value
+    assert second.last_fulfilled_at is not None

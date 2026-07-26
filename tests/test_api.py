@@ -9,7 +9,17 @@ from jawnix.api import app
 from jawnix.auth import Principal, require_admin, require_principal
 from jawnix.config import get_settings
 from jawnix.database import get_db
-from jawnix.models import Agency, Agent, CustomerProfile, DistributionEvent, Job, Lead, LeadRequest, utcnow
+from jawnix.models import (
+    Agency,
+    Agent,
+    CustomerProfile,
+    DistributionEvent,
+    Job,
+    Lead,
+    LeadOutcome,
+    LeadRequest,
+    utcnow,
+)
 from jawnix.telegram import callback_data
 
 
@@ -70,6 +80,238 @@ def test_request_mapping_state_validation_cancel_and_billing_404(session):
             "/api/me/requests",
             json={"lead_count": 10, "state_mode": "selected", "states": ["TX"]},
         ).status_code == 409
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_customer_state_removal_narrows_unallocated_requests_without_expanding_them(session):
+    user_id = uuid.uuid4()
+    customer = Agent(slug="licensed-customer", name="Licensed Customer")
+    profile = CustomerProfile(
+        user_id=user_id,
+        email="licensed@example.com",
+        first_name="Licensed",
+        last_name="Customer",
+        licensed_states=["TX", "FL"],
+        agent=customer,
+        mapping_confirmed_at=utcnow(),
+    )
+    narrowed = LeadRequest(
+        user_id=user_id,
+        agent=customer,
+        lead_count=10,
+        state_mode="all_saved",
+        states_snapshot=["TX", "FL"],
+        delivery_email=profile.email,
+        status="approved",
+        approved_at=utcnow(),
+    )
+    canceled = LeadRequest(
+        user_id=user_id,
+        agent=customer,
+        lead_count=5,
+        state_mode="selected",
+        states_snapshot=["TX"],
+        delivery_email=profile.email,
+        status="waiting_inventory",
+        approved_at=utcnow(),
+    )
+    committed = LeadRequest(
+        user_id=user_id,
+        agent=customer,
+        lead_count=1,
+        state_mode="all_saved",
+        states_snapshot=["TX", "FL"],
+        delivery_email=profile.email,
+        status="generated",
+        approved_at=utcnow(),
+        processed_at=utcnow(),
+    )
+    session.add_all([customer, profile, narrowed, canceled, committed])
+    session.commit()
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[require_principal] = lambda: Principal(
+        user_id=user_id,
+        email=profile.email,
+        role="customer",
+        csrf="test",
+    )
+    try:
+        response = TestClient(app).patch(
+            "/api/me/profile",
+            json={
+                "first_name": profile.first_name,
+                "last_name": profile.last_name,
+                "phone": "",
+                "licensed_states": ["FL", "CA"],
+            },
+        )
+        assert response.status_code == 200
+
+        session.refresh(narrowed)
+        session.refresh(canceled)
+        session.refresh(committed)
+        assert narrowed.states_snapshot == ["FL"]
+        assert narrowed.status == "approved"
+        assert narrowed.approved_at is not None
+        assert "TX" in narrowed.status_message
+        assert canceled.states_snapshot == []
+        assert canceled.status == "canceled"
+        assert committed.states_snapshot == ["TX", "FL"]
+
+        updates = list(
+            session.scalars(
+                select(Job)
+                .where(Job.kind == "licensed_states_changed")
+                .order_by(Job.id)
+            )
+        )
+        assert len(updates) == 2
+        assert updates[0].request_id == narrowed.id
+        assert updates[0].payload == {
+            "added": ["CA"],
+            "removed": ["TX"],
+            "requestAction": "narrowed",
+            "states": ["FL"],
+        }
+        assert updates[1].request_id == canceled.id
+        assert updates[1].payload["requestAction"] == "canceled"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_late_feedback_keeps_correction_history_and_performance_denominators(
+    session,
+):
+    user_id = uuid.uuid4()
+    customer = Agent(slug="feedback-customer", name="Feedback Customer")
+    profile = CustomerProfile(
+        user_id=user_id,
+        email="feedback@example.com",
+        licensed_states=["TX"],
+        agent=customer,
+        mapping_confirmed_at=utcnow(),
+    )
+    lead = Lead(phone="2145555001", title="Roofing One", state="TX")
+    legacy = Lead(
+        phone="2145555002",
+        title="Legacy",
+        state="TX",
+        source_flow="nppes",
+    )
+    session.add_all([customer, profile, lead, legacy])
+    session.flush()
+    delivered = DistributionEvent(
+        lead_id=lead.id,
+        agent_id=customer.id,
+        customer_name=customer.name,
+        phone=lead.phone,
+        title=lead.title,
+        state=lead.state,
+        source_kind="google_maps",
+        source_segment_key="roofing|TX|maps",
+        source_niche="roofing",
+        delivered_at=utcnow(),
+    )
+    legacy_delivered = DistributionEvent(
+        lead_id=legacy.id,
+        agent_id=customer.id,
+        customer_name=customer.name,
+        phone=legacy.phone,
+        title=legacy.title,
+        state=legacy.state,
+        source_kind="legacy",
+        delivered_at=utcnow(),
+    )
+    session.add_all([delivered, legacy_delivered])
+    session.commit()
+
+    def database_override():
+        yield session
+
+    principal = Principal(
+        user_id=user_id,
+        email=profile.email,
+        role="customer",
+        csrf="test",
+    )
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[require_principal] = lambda: principal
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    try:
+        client = TestClient(app)
+        poor = client.post(
+            f"/api/me/distributions/{delivered.id}/outcomes",
+            json={"kind": "poor"},
+        )
+        assert poor.status_code == 201
+        positive = client.post(
+            f"/api/me/distributions/{delivered.id}/outcomes",
+            json={"kind": "positive_response"},
+        )
+        assert positive.status_code == 201
+        assert client.post(
+            f"/api/me/distributions/{delivered.id}/outcomes",
+            json={"kind": "positive_response"},
+        ).status_code == 409
+        assert client.post(
+            f"/api/me/distributions/{delivered.id}/outcomes",
+            json={"kind": "appointment_booked"},
+        ).status_code == 422
+
+        corrected = client.post(
+            f"/api/me/distributions/{delivered.id}/outcomes",
+            json={
+                "kind": "good",
+                "supersedes_outcome_id": poor.json()["id"],
+            },
+        )
+        assert corrected.status_code == 201
+        history = client.get(
+            f"/api/me/distributions/{delivered.id}/outcomes"
+        )
+        assert history.status_code == 200
+        assert [item["kind"] for item in history.json()] == [
+            "poor",
+            "positive_response",
+            "good",
+        ]
+
+        performance = client.get("/api/admin/source-performance")
+        assert performance.status_code == 200
+        assert performance.json() == {
+            "segments": [
+                {
+                    "segment": "roofing|TX|maps",
+                    "niche": "roofing",
+                    "delivered": 1,
+                    "rated": 1,
+                    "good": 1,
+                    "poor": 0,
+                    "positiveResponses": 1,
+                    "appointmentsBooked": 0,
+                    "goodRate": 1.0,
+                    "positiveResponseRate": 1.0,
+                    "appointmentRate": 0.0,
+                    "qualityStatus": "insufficient_data",
+                    "conversionStatus": "insufficient_data",
+                }
+            ],
+            "legacy": {
+                "delivered": 1,
+                "excludedFromRecommendations": True,
+            },
+        }
+        assert session.scalar(select(func.count(LeadOutcome.id))) == 3
     finally:
         app.dependency_overrides.clear()
 
@@ -162,6 +404,16 @@ def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
             "agencyId": first_agency.id,
             "agency": "First Agency",
         }
+        customers = client.get("/api/admin/customers")
+        assert customers.status_code == 200
+        returned_customer = next(
+            item
+            for item in customers.json()["customers"]
+            if item["slug"] == agent.slug
+        )
+        assert returned_customer["id"] == agent.id
+        assert returned_customer["name"] == "Hierarchy Agent"
+        assert "agents" not in customers.json()
 
         agency_update = client.patch(
             f"/api/admin/agencies/{second_agency.id}",

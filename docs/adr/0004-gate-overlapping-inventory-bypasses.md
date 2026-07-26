@@ -1,0 +1,3 @@
+# Gate overlapping inventory bypasses
+
+Batch Requests are fulfilled only at their exact quantity; shortages allocate nothing and enter Waiting for Inventory. Fulfillment uses Agency-level round-robin, treating standalone Customers as one-Customer Agencies and selecting one Customer's oldest approved request per Agency turn; if an attempt could consume Leads also eligible for an older unfulfillable request, one idempotent Telegram decision must authorize that attempt against the current inventory snapshot. Denial or silence keeps it waiting, and the conflict may recur only after a material change.
