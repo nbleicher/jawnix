@@ -18,6 +18,7 @@ from jawnix.states import normalize_states
 
 from .migration import import_agent_config, import_distribution_history, import_manifest, import_scraper_sqlite, import_supabase_jsonl
 from .scraper import sync_scraper
+from .restore import validate_or_replay_restored_dataset
 from .configuration import prepare_agent_config
 from .customer_mappings import provision_customer_mappings
 
@@ -75,6 +76,24 @@ def import_supabase_command(directory: Path):
 def sync_scrapers(source: str = "", force: bool = False):
     with SessionLocal.begin() as session:
         emit(sync_scraper(session, get_settings(), source or None, force))
+
+
+@app.command("restore-scraper-dataset")
+def restore_scraper_dataset(
+    dataset: Path = typer.Option(..., "--dataset"),
+    metadata: Path = typer.Option(..., "--metadata"),
+    apply: bool = typer.Option(False, "--apply"),
+):
+    with SessionLocal.begin() as session:
+        emit(
+            validate_or_replay_restored_dataset(
+                session,
+                get_settings(),
+                dataset,
+                metadata,
+                apply=apply,
+            )
+        )
 
 
 @app.command("import-history")

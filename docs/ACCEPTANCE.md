@@ -1,5 +1,33 @@
 # Production acceptance record
 
+## 2026-07-26 completion verification
+
+Issue #27 repository verification passed against a disposable PostgreSQL
+instance upgraded through the full Alembic chain:
+
+- 45 local tests passed; the environment-gated PostgreSQL acceptance test is
+  the only normal skip in the local run.
+- The real-PostgreSQL flow covered versioned Google Maps publication, a
+  separate Inventory Sync transaction, delivery failure/retry, Customer
+  outcomes and reports, reversible suppression and correction, artifact
+  regeneration, anomaly and Inventory Conflict decisions, Nightly Review,
+  recommendation approval, version-aware restore validation, and concurrent
+  User Account replacement and configuration activation.
+- Downgrade to revision `20260725_0007` and upgrade through
+  `20260726_0019` passed.
+- The public OpenAPI document contains only Customer/User Account
+  terminology; legacy Agent/Recipient names remain hidden persistence and
+  route compatibility details.
+
+This is repository acceptance, not a new production acceptance. Before
+deployment, repeat migration reconciliation with an authorized sanitized
+production-size PostgreSQL snapshot and realistic Google Maps Scraper Dataset,
+exercise both older-rejection and newer-replay restore paths, verify a
+both-store Restic restore, and record staging/live smoke evidence here. No such
+snapshot or backup repository is stored in this workspace.
+
+## 2026-07-25 cutover record
+
 Validated on 2026-07-25 against `https://jawnix.com`. DNS cut over to the VPS
 at approximately 03:33 UTC. Railway, the legacy Supabase project, the protected
 Git rollback tag/bundle, and the read-only `dat` source remain available.

@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -54,6 +54,11 @@ class Agent(Base):
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     slug: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
+    licensed_states: Mapped[list[str]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
     agency_id: Mapped[int | None] = mapped_column(ForeignKey("agencies.id", ondelete="SET NULL"), index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     last_fulfilled_at: Mapped[datetime | None] = mapped_column(
@@ -62,6 +67,68 @@ class Agent(Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agency: Mapped[Agency | None] = relationship()
+
+
+# Canonical domain type. The legacy class/table name remains only as an
+# expand/contract persistence compatibility detail.
+Customer = Agent
+
+
+class UserAccount(Base):
+    __tablename__ = "user_accounts"
+    auth_user_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        index=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+    replaced_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    customer: Mapped[Customer | None] = relationship()
+
+    __table_args__ = (
+        Index(
+            "uq_active_user_account_per_customer",
+            "customer_id",
+            unique=True,
+            postgresql_where=text("active"),
+            sqlite_where=text("active = 1"),
+        ),
+    )
+
+
+class CustomerTombstone(Base):
+    __tablename__ = "customer_tombstones"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    former_customer_id: Mapped[int] = mapped_column(
+        BigInteger,
+        unique=True,
+        nullable=False,
+    )
+    opaque_key: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        nullable=False,
+    )
+    actor_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    erased_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
 
 
 class CustomerProfile(Base):
@@ -81,6 +148,18 @@ class CustomerProfile(Base):
     @property
     def customer_id(self) -> int | None:
         return self.agent_id
+
+    @customer_id.setter
+    def customer_id(self, value: int | None) -> None:
+        self.agent_id = value
+
+    @property
+    def customer(self) -> Customer | None:
+        return self.agent
+
+    @customer.setter
+    def customer(self, value: Customer | None) -> None:
+        self.agent = value
 
 
 class LeadRequest(Base):
@@ -103,6 +182,22 @@ class LeadRequest(Base):
     agent: Mapped[Agent] = relationship()
     artifact: Mapped[BatchArtifact | None] = relationship(back_populates="request", uselist=False)
 
+    @property
+    def customer_id(self) -> int:
+        return self.agent_id
+
+    @customer_id.setter
+    def customer_id(self, value: int) -> None:
+        self.agent_id = value
+
+    @property
+    def customer(self) -> Customer:
+        return self.agent
+
+    @customer.setter
+    def customer(self, value: Customer) -> None:
+        self.agent = value
+
 
 class Lead(Base):
     __tablename__ = "lead_inventory"
@@ -121,6 +216,25 @@ class Lead(Base):
             name="fk_lead_current_listing_observation",
         ),
         index=True,
+    )
+    active_correction_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "lead_correction_events.id",
+            ondelete="SET NULL",
+            name="fk_lead_active_correction",
+        ),
+        index=True,
+    )
+    suppressed: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        index=True,
+        nullable=False,
+    )
+    suppression_reason: Mapped[str] = mapped_column(
+        Text,
+        default="",
+        nullable=False,
     )
     last_distributed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
@@ -172,6 +286,30 @@ class ListingObservation(Base):
     )
 
 
+class LeadCorrectionEvent(Base):
+    __tablename__ = "lead_correction_events"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    lead_id: Mapped[int] = mapped_column(
+        ForeignKey("lead_inventory.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    action: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    title: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    state: Mapped[str] = mapped_column(String(2), default="", nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    supersedes_correction_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("lead_correction_events.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+
+
 class DistributionEvent(Base):
     __tablename__ = "distribution_events"
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
@@ -188,6 +326,12 @@ class DistributionEvent(Base):
     source_kind: Mapped[str] = mapped_column(String(32), default="legacy", index=True, nullable=False)
     source_segment_key: Mapped[str] = mapped_column(String(320), default="", index=True, nullable=False)
     source_niche: Mapped[str] = mapped_column(String(160), default="", index=True, nullable=False)
+    distribution_period: Mapped[str] = mapped_column(
+        String(7),
+        default="",
+        index=True,
+        nullable=False,
+    )
     delivered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True, nullable=False)
     source: Mapped[str] = mapped_column(String(80), default="request", nullable=False)
     __table_args__ = (
@@ -228,6 +372,59 @@ class LeadOutcome(Base):
     )
 
 
+class LeadReport(Base):
+    __tablename__ = "lead_reports"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    distribution_event_id: Mapped[int] = mapped_column(
+        ForeignKey("distribution_events.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    reason: Mapped[str] = mapped_column(
+        String(40),
+        index=True,
+        nullable=False,
+    )
+    details: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24),
+        default="open",
+        index=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+
+
+class LeadReportResolution(Base):
+    __tablename__ = "lead_report_resolutions"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    report_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("lead_reports.id", ondelete="RESTRICT"),
+        unique=True,
+        index=True,
+    )
+    action: Mapped[str] = mapped_column(
+        String(24),
+        index=True,
+        nullable=False,
+    )
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
 class BatchArtifact(Base):
     __tablename__ = "batch_artifacts"
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
@@ -242,6 +439,10 @@ class BatchArtifact(Base):
     resend_message_id: Mapped[str] = mapped_column(String(160), default="", nullable=False)
     last_error: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+    )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     request: Mapped[LeadRequest] = relationship(back_populates="artifact")
 
@@ -259,7 +460,6 @@ class Job(Base):
     locked_by: Mapped[str] = mapped_column(String(120), default="", nullable=False)
     last_error: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-
 
 class Notification(Base):
     __tablename__ = "notifications"
@@ -285,6 +485,24 @@ class ScraperRun(Base):
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     source: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
     source_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    configuration_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "scraper_configurations.id",
+            ondelete="RESTRICT",
+            name="fk_scraper_run_configuration",
+        ),
+        index=True,
+    )
+    dataset_version: Mapped[int | None] = mapped_column(
+        BigInteger,
+        index=True,
+    )
+    staged_path: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    manual: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
     checksum: Mapped[str] = mapped_column(String(64), default="", nullable=False)
     status: Mapped[str] = mapped_column(String(24), nullable=False)
     rows_seen: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
@@ -292,6 +510,345 @@ class ScraperRun(Base):
     details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ScraperConfiguration(Base):
+    __tablename__ = "scraper_configurations"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    version: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
+    checksum: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24),
+        default="draft",
+        index=True,
+        nullable=False,
+    )
+    anomaly_thresholds: Mapped[dict] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+    scheduled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    activated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    based_on_configuration_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("scraper_configurations.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    segments: Mapped[list[SourceSegment]] = relationship(
+        back_populates="configuration",
+        order_by="SourceSegment.key",
+        cascade="all, delete-orphan",
+    )
+
+
+class SourceSegment(Base):
+    __tablename__ = "source_segments"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    configuration_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("scraper_configurations.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    key: Mapped[str] = mapped_column(String(160), nullable=False)
+    niche: Mapped[str] = mapped_column(String(160), nullable=False)
+    query: Mapped[str] = mapped_column(String(320), nullable=False)
+    geography: Mapped[str] = mapped_column(String(320), nullable=False)
+    parameters: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    configuration: Mapped[ScraperConfiguration] = relationship(
+        back_populates="segments"
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "configuration_id",
+            "key",
+            name="uq_source_segment_configuration_key",
+        ),
+    )
+
+
+class DatasetPublication(Base):
+    __tablename__ = "dataset_publications"
+    id: Mapped[int] = mapped_column(
+        ID_TYPE,
+        primary_key=True,
+        autoincrement=True,
+    )
+    version: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
+    checksum: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    scraper_run_id: Mapped[int] = mapped_column(
+        ForeignKey("scraper_runs.id", ondelete="RESTRICT"),
+        unique=True,
+        index=True,
+    )
+    configuration_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("scraper_configurations.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    storage_path: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    sync_status: Mapped[str] = mapped_column(
+        String(24),
+        default="pending",
+        index=True,
+        nullable=False,
+    )
+    synchronized_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    committed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+
+
+class InventorySyncAttempt(Base):
+    __tablename__ = "inventory_sync_attempts"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    dataset_publication_id: Mapped[int] = mapped_column(
+        ForeignKey("dataset_publications.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    dataset_version: Mapped[int] = mapped_column(
+        BigInteger,
+        index=True,
+        nullable=False,
+    )
+    dataset_checksum: Mapped[str] = mapped_column(
+        String(64),
+        index=True,
+        nullable=False,
+    )
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24),
+        index=True,
+        nullable=False,
+    )
+    result: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    error: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "dataset_publication_id",
+            "attempt_number",
+            name="uq_inventory_sync_publication_attempt",
+        ),
+    )
+
+
+class ScrapeSegmentResult(Base):
+    __tablename__ = "scrape_segment_results"
+    id: Mapped[int] = mapped_column(
+        ID_TYPE,
+        primary_key=True,
+        autoincrement=True,
+    )
+    scraper_run_id: Mapped[int] = mapped_column(
+        ForeignKey("scraper_runs.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    segment_key: Mapped[str] = mapped_column(String(160), index=True, nullable=False)
+    niche: Mapped[str] = mapped_column(String(160), index=True, nullable=False)
+    geography: Mapped[str] = mapped_column(String(320), nullable=False)
+    observed_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    valid_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    new_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    duplicate_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    quarantined_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    anomalous: Mapped[bool] = mapped_column(Boolean, index=True, nullable=False)
+    anomaly_reasons: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    __table_args__ = (
+        UniqueConstraint(
+            "scraper_run_id",
+            "segment_key",
+            name="uq_scrape_run_segment_result",
+        ),
+    )
+
+
+class ScrapeAnomaly(Base):
+    __tablename__ = "scrape_anomalies"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    scraper_run_id: Mapped[int] = mapped_column(
+        ForeignKey("scraper_runs.id", ondelete="RESTRICT"),
+        unique=True,
+        index=True,
+    )
+    configuration_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("scraper_configurations.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    dataset_checksum: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24),
+        default="pending",
+        index=True,
+        nullable=False,
+    )
+    decision_by: Mapped[str] = mapped_column(
+        String(160),
+        default="",
+        nullable=False,
+    )
+    decision_reason: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    telegram_chat_id: Mapped[str] = mapped_column(
+        String(120),
+        default="",
+        nullable=False,
+    )
+    telegram_message_id: Mapped[str] = mapped_column(
+        String(120),
+        default="",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
+class InventoryConflict(Base):
+    __tablename__ = "inventory_conflicts"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    older_request_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("lead_requests.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    newer_request_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("lead_requests.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    inventory_snapshot: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+    )
+    snapshot_checksum: Mapped[str] = mapped_column(
+        String(64),
+        index=True,
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String(24),
+        default="pending",
+        index=True,
+        nullable=False,
+    )
+    decision_by: Mapped[str] = mapped_column(
+        String(160),
+        default="",
+        nullable=False,
+    )
+    decision_reason: Mapped[str] = mapped_column(
+        Text,
+        default="",
+        nullable=False,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    telegram_chat_id: Mapped[str] = mapped_column(
+        String(120),
+        default="",
+        nullable=False,
+    )
+    telegram_message_id: Mapped[str] = mapped_column(
+        String(120),
+        default="",
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "older_request_id",
+            "newer_request_id",
+            "snapshot_checksum",
+            name="uq_inventory_conflict_scope",
+        ),
+    )
+
+
+class SourceRecommendation(Base):
+    __tablename__ = "source_recommendations"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    niche: Mapped[str] = mapped_column(
+        String(160),
+        index=True,
+        nullable=False,
+    )
+    segment_key: Mapped[str] = mapped_column(
+        String(320),
+        index=True,
+        nullable=False,
+    )
+    action: Mapped[str] = mapped_column(
+        String(24),
+        index=True,
+        nullable=False,
+    )
+    evidence: Mapped[dict] = mapped_column(JSON, nullable=False)
+    evidence_checksum: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String(24),
+        default="pending",
+        index=True,
+        nullable=False,
+    )
+    decision_by: Mapped[str] = mapped_column(
+        String(160),
+        default="",
+        nullable=False,
+    )
+    decision_reason: Mapped[str] = mapped_column(
+        Text,
+        default="",
+        nullable=False,
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    resulting_configuration_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("scraper_configurations.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
 
 
 class NightlyReview(Base):
@@ -322,6 +879,27 @@ class NightlyReview(Base):
     )
 
 
+class AuditEntry(Base):
+    __tablename__ = "audit_entries"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    action: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    target_type: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    target_id: Mapped[str] = mapped_column(String(160), index=True, nullable=False)
+    actor_user_id: Mapped[str] = mapped_column(
+        String(160),
+        index=True,
+        nullable=False,
+    )
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+
+
 class MigrationAudit(Base):
     __tablename__ = "migration_audits"
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
@@ -342,8 +920,3 @@ class QuarantinedRow(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     raw_data: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-
-
-# Expand/contract compatibility: new code and APIs use Customer while the
-# existing production table/foreign keys retain their stable names.
-Customer = Agent

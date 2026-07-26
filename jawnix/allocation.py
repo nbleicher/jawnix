@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 import os
 import tempfile
 import uuid
@@ -16,13 +17,19 @@ from .config import Settings
 from .jobs import enqueue_job
 from .models import (
     Agency,
-    Agent,
+    Customer,
+    AuditEntry,
     BatchArtifact,
+    DatasetPublication,
     DistributionEvent,
+    InventoryConflict,
     Lead,
+    LeadCorrectionEvent,
     LeadRequest,
     ListingObservation,
     RequestStatus,
+    ScraperConfiguration,
+    ScraperRun,
 )
 from .states import truncate_utf8
 
@@ -36,15 +43,17 @@ class AllocationResult:
 
 
 def _same_recipient_clause(request: LeadRequest):
-    if request.agent.agency_id is None:
-        return DistributionEvent.agent_id == request.agent_id
-    same_agency_agents = select(Agent.id).where(Agent.agency_id == request.agent.agency_id)
+    if request.customer.agency_id is None:
+        return DistributionEvent.agent_id == request.customer_id
+    same_agency_customers = select(Customer.id).where(
+        Customer.agency_id == request.customer.agency_id
+    )
     return or_(
-        DistributionEvent.agent_id == request.agent_id,
-        DistributionEvent.agency_id == request.agent.agency_id,
+        DistributionEvent.agent_id == request.customer_id,
+        DistributionEvent.agency_id == request.customer.agency_id,
         and_(
             DistributionEvent.agency_id.is_(None),
-            DistributionEvent.agent_id.in_(same_agency_agents),
+            DistributionEvent.agent_id.in_(same_agency_customers),
         ),
     )
 
@@ -61,6 +70,7 @@ def eligible_query(request: LeadRequest, settings: Settings):
         select(Lead)
         .where(
             Lead.state.in_(request.states_snapshot),
+            Lead.suppressed.is_(False),
             or_(Lead.last_distributed_at.is_(None), Lead.last_distributed_at <= cutoff),
             ~previously_sent,
         )
@@ -75,7 +85,9 @@ def inventory_count(session: Session, request: LeadRequest, settings: Settings) 
 
 def _artifact_path(settings: Settings, request: LeadRequest) -> tuple[Path, str]:
     date_text = datetime.now(timezone.utc).date().isoformat()
-    filename = f"{request.agent.slug}_batch_{request.id}_{date_text}.csv"
+    filename = (
+        f"{request.customer.slug}_batch_{request.id}_{date_text}.csv"
+    )
     directory = Path(settings.batch_dir) / date_text
     directory.mkdir(parents=True, exist_ok=True)
     return directory / filename, filename
@@ -90,6 +102,65 @@ def _listing_snapshot(
         if lead.current_listing_observation_id is not None
         else None
     )
+    publication = (
+        session.scalar(
+            select(DatasetPublication).where(
+                DatasetPublication.checksum
+                == observation.dataset_checksum
+            )
+        )
+        if observation is not None
+        else None
+    )
+    scrape_run = (
+        session.get(ScraperRun, publication.scraper_run_id)
+        if publication is not None
+        else None
+    )
+    configuration = (
+        session.get(
+            ScraperConfiguration,
+            publication.configuration_id,
+        )
+        if publication is not None
+        else None
+    )
+    acquisition_provenance = {
+        "datasetVersion": (
+            publication.version if publication is not None else None
+        ),
+        "scrapeRunId": scrape_run.id if scrape_run is not None else None,
+        "configurationId": (
+            str(configuration.id) if configuration is not None else None
+        ),
+        "configurationVersion": (
+            configuration.version if configuration is not None else None
+        ),
+    }
+    correction = (
+        session.get(LeadCorrectionEvent, lead.active_correction_id)
+        if lead.active_correction_id is not None
+        else None
+    )
+    if correction is not None:
+        segment_key = (
+            observation.source
+            if observation is not None
+            else ""
+        )
+        provenance = {
+            "kind": "lead_correction",
+            "correctionId": str(correction.id),
+        }
+        if observation is not None:
+            provenance["underlyingObservationId"] = observation.id
+            provenance.update(acquisition_provenance)
+        return (
+            provenance,
+            "google_maps" if observation is not None else "legacy",
+            segment_key,
+            observation.niche if observation is not None else "",
+        )
     if observation is None:
         return (
             {"kind": "legacy", "source": lead.source_flow},
@@ -97,10 +168,7 @@ def _listing_snapshot(
             "",
             "",
         )
-    segment_key = (
-        f"{observation.niche.lower()}|{observation.state}|"
-        f"{observation.source.lower()}"
-    )
+    segment_key = observation.source
     return (
         {
             "kind": "current_listing",
@@ -108,6 +176,7 @@ def _listing_snapshot(
             "datasetChecksum": observation.dataset_checksum,
             "source": observation.source,
             "niche": observation.niche,
+            **acquisition_provenance,
         },
         "google_maps",
         segment_key,
@@ -144,6 +213,10 @@ def generate_artifact(
             row_count=len(rows),
             byte_count=final_path.stat().st_size,
             sha256=digest,
+            expires_at=(
+                datetime.now(timezone.utc)
+                + timedelta(days=settings.batch_retention_days)
+            ),
         )
         session.add(artifact)
     else:
@@ -152,6 +225,11 @@ def generate_artifact(
         artifact.row_count = len(rows)
         artifact.byte_count = final_path.stat().st_size
         artifact.sha256 = digest
+        artifact.created_at = datetime.now(timezone.utc)
+        artifact.expires_at = (
+            artifact.created_at
+            + timedelta(days=settings.batch_retention_days)
+        )
     session.flush()
     return artifact
 
@@ -233,10 +311,14 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
         session.add(
             DistributionEvent(
                 lead_id=lead.id,
-                agent_id=request.agent_id,
-                customer_name=request.agent.name,
-                agency_id=request.agent.agency_id,
-                agency_name=request.agent.agency.name if request.agent.agency else "",
+                agent_id=request.customer_id,
+                customer_name=request.customer.name,
+                agency_id=request.customer.agency_id,
+                agency_name=(
+                    request.customer.agency.name
+                    if request.customer.agency
+                    else ""
+                ),
                 request_id=request.id,
                 phone=lead.phone,
                 title=lead.title,
@@ -245,6 +327,7 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
                 source_kind=source_kind,
                 source_segment_key=segment_key,
                 source_niche=niche,
+                distribution_period=distributed_at.strftime("%Y-%m"),
                 delivered_at=distributed_at,
                 source="request",
             )
@@ -258,6 +341,160 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
     enqueue_job(session, "update_notification", request.id)
     session.flush()
     return AllocationResult(request.status, len(candidates), len(candidates), artifact.id)
+
+
+def _inventory_conflict_blocks(
+    session: Session,
+    request: LeadRequest,
+    settings: Settings,
+) -> bool:
+    newer_ids = list(
+        session.scalars(
+            eligible_query(request, settings)
+            .with_only_columns(Lead.id)
+            .order_by(None)
+        )
+    )
+    if len(newer_ids) < request.lead_count:
+        return False
+    older_requests = list(
+        session.scalars(
+            select(LeadRequest)
+            .where(
+                LeadRequest.status
+                == RequestStatus.waiting_inventory.value,
+                LeadRequest.id != request.id,
+                LeadRequest.created_at < request.created_at,
+            )
+            .order_by(LeadRequest.created_at, LeadRequest.id)
+            .with_for_update(skip_locked=True)
+        )
+    )
+    newer_id_set = set(newer_ids)
+    for older in older_requests:
+        if not set(older.states_snapshot).intersection(
+            request.states_snapshot
+        ):
+            continue
+        older_ids = list(
+            session.scalars(
+                eligible_query(older, settings)
+                .with_only_columns(Lead.id)
+                .order_by(None)
+            )
+        )
+        shared_ids = sorted(newer_id_set.intersection(older_ids))
+        if not shared_ids:
+            continue
+        snapshot = {
+            "olderRequestId": str(older.id),
+            "newerRequestId": str(request.id),
+            "olderLeadCount": older.lead_count,
+            "newerLeadCount": request.lead_count,
+            "olderStates": sorted(older.states_snapshot),
+            "newerStates": sorted(request.states_snapshot),
+            "olderEligibleCount": len(older_ids),
+            "newerEligibleCount": len(newer_ids),
+            "sharedLeadIds": shared_ids,
+        }
+        checksum = hashlib.sha256(
+            json.dumps(
+                snapshot,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        conflict = session.scalar(
+            select(InventoryConflict)
+            .where(
+                InventoryConflict.older_request_id == older.id,
+                InventoryConflict.newer_request_id == request.id,
+                InventoryConflict.snapshot_checksum == checksum,
+            )
+            .with_for_update()
+        )
+        if conflict is not None and conflict.status == "confirmed":
+            conflict.status = "consumed"
+            conflict.consumed_at = datetime.now(timezone.utc)
+            return False
+        if conflict is None:
+            conflict = InventoryConflict(
+                older_request_id=older.id,
+                newer_request_id=request.id,
+                inventory_snapshot=snapshot,
+                snapshot_checksum=checksum,
+                status="pending",
+            )
+            session.add(conflict)
+            session.flush()
+            enqueue_job(
+                session,
+                "notify_inventory_conflict",
+                payload={"conflict_id": str(conflict.id)},
+            )
+        request.status = RequestStatus.waiting_inventory.value
+        request.available_count = len(newer_ids)
+        request.status_message = (
+            "Waiting for an Inventory Conflict decision before shared "
+            "inventory can bypass an older request."
+        )
+        enqueue_job(session, "update_notification", request.id)
+        return True
+    return False
+
+
+def decide_inventory_conflict(
+    session: Session,
+    conflict_id: uuid.UUID,
+    action: str,
+    actor_id: str,
+    reason: str,
+) -> dict:
+    if action not in {"confirm", "deny"}:
+        raise ValueError("Inventory Conflict action must be confirm or deny.")
+    conflict = session.scalar(
+        select(InventoryConflict)
+        .where(InventoryConflict.id == conflict_id)
+        .with_for_update()
+    )
+    if conflict is None:
+        raise LookupError("Inventory Conflict was not found.")
+    if conflict.status != "pending":
+        return {
+            "conflictId": str(conflict.id),
+            "status": conflict.status,
+            "duplicate": True,
+        }
+    conflict.status = "confirmed" if action == "confirm" else "denied"
+    conflict.decision_by = actor_id
+    conflict.decision_reason = reason.strip()
+    conflict.decided_at = datetime.now(timezone.utc)
+    session.add(
+        AuditEntry(
+            action=f"inventory_conflict_{conflict.status}",
+            target_type="inventory_conflict",
+            target_id=str(conflict.id),
+            actor_user_id=actor_id,
+            reason=reason.strip(),
+            details={
+                "olderRequestId": str(conflict.older_request_id),
+                "newerRequestId": str(conflict.newer_request_id),
+                "snapshotChecksum": conflict.snapshot_checksum,
+            },
+        )
+    )
+    enqueue_job(
+        session,
+        "update_inventory_conflict_notification",
+        payload={"conflict_id": str(conflict.id)},
+    )
+    if action == "confirm":
+        enqueue_job(session, "fulfill_round_robin")
+    session.flush()
+    return {
+        "conflictId": str(conflict.id),
+        "status": conflict.status,
+    }
 
 
 def fulfill_round_robin(session: Session, settings: Settings) -> dict[str, int]:
@@ -280,27 +517,27 @@ def fulfill_round_robin(session: Session, settings: Settings) -> dict[str, int]:
     grouped: dict[tuple[str, int], list[LeadRequest]] = {}
     for item in requests:
         if (
-            not item.agent.active
-            or item.agent.deleted_at is not None
+            not item.customer.active
+            or item.customer.deleted_at is not None
             or (
-                item.agent.agency is not None
+                item.customer.agency is not None
                 and (
-                    not item.agent.agency.active
-                    or item.agent.agency.deleted_at is not None
+                    not item.customer.agency.active
+                    or item.customer.agency.deleted_at is not None
                 )
             )
         ):
             continue
         key = (
-            ("agency", item.agent.agency_id)
-            if item.agent.agency_id is not None
-            else ("customer", item.agent_id)
+            ("agency", item.customer.agency_id)
+            if item.customer.agency_id is not None
+            else ("customer", item.customer_id)
         )
         grouped.setdefault(key, []).append(item)
 
     def group_order(entry: tuple[tuple[str, int], list[LeadRequest]]):
         key, items = entry
-        customer = items[0].agent
+        customer = items[0].customer
         last_fulfilled = (
             customer.agency.last_fulfilled_at
             if customer.agency is not None
@@ -318,16 +555,19 @@ def fulfill_round_robin(session: Session, settings: Settings) -> dict[str, int]:
         visited += 1
         agency_requests.sort(
             key=lambda item: (
-                item.agent.last_fulfilled_at is not None,
-                item.agent.last_fulfilled_at
+                item.customer.last_fulfilled_at is not None,
+                item.customer.last_fulfilled_at
                 or datetime.min.replace(tzinfo=timezone.utc),
-                item.agent_id,
+                item.customer_id,
                 item.approved_at
                 or item.created_at,
                 item.id,
             )
         )
         item = agency_requests[0]
+        if _inventory_conflict_blocks(session, item, settings):
+            waiting += 1
+            continue
         if item.status == RequestStatus.waiting_inventory.value:
             item.status = RequestStatus.approved.value
             item.status_message = "New committed inventory is being checked."
@@ -335,9 +575,9 @@ def fulfill_round_robin(session: Session, settings: Settings) -> dict[str, int]:
         if result.status == RequestStatus.generated.value:
             fulfilled += 1
             fulfilled_at = item.processed_at or datetime.now(timezone.utc)
-            item.agent.last_fulfilled_at = fulfilled_at
-            if item.agent.agency is not None:
-                item.agent.agency.last_fulfilled_at = fulfilled_at
+            item.customer.last_fulfilled_at = fulfilled_at
+            if item.customer.agency is not None:
+                item.customer.agency.last_fulfilled_at = fulfilled_at
         elif result.status == RequestStatus.waiting_inventory.value:
             waiting += 1
     session.flush()

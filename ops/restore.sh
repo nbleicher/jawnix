@@ -18,21 +18,13 @@ if [ -n "${JAWNIX_SCRAPER_RESTORE_PATH:-}" ]; then
     echo "Scraper Dataset restore file was not found." >&2
     exit 2
   fi
-  restored_checksum="$(sha256sum "$JAWNIX_SCRAPER_RESTORE_PATH" | cut -d ' ' -f 1)"
-  latest_checksum="$(
-    psql --tuples-only --no-align --dbname="${PGDATABASE:-jawnix}" \
-      --command="SELECT checksum FROM migration_audits ORDER BY completed_at DESC LIMIT 1"
-  )"
-  if [ -n "$latest_checksum" ] && [ "$restored_checksum" != "$latest_checksum" ]; then
-    previously_synchronized="$(
-      psql --tuples-only --no-align --dbname="${PGDATABASE:-jawnix}" \
-        --command="SELECT COUNT(*) FROM migration_audits WHERE checksum = '$restored_checksum'"
-    )"
-    if [ "$previously_synchronized" != "0" ]; then
-      echo "Refusing a Scraper Dataset that predates PostgreSQL's last synchronized version." >&2
-      exit 2
-    fi
+  if [ -z "${JAWNIX_SCRAPER_RESTORE_METADATA_PATH:-}" ] || \
+     [ ! -f "$JAWNIX_SCRAPER_RESTORE_METADATA_PATH" ]; then
+    echo "Scraper Dataset restore metadata was not found." >&2
+    exit 2
   fi
-  install -m 0640 "$JAWNIX_SCRAPER_RESTORE_PATH" /data/health_leads/data/leads.db
-  echo "Restored Scraper Dataset checksum $restored_checksum; run sync-scrapers to replay newer data."
+  python -m jawnix_data restore-scraper-dataset \
+    --dataset "$JAWNIX_SCRAPER_RESTORE_PATH" \
+    --metadata "$JAWNIX_SCRAPER_RESTORE_METADATA_PATH" \
+    --apply
 fi

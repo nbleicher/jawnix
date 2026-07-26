@@ -3,7 +3,15 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from .states import normalize_states
 
@@ -42,9 +50,25 @@ class RequestCreate(BaseModel):
         return self
 
 
-class RecipientMappingUpdate(BaseModel):
-    agent_id: int
+class CustomerMappingUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: int = Field(
+        validation_alias=AliasChoices("customer_id", "agent_id")
+    )
     confirmed: bool = True
+
+
+class UserAccountReplace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    auth_user_id: uuid.UUID
+    email: EmailStr
+    reason: str = Field(
+        default="User Account replacement",
+        min_length=1,
+        max_length=2000,
+    )
 
 
 class AgencyUpdate(BaseModel):
@@ -52,20 +76,42 @@ class AgencyUpdate(BaseModel):
 
     name: str = Field(min_length=1, max_length=160)
     active: bool
+    reason: str = Field(
+        default="Agency record updated",
+        min_length=1,
+        max_length=2000,
+    )
 
 
-class AgentUpdate(BaseModel):
+class CustomerUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=160)
     agency_id: int | None = None
     active: bool
+    reason: str = Field(
+        default="Customer record updated",
+        min_length=1,
+        max_length=2000,
+    )
 
 
 class DeleteConfirmation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     confirm_slug: str = Field(min_length=1, max_length=80)
+
+
+class CustomerDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirm_slug: str = Field(min_length=1, max_length=80)
+    hard_delete: bool = False
+    reason: str = Field(
+        default="Administrative lifecycle action",
+        min_length=1,
+        max_length=2000,
+    )
 
 
 class CustomerCreate(BaseModel):
@@ -83,7 +129,7 @@ class ProfileOut(BaseModel):
     last_name: str
     phone: str
     licensed_states: list[str]
-    agent_id: int | None
+    customer_id: int | None
     mapping_confirmed_at: datetime | None
 
 
@@ -132,3 +178,107 @@ class OutcomeOut(BaseModel):
     note: str
     supersedes_outcome_id: uuid.UUID | None
     created_at: datetime
+
+
+class SourceSegmentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1, max_length=160)
+    niche: str = Field(min_length=1, max_length=160)
+    query: str = Field(min_length=1, max_length=320)
+    geography: str = Field(min_length=1, max_length=320)
+    parameters: dict = Field(default_factory=dict)
+
+
+class AnomalyThresholdsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    down_fraction: float = Field(default=0.5, gt=0, lt=1)
+    up_multiplier: float = Field(default=2.0, gt=1)
+    history_runs: int = Field(default=7, ge=1, le=30)
+
+
+class ScraperConfigurationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=2000)
+    segments: list[SourceSegmentInput] = Field(min_length=1)
+    anomaly_thresholds: AnomalyThresholdsInput = Field(
+        default_factory=AnomalyThresholdsInput
+    )
+
+    @model_validator(mode="after")
+    def unique_segment_keys(self):
+        keys = [segment.key.strip().lower() for segment in self.segments]
+        if len(keys) != len(set(keys)):
+            raise ValueError("Source Segment keys must be unique.")
+        return self
+
+
+class ActionReason(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class LeadCorrectionApply(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, max_length=500)
+    state: str | None = None
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("state")
+    @classmethod
+    def valid_optional_state(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_states([value])[0]
+
+    @model_validator(mode="after")
+    def has_correction(self):
+        if self.title is None and self.state is None:
+            raise ValueError("Correct the title, state, or both.")
+        if self.title is not None and not self.title.strip():
+            raise ValueError("Corrected title cannot be empty.")
+        return self
+
+
+class LeadReportCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(
+        pattern=(
+            "^(invalid_phone|wrong_business_or_title|wrong_state|duplicate|"
+            "do_not_contact_or_legal|other)$"
+        )
+    )
+    details: str = Field(default="", max_length=2000)
+
+
+class LeadReportResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: str = Field(pattern="^(dismissed|corrected|suppressed)$")
+    note: str = Field(min_length=1, max_length=2000)
+    title: str | None = Field(default=None, max_length=500)
+    state: str | None = None
+
+    @field_validator("state")
+    @classmethod
+    def valid_optional_state(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_states([value])[0]
+
+    @model_validator(mode="after")
+    def correction_has_value(self):
+        if (
+            self.action == "corrected"
+            and self.title is None
+            and self.state is None
+        ):
+            raise ValueError(
+                "Corrected report resolution requires a title or state."
+            )
+        return self

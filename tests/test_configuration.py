@@ -84,7 +84,9 @@ def test_backup_covers_postgresql_and_persistent_scraper_dataset():
     restore = Path("ops/restore.sh").read_text(encoding="utf-8")
 
     assert "- scraper_data:/data:ro" in compose
-    assert 'scraper_dataset=/data/health_leads/data/leads.db' in backup
-    assert 'restic backup --tag scraper-dataset "$scraper_dataset"' in backup
+    assert "scraper_data=/data/health_leads/data" in backup
+    assert 'scraper_dataset="$scraper_data/leads.db"' in backup
+    assert 'scraper_metadata="$scraper_data/dataset-metadata.json"' in backup
+    assert 'restic backup --tag scraper-dataset "$scraper_data"' in backup
     assert "JAWNIX_SCRAPER_RESTORE_PATH" in restore
     assert "scraper-dataset.sha256" in backup

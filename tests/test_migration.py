@@ -6,7 +6,15 @@ import sqlite3
 import pytest
 from sqlalchemy import func, select
 
-from jawnix.models import Agent, DistributionEvent, Lead, LeadSource, ListingObservation
+from jawnix.models import (
+    Agent,
+    AuditEntry,
+    DistributionEvent,
+    Lead,
+    LeadCorrectionEvent,
+    LeadSource,
+    ListingObservation,
+)
 from jawnix_data.migration import import_agent_config, import_distribution_history, import_manifest, import_scraper_sqlite
 
 
@@ -183,6 +191,67 @@ def test_google_maps_sync_preserves_observations_and_uses_latest_valid_listing(
     session.refresh(lead)
     assert lead.title == "Most Recent Valid Listing"
     assert lead.state == "TX"
+
+
+def test_new_listing_is_flagged_but_does_not_override_active_correction(
+    session,
+    tmp_path,
+):
+    lead = Lead(
+        phone="4155550199",
+        title="Verified Business",
+        state="CA",
+    )
+    session.add(lead)
+    session.flush()
+    correction = LeadCorrectionEvent(
+        lead_id=lead.id,
+        action="applied",
+        title="Verified Business",
+        state="CA",
+        actor_id="admin",
+        reason="Confirmed directly",
+    )
+    session.add(correction)
+    session.flush()
+    lead.active_correction_id = correction.id
+    session.commit()
+    path = tmp_path / "corrected-lead.db"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE leads (
+                phone TEXT, company TEXT, full_name TEXT, niche TEXT,
+                state TEXT, source TEXT, created_at TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO leads VALUES (
+                '4155550199', 'Conflicting Scraped Business', '',
+                'Roofing', 'NV', 'google_maps',
+                '2026-07-25T01:00:00+00:00'
+            )
+            """
+        )
+
+    import_scraper_sqlite(session, path)
+    session.commit()
+    session.refresh(lead)
+
+    assert lead.title == "Verified Business"
+    assert lead.state == "CA"
+    observation = session.get(
+        ListingObservation,
+        lead.current_listing_observation_id,
+    )
+    assert observation.title == "Conflicting Scraped Business"
+    flag = session.query(AuditEntry).filter_by(
+        action="listing_observation_conflicts_correction"
+    ).one()
+    assert flag.target_id == str(observation.id)
+    assert flag.details["correctionId"] == str(correction.id)
 
 
 def test_scraper_checksum_is_idempotent_across_snapshot_paths(session, tmp_path):

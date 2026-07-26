@@ -15,9 +15,11 @@ from sqlalchemy.orm import Session
 from jawnix.models import (
     Agency,
     Agent,
+    AuditEntry,
     CustomerProfile,
     DistributionEvent,
     Lead,
+    LeadCorrectionEvent,
     LeadSource,
     ListingObservation,
     LeadRequest,
@@ -893,10 +895,43 @@ def import_scraper_sqlite(session: Session, path: Path, expected_checksum: str |
                 ):
                     lead.legacy_title = lead.title
                     lead.legacy_state = lead.state
-                lead.title = title
-                lead.state = state
                 lead.source_flow = f"google_maps:{source}"[:80]
                 lead.current_listing_observation_id = observation.id
+                correction = (
+                    session.get(
+                        LeadCorrectionEvent,
+                        lead.active_correction_id,
+                    )
+                    if lead.active_correction_id is not None
+                    else None
+                )
+                if correction is None:
+                    lead.title = title
+                    lead.state = state
+                elif (
+                    correction.title != title
+                    or correction.state != state
+                ):
+                    session.add(
+                        AuditEntry(
+                            action=(
+                                "listing_observation_conflicts_correction"
+                            ),
+                            target_type="listing_observation",
+                            target_id=str(observation.id),
+                            actor_user_id="system:inventory_sync",
+                            reason=(
+                                "A newer Google Maps listing conflicts "
+                                "with the active Lead Correction."
+                            ),
+                            details={
+                                "leadId": lead.id,
+                                "correctionId": str(correction.id),
+                                "observedTitle": title,
+                                "observedState": state,
+                            },
+                        )
+                    )
             latest_valid[phone] = {
                 "phone": phone,
                 "title": title,
@@ -957,7 +992,7 @@ def import_supabase_jsonl(session: Session, directory: Path) -> dict:
             for line in stream:
                 row = json.loads(line)
                 profile = session.get(CustomerProfile, uuid.UUID(str(row["user_id"])))
-                if profile is None or profile.agent_id is None:
+                if profile is None or profile.customer_id is None:
                     request_skipped_unmapped += 1
                     continue
                 legacy_id = uuid.UUID(str(row["id"]))
@@ -968,7 +1003,7 @@ def import_supabase_jsonl(session: Session, directory: Path) -> dict:
                     LeadRequest(
                         id=legacy_id,
                         user_id=profile.user_id,
-                        agent_id=profile.agent_id,
+                        agent_id=profile.customer_id,
                         lead_count=int(row["lead_count"]),
                         state_mode="all_saved",
                         states_snapshot=row.get("states_snapshot") or profile.licensed_states,

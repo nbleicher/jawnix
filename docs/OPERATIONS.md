@@ -122,6 +122,21 @@ Before cutover, prove:
 - two concurrent allocations have no overlapping phone IDs;
 - staging restore from Restic and `git bundle verify` both pass.
 
+For a Scraper Dataset restore, restore the dataset directory (including
+`dataset-metadata.json` and `.versions`) and validate it against the restored
+PostgreSQL database before replacing active data:
+
+```sh
+python -m jawnix_data restore-scraper-dataset \
+  --dataset /restore/health_leads/data/leads.db \
+  --metadata /restore/health_leads/data/dataset-metadata.json
+```
+
+An older dataset or a same-version checksum mismatch is rejected. A newer
+validated dataset can be replayed forward idempotently with `--apply`; this
+archives the exact restored bytes, records the publication and Inventory Sync
+attempt, and synchronizes PostgreSQL without exposing partial inventory.
+
 For the 10-million-row performance gate, run the guarded harness against a disposable staging database. Acceptance is allocation plus CSV generation in under five minutes without API health failures. Never run it in production.
 
 ```sh

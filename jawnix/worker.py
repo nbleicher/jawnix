@@ -14,10 +14,13 @@ from .jobs import claim_next_job, enqueue_job
 from .models import (
     Job,
     JobStatus,
+    InventoryConflict,
     LeadRequest,
     NightlyReview,
     Notification,
     RequestStatus,
+    ScrapeAnomaly,
+    ScraperRun,
 )
 from .telegram import TelegramClient
 from .transitions import TransitionError, transition_request
@@ -71,14 +74,126 @@ def process_job(job_id: int) -> None:
                 allocate_request(session, uuid.UUID(str(job.request_id)), settings)
             elif job.kind == "fulfill_round_robin":
                 fulfill_round_robin(session, settings)
-            elif job.kind == "notify_nightly_review":
-                review = session.get(
-                    NightlyReview,
-                    uuid.UUID(str(job.payload.get("review_id"))),
+            elif job.kind in {
+                "notify_nightly_review",
+                "update_nightly_review_notification",
+            }:
+                review = session.scalar(
+                    select(NightlyReview)
+                    .where(
+                        NightlyReview.id
+                        == uuid.UUID(
+                            str(job.payload.get("review_id"))
+                        )
+                    )
+                    .with_for_update()
                 )
                 if review is None:
                     raise LookupError("Nightly Review was not found.")
-                review.telegram_message_id = telegram.post_nightly_review(review)
+                anomaly = session.scalar(
+                    select(ScrapeAnomaly).where(
+                        ScrapeAnomaly.scraper_run_id
+                        == review.scraper_run_id
+                    )
+                )
+                if review.telegram_message_id:
+                    telegram.update_nightly_review(review, anomaly)
+                else:
+                    review.telegram_message_id = (
+                        telegram.post_nightly_review(review, anomaly)
+                    )
+                if anomaly is not None:
+                    anomaly.telegram_chat_id = settings.telegram_chat_id
+                    anomaly.telegram_message_id = (
+                        review.telegram_message_id
+                    )
+            elif job.kind == "run_scraper":
+                from jawnix_data.scraper import run_scrape
+
+                result = run_scrape(
+                    session,
+                    settings,
+                    uuid.UUID(str(job.payload["configuration_id"])),
+                    manual=bool(job.payload.get("manual")),
+                )
+                if result["status"] == "failed":
+                    log.error(
+                        "Scrape Run %s failed: %s",
+                        result.get("runId"),
+                        result.get("error"),
+                    )
+            elif job.kind == "sync_inventory":
+                from jawnix_data.scraper import sync_dataset_version
+
+                sync_dataset_version(
+                    session,
+                    settings,
+                    int(job.payload["dataset_version"]),
+                )
+            elif job.kind in {
+                "notify_scrape_anomaly",
+                "update_scrape_anomaly_notification",
+            }:
+                anomaly = session.get(
+                    ScrapeAnomaly,
+                    uuid.UUID(str(job.payload["anomaly_id"])),
+                )
+                if anomaly is None:
+                    raise LookupError("Scrape Anomaly was not found.")
+                run = session.get(ScraperRun, anomaly.scraper_run_id)
+                if run is None:
+                    raise LookupError("Scrape Run was not found.")
+                if not anomaly.telegram_message_id:
+                    (
+                        anomaly.telegram_chat_id,
+                        anomaly.telegram_message_id,
+                    ) = telegram.post_scrape_anomaly(anomaly, run)
+                else:
+                    telegram.update_scrape_anomaly(anomaly, run)
+            elif job.kind == "telegram_anomaly_action":
+                from jawnix_data.scraper import decide_scrape_anomaly
+
+                decide_scrape_anomaly(
+                    session,
+                    settings,
+                    uuid.UUID(str(job.payload["anomaly_id"])),
+                    action=str(job.payload["action"]),
+                    actor_id=(
+                        "telegram:"
+                        + str(job.payload["approver_user_id"])
+                    ),
+                    reason="Telegram Scrape Anomaly decision",
+                )
+            elif job.kind in {
+                "notify_inventory_conflict",
+                "update_inventory_conflict_notification",
+            }:
+                conflict = session.get(
+                    InventoryConflict,
+                    uuid.UUID(str(job.payload["conflict_id"])),
+                )
+                if conflict is None:
+                    raise LookupError("Inventory Conflict was not found.")
+                if not conflict.telegram_message_id:
+                    (
+                        conflict.telegram_chat_id,
+                        conflict.telegram_message_id,
+                    ) = telegram.post_inventory_conflict(conflict)
+                else:
+                    telegram.update_inventory_conflict(conflict)
+            elif job.kind == "telegram_inventory_conflict_action":
+                from .allocation import decide_inventory_conflict
+
+                decide_inventory_conflict(
+                    session,
+                    uuid.UUID(str(job.payload["conflict_id"])),
+                    action=str(job.payload["action"]),
+                    actor_id=(
+                        "telegram:"
+                        + str(job.payload["approver_user_id"])
+                    ),
+                    reason="Telegram Inventory Conflict decision",
+                )
             elif job.kind == "deliver_request":
                 deliver_request(session, uuid.UUID(str(job.request_id)), settings)
             else:

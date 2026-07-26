@@ -8,7 +8,7 @@ from jawnix.config import get_settings
 from jawnix.database import SessionLocal
 from jawnix.maintenance import expire_batch_files
 
-from .scraper import sync_scraper
+from .scraper import run_nightly_attempt
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -29,8 +29,12 @@ def run() -> None:
         time.sleep(seconds_until(settings.scraper_hour_utc))
         try:
             with SessionLocal.begin() as session:
-                result = sync_scraper(session, settings)
-            log.info("Nightly scraper sync: %s", result)
+                review = run_nightly_attempt(session, settings)
+            log.info(
+                "Nightly review %s created with status %s",
+                review.id,
+                review.status,
+            )
         except Exception:
             log.exception("Nightly scraper sync failed")
         try:

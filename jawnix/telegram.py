@@ -7,14 +7,24 @@ import uuid
 import httpx
 
 from .config import Settings
-from .models import LeadRequest, NightlyReview
+from .models import (
+    InventoryConflict,
+    LeadRequest,
+    NightlyReview,
+    ScrapeAnomaly,
+    ScraperRun,
+)
 
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 ACTION_PREFIX = "jawnix"
+ANOMALY_PREFIX = "jawnix-a"
+CONFLICT_PREFIX = "jawnix-c"
 ALLOWED_ACTIONS = {"approve", "reject", "retry", "retry_delivery"}
+ALLOWED_ANOMALY_ACTIONS = {"confirm", "deny"}
+ALLOWED_CONFLICT_ACTIONS = {"confirm", "deny"}
 
 
 def verify_telegram_secret(provided: str, expected: str) -> bool:
@@ -43,9 +53,55 @@ def parse_callback_data(value: str) -> tuple[str, uuid.UUID]:
     return action, request_id
 
 
+def anomaly_callback_data(action: str, anomaly_id: uuid.UUID) -> str:
+    if action not in ALLOWED_ANOMALY_ACTIONS:
+        raise ValueError(f"Unsupported Scrape Anomaly action: {action}")
+    value = f"{ANOMALY_PREFIX}:{action}:{anomaly_id}"
+    if len(value.encode("utf-8")) > 64:
+        raise ValueError("Telegram callback data exceeds 64 bytes.")
+    return value
+
+
+def parse_anomaly_callback_data(value: str) -> tuple[str, uuid.UUID]:
+    try:
+        prefix, action, raw_anomaly_id = value.split(":", 2)
+        anomaly_id = uuid.UUID(raw_anomaly_id)
+    except (ValueError, AttributeError):
+        raise ValueError("Malformed Telegram anomaly callback data.") from None
+    if (
+        prefix != ANOMALY_PREFIX
+        or action not in ALLOWED_ANOMALY_ACTIONS
+    ):
+        raise ValueError("Unsupported Telegram anomaly callback data.")
+    return action, anomaly_id
+
+
+def conflict_callback_data(action: str, conflict_id: uuid.UUID) -> str:
+    if action not in ALLOWED_CONFLICT_ACTIONS:
+        raise ValueError(f"Unsupported Inventory Conflict action: {action}")
+    value = f"{CONFLICT_PREFIX}:{action}:{conflict_id}"
+    if len(value.encode("utf-8")) > 64:
+        raise ValueError("Telegram callback data exceeds 64 bytes.")
+    return value
+
+
+def parse_conflict_callback_data(value: str) -> tuple[str, uuid.UUID]:
+    try:
+        prefix, action, raw_conflict_id = value.split(":", 2)
+        conflict_id = uuid.UUID(raw_conflict_id)
+    except (ValueError, AttributeError):
+        raise ValueError("Malformed Telegram conflict callback data.") from None
+    if (
+        prefix != CONFLICT_PREFIX
+        or action not in ALLOWED_CONFLICT_ACTIONS
+    ):
+        raise ValueError("Unsupported Telegram conflict callback data.")
+    return action, conflict_id
+
+
 def _request_text(request: LeadRequest) -> str:
     customer = request.profile
-    customer_identity = request.agent
+    customer_identity = request.customer
     name = " ".join(part for part in (customer.first_name, customer.last_name) if part).strip() or customer.email
     lines = [
         "Jawnix batch request",
@@ -144,32 +200,245 @@ class TelegramClient:
             timeout=5,
         )
 
-    def post_nightly_review(self, review: NightlyReview) -> str:
-        if not self.settings.telegram_chat_id:
-            raise RuntimeError("TELEGRAM_CHAT_ID is not configured.")
-        scraper = review.summary.get("scraper") or {}
+    def _nightly_review_message(
+        self,
+        review: NightlyReview,
+        anomaly: ScrapeAnomaly | None = None,
+    ) -> tuple[str, dict]:
+        configuration = review.summary.get("configuration") or {}
+        run = review.summary.get("run") or {}
+        dataset = review.summary.get("dataset") or {}
+        segments = review.summary.get("segments") or []
         inventory = review.summary.get("inventory") or {}
+        waiting = review.summary.get("waitingRequests") or []
+        conflicts = review.summary.get("inventoryConflicts") or []
+        recommendations = review.summary.get("recommendations") or []
+        failures = review.summary.get("failures") or []
         text = "\n".join(
             [
                 "Jawnix Nightly Review",
                 "",
-                f"Observed: {int(scraper.get('observed', 0)):,}",
-                f"Valid: {int(scraper.get('valid', 0)):,}",
-                f"New: {int(scraper.get('new', 0)):,}",
-                f"Duplicate: {int(scraper.get('duplicate', 0)):,}",
-                f"Quarantined: {int(scraper.get('quarantined', 0)):,}",
-                f"Anomalous: {int(scraper.get('anomalous', 0)):,}",
-                f"Inventory: {int(inventory.get('leads', 0)):,}",
-                f"Waiting requests: {int(inventory.get('waitingRequests', 0)):,}",
+                f"Configuration: v{configuration.get('version') or 'none'}",
+                f"Run: {run.get('status') or 'unknown'}",
+                f"Dataset: v{dataset.get('version') or 'none'} "
+                f"({dataset.get('syncStatus') or 'not synchronized'})",
+                f"Segments: {len(segments):,} "
+                f"({sum(bool(item.get('anomalous')) for item in segments):,} anomalous)",
+                f"Inventory: {int(inventory.get('total', 0)):,}",
+                f"Waiting requests: {len(waiting):,}",
+                f"Inventory conflicts: {len(conflicts):,}",
+                f"Recommendations: {len(recommendations):,}",
+                f"Failures: {len(failures):,}",
                 "",
                 f"Review: {self.settings.public_base_url}/admin.html#nightly-{review.id}",
             ]
         )
+        keyboard = {"inline_keyboard": []}
+        if anomaly is not None and anomaly.status == "pending":
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "Confirm staged dataset",
+                            "callback_data": anomaly_callback_data(
+                                "confirm",
+                                anomaly.id,
+                            ),
+                        },
+                        {
+                            "text": "Deny",
+                            "callback_data": anomaly_callback_data(
+                                "deny",
+                                anomaly.id,
+                            ),
+                        },
+                    ]
+                ]
+            }
+        return text, keyboard
+
+    def post_nightly_review(
+        self,
+        review: NightlyReview,
+        anomaly: ScrapeAnomaly | None = None,
+    ) -> str:
+        if not self.settings.telegram_chat_id:
+            raise RuntimeError("TELEGRAM_CHAT_ID is not configured.")
+        text, keyboard = self._nightly_review_message(review, anomaly)
         data = self._call(
             "sendMessage",
             {
                 "chat_id": self.settings.telegram_chat_id,
                 "text": text,
+                "reply_markup": keyboard,
             },
         )
         return str(data["result"]["message_id"])
+
+    def update_nightly_review(
+        self,
+        review: NightlyReview,
+        anomaly: ScrapeAnomaly | None = None,
+    ) -> None:
+        text, keyboard = self._nightly_review_message(review, anomaly)
+        self._call(
+            "editMessageText",
+            {
+                "chat_id": self.settings.telegram_chat_id,
+                "message_id": int(review.telegram_message_id),
+                "text": text,
+                "reply_markup": keyboard,
+            },
+        )
+
+    def _anomaly_message(
+        self,
+        anomaly: ScrapeAnomaly,
+        run: ScraperRun,
+    ) -> tuple[str, dict]:
+        segments = ", ".join(
+            run.details.get("anomalousSegments") or []
+        )
+        text = "\n".join(
+            [
+                "Jawnix Scrape Anomaly",
+                "",
+                f"Run: {run.id}",
+                f"Segments: {segments or 'Unknown'}",
+                f"Checksum: {anomaly.dataset_checksum}",
+                f"Status: {anomaly.status.replace('_', ' ').title()}",
+                "",
+                "Confirm publishes this exact staged dataset. "
+                "Deny preserves the current dataset.",
+            ]
+        )
+        keyboard = {"inline_keyboard": []}
+        if anomaly.status == "pending":
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "Confirm",
+                            "callback_data": anomaly_callback_data(
+                                "confirm",
+                                anomaly.id,
+                            ),
+                        },
+                        {
+                            "text": "Deny",
+                            "callback_data": anomaly_callback_data(
+                                "deny",
+                                anomaly.id,
+                            ),
+                        },
+                    ]
+                ]
+            }
+        return text, keyboard
+
+    def post_scrape_anomaly(
+        self,
+        anomaly: ScrapeAnomaly,
+        run: ScraperRun,
+    ) -> tuple[str, str]:
+        text, keyboard = self._anomaly_message(anomaly, run)
+        data = self._call(
+            "sendMessage",
+            {
+                "chat_id": self.settings.telegram_chat_id,
+                "text": text,
+                "reply_markup": keyboard,
+            },
+        )
+        result = data["result"]
+        return str(result["chat"]["id"]), str(result["message_id"])
+
+    def update_scrape_anomaly(
+        self,
+        anomaly: ScrapeAnomaly,
+        run: ScraperRun,
+    ) -> None:
+        text, keyboard = self._anomaly_message(anomaly, run)
+        self._call(
+            "editMessageText",
+            {
+                "chat_id": anomaly.telegram_chat_id,
+                "message_id": int(anomaly.telegram_message_id),
+                "text": text,
+                "reply_markup": keyboard,
+            },
+        )
+
+    def _inventory_conflict_message(
+        self,
+        conflict: InventoryConflict,
+    ) -> tuple[str, dict]:
+        snapshot = conflict.inventory_snapshot
+        text = "\n".join(
+            [
+                "Jawnix Inventory Conflict",
+                "",
+                f"Older request: {conflict.older_request_id}",
+                f"Newer request: {conflict.newer_request_id}",
+                f"Shared eligible leads: "
+                f"{len(snapshot.get('sharedLeadIds') or []):,}",
+                f"Status: {conflict.status.replace('_', ' ').title()}",
+                "",
+                "Confirm authorizes one allocation attempt for this exact "
+                "inventory snapshot. Deny leaves the newer request waiting.",
+            ]
+        )
+        keyboard = {"inline_keyboard": []}
+        if conflict.status == "pending":
+            keyboard = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "Confirm once",
+                            "callback_data": conflict_callback_data(
+                                "confirm",
+                                conflict.id,
+                            ),
+                        },
+                        {
+                            "text": "Deny",
+                            "callback_data": conflict_callback_data(
+                                "deny",
+                                conflict.id,
+                            ),
+                        },
+                    ]
+                ]
+            }
+        return text, keyboard
+
+    def post_inventory_conflict(
+        self,
+        conflict: InventoryConflict,
+    ) -> tuple[str, str]:
+        text, keyboard = self._inventory_conflict_message(conflict)
+        data = self._call(
+            "sendMessage",
+            {
+                "chat_id": self.settings.telegram_chat_id,
+                "text": text,
+                "reply_markup": keyboard,
+            },
+        )
+        result = data["result"]
+        return str(result["chat"]["id"]), str(result["message_id"])
+
+    def update_inventory_conflict(
+        self,
+        conflict: InventoryConflict,
+    ) -> None:
+        text, keyboard = self._inventory_conflict_message(conflict)
+        self._call(
+            "editMessageText",
+            {
+                "chat_id": conflict.telegram_chat_id,
+                "message_id": int(conflict.telegram_message_id),
+                "text": text,
+                "reply_markup": keyboard,
+            },
+        )

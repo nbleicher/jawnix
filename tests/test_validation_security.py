@@ -8,7 +8,14 @@ from pydantic import ValidationError
 from jawnix.schemas import RequestCreate
 from jawnix.states import normalize_phone, normalize_states
 from jawnix.config import Settings
-from jawnix.telegram import TelegramClient, callback_data, parse_callback_data, verify_telegram_secret
+from jawnix.telegram import (
+    TelegramClient,
+    anomaly_callback_data,
+    callback_data,
+    parse_anomaly_callback_data,
+    parse_callback_data,
+    verify_telegram_secret,
+)
 
 
 def test_normalization_and_request_limit():
@@ -32,6 +39,12 @@ def test_telegram_secret_and_callback_validation():
     assert not verify_telegram_secret("", "webhook-secret")
     with pytest.raises(ValueError, match="Malformed"):
         parse_callback_data("invalid")
+    anomaly_id = uuid.uuid4()
+    anomaly_data = anomaly_callback_data("confirm", anomaly_id)
+    assert parse_anomaly_callback_data(anomaly_data) == (
+        "confirm",
+        anomaly_id,
+    )
 
 
 def test_telegram_identical_message_edit_is_idempotent(monkeypatch):

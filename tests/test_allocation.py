@@ -6,7 +6,15 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 
 from jawnix.allocation import allocate_request, fulfill_round_robin
-from jawnix.models import Agency, Agent, BatchArtifact, DistributionEvent, Lead, RequestStatus
+from jawnix.models import (
+    Agency,
+    Agent,
+    BatchArtifact,
+    DistributionEvent,
+    InventoryConflict,
+    Lead,
+    RequestStatus,
+)
 
 from conftest import make_request
 
@@ -209,3 +217,49 @@ def test_agency_first_round_robin_fulfills_at_most_one_request_per_agency_turn(
     assert second_round["requestsFulfilled"] == 1
     assert second_request.status == RequestStatus.generated.value
     assert second.last_fulfilled_at is not None
+
+
+def test_newer_request_needs_one_scope_bound_conflict_decision_to_bypass_older(
+    session,
+    settings,
+):
+    older_customer = Agent(slug="older-customer", name="Older Customer")
+    newer_customer = Agent(slug="newer-customer", name="Newer Customer")
+    unrelated = Agent(slug="unrelated-customer", name="Unrelated Customer")
+    session.add_all([older_customer, newer_customer, unrelated])
+    session.flush()
+    older = make_request(session, older_customer, 2, ["TX"])
+    older.status = RequestStatus.waiting_inventory.value
+    older.available_count = 1
+    newer = make_request(session, newer_customer, 1, ["TX"])
+    newer.created_at = older.created_at + timedelta(seconds=1)
+    other = make_request(session, unrelated, 1, ["FL"])
+    session.add_all(
+        [
+            Lead(phone="2145554401", title="Shared", state="TX"),
+            Lead(phone="3055554402", title="Unrelated", state="FL"),
+        ]
+    )
+    session.commit()
+
+    first = fulfill_round_robin(session, settings)
+    session.commit()
+
+    assert first["requestsFulfilled"] == 1
+    assert other.status == RequestStatus.generated.value
+    assert newer.status == RequestStatus.waiting_inventory.value
+    conflict = session.query(InventoryConflict).one()
+    assert conflict.older_request_id == older.id
+    assert conflict.newer_request_id == newer.id
+    assert conflict.status == "pending"
+
+    conflict.status = "confirmed"
+    session.commit()
+    second = fulfill_round_robin(session, settings)
+    session.commit()
+
+    assert second["requestsFulfilled"] == 1
+    assert newer.status == RequestStatus.generated.value
+    session.refresh(conflict)
+    assert conflict.status == "consumed"
+    assert session.query(InventoryConflict).count() == 1

@@ -109,7 +109,7 @@ def provision_customer_mappings(
         else:
             profile.email = email
             updated += 1
-        profile.agent_id = agent.id
+        profile.customer_id = agent.id
         profile.mapping_confirmed_at = datetime.now(timezone.utc) if confirmed else None
 
     session.flush()

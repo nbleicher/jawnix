@@ -10,7 +10,9 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 dump_path="$backup_dir/jawnix-$timestamp.dump"
 base_dir="$backup_dir/base-$timestamp"
 wal_dir=/var/lib/postgresql/data/pgdata/wal-archive
-scraper_dataset=/data/health_leads/data/leads.db
+scraper_data=/data/health_leads/data
+scraper_dataset="$scraper_data/leads.db"
+scraper_metadata="$scraper_data/dataset-metadata.json"
 scraper_checksum="$backup_dir/scraper-dataset.sha256"
 mkdir -p "$backup_dir"
 
@@ -36,7 +38,11 @@ restic backup --tag database "$@"
 restic backup --tag wal "$wal_dir"
 if [ -f "$scraper_dataset" ]; then
   sha256sum "$scraper_dataset" > "$scraper_checksum"
-  restic backup --tag scraper-dataset "$scraper_dataset"
+  if [ ! -f "$scraper_metadata" ]; then
+    echo "Scraper Dataset version metadata is missing: $scraper_metadata" >&2
+    exit 1
+  fi
+  restic backup --tag scraper-dataset "$scraper_data"
   restic backup --tag scraper-dataset "$scraper_checksum"
 else
   echo "Persistent Scraper Dataset is missing: $scraper_dataset" >&2
