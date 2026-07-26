@@ -74,6 +74,15 @@ def test_request_mapping_state_validation_cancel_and_billing_404(session):
         assert session.get(LeadRequest, uuid.UUID(request_id)).status == "canceled"
         assert client.delete(f"/api/me/requests/{request_id}").status_code == 409
 
+        approved = client.post(
+            "/api/me/requests",
+            json={"lead_count": 10, "state_mode": "selected", "states": ["TX"]},
+        )
+        approved_id = uuid.UUID(approved.json()["id"])
+        session.get(LeadRequest, approved_id).status = "approved"
+        session.commit()
+        assert client.delete(f"/api/me/requests/{approved_id}").status_code == 200
+
         agent.active = False
         session.commit()
         assert client.post(

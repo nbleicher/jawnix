@@ -460,8 +460,15 @@ def cancel_request(
     )
     if item is None:
         raise HTTPException(status_code=404, detail="Request was not found.")
-    if item.status != RequestStatus.pending.value:
-        raise HTTPException(status_code=409, detail="Only pending requests can be canceled.")
+    if item.status not in {
+        RequestStatus.pending.value,
+        RequestStatus.approved.value,
+        RequestStatus.waiting_inventory.value,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail="Only uncommitted requests can be canceled.",
+        )
     item.status = RequestStatus.canceled.value
     item.status_message = "Canceled by customer."
     enqueue_job(db, "update_notification", item.id)

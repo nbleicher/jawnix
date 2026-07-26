@@ -155,6 +155,35 @@ def test_google_maps_sync_preserves_observations_and_uses_latest_valid_listing(
         select(Lead).where(Lead.phone == "3055550101")
     ) is None
 
+    older_path = tmp_path / "older-leads.db"
+    with sqlite3.connect(older_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE leads (
+                phone TEXT,
+                company TEXT,
+                full_name TEXT,
+                niche TEXT,
+                state TEXT,
+                source TEXT,
+                created_at TEXT
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO leads VALUES (?, ?, '', 'Roofing', 'CA', 'google_maps', ?)",
+            (
+                "4155550100",
+                "Late Sync Of Older Listing",
+                "2026-07-19T01:00:00+00:00",
+            ),
+        )
+    import_scraper_sqlite(session, older_path)
+    session.commit()
+    session.refresh(lead)
+    assert lead.title == "Most Recent Valid Listing"
+    assert lead.state == "TX"
+
 
 def test_scraper_checksum_is_idempotent_across_snapshot_paths(session, tmp_path):
     original = tmp_path / "leads.db"

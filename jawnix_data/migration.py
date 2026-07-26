@@ -859,17 +859,44 @@ def import_scraper_sqlite(session: Session, path: Path, expected_checksum: str |
                 quarantined += 1
                 continue
 
+            current = (
+                session.get(
+                    ListingObservation,
+                    lead.current_listing_observation_id,
+                )
+                if lead.current_listing_observation_id is not None
+                else None
+            )
+            current_observed_at = current.observed_at if current else None
             if (
-                lead.current_listing_observation_id is None
-                and not lead.legacy_title
-                and not lead.source_flow.startswith("google_maps:")
+                current_observed_at is not None
+                and current_observed_at.tzinfo is None
             ):
-                lead.legacy_title = lead.title
-                lead.legacy_state = lead.state
-            lead.title = title
-            lead.state = state
-            lead.source_flow = f"google_maps:{source}"[:80]
-            lead.current_listing_observation_id = observation.id
+                current_observed_at = current_observed_at.replace(
+                    tzinfo=timezone.utc
+                )
+            observation_order = (
+                observed_at,
+                checksum,
+                row_number,
+            )
+            current_order = (
+                current_observed_at,
+                current.dataset_checksum,
+                current.row_number,
+            ) if current and current_observed_at else None
+            if current_order is None or observation_order > current_order:
+                if (
+                    current is None
+                    and not lead.legacy_title
+                    and not lead.source_flow.startswith("google_maps:")
+                ):
+                    lead.legacy_title = lead.title
+                    lead.legacy_state = lead.state
+                lead.title = title
+                lead.state = state
+                lead.source_flow = f"google_maps:{source}"[:80]
+                lead.current_listing_observation_id = observation.id
             latest_valid[phone] = {
                 "phone": phone,
                 "title": title,
