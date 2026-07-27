@@ -26,6 +26,8 @@ from .models import (
     CustomerTombstone,
     DistributionEvent,
     InventoryConflict,
+    LeadDispositionState,
+    LeadDispositionTransition,
     LeadReport,
     LeadReportResolution,
     LeadOutcome,
@@ -54,6 +56,8 @@ from .schemas import (
     CustomerCreate,
     CustomerDelete,
     DeleteConfirmation,
+    FeedbackCreate,
+    FeedbackLookup,
     OutcomeCreate,
     OutcomeOut,
     ProfileOut,
@@ -65,7 +69,7 @@ from .schemas import (
     ScraperConfigurationCreate,
     UserAccountReplace,
 )
-from .states import normalize_states
+from .states import normalize_phone, normalize_states
 from .telegram import (
     TelegramClient,
     parse_anomaly_callback_data,
@@ -392,6 +396,63 @@ _OUTCOME_METRICS = {
 }
 
 
+def _feedback_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=404,
+        detail="No delivered Lead found.",
+    )
+
+
+@app.post("/api/me/feedback/lookup")
+def lookup_feedback(
+    payload: FeedbackLookup,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    profile = db.get(CustomerProfile, principal.user_id)
+    phone = normalize_phone(payload.phone)
+    if (
+        profile is None
+        or profile.customer_id is None
+        or phone is None
+    ):
+        raise _feedback_not_found()
+    event = db.scalar(
+        select(DistributionEvent)
+        .where(
+            DistributionEvent.agent_id == profile.customer_id,
+            DistributionEvent.phone == phone,
+        )
+        .order_by(
+            DistributionEvent.delivered_at.desc(),
+            DistributionEvent.id.desc(),
+        )
+        .limit(1)
+    )
+    if event is None:
+        raise _feedback_not_found()
+    disposition_state = db.get(
+        LeadDispositionState,
+        event.id,
+    )
+    return {
+        "distributionEventId": event.id,
+        "businessName": event.title,
+        "phone": event.phone,
+        "deliveredAt": event.delivered_at,
+        "batchId": (
+            str(event.request_id)
+            if event.request_id is not None
+            else None
+        ),
+        "currentDisposition": (
+            disposition_state.current_disposition
+            if disposition_state is not None
+            else None
+        ),
+    }
+
+
 def _customer_distribution(
     db: Session,
     principal: Principal,
@@ -409,6 +470,203 @@ def _customer_distribution(
     if event is None:
         raise HTTPException(status_code=404, detail="Delivered Lead was not found.")
     return profile, event
+
+
+def _disposition_transition_response(
+    item: LeadDispositionTransition,
+) -> dict:
+    return {
+        "id": str(item.id),
+        "distributionEventId": item.distribution_event_id,
+        "disposition": item.disposition,
+        "note": item.note,
+        "actorUserId": str(item.actor_user_id),
+        "previousTransitionId": (
+            str(item.previous_transition_id)
+            if item.previous_transition_id is not None
+            else None
+        ),
+        "createdAt": item.created_at,
+    }
+
+
+def _customer_feedback_distribution(
+    db: Session,
+    principal: Principal,
+    event_id: int,
+) -> tuple[CustomerProfile, DistributionEvent]:
+    try:
+        return _customer_distribution(
+            db,
+            principal,
+            event_id,
+        )
+    except HTTPException as error:
+        if error.status_code == 404:
+            raise _feedback_not_found() from None
+        raise
+
+
+def _quality_rating_response(item: LeadOutcome) -> dict:
+    return {
+        "id": str(item.id),
+        "kind": item.kind,
+        "note": item.note,
+        "supersedesOutcomeId": (
+            str(item.supersedes_outcome_id)
+            if item.supersedes_outcome_id is not None
+            else None
+        ),
+        "createdAt": item.created_at,
+    }
+
+
+@app.get("/api/me/distributions/{event_id}/dispositions")
+def list_dispositions(
+    event_id: int,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    _, event = _customer_feedback_distribution(
+        db,
+        principal,
+        event_id,
+    )
+    return [
+        _disposition_transition_response(item)
+        for item in db.scalars(
+            select(LeadDispositionTransition)
+            .where(
+                LeadDispositionTransition.distribution_event_id
+                == event.id
+            )
+            .order_by(
+                LeadDispositionTransition.created_at,
+                LeadDispositionTransition.id,
+            )
+        )
+    ]
+
+
+@app.post("/api/me/feedback", status_code=201)
+def create_feedback(
+    payload: FeedbackCreate,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    profile, event = _customer_feedback_distribution(
+        db,
+        principal,
+        payload.distribution_event_id,
+    )
+    event = db.scalar(
+        select(DistributionEvent)
+        .where(DistributionEvent.id == event.id)
+        .with_for_update()
+    )
+    previous = db.scalar(
+        select(LeadDispositionTransition)
+        .where(
+            LeadDispositionTransition.distribution_event_id
+            == event.id
+        )
+        .order_by(
+            LeadDispositionTransition.created_at.desc(),
+            LeadDispositionTransition.id.desc(),
+        )
+        .limit(1)
+    )
+    quality_rating = None
+    if payload.quality_rating is not None:
+        rating_history = list(
+            db.scalars(
+                select(LeadOutcome)
+                .where(
+                    LeadOutcome.distribution_event_id
+                    == event.id,
+                    LeadOutcome.metric == "quality",
+                )
+                .order_by(
+                    LeadOutcome.created_at,
+                    LeadOutcome.id,
+                )
+            )
+        )
+        superseded_rating_ids = {
+            item.supersedes_outcome_id
+            for item in rating_history
+            if item.supersedes_outcome_id is not None
+        }
+        active_rating = next(
+            (
+                item
+                for item in reversed(rating_history)
+                if item.id not in superseded_rating_ids
+            ),
+            None,
+        )
+        quality_rating = LeadOutcome(
+            distribution_event_id=event.id,
+            customer_id=profile.customer_id,
+            kind=payload.quality_rating,
+            metric="quality",
+            note=payload.quality_note.strip(),
+            supersedes_outcome_id=(
+                active_rating.id
+                if active_rating is not None
+                else None
+            ),
+        )
+    changed_at = utcnow()
+    transition = LeadDispositionTransition(
+        distribution_event_id=event.id,
+        customer_id=profile.customer_id,
+        actor_user_id=principal.user_id,
+        disposition=payload.disposition,
+        note=payload.note.strip(),
+        previous_transition_id=(
+            previous.id if previous is not None else None
+        ),
+        created_at=changed_at,
+    )
+    db.add(transition)
+    if quality_rating is not None:
+        db.add(quality_rating)
+    db.flush()
+    disposition_state = db.get(
+        LeadDispositionState,
+        event.id,
+    )
+    if disposition_state is None:
+        disposition_state = LeadDispositionState(
+            distribution_event_id=event.id,
+            current_transition_id=transition.id,
+            current_disposition=payload.disposition,
+            updated_at=changed_at,
+        )
+        db.add(disposition_state)
+    else:
+        disposition_state.current_transition_id = transition.id
+        disposition_state.current_disposition = payload.disposition
+        disposition_state.updated_at = changed_at
+    db.commit()
+    db.refresh(transition)
+    if quality_rating is not None:
+        db.refresh(quality_rating)
+    return {
+        "distributionEventId": event.id,
+        "currentDisposition": (
+            disposition_state.current_disposition
+        ),
+        "transition": _disposition_transition_response(
+            transition
+        ),
+        "qualityRating": (
+            _quality_rating_response(quality_rating)
+            if quality_rating is not None
+            else None
+        ),
+    }
 
 
 @app.get(
@@ -434,6 +692,7 @@ def list_outcomes(
     "/api/me/distributions/{event_id}/outcomes",
     response_model=OutcomeOut,
     status_code=201,
+    deprecated=True,
 )
 def create_outcome(
     event_id: int,
@@ -441,6 +700,7 @@ def create_outcome(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
+    """Retain the legacy Outcome write contract during feedback migration."""
     profile, event = _customer_distribution(db, principal, event_id)
     metric = _OUTCOME_METRICS[payload.kind]
     history = list(

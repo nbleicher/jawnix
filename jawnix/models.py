@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -347,6 +347,84 @@ class DistributionEvent(Base):
     @customer_id.setter
     def customer_id(self, value: int | None) -> None:
         self.agent_id = value
+
+
+class LeadDispositionTransition(Base):
+    __tablename__ = "lead_disposition_transitions"
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    distribution_event_id: Mapped[int] = mapped_column(
+        ForeignKey("distribution_events.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    disposition: Mapped[str] = mapped_column(
+        String(40),
+        index=True,
+        nullable=False,
+    )
+    note: Mapped[str] = mapped_column(
+        Text,
+        default="",
+        nullable=False,
+    )
+    previous_transition_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "lead_disposition_transitions.id",
+            ondelete="RESTRICT",
+        ),
+        unique=True,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+    __table_args__ = (
+        CheckConstraint(
+            (
+                "disposition IN ('no_contact', 'not_interested', "
+                "'positive_response', 'appointment_booked', "
+                "'appointment_canceled', 'appointment_no_show', "
+                "'invalid_phone', 'wrong_business', "
+                "'do_not_contact', 'other')"
+            ),
+            name="ck_lead_disposition_transition_value",
+        ),
+    )
+
+
+class LeadDispositionState(Base):
+    __tablename__ = "lead_disposition_states"
+    distribution_event_id: Mapped[int] = mapped_column(
+        ForeignKey("distribution_events.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    current_transition_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey(
+            "lead_disposition_transitions.id",
+            ondelete="RESTRICT",
+        ),
+        unique=True,
+        nullable=False,
+    )
+    current_disposition: Mapped[str] = mapped_column(
+        String(40),
+        index=True,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
 
 
 class LeadOutcome(Base):

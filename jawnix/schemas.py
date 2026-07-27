@@ -168,6 +168,38 @@ class RequestOut(BaseModel):
     delivered_at: datetime | None
 
 
+class FeedbackLookup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    phone: str
+
+
+class FeedbackCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    distribution_event_id: int = Field(gt=0)
+    disposition: str = Field(
+        pattern=(
+            "^(no_contact|not_interested|positive_response|"
+            "appointment_booked|appointment_canceled|"
+            "appointment_no_show|invalid_phone|wrong_business|"
+            "do_not_contact|other)$"
+        )
+    )
+    note: str = Field(default="", max_length=2000)
+    quality_rating: str | None = Field(
+        default=None,
+        pattern="^(good|poor)$",
+    )
+    quality_note: str = Field(default="", max_length=2000)
+
+    @model_validator(mode="after")
+    def other_requires_note(self):
+        if self.disposition == "other" and not self.note.strip():
+            raise ValueError("Other disposition requires a note.")
+        return self
+
+
 class OutcomeCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

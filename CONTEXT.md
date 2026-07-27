@@ -126,24 +126,28 @@ The report is immutable and closes as Dismissed, Corrected, or Suppressed with a
 _Avoid_: Lead suppression, CRM outcome
 
 **Lead Outcome**:
-An append-only customer-reported quality or commercial milestone attached to a specific Distribution Event and attributed to its Source Segment. Outcomes may be recorded at any later date, each milestone type counts at most once in metrics, corrections retain full history, and no outcome changes eligibility without an administrator action.
+A legacy-compatible append-only Customer feedback record attached to a specific Distribution Event and attributed to its Source Segment. Good and Poor records supply Quality Rating history; the legacy write contract and historical commercial milestones remain available until their idempotent migration into Lead Disposition history. New Customer commercial feedback uses Lead Dispositions. Corrections retain full history, and no outcome changes eligibility without an administrator action.
 _Avoid_: Lead status, CRM record
 
 **Customer Feedback**:
-The minimal Customer-facing outcome set: Good, Poor, Positive Response, and Appointment Booked. Notes are optional, appointment date and time are required only when booked, and cancellation or no-show actions appear only for booked appointments.
-_Avoid_: CRM workflow, appointment-held tracking
+The single-phone Customer workflow for finding the Customer's most recent Distribution Event for that delivered phone, confirming the business, phone, delivery date, and Batch, then recording one Lead Disposition and an optional independent Quality Rating. A failed lookup always returns the same response whether the phone is invalid, absent, or belongs to another Customer, and the workflow does not support bulk entry.
+_Avoid_: Inventory search, bulk feedback, CRM workflow
+
+**Lead Disposition**:
+The Customer's append-only status history for one Distribution Event. Controlled values are No Contact, Not Interested, Positive Response, Appointment Booked, Appointment Canceled, Appointment No-show, Invalid Phone, Wrong Business, Do Not Contact, and Other; Other requires a note. Every change retains its predecessor while the latest transition is materialized as the current disposition.
+_Avoid_: Mutable lead status, Lead Report, Lead Suppression
 
 **Quality Rating**:
 A Good or Poor Lead Outcome with an optional Customer note. Poor contributes to Source Segment metrics and may lead into a separate Lead Report, but never creates one automatically.
 _Avoid_: Lead report, five-point score
 
 **Positive Response**:
-A Lead Outcome recorded when the prospect explicitly expresses interest or agrees to a follow-up. Mere connection, opening, automated reply, or neutral response does not qualify.
+A Lead Disposition recorded when the prospect explicitly expresses interest or agrees to a follow-up. Mere connection, opening, automated reply, or neutral response does not qualify.
 _Avoid_: Contact attempt, reply
 
 **Appointment Booked**:
-A Lead Outcome recorded only when a specific appointment date and time have been scheduled. Later cancellation or no-show is recorded as a separate outcome rather than changing the booking milestone.
-_Avoid_: Scheduling intent, follow-up
+A Lead Disposition recorded when a specific appointment has been scheduled; date and time are not required in Jawnix. Later cancellation or no-show is recorded as a separate transition and does not erase the historical booking milestone.
+_Avoid_: Scheduling intent, appointment-held tracking
 
 **Lead Correction**:
 A reversible, audited administrator override of a Lead's delivered title or state. It remains authoritative until explicitly removed; conflicting newer Listing Observations are flagged for review rather than applied automatically.
