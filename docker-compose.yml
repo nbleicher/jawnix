@@ -80,6 +80,7 @@ services:
       - api
     environment:
       JAWNIX_DOMAIN: ${JAWNIX_DOMAIN:-jawnix.com}
+      JAWNIX_SCRAPER_OPS_DOMAIN: ${JAWNIX_SCRAPER_OPS_DOMAIN:-scraper.jawnix.com}
     ports:
       - "80:80"
       - "443:443"

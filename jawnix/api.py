@@ -69,6 +69,14 @@ from .schemas import (
     ScraperConfigurationCreate,
     UserAccountReplace,
 )
+from .scraper_proxy import (
+    accept_scraper_handoff,
+    clear_scraper_session,
+    forward_scraper_request,
+    request_is_scraper_origin,
+    scraper_handoff_response,
+    scraper_principal_from_request,
+)
 from .states import normalize_phone, normalize_states
 from .telegram import (
     TelegramClient,
@@ -81,6 +89,48 @@ from .transitions import TransitionError, transition_request
 
 
 app = FastAPI(title="Jawnix VPS API", version="1.0.0")
+
+
+@app.post("/admin/scraper/session")
+async def scraper_operations_session(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+):
+    return await accept_scraper_handoff(request, settings)
+
+
+@app.post("/admin/scraper/logout")
+def scraper_operations_logout(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+):
+    return clear_scraper_session(request, settings)
+
+
+@app.api_route(
+    "/admin/scraper",
+    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+)
+@app.api_route(
+    "/admin/scraper/{path:path}",
+    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
+)
+async def scraper_operations(
+    request: Request,
+    path: str = "",
+    settings: Settings = Depends(get_settings),
+):
+    if request_is_scraper_origin(request, settings):
+        principal = scraper_principal_from_request(request, settings)
+    else:
+        principal = require_admin(require_principal(request, settings))
+        return scraper_handoff_response(principal, settings)
+    return await forward_scraper_request(
+        request,
+        path,
+        principal,
+        settings,
+    )
 
 
 @app.get("/api/healthz")

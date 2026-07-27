@@ -8,7 +8,7 @@
   </style>
 </head>
 <body><main class="shell">
-  <header class="top"><div><div class="logo">JAWN<span>IX</span></div><small>Batch administration — billing disabled</small></div><div class="actions"><button class="btn" id="sign-out">Sign out</button></div></header>
+  <header class="top"><div><div class="logo">JAWN<span>IX</span></div><small>Batch administration — billing disabled</small></div><div class="actions"><a class="btn" href="/admin/scraper/">Scraper Operations</a><button class="btn" id="sign-out">Sign out</button></div></header>
   <nav class="tabs"><button class="btn tab active" data-pane="requests">Requests</button><button class="btn tab" data-pane="recipients">Recipients</button><button class="btn tab" data-pane="customers">Create customer</button></nav>
   <section class="pane active" id="pane-requests"><div id="requests"><div class="msg-info">Loading requests…</div></div></section>
   <section class="pane" id="pane-recipients">
@@ -55,5 +55,5 @@ document.querySelectorAll('[data-recipient-view]').forEach(button=>button.onclic
 document.querySelectorAll('[data-pane]').forEach(button=>button.onclick=()=>{document.querySelectorAll('[data-pane]').forEach(b=>b.classList.toggle('active',b===button));document.querySelectorAll('.pane').forEach(p=>p.classList.toggle('active',p.id==='pane-'+button.dataset.pane));if(button.dataset.pane==='recipients')loadRecipients();});document.getElementById('refresh-recipients').onclick=loadRecipients;
 document.getElementById('sync-recipients').onclick=async()=>{const result=await api('/api/admin/recipients/sync',{method:'POST'});alert(`Synced ${result.seen} customers; ${result.proposedMappings} mappings proposed. Confirm every mapping before enabling requests.`);await loadRecipients();};
 document.getElementById('customer-form').onsubmit=async event=>{event.preventDefault();try{await api('/api/admin/customers',{method:'POST',body:JSON.stringify({email:document.getElementById('customer-email').value,first_name:document.getElementById('customer-first').value,last_name:document.getElementById('customer-last').value,password:document.getElementById('customer-password').value})});document.getElementById('customer-message').innerHTML='<div class="msg-ok">Customer created. Assign and confirm their User Account before enabling requests.</div>';event.target.reset();}catch(error){document.getElementById('customer-message').innerHTML=`<div class="msg-err">${esc(error.message)}</div>`;}};
-document.getElementById('sign-out').onclick=async()=>{await api('/api/auth/logout',{method:'POST'}).catch(()=>{});location.assign('/login.html');};loadRequests().catch(error=>alert(error.message));
+document.getElementById('sign-out').onclick=async()=>{const scraperOrigin=window.JAWNIX_CONFIG?.scraperOpsOrigin?.replace(/\/$/,'');if(scraperOrigin)await fetch(`${scraperOrigin}/admin/scraper/logout`,{method:'POST',mode:'no-cors',credentials:'include'}).catch(()=>{});await api('/api/auth/logout',{method:'POST'}).catch(()=>{});location.assign('/login.html');};loadRequests().catch(error=>alert(error.message));
 </script></body></html>

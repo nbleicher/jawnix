@@ -3,6 +3,7 @@ services:
     container_name: jawnix-caddy
     environment:
       JAWNIX_DOMAIN: ":8080"
+      JAWNIX_SCRAPER_OPS_DOMAIN: ":8081"
     ports: !reset []
     networks:
       - private

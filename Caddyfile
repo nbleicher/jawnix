@@ -5,6 +5,10 @@
 		reverse_proxy api:8001
 	}
 
+	handle /admin/scraper* {
+		reverse_proxy api:8001
+	}
+
 	redir / /login.html 302
 	redir /index.html /login.html 302
 	redir /login /login.html 308
@@ -16,6 +20,23 @@
 	header {
 		X-Content-Type-Options nosniff
 		Referrer-Policy no-referrer-when-downgrade
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+}
+
+{$JAWNIX_SCRAPER_OPS_DOMAIN:scraper.jawnix.com} {
+	encode zstd gzip
+
+	handle /admin/scraper* {
+		reverse_proxy api:8001
+	}
+
+	respond 404
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
 		Permissions-Policy "camera=(), microphone=(), geolocation=()"
 		-Server
 	}

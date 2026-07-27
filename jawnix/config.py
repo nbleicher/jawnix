@@ -39,6 +39,24 @@ class Settings(BaseSettings):
     scraper_db_path: Path = Field(default=Path("/data/health_leads/data/leads.db"), alias="JAWNIX_SCRAPER_DB_PATH")
     scraper_command: str = Field(default="", alias="JAWNIX_SCRAPER_COMMAND")
     scraper_hour_utc: int = Field(default=3, alias="JAWNIX_SCRAPER_HOUR_UTC")
+    scraper_ops_url: str = Field(default="", alias="JAWNIX_SCRAPER_OPS_URL")
+    scraper_ops_origin: str = Field(
+        default="",
+        alias="JAWNIX_SCRAPER_OPS_ORIGIN",
+    )
+    scraper_ops_user: str = Field(
+        default="admin",
+        alias="JAWNIX_SCRAPER_OPS_USER",
+    )
+    scraper_ops_password: str = Field(
+        default="",
+        alias="JAWNIX_SCRAPER_OPS_PASSWORD",
+    )
+    scraper_ops_timeout_seconds: float = Field(
+        default=10,
+        alias="JAWNIX_SCRAPER_OPS_TIMEOUT_SECONDS",
+    )
+
     @property
     def telegram_approvers(self) -> set[str]:
         return {value.strip() for value in self.telegram_approver_user_ids.split(",") if value.strip()}

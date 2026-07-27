@@ -29,6 +29,49 @@ The current VPS already has an edge Caddy container for another application. Sta
 
 `config.js` contains only the Supabase browser URL and publishable/anon key. Service-role, Telegram, Resend, PostgreSQL, and Restic secrets remain server-side.
 
+## Private Scraper Operations mount
+
+Jawnix links the Scraper control plane from Admin at `/admin/scraper/`. After
+verifying the Jawnix administrator session, the API performs a short-lived
+handoff to the dedicated `scraper.jawnix.com` browser origin. That origin
+exposes only `/admin/scraper/*`, uses a separate host-only session and
+proxy-scoped CSRF token, rewrites dashboard and HTMX paths, and injects the
+Scraper Basic Auth credential server-side. This origin separation prevents
+Scraper HTML or JavaScript from accessing native Jawnix sessions and APIs. Do
+not expose either credential in `config.js` or any browser-facing environment
+value.
+
+Connect the two VPS hosts with WireGuard before enabling the mount:
+
+Use the verified Scale release
+`scraper-source-baseline-2026-07-27-v4`. Do not deploy it until the current
+production image and source revision have been recorded for rollback as required
+by Jawnix issue #29.
+
+1. Assign a private WireGuard address to each host (the examples use Jawnix
+   `10.77.0.1` and Scraper `10.77.0.2`) and configure each as the other's only
+   peer.
+2. On the Scraper host, set `DASHBOARD_BIND_ADDRESS=10.77.0.2` in the Scale
+   environment and recreate only the dashboard container. Keep port 8090
+   closed on the public interface.
+3. Permit TCP 8090 on the Scraper host only on `wg0` and only from the Jawnix
+   WireGuard address. Reject the same port on the public interface.
+4. Point `scraper.jawnix.com` at the Jawnix edge, set
+   `JAWNIX_SCRAPER_OPS_ORIGIN=https://scraper.jawnix.com` and
+   `JAWNIX_SCRAPER_OPS_DOMAIN=scraper.jawnix.com`. On the shared-edge staging
+   stack, route the staging Scraper hostname to `jawnix-caddy:8081`.
+5. On Jawnix, set `JAWNIX_SCRAPER_OPS_URL=http://10.77.0.2:8090` plus
+   `JAWNIX_SCRAPER_OPS_USER` and `JAWNIX_SCRAPER_OPS_PASSWORD`, then recreate
+   the API and Caddy services.
+6. From inside the Jawnix API container, verify that the Scraper health route
+   works through WireGuard and is unreachable through the Scraper's public IP.
+   Then sign in as a Jawnix administrator and open `/admin/scraper/`.
+
+If the peer or upstream is unavailable, the mounted route returns a closed
+unavailable page with its process's last successful connection and a Retry
+link. Native Jawnix administration, feedback, and analytics routes do not
+depend on the Scraper connection.
+
 The PostgreSQL initialization hook enables password-authenticated replication only for physical backups on the private Docker network. If attaching this stack to an already-initialized PostgreSQL volume, add the equivalent `host replication` rule to `pg_hba.conf` and reload PostgreSQL before forcing the first base backup.
 
 ## Production deployment record
