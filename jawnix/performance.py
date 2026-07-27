@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from .models import (
     DistributionEvent,
+    LeadDispositionTransition,
     LeadOutcome,
     SourceRecommendation,
 )
@@ -38,10 +39,24 @@ def source_performance_snapshot(session: Session) -> dict:
         for item in outcomes
         if item.id not in superseded_ids
     }
+    transitions = list(
+        session.scalars(
+            select(LeadDispositionTransition).order_by(
+                LeadDispositionTransition.created_at,
+                LeadDispositionTransition.id,
+            )
+        )
+    )
+    dispositions_by_event: dict[int, set[str]] = defaultdict(set)
+    for transition in transitions:
+        dispositions_by_event[transition.distribution_event_id].add(
+            transition.disposition
+        )
     cohorts: dict[tuple[str, str], dict] = {}
     legacy_delivered = 0
     global_counts = {
         "delivered": 0,
+        "worked": 0,
         "rated": 0,
         "good": 0,
         "poor": 0,
@@ -64,6 +79,7 @@ def source_performance_snapshot(session: Session) -> dict:
                 "niche": event.source_niche,
                 "distributionPeriod": period,
                 "delivered": 0,
+                "worked": 0,
                 "rated": 0,
                 "good": 0,
                 "poor": 0,
@@ -73,16 +89,25 @@ def source_performance_snapshot(session: Session) -> dict:
         )
         item["delivered"] += 1
         global_counts["delivered"] += 1
+        dispositions = dispositions_by_event.get(event.id, set())
+        legacy_positive = (event.id, "positive_response") in active
+        legacy_booked = (event.id, "appointment_booked") in active
+        if dispositions or legacy_positive or legacy_booked:
+            item["worked"] += 1
+            global_counts["worked"] += 1
         quality = active.get((event.id, "quality"))
         if quality is not None:
             item["rated"] += 1
             item[quality.kind] += 1
             global_counts["rated"] += 1
             global_counts[quality.kind] += 1
-        if (event.id, "positive_response") in active:
+        if (
+            dispositions & {"positive_response", "appointment_booked"}
+            or legacy_positive
+        ):
             item["positiveResponses"] += 1
             global_counts["positiveResponses"] += 1
-        if (event.id, "appointment_booked") in active:
+        if "appointment_booked" in dispositions or legacy_booked:
             item["appointmentsBooked"] += 1
             global_counts["appointmentsBooked"] += 1
     results = []
@@ -94,21 +119,38 @@ def source_performance_snapshot(session: Session) -> dict:
         ),
     ):
         rated = item["rated"]
-        delivered = item["delivered"]
+        worked = item["worked"]
         item["goodRate"] = item["good"] / rated if rated else 0.0
         item["positiveResponseRate"] = (
-            item["positiveResponses"] / delivered if delivered else 0.0
+            item["positiveResponses"] / worked if worked else 0.0
         )
         item["appointmentRate"] = (
-            item["appointmentsBooked"] / delivered if delivered else 0.0
+            item["appointmentsBooked"] / worked if worked else 0.0
         )
         item["qualityStatus"] = (
             "ranked" if rated >= 30 else "insufficient_data"
         )
         item["conversionStatus"] = (
-            "ranked" if delivered >= 100 else "insufficient_data"
+            "ranked" if worked >= 100 else "insufficient_data"
         )
         results.append(item)
+    global_worked = global_counts["worked"]
+    global_rated = global_counts["rated"]
+    global_counts["rates"] = {
+        "good": (
+            global_counts["good"] / global_rated if global_rated else 0.0
+        ),
+        "positiveResponse": (
+            global_counts["positiveResponses"] / global_worked
+            if global_worked
+            else 0.0
+        ),
+        "appointmentBooked": (
+            global_counts["appointmentsBooked"] / global_worked
+            if global_worked
+            else 0.0
+        ),
+    }
     global_counts["prescriptive"] = False
     return {
         "cohorts": results,

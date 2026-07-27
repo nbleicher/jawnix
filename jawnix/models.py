@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -364,6 +364,16 @@ class LeadDispositionTransition(Base):
         index=True,
     )
     actor_user_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    source_outcome_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "lead_outcomes.id",
+            ondelete="RESTRICT",
+            name="fk_disposition_transition_source_outcome",
+            use_alter=True,
+        ),
+        unique=True,
+        index=True,
+    )
     disposition: Mapped[str] = mapped_column(
         String(40),
         index=True,
@@ -438,6 +448,7 @@ class LeadOutcome(Base):
         ForeignKey("agents.id", ondelete="RESTRICT"),
         index=True,
     )
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
     kind: Mapped[str] = mapped_column(String(40), nullable=False)
     metric: Mapped[str] = mapped_column(String(40), nullable=False)
     appointment_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -463,6 +474,14 @@ class LeadReport(Base):
     )
     customer_id: Mapped[int] = mapped_column(
         ForeignKey("agents.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    source_transition_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "lead_disposition_transitions.id",
+            ondelete="RESTRICT",
+        ),
+        unique=True,
         index=True,
     )
     reason: Mapped[str] = mapped_column(
@@ -500,6 +519,49 @@ class LeadReportResolution(Base):
     )
     note: Mapped[str] = mapped_column(Text, nullable=False)
     actor_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
+class EligibilityHold(Base):
+    __tablename__ = "eligibility_holds"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    lead_id: Mapped[int] = mapped_column(
+        ForeignKey("lead_inventory.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    distribution_event_id: Mapped[int] = mapped_column(
+        ForeignKey("distribution_events.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    report_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("lead_reports.id", ondelete="RESTRICT"),
+        unique=True,
+        index=True,
+    )
+    reason: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        index=True,
+        nullable=False,
+    )
+    released_by: Mapped[str] = mapped_column(
+        String(160),
+        default="",
+        nullable=False,
+    )
+    release_reason: Mapped[str] = mapped_column(
+        Text,
+        default="",
+        nullable=False,
+    )
+    released_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,
@@ -656,6 +718,157 @@ class SourceSegment(Base):
             "key",
             name="uq_source_segment_configuration_key",
         ),
+    )
+
+
+class SourceNicheMapping(Base):
+    __tablename__ = "source_niche_mappings"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    segment_key: Mapped[str] = mapped_column(
+        String(320),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    state: Mapped[str] = mapped_column(String(2), index=True, nullable=False)
+    keyword: Mapped[str] = mapped_column(
+        String(240),
+        index=True,
+        nullable=False,
+    )
+    niche: Mapped[str] = mapped_column(
+        String(160),
+        index=True,
+        nullable=False,
+    )
+    confirmed: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        index=True,
+        nullable=False,
+    )
+    proposal_source: Mapped[str] = mapped_column(
+        String(40),
+        default="migration",
+        nullable=False,
+    )
+    proposed_evidence: Mapped[dict] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+    confirmed_by: Mapped[str] = mapped_column(
+        String(160),
+        default="",
+        nullable=False,
+    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
+class DailySourcePerformance(Base):
+    __tablename__ = "daily_source_performance"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    nightly_review_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("nightly_reviews.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    snapshot_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    segment_key: Mapped[str] = mapped_column(
+        String(320),
+        index=True,
+        nullable=False,
+    )
+    state: Mapped[str] = mapped_column(String(2), index=True, nullable=False)
+    keyword: Mapped[str] = mapped_column(
+        String(240),
+        index=True,
+        nullable=False,
+    )
+    niche: Mapped[str] = mapped_column(
+        String(160),
+        index=True,
+        nullable=False,
+    )
+    niche_confirmed: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        index=True,
+        nullable=False,
+    )
+    window_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    window_ended_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    counts: Mapped[dict] = mapped_column(JSON, nullable=False)
+    rates: Mapped[dict] = mapped_column(JSON, nullable=False)
+    intervals: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    trend: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    eligibility: Mapped[str] = mapped_column(
+        String(48),
+        index=True,
+        nullable=False,
+    )
+    action_state: Mapped[str] = mapped_column(
+        String(32),
+        default="notes_only",
+        index=True,
+        nullable=False,
+    )
+    evidence_checksum: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_date",
+            "segment_key",
+            name="uq_daily_source_performance_date_segment",
+        ),
+    )
+
+
+class PerformanceSuggestionNote(Base):
+    __tablename__ = "performance_suggestion_notes"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    snapshot_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("daily_source_performance.id", ondelete="RESTRICT"),
+        unique=True,
+        index=True,
+    )
+    segment_key: Mapped[str] = mapped_column(
+        String(320),
+        index=True,
+        nullable=False,
+    )
+    template_key: Mapped[str] = mapped_column(String(80), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence: Mapped[dict] = mapped_column(JSON, nullable=False)
+    evidence_checksum: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
     )
 
 
@@ -925,6 +1138,15 @@ class SourceRecommendation(Base):
         ForeignKey("scraper_configurations.id", ondelete="RESTRICT"),
         index=True,
     )
+    nightly_review_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("nightly_reviews.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    snapshot_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("daily_source_performance.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    configuration_version: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,
@@ -936,9 +1158,26 @@ class SourceRecommendation(Base):
 class NightlyReview(Base):
     __tablename__ = "nightly_reviews"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    scraper_run_id: Mapped[int] = mapped_column(
+    scraper_run_id: Mapped[int | None] = mapped_column(
         ForeignKey("scraper_runs.id", ondelete="RESTRICT"),
         unique=True,
+        index=True,
+    )
+    review_date: Mapped[date | None] = mapped_column(
+        Date,
+        unique=True,
+        index=True,
+    )
+    scheduled_for: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    attempt_count: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
+    )
+    next_retry_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         index=True,
     )
     status: Mapped[str] = mapped_column(

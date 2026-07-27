@@ -15,6 +15,8 @@ from jawnix.telegram import (
     parse_anomaly_callback_data,
     parse_callback_data,
     verify_telegram_secret,
+    recommendation_callback_data,
+    parse_recommendation_callback_data,
 )
 
 
@@ -37,6 +39,20 @@ def test_telegram_secret_and_callback_validation():
     assert verify_telegram_secret("webhook-secret", "webhook-secret")
     assert not verify_telegram_secret("wrong", "webhook-secret")
     assert not verify_telegram_secret("", "webhook-secret")
+    recommendation_id = uuid.uuid4()
+    value = recommendation_callback_data(
+        "approve",
+        recommendation_id,
+        evidence_checksum="a" * 64,
+        configuration_version=17,
+    )
+    assert parse_recommendation_callback_data(value) == (
+        "approve",
+        recommendation_id,
+        17,
+        "aaaaaaaa",
+    )
+    assert len(value.encode()) <= 64
     with pytest.raises(ValueError, match="Malformed"):
         parse_callback_data("invalid")
     anomaly_id = uuid.uuid4()

@@ -1080,6 +1080,7 @@ def test_late_feedback_keeps_correction_history_and_performance_denominators(
                     "%Y-%m"
                 ),
                 "delivered": 1,
+                "worked": 1,
                 "rated": 1,
                 "good": 1,
                 "poor": 0,
@@ -1093,6 +1094,12 @@ def test_late_feedback_keeps_correction_history_and_performance_denominators(
             }
         ]
         assert body["global"]["prescriptive"] is False
+        assert body["global"]["worked"] == 1
+        assert body["global"]["rates"] == {
+            "good": 1.0,
+            "positiveResponse": 1.0,
+            "appointmentBooked": 0.0,
+        }
         assert body["legacy"] == {
             "delivered": 1,
             "excludedFromRecommendations": True,
@@ -1995,6 +2002,14 @@ def test_same_niche_recommendation_approval_versions_configuration_without_run(
             )
             session.add(event)
             session.flush()
+            session.add(
+                LeadDispositionTransition(
+                    distribution_event_id=event.id,
+                    customer_id=customer.id,
+                    actor_user_id=admin_id,
+                    disposition="no_contact",
+                )
+            )
             if index < 30:
                 session.add(
                     LeadOutcome(

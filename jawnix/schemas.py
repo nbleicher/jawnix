@@ -336,3 +336,10 @@ class LeadReportResolve(BaseModel):
                 "Corrected report resolution requires a title or state."
             )
         return self
+
+
+class SourceNicheDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    niche: str = Field(min_length=1, max_length=160)
+    reason: str = Field(min_length=1, max_length=2000)

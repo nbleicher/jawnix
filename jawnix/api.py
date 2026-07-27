@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
@@ -16,7 +16,12 @@ from svix.webhooks import Webhook, WebhookVerificationError
 from .auth import Principal, clear_session, issue_session, require_admin, require_principal, verify_supabase_token
 from .config import Settings, get_settings
 from .database import get_db
+from .feedback import apply_disposition_controls, release_report_hold
 from .jobs import enqueue_job
+from .recommendations import (
+    RecommendationDecisionError,
+    decide_recommendation,
+)
 from .models import (
     Agency,
     Customer,
@@ -24,7 +29,9 @@ from .models import (
     BatchArtifact,
     CustomerProfile,
     CustomerTombstone,
+    DailySourcePerformance,
     DistributionEvent,
+    EligibilityHold,
     InventoryConflict,
     LeadDispositionState,
     LeadDispositionTransition,
@@ -36,10 +43,12 @@ from .models import (
     ListingObservation,
     LeadRequest,
     NightlyReview,
+    PerformanceSuggestionNote,
     RequestStatus,
     ScraperConfiguration,
     ScrapeAnomaly,
     SourceRecommendation,
+    SourceNicheMapping,
     SourceSegment,
     UserAccount,
     WebhookReceipt,
@@ -67,6 +76,7 @@ from .schemas import (
     RequestOut,
     SessionExchange,
     ScraperConfigurationCreate,
+    SourceNicheDecision,
     UserAccountReplace,
 )
 from .scraper_proxy import (
@@ -83,6 +93,7 @@ from .telegram import (
     parse_anomaly_callback_data,
     parse_callback_data,
     parse_conflict_callback_data,
+    parse_recommendation_callback_data,
     verify_telegram_secret,
 )
 from .transitions import TransitionError, transition_request
@@ -658,6 +669,7 @@ def create_feedback(
         quality_rating = LeadOutcome(
             distribution_event_id=event.id,
             customer_id=profile.customer_id,
+            actor_user_id=principal.user_id,
             kind=payload.quality_rating,
             metric="quality",
             note=payload.quality_note.strip(),
@@ -672,6 +684,7 @@ def create_feedback(
         distribution_event_id=event.id,
         customer_id=profile.customer_id,
         actor_user_id=principal.user_id,
+        source_outcome_id=None,
         disposition=payload.disposition,
         note=payload.note.strip(),
         previous_transition_id=(
@@ -683,6 +696,7 @@ def create_feedback(
     if quality_rating is not None:
         db.add(quality_rating)
     db.flush()
+    report, hold = apply_disposition_controls(db, event, transition)
     disposition_state = db.get(
         LeadDispositionState,
         event.id,
@@ -715,6 +729,10 @@ def create_feedback(
             _quality_rating_response(quality_rating)
             if quality_rating is not None
             else None
+        ),
+        "reportId": str(report.id) if report is not None else None,
+        "eligibilityHoldId": (
+            str(hold.id) if hold is not None else None
         ),
     }
 
@@ -803,6 +821,7 @@ def create_outcome(
     outcome = LeadOutcome(
         distribution_event_id=event.id,
         customer_id=profile.customer_id,
+        actor_user_id=principal.user_id,
         kind=payload.kind,
         metric=metric,
         appointment_at=payload.appointment_at,
@@ -845,14 +864,311 @@ def create_lead_report(
     }
 
 
+def _performance_rows(
+    db: Session,
+    *,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    state: str = "",
+    keyword: str = "",
+    niche: str = "",
+    confidence: str = "",
+    action_state: str = "",
+    latest: bool = True,
+) -> list[DailySourcePerformance]:
+    query = select(DailySourcePerformance)
+    if start_date is not None:
+        query = query.where(
+            DailySourcePerformance.snapshot_date >= start_date
+        )
+    if end_date is not None:
+        query = query.where(
+            DailySourcePerformance.snapshot_date <= end_date
+        )
+    if state:
+        query = query.where(
+            DailySourcePerformance.state == state.strip().upper()
+        )
+    if keyword:
+        query = query.where(
+            DailySourcePerformance.keyword.ilike(
+                f"%{keyword.strip()}%"
+            )
+        )
+    if niche:
+        query = query.where(
+            DailySourcePerformance.niche == niche.strip()
+        )
+    if confidence:
+        query = query.where(
+            DailySourcePerformance.eligibility == confidence.strip()
+        )
+    if action_state:
+        query = query.where(
+            DailySourcePerformance.action_state
+            == action_state.strip()
+        )
+    rows = list(
+        db.scalars(
+            query.order_by(
+                DailySourcePerformance.snapshot_date.desc(),
+                DailySourcePerformance.segment_key,
+            )
+        )
+    )
+    if not latest:
+        return rows
+    result: list[DailySourcePerformance] = []
+    seen: set[str] = set()
+    for row in rows:
+        if row.segment_key in seen:
+            continue
+        seen.add(row.segment_key)
+        result.append(row)
+    return result
+
+
+def _performance_response(item: DailySourcePerformance) -> dict:
+    return {
+        "id": str(item.id),
+        "date": item.snapshot_date.isoformat(),
+        "segment": item.segment_key,
+        "state": item.state,
+        "keyword": item.keyword,
+        "niche": item.niche,
+        "nicheConfirmed": item.niche_confirmed,
+        "counts": item.counts,
+        "rates": item.rates,
+        "intervals": item.intervals,
+        "trend": item.trend,
+        "confidence": item.eligibility,
+        "actionState": item.action_state,
+        "evidenceChecksum": item.evidence_checksum,
+    }
+
+
 @app.get("/api/admin/source-performance")
 def source_performance(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    state: str = "",
+    keyword: str = "",
+    niche: str = "",
+    confidence: str = "",
+    action_state: str = "",
+    latest: bool = True,
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    rows = _performance_rows(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        state=state,
+        keyword=keyword,
+        niche=niche,
+        confidence=confidence,
+        action_state=action_state,
+        latest=latest,
+    )
     from .performance import source_performance_snapshot
 
-    return source_performance_snapshot(db)
+    return {
+        **source_performance_snapshot(db),
+        "rows": [_performance_response(item) for item in rows],
+    }
+
+
+@app.get("/api/admin/source-performance.csv")
+def export_source_performance(
+    start_date: date | None = None,
+    end_date: date | None = None,
+    state: str = "",
+    keyword: str = "",
+    niche: str = "",
+    confidence: str = "",
+    action_state: str = "",
+    latest: bool = True,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    import csv
+    import io
+
+    rows = _performance_rows(
+        db,
+        start_date=start_date,
+        end_date=end_date,
+        state=state,
+        keyword=keyword,
+        niche=niche,
+        confidence=confidence,
+        action_state=action_state,
+        latest=latest,
+    )
+    stream = io.StringIO()
+    columns = [
+        "date",
+        "state",
+        "keyword",
+        "niche",
+        "niche_confirmed",
+        "delivered",
+        "worked",
+        "rated",
+        "positive",
+        "booked",
+        "canceled",
+        "no_show",
+        "invalid",
+        "wrong_business",
+        "do_not_contact",
+        "positive_rate",
+        "booked_rate",
+        "good_rate",
+        "poor_rate",
+        "confidence",
+        "action_state",
+    ]
+    writer = csv.DictWriter(stream, fieldnames=columns)
+    writer.writeheader()
+    for item in rows:
+        writer.writerow(
+            {
+                "date": item.snapshot_date.isoformat(),
+                "state": item.state,
+                "keyword": item.keyword,
+                "niche": item.niche,
+                "niche_confirmed": item.niche_confirmed,
+                **item.counts,
+                "positive_rate": item.rates.get(
+                    "positiveResponse", 0
+                ),
+                "booked_rate": item.rates.get(
+                    "appointmentBooked", 0
+                ),
+                "good_rate": item.rates.get("good", 0),
+                "poor_rate": item.rates.get("poor", 0),
+                "confidence": item.eligibility,
+                "action_state": item.action_state,
+            }
+        )
+    return Response(
+        content=stream.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="keyword-performance.csv"'
+            )
+        },
+    )
+
+
+@app.get("/api/admin/source-performance/{segment_key}/history")
+def source_performance_history(
+    segment_key: str,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    snapshots = list(
+        db.scalars(
+            select(DailySourcePerformance)
+            .where(
+                DailySourcePerformance.segment_key == segment_key
+            )
+            .order_by(DailySourcePerformance.snapshot_date.desc())
+        )
+    )
+    notes = {
+        item.snapshot_id: item
+        for item in db.scalars(
+            select(PerformanceSuggestionNote).where(
+                PerformanceSuggestionNote.snapshot_id.in_(
+                    [snapshot.id for snapshot in snapshots]
+                )
+            )
+        )
+    }
+    return {
+        "rows": [
+            {
+                **_performance_response(item),
+                "suggestionNote": (
+                    notes[item.id].text if item.id in notes else None
+                ),
+            }
+            for item in snapshots
+        ]
+    }
+
+
+@app.get("/api/admin/source-niches")
+def list_source_niches(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return [
+        {
+            "segment": item.segment_key,
+            "state": item.state,
+            "keyword": item.keyword,
+            "niche": item.niche,
+            "confirmed": item.confirmed,
+            "proposalSource": item.proposal_source,
+            "evidence": item.proposed_evidence,
+            "confirmedBy": item.confirmed_by,
+            "confirmedAt": item.confirmed_at,
+        }
+        for item in db.scalars(
+            select(SourceNicheMapping).order_by(
+                SourceNicheMapping.state,
+                SourceNicheMapping.keyword,
+            )
+        )
+    ]
+
+
+@app.post("/api/admin/source-niches/{segment_key}/confirm")
+def confirm_source_niche(
+    segment_key: str,
+    payload: SourceNicheDecision,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    mapping = db.scalar(
+        select(SourceNicheMapping)
+        .where(SourceNicheMapping.segment_key == segment_key)
+        .with_for_update()
+    )
+    if mapping is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Source Segment Niche mapping was not found.",
+        )
+    previous = {
+        "niche": mapping.niche,
+        "confirmed": mapping.confirmed,
+    }
+    mapping.niche = payload.niche.strip()
+    mapping.confirmed = True
+    mapping.confirmed_by = str(principal.user_id)
+    mapping.confirmed_at = utcnow()
+    mapping.updated_at = mapping.confirmed_at
+    _audit(
+        db,
+        principal,
+        "source_niche_confirmed",
+        "source_segment",
+        mapping.segment_key,
+        payload.reason,
+        {"previous": previous, "niche": mapping.niche},
+    )
+    db.commit()
+    return {
+        "segment": mapping.segment_key,
+        "niche": mapping.niche,
+        "confirmed": True,
+    }
 
 
 @app.get("/api/admin/source-recommendations")
@@ -892,117 +1208,25 @@ def decide_source_recommendation(
     payload: ActionReason,
     principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
     if action not in {"approve", "deny"}:
         raise HTTPException(status_code=404, detail="Unknown action.")
-    recommendation = db.scalar(
-        select(SourceRecommendation)
-        .where(SourceRecommendation.id == recommendation_id)
-        .with_for_update()
-    )
-    if recommendation is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Source Recommendation was not found.",
-        )
-    if recommendation.status != "pending":
-        return {
-            "id": str(recommendation.id),
-            "status": recommendation.status,
-            "duplicate": True,
-        }
-    recommendation.status = "approved" if action == "approve" else "denied"
-    recommendation.decision_by = str(principal.user_id)
-    recommendation.decision_reason = payload.reason.strip()
-    recommendation.decided_at = utcnow()
-    if action == "approve":
-        latest = db.scalar(
-            select(ScraperConfiguration)
-            .order_by(ScraperConfiguration.version.desc())
-            .limit(1)
-            .with_for_update()
-        )
-        if latest is None:
-            raise HTTPException(
-                status_code=409,
-                detail="Create a Scraper Configuration first.",
-            )
-        for scheduled in db.scalars(
-            select(ScraperConfiguration)
-            .where(ScraperConfiguration.status == "scheduled")
-            .with_for_update()
-        ):
-            scheduled.status = "schedule_replaced"
-        segments = []
-        for segment in latest.segments:
-            parameters = dict(segment.parameters)
-            if segment.key == recommendation.segment_key:
-                parameters["recommendation_action"] = recommendation.action
-                parameters["enabled"] = recommendation.action != "pause"
-                parameters["relative_weight"] = {
-                    "expand": 1.25,
-                    "reduce": 0.75,
-                    "pause": 0.0,
-                }[recommendation.action]
-            segments.append(
-                SourceSegment(
-                    key=segment.key,
-                    niche=segment.niche,
-                    query=segment.query,
-                    geography=segment.geography,
-                    parameters=parameters,
-                )
-            )
-        canonical = json.dumps(
-            {
-                "segments": [
-                    {
-                        "key": item.key,
-                        "niche": item.niche,
-                        "query": item.query,
-                        "geography": item.geography,
-                        "parameters": item.parameters,
-                    }
-                    for item in segments
-                ],
-                "anomaly_thresholds": latest.anomaly_thresholds,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        next_configuration = ScraperConfiguration(
-            version=latest.version + 1,
-            checksum=hashlib.sha256(
-                canonical.encode("utf-8")
-            ).hexdigest(),
-            status="scheduled",
-            anomaly_thresholds=latest.anomaly_thresholds,
-            created_by=principal.user_id,
+    try:
+        recommendation = decide_recommendation(
+            db,
+            recommendation_id,
+            action,
+            actor_id=str(principal.user_id),
             reason=payload.reason.strip(),
-            scheduled_at=utcnow(),
-            based_on_configuration_id=latest.id,
-            segments=segments,
+            apply_enabled=settings.recommendation_apply_enabled,
+            shadow_mode=settings.recommendation_shadow_mode,
         )
-        db.add(next_configuration)
-        db.flush()
-        recommendation.resulting_configuration_id = next_configuration.id
-    _audit(
-        db,
-        principal,
-        f"source_recommendation_{recommendation.status}",
-        "source_recommendation",
-        recommendation.id,
-        payload.reason,
-        {
-            "proposedAction": recommendation.action,
-            "segment": recommendation.segment_key,
-            "resultingConfigurationId": (
-                str(recommendation.resulting_configuration_id)
-                if recommendation.resulting_configuration_id is not None
-                else None
-            ),
-        },
-    )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    except RecommendationDecisionError as exc:
+        db.commit()
+        raise HTTPException(status_code=409, detail=str(exc)) from None
     db.commit()
     return {
         "id": str(recommendation.id),
@@ -1715,6 +1939,12 @@ def resolve_lead_report(
         actor_id=str(principal.user_id),
     )
     db.add(resolution)
+    hold = release_report_hold(
+        db,
+        report,
+        actor_id=str(principal.user_id),
+        reason=payload.note.strip(),
+    )
     if payload.action == "corrected":
         correction = LeadCorrectionEvent(
             lead_id=lead.id,
@@ -1749,6 +1979,9 @@ def resolve_lead_report(
             "distributionEventId": event.id,
             "leadId": lead.id,
             "reportReason": report.reason,
+            "eligibilityHoldId": (
+                str(hold.id) if hold is not None else None
+            ),
         },
     )
     db.commit()
@@ -2669,10 +2902,21 @@ async def telegram_webhook(
                 )
                 target_kind = "conflict"
             except ValueError:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Malformed Telegram callback.",
-                ) from None
+                try:
+                    (
+                        action,
+                        target_id,
+                        target_configuration_version,
+                        target_evidence_checksum,
+                    ) = parse_recommendation_callback_data(
+                        callback_value
+                    )
+                    target_kind = "recommendation"
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Malformed Telegram callback.",
+                    ) from None
 
     telegram = TelegramClient(settings)
     if user_id not in settings.telegram_approvers or chat_id != settings.telegram_chat_id:
@@ -2707,7 +2951,7 @@ async def telegram_webhook(
                 "approver_user_id": user_id,
             },
         )
-    else:
+    elif target_kind == "conflict":
         enqueue_job(
             db,
             "telegram_inventory_conflict_action",
@@ -2716,6 +2960,19 @@ async def telegram_webhook(
                 "conflict_id": str(target_id),
                 "callback_query_id": callback_query_id,
                 "approver_user_id": user_id,
+            },
+        )
+    else:
+        enqueue_job(
+            db,
+            "telegram_recommendation_action",
+            payload={
+                "action": action,
+                "recommendation_id": str(target_id),
+                "callback_query_id": callback_query_id,
+                "approver_user_id": user_id,
+                "configuration_version": target_configuration_version,
+                "evidence_checksum": target_evidence_checksum,
             },
         )
     db.commit()

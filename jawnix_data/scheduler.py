@@ -9,6 +9,10 @@ from jawnix.database import SessionLocal
 from jawnix.maintenance import expire_batch_files
 from jawnix.models import NightlyReview
 
+from jawnix.nightly import (
+    activate_scheduled_scraper_configuration,
+    run_scheduled_nightly_review,
+)
 from .scraper import run_nightly_attempt
 
 
@@ -31,23 +35,47 @@ def run_nightly_scraper(settings: Settings) -> NightlyReview:
 
 def run() -> None:
     settings = get_settings()
+    cleaned_date = None
     while True:
-        time.sleep(seconds_until(settings.scraper_hour_utc))
         try:
-            review = run_nightly_scraper(settings)
-            log.info(
-                "Nightly review %s created with status %s",
-                review.id,
-                review.status,
-            )
+            now = datetime.now(timezone.utc)
+            if now.hour >= settings.scraper_publication_hour_utc:
+                with SessionLocal.begin() as session:
+                    activated = (
+                        activate_scheduled_scraper_configuration(
+                            session,
+                            settings,
+                            as_of=now,
+                        )
+                    )
+                if activated is not None:
+                    log.info(
+                        "Activated Scraper Configuration v%s",
+                        activated.version,
+                    )
+            if now.hour >= settings.nightly_review_hour_utc:
+                with SessionLocal.begin() as session:
+                    review = run_scheduled_nightly_review(
+                        session,
+                        settings,
+                        as_of=now,
+                    )
+                log.info(
+                    "Nightly review %s has status %s",
+                    review.id,
+                    review.status,
+                )
         except Exception:
-            log.exception("Nightly scraper sync failed")
-        try:
-            with SessionLocal.begin() as session:
-                result = expire_batch_files(session, settings)
-            log.info("Expired batch cleanup: %s", result)
-        except Exception:
-            log.exception("Expired batch cleanup failed")
+            log.exception("Nightly review attempt failed")
+        if cleaned_date != datetime.now(timezone.utc).date():
+            try:
+                with SessionLocal.begin() as session:
+                    result = expire_batch_files(session, settings)
+                log.info("Expired batch cleanup: %s", result)
+                cleaned_date = datetime.now(timezone.utc).date()
+            except Exception:
+                log.exception("Expired batch cleanup failed")
+        time.sleep(60)
 
 
 if __name__ == "__main__":

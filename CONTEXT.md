@@ -37,7 +37,7 @@ The Scraper's durable record of acquired candidate leads and the replay source f
 _Avoid_: Lead inventory, distribution database
 
 **Source Segment**:
-The specific Google Maps niche or search query and geography that produced a Listing Observation. Lead quality is evaluated per Source Segment rather than for the Scraper as a whole.
+An explicit, versioned Google Maps keyword-and-state pair with stable identity, Niche confirmation state, cadence, and Active, Reduced, or Paused status. Lead quality is evaluated per Source Segment rather than for the Scraper as a whole; changing one pair never changes the same keyword in another state.
 _Avoid_: Scraper, lead inventory
 
 **Source Cohort**:
@@ -45,7 +45,7 @@ Distribution Events grouped by Source Segment and original distribution period. 
 _Avoid_: Outcome-month cohort, scrape run
 
 **Source Performance**:
-Source Cohort metrics where Good and Poor rates use rated Leads, while Positive Response and Appointment Booked rates use all delivered Leads; every percentage includes its raw count. Quality ranks after 30 ratings and response or appointment performance ranks after 100 deliveries regardless of age, with smaller samples visible as Insufficient Data.
+Immutable daily Source Cohort metrics where Good and Poor rates use Quality Ratings, while disposition rates—including Positive Response and Appointment Booked—use Worked Leads; every percentage includes its raw count. Prescriptive analysis uses the trailing 90-day cohort and requires 30 Quality Ratings, 100 Worked Leads, a confirmed Niche, and two eligible same-Niche/same-state peers. Smaller samples and all-time results remain visible but non-prescriptive.
 _Avoid_: Raw outcome count, unrated quality rate
 
 **Source Recommendation**:
@@ -121,9 +121,13 @@ A reversible internal state that makes a Lead ineligible without deleting its Li
 _Avoid_: Lead deletion, quarantine
 
 **Lead Report**:
-A Customer's quality report about a Lead received in a specific Distribution Event. It has one reason—invalid phone, wrong business or title, wrong state, duplicate received, do-not-contact or legal concern, or other—plus an optional note, and never changes eligibility by itself.
+A Customer's immutable quality report about a Lead received in a specific Distribution Event. It has one reason—invalid phone, wrong business or title, wrong state, duplicate received, do-not-contact or legal concern, or other—plus an optional note. Invalid Phone, Wrong Business, and Do Not Contact dispositions create a non-duplicated matching report automatically.
 The report is immutable and closes as Dismissed, Corrected, or Suppressed with a required administrator resolution note.
 _Avoid_: Lead suppression, CRM outcome
+
+**Eligibility Hold**:
+A reversible allocation block created automatically for an Invalid Phone or Do Not Contact disposition and tied to its Lead Report. Customer corrections cannot release it. Administrator dismissal or correction releases it; a Suppressed resolution releases it while converting the Lead to audited Lead Suppression. Wrong Business is report-only and never creates a hold.
+_Avoid_: Lead Suppression, customer-released hold
 
 **Lead Outcome**:
 A legacy-compatible append-only Customer feedback record attached to a specific Distribution Event and attributed to its Source Segment. Good and Poor records supply Quality Rating history; the legacy write contract and historical commercial milestones remain available until their idempotent migration into Lead Disposition history. New Customer commercial feedback uses Lead Dispositions. Corrections retain full history, and no outcome changes eligibility without an administrator action.
@@ -134,7 +138,7 @@ The single-phone Customer workflow for finding the Customer's most recent Distri
 _Avoid_: Inventory search, bulk feedback, CRM workflow
 
 **Lead Disposition**:
-The Customer's append-only status history for one Distribution Event. Controlled values are No Contact, Not Interested, Positive Response, Appointment Booked, Appointment Canceled, Appointment No-show, Invalid Phone, Wrong Business, Do Not Contact, and Other; Other requires a note. Every change retains its predecessor while the latest transition is materialized as the current disposition.
+The Customer's append-only status history for one Distribution Event. Controlled values are No Contact, Not Interested, Positive Response, Appointment Booked, Appointment Canceled, Appointment No-show, Invalid Phone, Wrong Business, Do Not Contact, and Other; Other requires a note. Every change retains its predecessor while the latest transition is materialized as the current disposition. Invalid Phone, Wrong Business, and Do Not Contact also materialize the matching Lead Report controls defined above.
 _Avoid_: Mutable lead status, Lead Report, Lead Suppression
 
 **Quality Rating**:

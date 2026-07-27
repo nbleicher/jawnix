@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+import re
 import uuid
 
 import httpx
@@ -13,6 +14,7 @@ from .models import (
     NightlyReview,
     ScrapeAnomaly,
     ScraperRun,
+    SourceRecommendation,
 )
 
 
@@ -22,9 +24,11 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 ACTION_PREFIX = "jawnix"
 ANOMALY_PREFIX = "jawnix-a"
 CONFLICT_PREFIX = "jawnix-c"
+RECOMMENDATION_PREFIX = "jawnix-r"
 ALLOWED_ACTIONS = {"approve", "reject", "retry", "retry_delivery"}
 ALLOWED_ANOMALY_ACTIONS = {"confirm", "deny"}
 ALLOWED_CONFLICT_ACTIONS = {"confirm", "deny"}
+ALLOWED_RECOMMENDATION_ACTIONS = {"approve", "deny"}
 
 
 def verify_telegram_secret(provided: str, expected: str) -> bool:
@@ -97,6 +101,69 @@ def parse_conflict_callback_data(value: str) -> tuple[str, uuid.UUID]:
     ):
         raise ValueError("Unsupported Telegram conflict callback data.")
     return action, conflict_id
+
+
+def recommendation_callback_data(
+    action: str,
+    recommendation_id: uuid.UUID,
+    *,
+    evidence_checksum: str = "",
+    configuration_version: int | None = None,
+) -> str:
+    if action not in ALLOWED_RECOMMENDATION_ACTIONS:
+        raise ValueError(
+            f"Unsupported Source Recommendation action: {action}"
+        )
+    short_action = {"approve": "a", "deny": "d"}[action]
+    version = (
+        format(configuration_version, "x")
+        if configuration_version is not None
+        else "-"
+    )
+    checksum = evidence_checksum[:8] or "-"
+    value = (
+        f"{RECOMMENDATION_PREFIX}:{short_action}:"
+        f"{recommendation_id.hex}:{version}:{checksum}"
+    )
+    if len(value.encode("utf-8")) > 64:
+        raise ValueError("Telegram callback data exceeds 64 bytes.")
+    return value
+
+
+def parse_recommendation_callback_data(
+    value: str,
+) -> tuple[str, uuid.UUID, int | None, str]:
+    try:
+        prefix, short_action, raw_id, raw_version, checksum = (
+            value.split(":", 4)
+        )
+        action = {"a": "approve", "d": "deny"}[short_action]
+        recommendation_id = uuid.UUID(raw_id)
+        configuration_version = (
+            int(raw_version, 16) if raw_version != "-" else None
+        )
+        if checksum != "-" and not re.fullmatch(
+            r"[0-9a-f]{8}",
+            checksum,
+        ):
+            raise ValueError
+    except (KeyError, ValueError, AttributeError):
+        raise ValueError(
+            "Malformed Telegram recommendation callback data."
+        ) from None
+    if (
+        prefix != RECOMMENDATION_PREFIX
+        or action not in ALLOWED_RECOMMENDATION_ACTIONS
+    ):
+        raise ValueError(
+            "Unsupported Telegram recommendation callback data."
+        )
+    return (
+        action,
+        recommendation_id,
+        configuration_version,
+        "" if checksum == "-" else checksum,
+    )
 
 
 def _request_text(request: LeadRequest) -> str:
@@ -233,28 +300,71 @@ class TelegramClient:
                 f"Review: {self.settings.public_base_url}/admin.html#nightly-{review.id}",
             ]
         )
-        keyboard = {"inline_keyboard": []}
+        keyboard_rows: list[list[dict[str, str]]] = []
         if anomaly is not None and anomaly.status == "pending":
-            keyboard = {
-                "inline_keyboard": [
-                    [
-                        {
-                            "text": "Confirm staged dataset",
-                            "callback_data": anomaly_callback_data(
-                                "confirm",
-                                anomaly.id,
-                            ),
-                        },
-                        {
-                            "text": "Deny",
-                            "callback_data": anomaly_callback_data(
-                                "deny",
-                                anomaly.id,
-                            ),
-                        },
-                    ]
+            keyboard_rows.append(
+                [
+                    {
+                        "text": "Confirm staged dataset",
+                        "callback_data": anomaly_callback_data(
+                            "confirm",
+                            anomaly.id,
+                        ),
+                    },
+                    {
+                        "text": "Deny",
+                        "callback_data": anomaly_callback_data(
+                            "deny",
+                            anomaly.id,
+                        ),
+                    },
                 ]
-            }
+            )
+        for item in recommendations:
+            if item.get("status") != "pending":
+                continue
+            recommendation_id = uuid.UUID(str(item["id"]))
+            label = (
+                f"{str(item.get('action') or '').title()} "
+                f"{str(item.get('segment') or '')[:24]}"
+            )
+            keyboard_rows.append(
+                [
+                    {
+                        "text": f"Approve {label}",
+                        "callback_data": recommendation_callback_data(
+                            "approve",
+                            recommendation_id,
+                            evidence_checksum=str(
+                                item.get("evidenceChecksum") or ""
+                            ),
+                            configuration_version=(
+                                int(item["configurationVersion"])
+                                if item.get("configurationVersion")
+                                is not None
+                                else None
+                            ),
+                        ),
+                    },
+                    {
+                        "text": "Deny",
+                        "callback_data": recommendation_callback_data(
+                            "deny",
+                            recommendation_id,
+                            evidence_checksum=str(
+                                item.get("evidenceChecksum") or ""
+                            ),
+                            configuration_version=(
+                                int(item["configurationVersion"])
+                                if item.get("configurationVersion")
+                                is not None
+                                else None
+                            ),
+                        ),
+                    },
+                ]
+            )
+        keyboard = {"inline_keyboard": keyboard_rows}
         return text, keyboard
 
     def post_nightly_review(

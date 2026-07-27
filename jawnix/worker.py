@@ -22,6 +22,7 @@ from .models import (
     RequestStatus,
     ScrapeAnomaly,
     ScraperRun,
+    SourceRecommendation,
 )
 from .telegram import TelegramClient
 from .transitions import TransitionError, transition_request
@@ -293,7 +294,69 @@ def process_job(job_id: int) -> None:
                         + str(job.payload["approver_user_id"])
                     ),
                     reason="Telegram Inventory Conflict decision",
+                    )
+            elif job.kind == "telegram_recommendation_action":
+                from .recommendations import (
+                    RecommendationDecisionError,
+                    decide_recommendation,
                 )
+
+                try:
+                    recommendation_id = uuid.UUID(
+                        str(job.payload["recommendation_id"])
+                    )
+                    bound = session.get(
+                        SourceRecommendation,
+                        recommendation_id,
+                    )
+                    if bound is None:
+                        raise RecommendationDecisionError(
+                            "Source Recommendation was not found."
+                        )
+                    if (
+                        job.payload.get("configuration_version")
+                        != bound.configuration_version
+                        or (
+                            job.payload.get("evidence_checksum")
+                            and not bound.evidence_checksum.startswith(
+                                str(
+                                    job.payload["evidence_checksum"]
+                                )
+                            )
+                        )
+                    ):
+                        raise RecommendationDecisionError(
+                            "Telegram callback evidence is stale."
+                        )
+                    recommendation = decide_recommendation(
+                        session,
+                        recommendation_id,
+                        str(job.payload["action"]),
+                        actor_id=(
+                            "telegram:"
+                            + str(job.payload["approver_user_id"])
+                        ),
+                        reason="Telegram recommendation decision",
+                        apply_enabled=(
+                            settings.recommendation_apply_enabled
+                        ),
+                        shadow_mode=settings.recommendation_shadow_mode,
+                    )
+                    if recommendation.nightly_review_id:
+                        enqueue_job(
+                            session,
+                            "update_nightly_review_notification",
+                            payload={
+                                "review_id": str(
+                                    recommendation.nightly_review_id
+                                )
+                            },
+                        )
+                except RecommendationDecisionError as exc:
+                    log.info(
+                        "Telegram recommendation decision ignored: %s",
+                        exc,
+                    )
             elif job.kind == "deliver_request":
                 deliver_request(session, uuid.UUID(str(job.request_id)), settings)
             else:

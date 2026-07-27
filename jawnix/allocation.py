@@ -22,6 +22,7 @@ from .models import (
     BatchArtifact,
     DatasetPublication,
     DistributionEvent,
+    EligibilityHold,
     InventoryConflict,
     Lead,
     LeadCorrectionEvent,
@@ -66,6 +67,12 @@ def eligible_query(request: LeadRequest, settings: Settings):
             _same_recipient_clause(request),
         )
     )
+    actively_held = exists(
+        select(EligibilityHold.id).where(
+            EligibilityHold.lead_id == Lead.id,
+            EligibilityHold.active.is_(True),
+        )
+    )
     return (
         select(Lead)
         .where(
@@ -73,6 +80,7 @@ def eligible_query(request: LeadRequest, settings: Settings):
             Lead.suppressed.is_(False),
             or_(Lead.last_distributed_at.is_(None), Lead.last_distributed_at <= cutoff),
             ~previously_sent,
+            ~actively_held,
         )
         .order_by(nullsfirst(Lead.last_distributed_at), Lead.id)
     )

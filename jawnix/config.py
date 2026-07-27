@@ -56,6 +56,26 @@ class Settings(BaseSettings):
         default=10,
         alias="JAWNIX_SCRAPER_OPS_TIMEOUT_SECONDS",
     )
+    scraper_publication_hour_utc: int = Field(
+        default=8,
+        alias="JAWNIX_SCRAPER_PUBLICATION_HOUR_UTC",
+    )
+    nightly_review_hour_utc: int = Field(
+        default=9,
+        alias="JAWNIX_NIGHTLY_REVIEW_HOUR_UTC",
+    )
+    nightly_review_retry_minutes: int = Field(
+        default=15,
+        alias="JAWNIX_NIGHTLY_REVIEW_RETRY_MINUTES",
+    )
+    recommendation_shadow_mode: bool = Field(
+        default=False,
+        alias="JAWNIX_RECOMMENDATION_SHADOW_MODE",
+    )
+    recommendation_apply_enabled: bool = Field(
+        default=True,
+        alias="JAWNIX_RECOMMENDATION_APPLY_ENABLED",
+    )
 
     @property
     def telegram_approvers(self) -> set[str]:
