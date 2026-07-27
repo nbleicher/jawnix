@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -22,10 +23,162 @@ from .models import (
     AuditEntry,
     ScraperConfiguration,
     ScraperRun,
+    SourceSegment,
     SourceRecommendation,
     SourceNicheMapping,
 )
 from .optimization import analyze_nightly_performance
+
+
+BASELINE_ACTOR_ID = uuid.uuid5(
+    uuid.NAMESPACE_URL,
+    "https://jawnix.com/actors/scraper-baseline",
+)
+SOURCE_SEGMENT_STATUSES = {"active", "reduced", "paused"}
+NICHE_PROPOSAL_BATCH_SIZE = 20
+
+
+def _external_source_segment_contract(payload: dict) -> tuple[int, str, list[dict]]:
+    version = int(payload["version"])
+    checksum = str(payload["checksum"])
+    if version < 1 or len(checksum) != 64:
+        raise ValueError("Invalid Scraper Source Segment contract.")
+    rows = []
+    for raw in payload["segments"]:
+        keyword = " ".join(str(raw["keyword"]).strip().split()).casefold()
+        state = str(raw["state"]).strip().upper()
+        identity = f"{state}::{keyword}"
+        status = str(raw.get("status") or "active").lower()
+        cadence = float(raw["cadenceMultiplier"])
+        expected_cadence = {
+            "active": 1.0,
+            "reduced": 0.5,
+            "paused": 0.0,
+        }.get(status)
+        if (
+            not keyword
+            or len(state) != 2
+            or str(raw["id"]) != identity
+            or status not in SOURCE_SEGMENT_STATUSES
+            or cadence != expected_cadence
+        ):
+            raise ValueError("Invalid Scraper Source Segment.")
+        rows.append(
+            {
+                "id": identity,
+                "keyword": keyword,
+                "state": state,
+                "niche": str(raw.get("niche") or "").strip(),
+                "niche_confirmed": bool(
+                    raw.get("nicheConfirmed", False)
+                ),
+                "status": status,
+                "cadence_multiplier": cadence,
+                "version": version,
+                "seed_segment_id": (
+                    str(raw["seedSegmentId"])
+                    if raw.get("seedSegmentId")
+                    else None
+                ),
+            }
+        )
+    if not rows or [item["id"] for item in rows] != sorted(
+        item["id"] for item in rows
+    ):
+        raise ValueError(
+            "Scraper Source Segments must be non-empty and sorted."
+        )
+    calculated = hashlib.sha256(
+        json.dumps(
+            {"version": version, "segments": rows},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    if calculated != checksum:
+        raise ValueError("Scraper Source Segment checksum does not match.")
+    return version, checksum, rows
+
+
+def sync_scraper_configuration_baseline(
+    session: Session,
+    settings: Settings,
+    *,
+    as_of: datetime | None = None,
+) -> ScraperConfiguration | None:
+    existing = session.scalar(
+        select(ScraperConfiguration)
+        .order_by(ScraperConfiguration.version.desc())
+        .limit(1)
+    )
+    if existing is not None or not settings.scraper_ops_url:
+        return existing
+    response = httpx.get(
+        settings.scraper_ops_url.rstrip("/") + "/api/source-segments",
+        auth=(
+            settings.scraper_ops_user,
+            settings.scraper_ops_password,
+        ),
+        timeout=settings.scraper_ops_timeout_seconds,
+    )
+    response.raise_for_status()
+    version, checksum, rows = _external_source_segment_contract(
+        response.json()
+    )
+    imported = ScraperConfiguration(
+        version=version,
+        checksum=checksum,
+        status="active",
+        anomaly_thresholds={},
+        created_by=BASELINE_ACTOR_ID,
+        reason=(
+            "Imported from the authoritative Scraper Source Segment "
+            "configuration."
+        ),
+        activated_at=as_of or datetime.now(timezone.utc),
+        segments=[
+            SourceSegment(
+                key=item["id"],
+                niche=item["niche"],
+                query=item["keyword"],
+                geography=item["state"],
+                parameters={
+                    "state": item["state"],
+                    "status": item["status"],
+                    "cadence_multiplier": item["cadence_multiplier"],
+                    "niche_confirmed": item["niche_confirmed"],
+                    **(
+                        {"seed_segment_key": item["seed_segment_id"]}
+                        if item["seed_segment_id"]
+                        else {}
+                    ),
+                },
+            )
+            for item in rows
+        ],
+    )
+    session.add(imported)
+    session.flush()
+    session.add(
+        AuditEntry(
+            action="scraper_configuration_baseline_imported",
+            target_type="scraper_configuration",
+            target_id=str(imported.id),
+            actor_user_id="system:nightly-scheduler",
+            reason=(
+                "Reconciled the existing authoritative Scraper Source "
+                "Segment baseline without changing acquisition."
+            ),
+            details={
+                "version": version,
+                "contractChecksum": checksum,
+                "segmentCount": len(rows),
+                "acquisitionChanged": False,
+            },
+        )
+    )
+    session.flush()
+    return imported
 
 
 def _scale_segment_payload(
@@ -164,10 +317,45 @@ def propose_niche_mappings(
     settings: Settings | None = None,
 ) -> int:
     existing = {
-        item.segment_key
+        item.segment_key: item
         for item in session.scalars(select(SourceNicheMapping))
     }
-    candidates: dict[str, DistributionEvent] = {}
+    candidates: dict[str, dict] = {}
+    configuration = session.scalar(
+        select(ScraperConfiguration)
+        .where(ScraperConfiguration.status == "active")
+        .order_by(ScraperConfiguration.version.desc())
+        .limit(1)
+    )
+    if configuration is not None:
+        for segment in configuration.segments:
+            current = existing.get(segment.key)
+            if current is not None and (
+                current.confirmed or current.niche.strip()
+            ):
+                continue
+            parameters = segment.parameters or {}
+            state, separator, keyword = segment.key.partition("::")
+            if not separator:
+                state = str(
+                    parameters.get("state") or segment.geography
+                )
+                keyword = segment.query
+            candidates[segment.key] = {
+                "segment_key": segment.key,
+                "state": state.upper(),
+                "keyword": keyword.strip().casefold(),
+                "niche": segment.niche.strip(),
+                "confirmed": bool(
+                    parameters.get("niche_confirmed", False)
+                ),
+                "proposal_source": "scraper_configuration",
+                "evidence": {
+                    "configurationId": str(configuration.id),
+                    "configurationVersion": configuration.version,
+                    "acquisitionChanged": False,
+                },
+            }
     for event in session.scalars(
         select(DistributionEvent)
         .where(
@@ -176,77 +364,117 @@ def propose_niche_mappings(
         )
         .order_by(DistributionEvent.id)
     ):
-        if event.source_segment_key in existing:
+        current = existing.get(event.source_segment_key)
+        if current is not None and (
+            current.confirmed or current.niche.strip()
+        ):
             continue
-        candidates.setdefault(event.source_segment_key, event)
-    ai_proposals: dict[str, str] = {}
-    if candidates and settings and settings.scraper_ops_url:
-        inputs = []
-        for segment_key, event in candidates.items():
-            state, separator, keyword = segment_key.partition("::")
-            inputs.append(
-                {
-                    "id": segment_key,
-                    "keyword": (
-                        keyword
-                        if separator
-                        else event.source_segment_key
-                    ),
-                    "state": state if separator else event.state,
-                }
-            )
-        try:
-            response = httpx.post(
-                settings.scraper_ops_url.rstrip("/")
-                + "/api/source-segments/niche-proposals",
-                auth=(
-                    settings.scraper_ops_user,
-                    settings.scraper_ops_password,
-                ),
-                json={"segments": inputs},
-                timeout=max(
-                    settings.scraper_ops_timeout_seconds,
-                    60,
-                ),
-            )
-            response.raise_for_status()
-            ai_proposals = {
-                str(item["id"]): str(item["niche"]).strip()
-                for item in response.json()["proposals"]
-            }
-        except (httpx.HTTPError, KeyError, TypeError, ValueError):
-            ai_proposals = {}
-    proposed = 0
-    for event in candidates.values():
         state, separator, keyword = (
             event.source_segment_key.partition("::")
         )
-        if not separator:
-            state = event.state
-            keyword = event.source_segment_key
-        session.add(
-            SourceNicheMapping(
-                segment_key=event.source_segment_key,
-                state=state.upper(),
-                keyword=keyword.strip().casefold(),
-                niche=(
-                    ai_proposals.get(event.source_segment_key)
-                    or event.source_niche.strip()
+        candidates.setdefault(
+            event.source_segment_key,
+            {
+                "segment_key": event.source_segment_key,
+                "state": (
+                    state.upper() if separator else event.state.upper()
                 ),
-                confirmed=False,
-                proposal_source=(
-                    "ai_openrouter"
-                    if event.source_segment_key in ai_proposals
-                    else "historical_provenance"
+                "keyword": (
+                    keyword.strip().casefold()
+                    if separator
+                    else event.source_segment_key.strip().casefold()
                 ),
-                proposed_evidence={
+                "niche": event.source_niche.strip(),
+                "confirmed": False,
+                "proposal_source": "historical_provenance",
+                "evidence": {
                     "distributionEventId": event.id,
                     "sourceNiche": event.source_niche,
                     "acquisitionChanged": False,
                 },
+            },
+        )
+    ai_proposals: dict[str, str] = {}
+    if candidates and settings and settings.scraper_ops_url:
+        inputs = []
+        for item in candidates.values():
+            inputs.append(
+                {
+                    "id": item["segment_key"],
+                    "keyword": item["keyword"],
+                    "state": item["state"],
+                }
+            )
+        for offset in range(0, len(inputs), NICHE_PROPOSAL_BATCH_SIZE):
+            try:
+                response = httpx.post(
+                    settings.scraper_ops_url.rstrip("/")
+                    + "/api/source-segments/niche-proposals",
+                    auth=(
+                        settings.scraper_ops_user,
+                        settings.scraper_ops_password,
+                    ),
+                    json={
+                        "segments": inputs[
+                            offset:offset + NICHE_PROPOSAL_BATCH_SIZE
+                        ]
+                    },
+                    timeout=max(
+                        settings.scraper_ops_timeout_seconds,
+                        60,
+                    ),
+                )
+                response.raise_for_status()
+                ai_proposals.update(
+                    {
+                        str(item["id"]): str(item["niche"]).strip()
+                        for item in response.json()["proposals"]
+                    }
+                )
+            except (httpx.HTTPError, KeyError, TypeError, ValueError):
+                continue
+    proposed = 0
+    for item in candidates.values():
+        segment_key = item["segment_key"]
+        proposed_niche = ai_proposals.get(segment_key)
+        current = existing.get(segment_key)
+        if current is not None:
+            if proposed_niche and not current.confirmed:
+                current.niche = proposed_niche
+                current.proposal_source = "ai_openrouter"
+                current.proposed_evidence = {
+                    **(current.proposed_evidence or {}),
+                    "proposalRefreshed": True,
+                    "acquisitionChanged": False,
+                }
+                proposed += 1
+            continue
+        session.add(
+            SourceNicheMapping(
+                segment_key=segment_key,
+                state=item["state"],
+                keyword=item["keyword"],
+                niche=proposed_niche or item["niche"],
+                confirmed=bool(item["confirmed"]),
+                proposal_source=(
+                    "ai_openrouter"
+                    if proposed_niche
+                    else item["proposal_source"]
+                ),
+                proposed_evidence=item["evidence"],
+                confirmed_by=(
+                    "scraper_configuration"
+                    if item["confirmed"]
+                    else ""
+                ),
+                confirmed_at=(
+                    datetime.now(timezone.utc)
+                    if item["confirmed"]
+                    else None
+                ),
             )
         )
-        existing.add(event.source_segment_key)
+        existing[segment_key] = None
         proposed += 1
     session.flush()
     return proposed
@@ -419,7 +647,11 @@ def run_scheduled_nightly_review(
             if review is None:
                 raise
     elif review.status == "complete":
-        return review
+        has_configuration = session.scalar(
+            select(func.count(ScraperConfiguration.id))
+        )
+        if has_configuration:
+            return review
     else:
         review.attempt_count += 1
 
@@ -471,6 +703,11 @@ def run_scheduled_nightly_review(
     if publication is not None:
         review.scraper_run_id = publication.scraper_run_id
     review.next_retry_at = None
+    sync_scraper_configuration_baseline(
+        session,
+        settings,
+        as_of=as_of,
+    )
     propose_niche_mappings(session, settings)
     snapshots = analyze_nightly_performance(
         session,
