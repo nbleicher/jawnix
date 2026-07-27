@@ -180,6 +180,12 @@ validated dataset can be replayed forward idempotently with `--apply`; this
 archives the exact restored bytes, records the publication and Inventory Sync
 attempt, and synchronizes PostgreSQL without exposing partial inventory.
 
+Legacy native datasets created before versioned publication metadata are
+backed up with the `legacy-metadata-missing` Restic tag and an independent
+`scraper-dataset.sha256` snapshot. Restore those bytes only through the
+documented legacy import flow after verifying the saved SHA-256; never invent
+version or configuration metadata for them.
+
 For the 10-million-row performance gate, run the guarded harness against a disposable staging database. Acceptance is allocation plus CSV generation in under five minutes without API health failures. Never run it in production.
 
 ```sh

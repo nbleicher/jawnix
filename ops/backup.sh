@@ -38,11 +38,15 @@ restic backup --tag database "$@"
 restic backup --tag wal "$wal_dir"
 if [ -f "$scraper_dataset" ]; then
   sha256sum "$scraper_dataset" > "$scraper_checksum"
-  if [ ! -f "$scraper_metadata" ]; then
-    echo "Scraper Dataset version metadata is missing: $scraper_metadata" >&2
-    exit 1
+  if [ -f "$scraper_metadata" ]; then
+    restic backup --tag scraper-dataset "$scraper_data"
+  else
+    echo "Scraper Dataset version metadata is missing; preserving the legacy dataset with its checksum: $scraper_metadata" >&2
+    restic backup \
+      --tag scraper-dataset \
+      --tag legacy-metadata-missing \
+      "$scraper_data"
   fi
-  restic backup --tag scraper-dataset "$scraper_data"
   restic backup --tag scraper-dataset "$scraper_checksum"
 else
   echo "Persistent Scraper Dataset is missing: $scraper_dataset" >&2
