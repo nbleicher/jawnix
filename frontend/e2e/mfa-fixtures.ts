@@ -225,6 +225,39 @@ export async function mockAdminMFA(
     },
   );
 
+  await page.route(/\/api\/admin\/scraper(?:\/.*)?$/, async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/entry")) {
+      return json(route, {
+        factors: state.factors.map(({ id, name, type }) => ({
+          id,
+          name,
+          type,
+        })),
+        idleExpiresIn: 900,
+      });
+    }
+    if (path.endsWith("/workspace")) {
+      return json(route, {
+        serviceState: "connected",
+        lastSuccessfulAt: "2026-07-28T12:00:00Z",
+        idleExpiresIn: 900,
+      });
+    }
+    if (path.endsWith("/step-up")) {
+      return json(route, {
+        ok: true,
+        idleExpiresIn: 900,
+        session: {
+          accessToken: "provider-aal2-access-token-long-enough",
+          refreshToken: "provider-refresh-token-long-enough",
+          expiresIn: 3600,
+        },
+      });
+    }
+    return json(route, { detail: "Unexpected Scraper mock request" }, 500);
+  });
+
   await page.route(/\/api\/me\/profile$/, (route) =>
     json(route, {
       user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",

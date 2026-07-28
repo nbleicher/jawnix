@@ -142,14 +142,18 @@ test.describe("Administration shell", () => {
     }
   });
 
-  test("switches to the terminal theme inside Acquisition and back out again", async ({ page }) => {
+  test("the real Scraper workspace owns the terminal theme and restores administration", async ({ page }) => {
     await page.goto("./admin/overview");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "jawnix");
 
-    const nav = page.getByRole("navigation", { name: "Administration" });
-    await nav.getByRole("link", { name: "Acquisition" }).click();
+    await page.goto("./admin/acquisition/scraper");
+    await expect(page.getByRole("heading", {
+      level: 1,
+      name: "Verify access to Scraper Operations",
+    })).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "terminal");
 
+    const nav = page.getByRole("navigation", { name: "Administration" });
     await nav.getByRole("link", { name: "Fulfillment" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "jawnix");
   });

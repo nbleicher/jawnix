@@ -91,6 +91,7 @@ from .scraper_proxy import (
     accept_scraper_handoff,
     clear_scraper_session,
     forward_scraper_request,
+    native_router as native_scraper_router,
     request_is_scraper_origin,
     scraper_handoff_response,
     scraper_principal_from_request,
@@ -109,6 +110,7 @@ from .transitions import TransitionError, transition_request
 
 app = FastAPI(title="Jawnix VPS API", version="1.0.0")
 app.include_router(admin_mfa_router)
+app.include_router(native_scraper_router)
 
 
 @app.exception_handler(RequestValidationError)
@@ -119,7 +121,10 @@ async def redact_sensitive_validation_error(
     # FastAPI's default 422 body includes rejected input.  That is useful for
     # ordinary forms but would echo provider bearer tokens or TOTP codes from
     # this security surface.
-    if request.url.path.startswith("/api/auth/admin-mfa"):
+    if (
+        request.url.path.startswith("/api/auth/admin-mfa")
+        or request.url.path == "/api/admin/scraper/step-up"
+    ):
         return JSONResponse(
             status_code=422,
             content={"detail": "The administrator verification request was invalid."},

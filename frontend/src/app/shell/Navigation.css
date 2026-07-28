@@ -35,7 +35,6 @@
   font-weight: var(--jx-weight-semibold);
   text-decoration: none;
   text-align: center;
-  transition: color var(--jx-motion-fast) var(--jx-motion-ease);
 }
 
 .jx-nav__link:hover {

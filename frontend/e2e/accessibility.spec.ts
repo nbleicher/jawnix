@@ -22,6 +22,8 @@ const ROUTES = [
   "./admin/overview",
   "./admin/fulfillment",
   "./admin/acquisition",
+  "./admin/acquisition/scraper",
+  "./admin/acquisition/scraper/workspace",
   "./admin/customers",
   "./admin/security",
   "./admin/mfa/enroll",
