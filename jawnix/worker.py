@@ -171,7 +171,16 @@ def process_job(job_id: int) -> None:
                 if request is None:
                     raise LookupError("Request was not found.")
                 try:
-                    transition_request(session, request.id, str(job.payload.get("action") or ""))
+                    transition_request(
+                        session,
+                        request.id,
+                        str(job.payload.get("action") or ""),
+                        actor_id=(
+                            "telegram:"
+                            + str(job.payload["approver_user_id"])
+                        ),
+                        reason="Telegram Batch Request decision",
+                    )
                 except TransitionError as exc:
                     log.info("Telegram action for request %s was ignored: %s", request.id, exc.detail)
             elif job.kind == "allocate_request":

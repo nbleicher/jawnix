@@ -8,8 +8,8 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .activity import record_activity
 from .models import (
-    AuditEntry,
     ScraperConfiguration,
     SourceRecommendation,
     SourceSegment,
@@ -147,23 +147,24 @@ def decide_recommendation(
         recommendation.decision_by = actor_id
         recommendation.decision_reason = reason
         recommendation.decided_at = now
-        session.add(
-            AuditEntry(
-                action="source_recommendation_stale",
-                target_type="source_recommendation",
-                target_id=str(recommendation.id),
-                actor_user_id=actor_id,
-                reason=reason,
-                details={
-                    "evidenceChecksum": recommendation.evidence_checksum,
-                    "evidenceConfigurationVersion": (
-                        recommendation.configuration_version
-                    ),
-                    "currentConfigurationVersion": (
-                        latest.version if latest is not None else None
-                    ),
-                },
-            )
+        record_activity(
+            session,
+            action="source_recommendation_stale",
+            target_type="source_recommendation",
+            target_id=recommendation.id,
+            actor_id=actor_id,
+            reason=reason,
+            details={
+                "before": {"status": "pending"},
+                "after": {"status": "stale"},
+                "evidenceChecksum": recommendation.evidence_checksum,
+                "evidenceConfigurationVersion": (
+                    recommendation.configuration_version
+                ),
+                "currentConfigurationVersion": (
+                    latest.version if latest is not None else None
+                ),
+            },
         )
         raise RecommendationDecisionError(
             "Source Recommendation is stale; production was not changed."
@@ -223,28 +224,29 @@ def decide_recommendation(
         recommendation.resulting_configuration_id = (
             next_configuration.id
         )
-    session.add(
-        AuditEntry(
-            action=f"source_recommendation_{recommendation.status}",
-            target_type="source_recommendation",
-            target_id=str(recommendation.id),
-            actor_user_id=actor_id,
-            reason=reason,
-            details={
-                "proposedAction": recommendation.action,
-                "segment": recommendation.segment_key,
-                "evidenceChecksum": recommendation.evidence_checksum,
-                "evidenceConfigurationVersion": (
-                    recommendation.configuration_version
-                ),
-                "resultingConfigurationId": (
-                    str(recommendation.resulting_configuration_id)
-                    if recommendation.resulting_configuration_id
-                    else None
-                ),
-                "shadowMode": shadow_mode,
-            },
-        )
+    record_activity(
+        session,
+        action=f"source_recommendation_{recommendation.status}",
+        target_type="source_recommendation",
+        target_id=recommendation.id,
+        actor_id=actor_id,
+        reason=reason,
+        details={
+            "before": {"status": "pending"},
+            "after": {"status": recommendation.status},
+            "proposedAction": recommendation.action,
+            "segment": recommendation.segment_key,
+            "evidenceChecksum": recommendation.evidence_checksum,
+            "evidenceConfigurationVersion": (
+                recommendation.configuration_version
+            ),
+            "resultingConfigurationId": (
+                str(recommendation.resulting_configuration_id)
+                if recommendation.resulting_configuration_id
+                else None
+            ),
+            "shadowMode": shadow_mode,
+        },
     )
     session.flush()
     return recommendation

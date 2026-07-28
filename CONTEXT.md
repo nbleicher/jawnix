@@ -24,6 +24,14 @@ _Avoid_: Failed run, source recommendation
 A durable internal summary covering Scraper Configuration and run status, per-segment acquisition counts, Inventory Sync and inventory totals, waiting requests and conflicts, recommendations, and failures. Telegram receives one concise linked summary with Confirm or Deny actions for held anomalies.
 _Avoid_: Transient alert, scrape log
 
+**Activity**:
+The append-only history of consequential administrative and system actions, including guarded actions that were refused. It is evidence of durable decisions rather than a record of every request or transport event.
+_Avoid_: Application log, request log, notification history
+
+**Audit Entry**:
+The immutable evidence for one action in Activity, identifying its actor, affected entity, reason, time, and a safe summary of what changed.
+_Avoid_: Editable note, entity state, operational event
+
 **Scraper Configuration**:
 An immutable version of the Source Segments and acquisition parameters used by the Scraper; every Scrape Run references one, and activation or rollback selects a version without rewriting history. An approved version activates for the next nightly run, while an immediate run requires a separate administrator action.
 _Avoid_: Source recommendation, scrape run

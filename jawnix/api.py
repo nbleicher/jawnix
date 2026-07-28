@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from svix.webhooks import Webhook, WebhookVerificationError
 
+from .activity import record_activity
 from .auth import Principal, clear_session, issue_session, require_admin, require_principal, verify_supabase_token
 from .config import Settings, get_settings
 from .database import get_db
@@ -26,7 +27,6 @@ from .recommendations import (
 from .models import (
     Agency,
     Customer,
-    AuditEntry,
     BatchArtifact,
     CustomerProfile,
     CustomerTombstone,
@@ -254,18 +254,23 @@ def reconcile_nightly_review_telegram_delivery(
             payload={"review_id": str(review.id)},
         )
     review.telegram_delivery_error = ""
-    _audit(
+    record_activity(
         db,
-        principal,
-        (
+        action=(
             "nightly_review_telegram_delivered"
             if payload.outcome == "delivered"
             else "nightly_review_telegram_not_delivered"
         ),
-        "nightly_review",
-        review.id,
-        payload.reason,
-        {"messageId": review.telegram_message_id},
+        target_type="nightly_review",
+        target_id=review.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": {"telegramDeliveryState": "unknown"},
+            "after": {
+                "telegramDeliveryState": review.telegram_delivery_state
+            },
+        },
     )
     db.commit()
     return {
@@ -1154,19 +1159,32 @@ def confirm_source_niche(
         "niche": mapping.niche,
         "confirmed": mapping.confirmed,
     }
-    mapping.niche = payload.niche.strip()
+    next_niche = payload.niche.strip()
+    if mapping.confirmed and mapping.niche == next_niche:
+        return {
+            "segment": mapping.segment_key,
+            "niche": mapping.niche,
+            "confirmed": True,
+        }
+    mapping.niche = next_niche
     mapping.confirmed = True
     mapping.confirmed_by = str(principal.user_id)
     mapping.confirmed_at = utcnow()
     mapping.updated_at = mapping.confirmed_at
-    _audit(
+    record_activity(
         db,
-        principal,
-        "source_niche_confirmed",
-        "source_segment",
-        mapping.segment_key,
-        payload.reason,
-        {"previous": previous, "niche": mapping.niche},
+        action="source_niche_confirmed",
+        target_type="source_segment",
+        target_id=mapping.segment_key,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": previous,
+            "after": {
+                "niche": mapping.niche,
+                "confirmed": mapping.confirmed,
+            },
+        },
     )
     db.commit()
     return {
@@ -1567,30 +1585,27 @@ def create_scraper_configuration(
         ],
     )
     db.add(item)
+    db.flush()
+    record_activity(
+        db,
+        action="scraper_configuration_created",
+        target_type="scraper_configuration",
+        target_id=item.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": None,
+            "after": {
+                "version": item.version,
+                "status": item.status,
+                "segmentCount": len(segments),
+            },
+            "checksum": item.checksum,
+        },
+    )
     db.commit()
     db.refresh(item)
     return _configuration_dict(item)
-
-
-def _audit(
-    db: Session,
-    principal: Principal,
-    action: str,
-    target_type: str,
-    target_id: object,
-    reason: str,
-    details: dict | None = None,
-) -> None:
-    db.add(
-        AuditEntry(
-            action=action,
-            target_type=target_type,
-            target_id=str(target_id),
-            actor_user_id=str(principal.user_id),
-            reason=reason.strip(),
-            details=details or {},
-        )
-    )
 
 
 @app.post(
@@ -1612,6 +1627,7 @@ def schedule_scraper_configuration(
             status_code=404,
             detail="Scraper Configuration was not found.",
         )
+    previous_status = item.status
     for scheduled in db.scalars(
         select(ScraperConfiguration)
         .where(
@@ -1623,14 +1639,18 @@ def schedule_scraper_configuration(
         scheduled.status = "schedule_replaced"
     item.status = "scheduled"
     item.scheduled_at = utcnow()
-    _audit(
+    record_activity(
         db,
-        principal,
-        "scraper_configuration_scheduled",
-        "scraper_configuration",
-        item.id,
-        payload.reason,
-        {"version": item.version},
+        action="scraper_configuration_scheduled",
+        target_type="scraper_configuration",
+        target_id=item.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": {"status": previous_status},
+            "after": {"status": "scheduled"},
+            "version": item.version,
+        },
     )
     db.commit()
     db.refresh(item)
@@ -1660,14 +1680,18 @@ def queue_manual_scrape_run(
         "manual": True,
     }
     enqueue_job(db, "run_scraper", payload=job_payload)
-    _audit(
+    record_activity(
         db,
-        principal,
-        "scraper_manual_run_queued",
-        "scraper_configuration",
-        item.id,
-        payload.reason,
-        {"version": item.version},
+        action="scraper_manual_run_queued",
+        target_type="scraper_configuration",
+        target_id=item.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": {"manualRunQueued": False},
+            "after": {"manualRunQueued": True},
+            "version": item.version,
+        },
     )
     db.commit()
     return {
@@ -1726,14 +1750,16 @@ def rollback_scraper_configuration(
     )
     db.add(item)
     db.flush()
-    _audit(
+    record_activity(
         db,
-        principal,
-        "scraper_configuration_rollback_scheduled",
-        "scraper_configuration",
-        item.id,
-        payload.reason,
-        {
+        action="scraper_configuration_rollback_scheduled",
+        target_type="scraper_configuration",
+        target_id=item.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": None,
+            "after": {"status": "scheduled"},
             "version": item.version,
             "basedOnConfigurationId": str(source.id),
         },
@@ -1758,14 +1784,17 @@ def suppress_lead(
     if not lead.suppressed:
         lead.suppressed = True
         lead.suppression_reason = payload.reason.strip()
-        _audit(
+        record_activity(
             db,
-            principal,
-            "lead_suppressed",
-            "lead",
-            lead.id,
-            payload.reason,
-            {"phone": lead.phone},
+            action="lead_suppressed",
+            target_type="lead",
+            target_id=lead.id,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+            details={
+                "before": {"suppressed": False},
+                "after": {"suppressed": True},
+            },
         )
     db.commit()
     return {
@@ -1791,16 +1820,19 @@ def unsuppress_lead(
         previous_reason = lead.suppression_reason
         lead.suppressed = False
         lead.suppression_reason = ""
-        _audit(
+        record_activity(
             db,
-            principal,
-            "lead_unsuppressed",
-            "lead",
-            lead.id,
-            payload.reason,
-            {
-                "phone": lead.phone,
-                "previousSuppressionReason": previous_reason,
+            action="lead_unsuppressed",
+            target_type="lead",
+            target_id=lead.id,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+            details={
+                "before": {
+                    "suppressed": True,
+                    "suppressionReason": previous_reason,
+                },
+                "after": {"suppressed": False},
             },
         )
     db.commit()
@@ -1824,6 +1856,13 @@ def apply_lead_correction(
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead was not found.")
     previous_id = lead.active_correction_id
+    previous = {
+        "correctionId": (
+            str(previous_id) if previous_id is not None else None
+        ),
+        "title": lead.title,
+        "state": lead.state,
+    }
     correction = LeadCorrectionEvent(
         lead_id=lead.id,
         action="applied",
@@ -1838,14 +1877,21 @@ def apply_lead_correction(
     lead.active_correction_id = correction.id
     lead.title = correction.title
     lead.state = correction.state
-    _audit(
+    record_activity(
         db,
-        principal,
-        "lead_correction_applied",
-        "lead",
-        lead.id,
-        payload.reason,
-        {"correctionId": str(correction.id)},
+        action="lead_correction_applied",
+        target_type="lead",
+        target_id=lead.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": previous,
+            "after": {
+                "correctionId": str(correction.id),
+                "title": lead.title,
+                "state": lead.state,
+            },
+        },
     )
     db.commit()
     return {
@@ -1874,6 +1920,11 @@ def remove_lead_correction(
             detail="Lead has no active correction.",
         )
     active = db.get(LeadCorrectionEvent, lead.active_correction_id)
+    previous = {
+        "correctionId": str(active.id),
+        "title": lead.title,
+        "state": lead.state,
+    }
     removal = LeadCorrectionEvent(
         lead_id=lead.id,
         action="removed",
@@ -1896,14 +1947,21 @@ def remove_lead_correction(
     else:
         lead.title = lead.legacy_title
         lead.state = lead.legacy_state
-    _audit(
+    record_activity(
         db,
-        principal,
-        "lead_correction_removed",
-        "lead",
-        lead.id,
-        payload.reason,
-        {"correctionId": str(active.id)},
+        action="lead_correction_removed",
+        target_type="lead",
+        target_id=lead.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": previous,
+            "after": {
+                "correctionId": None,
+                "title": lead.title,
+                "state": lead.state,
+            },
+        },
     )
     db.commit()
     return {
@@ -1973,14 +2031,25 @@ def resolve_lead_report(
         lead.suppressed = True
         lead.suppression_reason = payload.note.strip()
     report.status = payload.action
-    _audit(
+    record_activity(
         db,
-        principal,
-        f"lead_report_{payload.action}",
-        "lead_report",
-        report.id,
-        payload.note,
-        {
+        action=f"lead_report_{payload.action}",
+        target_type="lead_report",
+        target_id=report.id,
+        actor_id=principal.user_id,
+        reason=payload.note,
+        details={
+            "before": {
+                "status": "open",
+                "eligibilityHeld": hold is not None,
+            },
+            "after": {
+                "status": report.status,
+                "eligibilityHeld": False,
+                "leadSuppressed": lead.suppressed,
+                "leadTitle": lead.title,
+                "leadState": lead.state,
+            },
             "distributionEventId": event.id,
             "leadId": lead.id,
             "reportReason": report.reason,
@@ -2030,6 +2099,26 @@ def replace_user_account(
             .with_for_update()
         )
     )
+    licensed_states = normalize_states(customer.licensed_states)
+    requested_email = str(payload.email).lower()
+    existing_profile = db.get(CustomerProfile, payload.auth_user_id)
+    if (
+        len(current_accounts) == 1
+        and current_accounts[0].auth_user_id == payload.auth_user_id
+        and current_accounts[0].email == requested_email
+        and existing_profile is not None
+        and existing_profile.customer_id == customer.id
+        and existing_profile.email == requested_email
+        and normalize_states(existing_profile.licensed_states)
+        == licensed_states
+        and existing_profile.mapping_confirmed_at is not None
+    ):
+        return {
+            "customerId": customer.id,
+            "authUserId": str(payload.auth_user_id),
+            "email": requested_email,
+            "licensedStates": licensed_states,
+        }
     for account in current_accounts:
         account.active = False
         account.replaced_at = now
@@ -2039,18 +2128,17 @@ def replace_user_account(
         account = UserAccount(
             auth_user_id=payload.auth_user_id,
             customer_id=customer.id,
-            email=str(payload.email).lower(),
+            email=requested_email,
             active=True,
         )
         db.add(account)
     else:
         account.customer_id = customer.id
-        account.email = str(payload.email).lower()
+        account.email = requested_email
         account.active = True
         account.replaced_at = None
 
-    licensed_states = normalize_states(customer.licensed_states)
-    profile = db.get(CustomerProfile, payload.auth_user_id)
+    profile = existing_profile
     if profile is None:
         profile = CustomerProfile(
             user_id=payload.auth_user_id,
@@ -2065,14 +2153,24 @@ def replace_user_account(
         profile.licensed_states = licensed_states
         profile.customer_id = customer.id
         profile.mapping_confirmed_at = now
-    _audit(
+    record_activity(
         db,
-        principal,
-        "customer_user_account_replaced",
-        "customer",
-        customer.id,
-        payload.reason,
-        {"newAuthUserId": str(account.auth_user_id)},
+        action="customer_user_account_replaced",
+        target_type="customer",
+        target_id=customer.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": {
+                "activeAuthUserIds": [
+                    str(current.auth_user_id)
+                    for current in current_accounts
+                ]
+            },
+            "after": {
+                "activeAuthUserIds": [str(account.auth_user_id)]
+            },
+        },
     )
     db.commit()
     return {
@@ -2086,7 +2184,7 @@ def replace_user_account(
 @app.post("/api/admin/user-accounts/sync")
 @app.post("/api/admin/recipients/sync", include_in_schema=False)
 async def sync_user_accounts(
-    _: Principal = Depends(require_admin),
+    principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -2104,7 +2202,7 @@ async def sync_user_accounts(
             and customer.agency.deleted_at is None
         )
     }
-    seen = created = proposed = 0
+    seen = created = updated = proposed = 0
     page = 1
     while True:
         data = await _supabase_admin(settings, "GET", f"/auth/v1/admin/users?page={page}&per_page=1000")
@@ -2132,6 +2230,8 @@ async def sync_user_accounts(
                 db.add(profile)
                 created += 1
             else:
+                if profile.email != email:
+                    updated += 1
                 profile.email = email
             if profile.customer_id is None:
                 candidates = {
@@ -2156,6 +2256,24 @@ async def sync_user_accounts(
         if len(users) < 1000:
             break
         page += 1
+    if created or updated or proposed:
+        record_activity(
+            db,
+            action="user_accounts_synchronized",
+            target_type="user_account",
+            target_id="bulk-sync",
+            actor_id=principal.user_id,
+            reason="Synchronized User Accounts from the identity provider.",
+            details={
+                "before": None,
+                "after": {
+                    "created": created,
+                    "updated": updated,
+                    "proposedMappings": proposed,
+                },
+                "seen": seen,
+            },
+        )
     db.commit()
     return {"seen": seen, "created": created, "proposedMappings": proposed, "allMappingsRequireConfirmation": True}
 
@@ -2165,7 +2283,7 @@ async def sync_user_accounts(
 def map_user_account_customer(
     user_id: uuid.UUID,
     payload: CustomerMappingUpdate,
-    _: Principal = Depends(require_admin),
+    principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     profile = db.get(CustomerProfile, user_id)
@@ -2193,8 +2311,33 @@ def map_user_account_customer(
                 "and Agency."
             ),
         )
+    previous = {
+        "customerId": profile.customer_id,
+        "confirmed": profile.mapping_confirmed_at is not None,
+    }
+    after = {
+        "customerId": customer.id,
+        "confirmed": payload.confirmed,
+    }
+    if previous == after:
+        return {"ok": True}
     profile.customer_id = customer.id
-    profile.mapping_confirmed_at = datetime.now(timezone.utc) if payload.confirmed else None
+    profile.mapping_confirmed_at = (
+        datetime.now(timezone.utc) if payload.confirmed else None
+    )
+    record_activity(
+        db,
+        action="user_account_customer_mapped",
+        target_type="customer",
+        target_id=customer.id,
+        actor_id=principal.user_id,
+        reason="Confirmed User Account to Customer mapping.",
+        details={
+            "before": previous,
+            "after": after,
+            "authUserId": str(profile.user_id),
+        },
+    )
     db.commit()
     return {"ok": True}
 
@@ -2212,17 +2355,29 @@ def update_agency(
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Agency name is required.")
+    previous = {
+        "name": agency.name,
+        "active": agency.active,
+    }
     agency.name = name
     agency.active = payload.active
-    _audit(
-        db,
-        principal,
-        "agency_updated",
-        "agency",
-        agency.id,
-        payload.reason,
-        {"active": agency.active},
-    )
+    after = {
+        "name": agency.name,
+        "active": agency.active,
+    }
+    if previous != after:
+        record_activity(
+            db,
+            action="agency_updated",
+            target_type="agency",
+            target_id=agency.id,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+            details={
+                "before": previous,
+                "after": after,
+            },
+        )
     db.commit()
     return {"ok": True}
 
@@ -2244,21 +2399,32 @@ def update_customer(
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Customer name is required.")
+    previous = {
+        "name": customer.name,
+        "active": customer.active,
+        "agencyId": customer.agency_id,
+    }
     customer.name = name
     customer.agency_id = agency.id if agency else None
     customer.active = payload.active
-    _audit(
-        db,
-        principal,
-        "customer_updated",
-        "customer",
-        customer.id,
-        payload.reason,
-        {
-            "active": customer.active,
-            "agencyId": customer.agency_id,
-        },
-    )
+    after = {
+        "name": customer.name,
+        "active": customer.active,
+        "agencyId": customer.agency_id,
+    }
+    if previous != after:
+        record_activity(
+            db,
+            action="customer_updated",
+            target_type="customer",
+            target_id=customer.id,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+            details={
+                "before": previous,
+                "after": after,
+            },
+        )
     db.commit()
     return {"ok": True}
 
@@ -2343,6 +2509,23 @@ def delete_customer(
     dependencies = _customer_dependency_counts(db, customer.id)
     if payload.hard_delete:
         if any(dependencies.values()):
+            refused_customer_id = customer.id
+            db.rollback()
+            record_activity(
+                db,
+                action="customer_hard_delete_refused",
+                target_type="customer",
+                target_id=refused_customer_id,
+                actor_id=principal.user_id,
+                reason=payload.reason,
+                details={
+                    "before": {"deleted": False},
+                    "after": {"deleted": False},
+                    "guard": "dependent_history",
+                    "dependencies": dependencies,
+                },
+            )
+            db.commit()
             raise HTTPException(
                 status_code=409,
                 detail={
@@ -2353,14 +2536,17 @@ def delete_customer(
                     "dependencies": dependencies,
                 },
             )
-        _audit(
+        record_activity(
             db,
-            principal,
-            "customer_hard_deleted",
-            "customer",
-            customer.id,
-            payload.reason,
-            {"slug": customer.slug},
+            action="customer_hard_deleted",
+            target_type="customer",
+            target_id=customer.id,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+            details={
+                "before": {"deleted": False},
+                "after": {"deleted": True},
+            },
         )
         db.delete(customer)
         db.commit()
@@ -2380,14 +2566,21 @@ def delete_customer(
         account.active = False
         account.replaced_at = utcnow()
     customer.deleted_at = utcnow()
-    _audit(
+    record_activity(
         db,
-        principal,
-        "customer_deleted",
-        "customer",
-        customer.id,
-        payload.reason,
-        {"dependencies": dependencies, "historyPreserved": True},
+        action="customer_deleted",
+        target_type="customer",
+        target_id=customer.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": {"deleted": False},
+            "after": {
+                "deleted": True,
+                "historyPreserved": True,
+            },
+            "dependencies": dependencies,
+        },
     )
     db.commit()
     return {
@@ -2462,14 +2655,19 @@ def erase_customer_personal_data(
     customer.slug = f"deleted-customer-{customer.id}"
     customer.licensed_states = []
     customer.deleted_at = customer.deleted_at or utcnow()
-    _audit(
+    record_activity(
         db,
-        principal,
-        "customer_personal_data_erased",
-        "customer_tombstone",
-        tombstone.id,
-        payload.reason,
-        {
+        action="customer_personal_data_erased",
+        target_type="customer",
+        target_id=customer.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": {"personalDataErased": False},
+            "after": {
+                "personalDataErased": True,
+                "tombstoneId": str(tombstone.id),
+            },
             "formerCustomerId": customer.id,
             "formerSlugHash": hashlib.sha256(
                 original_slug.encode("utf-8")
@@ -2488,7 +2686,7 @@ def erase_customer_personal_data(
 def delete_agent(
     agent_id: int,
     payload: DeleteConfirmation,
-    _: Principal = Depends(require_admin),
+    principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     agent = db.get(Customer, agent_id)
@@ -2522,6 +2720,22 @@ def delete_agent(
         profile.mapping_confirmed_at = None
     agent.active = False
     agent.deleted_at = utcnow()
+    record_activity(
+        db,
+        action="customer_deleted",
+        target_type="customer",
+        target_id=agent.id,
+        actor_id=principal.user_id,
+        reason="Legacy Customer deletion endpoint.",
+        details={
+            "before": {"deleted": False},
+            "after": {
+                "deleted": True,
+                "historyPreserved": True,
+            },
+            "unassignedUserAccounts": len(profiles),
+        },
+    )
     db.commit()
     return {"ok": True, "unassignedRecipients": len(profiles), "historyPreserved": True}
 
@@ -2578,6 +2792,23 @@ def delete_agency(
             "distributions": distribution_count,
         }
         if any(dependencies.values()):
+            refused_agency_id = agency.id
+            db.rollback()
+            record_activity(
+                db,
+                action="agency_hard_delete_refused",
+                target_type="agency",
+                target_id=refused_agency_id,
+                actor_id=principal.user_id,
+                reason=payload.reason,
+                details={
+                    "before": {"deleted": False},
+                    "after": {"deleted": False},
+                    "guard": "dependent_history",
+                    "dependencies": dependencies,
+                },
+            )
+            db.commit()
             raise HTTPException(
                 status_code=409,
                 detail={
@@ -2588,14 +2819,17 @@ def delete_agency(
                     "dependencies": dependencies,
                 },
             )
-        _audit(
+        record_activity(
             db,
-            principal,
-            "agency_hard_deleted",
-            "agency",
-            agency.id,
-            payload.reason,
-            {"slug": agency.slug},
+            action="agency_hard_deleted",
+            target_type="agency",
+            target_id=agency.id,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+            details={
+                "before": {"deleted": False},
+                "after": {"deleted": True},
+            },
         )
         db.delete(agency)
         db.commit()
@@ -2647,16 +2881,20 @@ def delete_agency(
         customer.deleted_at = customer.deleted_at or now
     agency.active = False
     agency.deleted_at = now
-    _audit(
+    record_activity(
         db,
-        principal,
-        "agency_deleted",
-        "agency",
-        agency.id,
-        payload.reason,
-        {
+        action="agency_deleted",
+        target_type="agency",
+        target_id=agency.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": {"deleted": False},
+            "after": {
+                "deleted": True,
+                "historyPreserved": True,
+            },
             "deletedCustomers": deleted_customers,
-            "historyPreserved": True,
         },
     )
     db.commit()
@@ -2708,7 +2946,7 @@ async def _send_password_reset(settings: Settings, email: str) -> None:
 )
 async def send_user_account_password_reset(
     user_id: uuid.UUID,
-    _: Principal = Depends(require_admin),
+    principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -2716,13 +2954,27 @@ async def send_user_account_password_reset(
     if profile is None:
         raise HTTPException(status_code=404, detail="Recipient was not found.")
     await _send_password_reset(settings, profile.email)
+    record_activity(
+        db,
+        action="user_account_password_reset_sent",
+        target_type="user_account",
+        target_id=user_id,
+        actor_id=principal.user_id,
+        reason="Administrator sent a User Account password reset.",
+        details={
+            "before": {"resetDispatched": False},
+            "after": {"resetDispatched": True},
+            "customerId": profile.customer_id,
+        },
+    )
+    db.commit()
     return {"ok": True, "email": profile.email}
 
 
 @app.post("/api/admin/customers", status_code=201)
 async def create_customer(
     payload: CustomerCreate,
-    _: Principal = Depends(require_admin),
+    principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -2746,6 +2998,23 @@ async def create_customer(
         licensed_states=[],
     )
     db.add(profile)
+    db.flush()
+    record_activity(
+        db,
+        action="user_account_created",
+        target_type="user_account",
+        target_id=profile.user_id,
+        actor_id=principal.user_id,
+        reason="Administrator created a Customer User Account.",
+        details={
+            "before": None,
+            "after": {
+                "mappingConfirmed": False,
+                "customerId": None,
+            },
+        },
+        known_secrets=(payload.password,),
+    )
     db.commit()
     return {"ok": True, "userId": str(profile.user_id), "mappingConfirmed": False}
 
@@ -2754,13 +3023,24 @@ async def create_customer(
 def admin_request_action(
     request_id: uuid.UUID,
     action: str,
-    _: Principal = Depends(require_admin),
+    payload: ActionReason | None = None,
+    principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     if action not in {"approve", "reject", "retry", "retry_delivery"}:
         raise HTTPException(status_code=404, detail="Unknown action.")
     try:
-        item = transition_request(db, request_id, action)
+        item = transition_request(
+            db,
+            request_id,
+            action,
+            actor_id=str(principal.user_id),
+            reason=(
+                payload.reason
+                if payload is not None
+                else f"Administrator requested {action.replace('_', ' ')}."
+            ),
+        )
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
     db.commit()
@@ -2810,15 +3090,33 @@ def regenerate_batch_artifact(
             status_code=409,
             detail="Batch Artifact has not expired.",
         )
-    artifact = generate_artifact(db, item, events, settings)
-    _audit(
-        db,
-        principal,
-        "batch_artifact_regenerated",
-        "batch_artifact",
-        artifact.id,
-        payload.reason,
+    previous_artifact = (
         {
+            "artifactId": artifact.id,
+            "available": False,
+            "expiresAt": (
+                artifact.expires_at.isoformat()
+                if artifact.expires_at is not None
+                else None
+            ),
+        }
+        if artifact is not None
+        else None
+    )
+    artifact = generate_artifact(db, item, events, settings)
+    record_activity(
+        db,
+        action="batch_artifact_regenerated",
+        target_type="batch_request",
+        target_id=item.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "before": previous_artifact,
+            "after": {
+                "artifactId": artifact.id,
+                "available": True,
+            },
             "requestId": str(item.id),
             "sha256": artifact.sha256,
             "expiresAt": (

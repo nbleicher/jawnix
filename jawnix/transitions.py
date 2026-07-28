@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .activity import record_activity
 from .jobs import enqueue_job
 from .models import BatchArtifact, LeadRequest, RequestStatus, utcnow
 
@@ -16,10 +17,18 @@ class TransitionError(Exception):
         self.status_code = status_code
 
 
-def transition_request(db: Session, request_id: uuid.UUID, action: str) -> LeadRequest:
+def transition_request(
+    db: Session,
+    request_id: uuid.UUID,
+    action: str,
+    *,
+    actor_id: str = "system:request-transition",
+    reason: str = "Automated Batch Request transition",
+) -> LeadRequest:
     item = db.scalar(select(LeadRequest).where(LeadRequest.id == request_id).with_for_update())
     if item is None:
         raise TransitionError("Request was not found.", 404)
+    previous_status = item.status
     if action == "approve" and item.status == RequestStatus.pending.value:
         item.status = RequestStatus.approved.value
         item.approved_at = utcnow()
@@ -44,5 +53,17 @@ def transition_request(db: Session, request_id: uuid.UUID, action: str) -> LeadR
         enqueue_job(db, "update_notification", item.id)
     else:
         raise TransitionError(f"Action {action} is not valid while request is {item.status}.")
+    record_activity(
+        db,
+        action=f"batch_request_{action}",
+        target_type="batch_request",
+        target_id=item.id,
+        actor_id=actor_id,
+        reason=reason,
+        details={
+            "before": {"status": previous_status},
+            "after": {"status": item.status},
+        },
+    )
     db.flush()
     return item
