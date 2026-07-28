@@ -168,11 +168,181 @@ class CustomerDelete(BaseModel):
 
 
 class CustomerCreate(BaseModel):
+    """Create a durable Customer and invite its first User Account.
+
+    There is deliberately no password field. Administrators provision access
+    by invitation only, so a posted credential is a validation failure rather
+    than something Jawnix could accept and store.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    email: EmailStr
+    slug: str | None = Field(default=None, min_length=1, max_length=80)
+    agency_id: int | None = None
+    licensed_states: list[str] = Field(default_factory=list)
+    first_name: str = Field(default="", max_length=120)
+    last_name: str = Field(default="", max_length=120)
+    reason: str = Field(
+        default="Created a Customer and invited its User Account",
+        min_length=1,
+        max_length=2000,
+    )
+
+    @field_validator("licensed_states")
+    @classmethod
+    def valid_states(cls, value: list[str]) -> list[str]:
+        return normalize_states(value)
+
+
+class UserAccountInvite(BaseModel):
+    """Invite a replacement User Account for an existing Customer."""
+
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr
     first_name: str = Field(default="", max_length=120)
     last_name: str = Field(default="", max_length=120)
+    reason: str = Field(
+        default="Invited a replacement User Account",
+        min_length=1,
+        max_length=2000,
+    )
+
+
+CustomerAdminTone = Literal["neutral", "info", "success", "warning", "danger"]
+
+
+class CustomerAdminStatus(BaseModel):
+    """One standing, stated in administrator vocabulary.
+
+    Screens render the label and tone directly, so the internal lifecycle
+    values never have to be re-translated per surface.
+    """
+
+    label: str
+    description: str
+    tone: CustomerAdminTone
+
+
+class CustomerDirectoryAgency(BaseModel):
+    id: int
+    name: str
+    active: bool
+
+
+class CustomerDirectoryRow(BaseModel):
+    id: int
+    slug: str
+    name: str
+    agency_id: int | None
+    agency: str
+    licensed_states: list[str]
+    #: The durable party's standing, which access changes never affect.
+    customer_status: CustomerAdminStatus
+    #: The replaceable authentication's standing.
+    account_status: CustomerAdminStatus
+    account_email: str
+    last_activity_at: datetime | None
+    problems: list[str]
+    href: str
+
+
+class CustomerDirectoryFilters(BaseModel):
+    query: str
+    status: Literal["all", "active", "deactivated"]
+    agency_id: int | None
+    state: str
+    problems_only: bool
+
+
+class CustomerDirectoryOut(BaseModel):
+    """The searchable Customer directory that replaces hierarchy editing."""
+
+    filters: CustomerDirectoryFilters
+    agencies: list[CustomerDirectoryAgency]
+    states: list[str]
+    total: int
+    matched: int
+    customers: list[CustomerDirectoryRow]
+
+
+class CustomerRecord(BaseModel):
+    """Durable Customer identity. Replacing access never changes any of it."""
+
+    id: int
+    slug: str
+    name: str
+    agency_id: int | None
+    agency: str
+    active: bool
+    licensed_states: list[str]
+    status: CustomerAdminStatus
+    last_activity_at: datetime | None
+
+
+class CustomerHistory(BaseModel):
+    """Permanent history a User Account replacement must never reset."""
+
+    requests: int
+    distributions: int
+    outcomes: int
+    reports: int
+    first_delivered_at: datetime | None
+    last_delivered_at: datetime | None
+
+
+class UserAccountRecord(BaseModel):
+    """Replaceable authentication. Never the party that owns history."""
+
+    auth_user_id: str
+    email: str
+    name: str
+    active: bool
+    created_at: datetime
+    replaced_at: datetime | None
+    replaced_by_auth_user_id: str | None
+
+
+class UserAccountInvitationRecord(BaseModel):
+    """An offer of access that has not been accepted yet."""
+
+    id: str
+    email: str
+    invited_at: datetime
+    replaces_auth_user_id: str | None
+    status: CustomerAdminStatus
+
+
+class CustomerActivityEntry(BaseModel):
+    id: str
+    action: str
+    label: str
+    actor: str
+    reason: str
+    created_at: datetime
+
+
+class CustomerDeletionGuard(BaseModel):
+    """What the existing dependency and tombstone rules currently allow."""
+
+    dependencies: dict[str, int]
+    requires_deactivation: bool
+    can_hard_delete: bool
+    tombstoned: bool
+
+
+class CustomerDetailsOut(BaseModel):
+    """Customer details, with durable identity separated from access."""
+
+    customer: CustomerRecord
+    history: CustomerHistory
+    user_account: UserAccountRecord | None
+    invitation: UserAccountInvitationRecord | None
+    former_accounts: list[UserAccountRecord]
+    activity: list[CustomerActivityEntry]
+    deletion: CustomerDeletionGuard
 
 
 class ProfileOut(BaseModel):

@@ -15,10 +15,24 @@ import {
 import {
   AdminDestinationRoute,
   adminAcquisitionLoader,
-  adminCustomersLoader,
-  adminFulfillmentLoader,
   adminOverviewLoader,
 } from "./routes/AdminDestinations";
+import {
+  AdminCustomersRoute,
+  adminCustomerDirectoryLoader,
+} from "./routes/AdminCustomers";
+import {
+  AdminCustomerDetailsRoute,
+  adminCustomerDetailsLoader,
+} from "./routes/AdminCustomerDetails";
+import {
+  AdminFulfillmentConflictRoute,
+  AdminFulfillmentRequestRoute,
+  AdminFulfillmentRoute,
+  fulfillmentConflictLoader,
+  fulfillmentLoader,
+  fulfillmentRequestLoader,
+} from "./routes/AdminFulfillment";
 import {
   adminAccessLoader,
   adminMFAStatusLoader,
@@ -50,9 +64,10 @@ import { batchRequestsLoader } from "./routes/batchRequests";
  * feature flag switch between them without touching the legacy pages.
  *
  * #47 established the shell, routing, and design system. Customer routes remain
- * placeholders for their later slices; administrator destinations are real
- * task maps whose loaders and screen bodies are replaced by the operational
- * slices without rebuilding the shell.
+ * placeholders for their later slices; the remaining administrator destinations
+ * are task maps whose loaders and screen bodies are replaced by the operational
+ * slices without rebuilding the shell. Customers is one that has been: it is a
+ * real directory and record screen backed by the administration API.
  */
 export const router = createBrowserRouter(
   [
@@ -138,10 +153,24 @@ export const router = createBrowserRouter(
               loader: adminOverviewLoader,
               element: <AdminDestinationRoute />,
             },
+            // #57 replaced the Fulfillment task map with the real workspace.
+            // Its loaders read one aggregate contract, and every action the
+            // screens render is projected by the backend rather than derived
+            // here, so the UI cannot offer what the domain refuses.
             {
               path: "fulfillment",
-              loader: adminFulfillmentLoader,
-              element: <AdminDestinationRoute />,
+              loader: fulfillmentLoader,
+              element: <AdminFulfillmentRoute />,
+            },
+            {
+              path: "fulfillment/requests/:requestId",
+              loader: fulfillmentRequestLoader,
+              element: <AdminFulfillmentRequestRoute />,
+            },
+            {
+              path: "fulfillment/conflicts/:conflictId",
+              loader: fulfillmentConflictLoader,
+              element: <AdminFulfillmentConflictRoute />,
             },
             {
               path: "acquisition",
@@ -160,8 +189,13 @@ export const router = createBrowserRouter(
             },
             {
               path: "customers",
-              loader: adminCustomersLoader,
-              element: <AdminDestinationRoute />,
+              loader: adminCustomerDirectoryLoader,
+              element: <AdminCustomersRoute />,
+            },
+            {
+              path: "customers/:customerId",
+              loader: adminCustomerDetailsLoader,
+              element: <AdminCustomerDetailsRoute />,
             },
             {
               path: "security",

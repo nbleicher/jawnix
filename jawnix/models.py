@@ -96,6 +96,7 @@ class UserAccount(Base):
     replaced_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
+    replaced_by_auth_user_id: Mapped[uuid.UUID | None] = mapped_column()
     customer: Mapped[Customer | None] = relationship()
 
     __table_args__ = (
@@ -105,6 +106,77 @@ class UserAccount(Base):
             unique=True,
             postgresql_where=text("active"),
             sqlite_where=text("active = 1"),
+        ),
+    )
+
+
+class UserAccountInvitation(Base):
+    """An outstanding offer of access to one durable Customer.
+
+    Provisioning is invitation-only: an administrator names the email and the
+    provider owns the credential, so no password ever passes through Jawnix.
+    The invitation is the reason a replacement can be prepared without
+    disturbing anything -- the Customer keeps its identity, its history, and
+    its currently active User Account until the invited person accepts.
+
+    ``pending`` is therefore the only state the constraints care about. The
+    partial unique index below permits at most one outstanding invitation per
+    Customer, which is what makes acceptance a safe atomic swap: the winner of
+    that index is the only account that can ever be promoted.
+    """
+
+    __tablename__ = "user_account_invitations"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    auth_user_id: Mapped[uuid.UUID] = mapped_column(index=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16),
+        default="pending",
+        nullable=False,
+    )
+    # The account this invitation will retire on acceptance. Null on first
+    # provisioning, where there is nothing to replace.
+    replaces_auth_user_id: Mapped[uuid.UUID | None] = mapped_column()
+    invited_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    canceled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    customer: Mapped[Customer] = relationship()
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'accepted', 'canceled')",
+            name="ck_user_account_invitations_status",
+        ),
+        Index(
+            "uq_pending_user_account_invitation_per_customer",
+            "customer_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+            sqlite_where=text("status = 'pending'"),
+        ),
+        # An identity can be invited again after a cancellation, so uniqueness
+        # applies to outstanding offers rather than to the whole history.
+        Index(
+            "uq_pending_user_account_invitation_per_identity",
+            "auth_user_id",
+            unique=True,
+            postgresql_where=text("status = 'pending'"),
+            sqlite_where=text("status = 'pending'"),
         ),
     )
 

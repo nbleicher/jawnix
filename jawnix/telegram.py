@@ -8,6 +8,7 @@ import uuid
 import httpx
 
 from .config import Settings
+from .fulfillment import RequestActionContext, telegram_actions
 from .models import (
     InventoryConflict,
     LeadRequest,
@@ -189,28 +190,25 @@ def _request_text(request: LeadRequest) -> str:
 
 
 def _keyboard(request: LeadRequest) -> dict:
-    rows: list[list[dict[str, str]]] = []
-    if request.status == "pending":
-        rows = [
-            [
-                {"text": "Approve", "callback_data": callback_data("approve", request.id)},
-                {"text": "Reject", "callback_data": callback_data("reject", request.id)},
-            ]
-        ]
-    elif request.status == "waiting_inventory":
-        rows = [
-            [
-                {"text": "Retry", "callback_data": callback_data("retry", request.id)},
-                {"text": "Reject", "callback_data": callback_data("reject", request.id)},
-            ]
-        ]
-    elif request.status == "failed":
-        action = "retry_generation" if request.artifact is None else "retry_delivery"
-        if action == "retry_generation":
-            rows = [[{"text": "Retry generation", "callback_data": callback_data("retry", request.id)}]]
-        else:
-            rows = [[{"text": "Retry delivery", "callback_data": callback_data("retry_delivery", request.id)}]]
-    return {"inline_keyboard": rows}
+    """Offer exactly what the Fulfillment workspace offers.
+
+    Telegram used to carry its own copy of the state rules, which is how a
+    channel drifts into presenting an action the domain refuses. Both surfaces
+    now read jawnix/fulfillment.py, so an administrator sees one decision
+    rather than two that can disagree (#57).
+    """
+    context = RequestActionContext(
+        status=request.status,
+        has_artifact=request.artifact is not None,
+    )
+    buttons = [
+        {
+            "text": action.label,
+            "callback_data": callback_data(action.name, request.id),
+        }
+        for action in telegram_actions(context)
+    ]
+    return {"inline_keyboard": [buttons] if buttons else []}
 
 
 class TelegramClient:
