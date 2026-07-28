@@ -12,10 +12,10 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from jawnix.activity import record_activity
 from jawnix.models import (
     Agency,
     Agent,
-    AuditEntry,
     CustomerProfile,
     DistributionEvent,
     Lead,
@@ -912,25 +912,28 @@ def import_scraper_sqlite(session: Session, path: Path, expected_checksum: str |
                     correction.title != title
                     or correction.state != state
                 ):
-                    session.add(
-                        AuditEntry(
-                            action=(
-                                "listing_observation_conflicts_correction"
-                            ),
-                            target_type="listing_observation",
-                            target_id=str(observation.id),
-                            actor_user_id="system:inventory_sync",
-                            reason=(
-                                "A newer Google Maps listing conflicts "
-                                "with the active Lead Correction."
-                            ),
-                            details={
-                                "leadId": lead.id,
-                                "correctionId": str(correction.id),
-                                "observedTitle": title,
-                                "observedState": state,
+                    record_activity(
+                        session,
+                        action="listing_observation_conflicts_correction",
+                        target_type="listing_observation",
+                        target_id=observation.id,
+                        actor_id="system:inventory_sync",
+                        reason=(
+                            "A newer Google Maps listing conflicts "
+                            "with the active Lead Correction."
+                        ),
+                        details={
+                            "before": {
+                                "title": correction.title,
+                                "state": correction.state,
                             },
-                        )
+                            "after": {
+                                "title": title,
+                                "state": state,
+                            },
+                            "leadId": lead.id,
+                            "correctionId": str(correction.id),
+                        },
                     )
             latest_valid[phone] = {
                 "phone": phone,

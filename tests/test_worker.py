@@ -4,17 +4,78 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from jawnix.database import Base
 from jawnix.models import (
+    Agent,
+    AuditEntry,
     Job,
     JobStatus,
+    LeadRequest,
     NightlyReview,
     ScraperRun,
 )
 from jawnix.worker import process_job
+
+
+def test_telegram_request_decision_uses_shared_activity_record(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(f"sqlite:///{tmp_path / 'worker.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    with factory.begin() as session:
+        customer = Agent(
+            slug="telegram-audit-customer",
+            name="Telegram Audit Customer",
+        )
+        request = LeadRequest(
+            user_id=uuid.uuid4(),
+            agent=customer,
+            lead_count=10,
+            state_mode="selected",
+            states_snapshot=["TX"],
+            delivery_email="telegram-audit@example.com",
+            status="pending",
+        )
+        session.add_all([customer, request])
+        session.flush()
+        job = Job(
+            kind="telegram_action",
+            request_id=request.id,
+            payload={
+                "action": "approve",
+                "approver_user_id": "12345",
+            },
+            status=JobStatus.running.value,
+        )
+        session.add(job)
+        session.flush()
+        job_id = job.id
+        request_id = request.id
+
+    monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
+    process_job(job_id)
+
+    with factory() as session:
+        audit = session.scalar(
+            select(AuditEntry).where(
+                AuditEntry.action == "batch_request_approve"
+            )
+        )
+        assert audit is not None
+        assert audit.target_type == "batch_request"
+        assert audit.target_id == str(request_id)
+        assert audit.actor_user_id == "telegram:12345"
+        assert audit.reason == "Telegram Batch Request decision"
+        assert audit.details == {
+            "before": {"status": "pending"},
+            "after": {"status": "approved"},
+        }
+    engine.dispose()
 
 
 def test_nightly_review_delivery_commits_message_link_once(

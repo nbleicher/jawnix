@@ -15,11 +15,11 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from jawnix.activity import record_activity
 from jawnix.config import Settings
 from jawnix.jobs import enqueue_job
 from jawnix.models import (
     DatasetPublication,
-    AuditEntry,
     InventoryConflict,
     InventorySyncAttempt,
     Lead,
@@ -940,20 +940,21 @@ def decide_scrape_anomaly(
             "newerScraperRunId": newer_run.id,
         }
         run.finished_at = now
-        session.add(
-            AuditEntry(
-                action="scrape_anomaly_superseded",
-                target_type="scrape_anomaly",
-                target_id=str(anomaly.id),
-                actor_user_id=actor_id,
-                reason=reason.strip(),
-                details={
-                    "scraperRunId": run.id,
-                    "datasetChecksum": checksum,
-                    "requestedAction": action,
-                    "newerScraperRunId": newer_run.id,
-                },
-            )
+        record_activity(
+            session,
+            action="scrape_anomaly_superseded",
+            target_type="scrape_anomaly",
+            target_id=anomaly.id,
+            actor_id=actor_id,
+            reason=reason,
+            details={
+                "before": {"status": "pending"},
+                "after": {"status": "superseded"},
+                "scraperRunId": run.id,
+                "datasetChecksum": checksum,
+                "requestedAction": action,
+                "newerScraperRunId": newer_run.id,
+            },
         )
         nightly_review = session.scalar(
             select(NightlyReview).where(
@@ -1032,18 +1033,19 @@ def decide_scrape_anomaly(
             "anomalyDecision": "denied",
         }
         run.finished_at = now
-    session.add(
-        AuditEntry(
-            action=f"scrape_anomaly_{anomaly.status}",
-            target_type="scrape_anomaly",
-            target_id=str(anomaly.id),
-            actor_user_id=actor_id,
-            reason=reason.strip(),
-            details={
-                "scraperRunId": run.id,
-                "datasetChecksum": checksum,
-            },
-        )
+    record_activity(
+        session,
+        action=f"scrape_anomaly_{anomaly.status}",
+        target_type="scrape_anomaly",
+        target_id=anomaly.id,
+        actor_id=actor_id,
+        reason=reason,
+        details={
+            "before": {"status": "pending"},
+            "after": {"status": anomaly.status},
+            "scraperRunId": run.id,
+            "datasetChecksum": checksum,
+        },
     )
     nightly_review = session.scalar(
         select(NightlyReview).where(

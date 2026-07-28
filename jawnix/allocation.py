@@ -13,12 +13,12 @@ from pathlib import Path
 from sqlalchemy import and_, exists, func, nullsfirst, or_, select
 from sqlalchemy.orm import Session
 
+from .activity import record_activity
 from .config import Settings
 from .jobs import enqueue_job
 from .models import (
     Agency,
     Customer,
-    AuditEntry,
     BatchArtifact,
     DatasetPublication,
     DistributionEvent,
@@ -477,19 +477,20 @@ def decide_inventory_conflict(
     conflict.decision_by = actor_id
     conflict.decision_reason = reason.strip()
     conflict.decided_at = datetime.now(timezone.utc)
-    session.add(
-        AuditEntry(
-            action=f"inventory_conflict_{conflict.status}",
-            target_type="inventory_conflict",
-            target_id=str(conflict.id),
-            actor_user_id=actor_id,
-            reason=reason.strip(),
-            details={
-                "olderRequestId": str(conflict.older_request_id),
-                "newerRequestId": str(conflict.newer_request_id),
-                "snapshotChecksum": conflict.snapshot_checksum,
-            },
-        )
+    record_activity(
+        session,
+        action=f"inventory_conflict_{conflict.status}",
+        target_type="inventory_conflict",
+        target_id=conflict.id,
+        actor_id=actor_id,
+        reason=reason,
+        details={
+            "before": {"status": "pending"},
+            "after": {"status": conflict.status},
+            "olderRequestId": str(conflict.older_request_id),
+            "newerRequestId": str(conflict.newer_request_id),
+            "snapshotChecksum": conflict.snapshot_checksum,
+        },
     )
     enqueue_job(
         session,

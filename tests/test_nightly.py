@@ -5,6 +5,8 @@ import json
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import select
+
 from jawnix.config import Settings
 from jawnix.models import (
     AuditEntry,
@@ -300,6 +302,16 @@ def test_scheduled_configuration_activates_exact_scale_contract(
             "cadence_multiplier": 0.5,
         }
     ]
+    audit = session.scalar(
+        select(AuditEntry).where(
+            AuditEntry.action
+            == "scraper_configuration_activated"
+        )
+    )
+    assert audit is not None
+    assert audit.actor_user_id == "system:nightly-scheduler"
+    assert audit.details["before"] == {"status": "scheduled"}
+    assert audit.details["after"] == {"status": "active"}
 
 
 def test_niche_proposal_repairs_empty_unconfirmed_mapping(

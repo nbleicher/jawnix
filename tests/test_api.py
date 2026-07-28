@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -1141,7 +1142,136 @@ def test_admin_can_send_recipient_password_reset(session, settings, monkeypatch)
         assert response.status_code == 200
         assert response.json() == {"ok": True, "email": profile.email}
         assert sent == [profile.email]
+        audit = session.scalar(
+            select(AuditEntry).where(
+                AuditEntry.action
+                == "user_account_password_reset_sent"
+            )
+        )
+        assert audit is not None
+        assert audit.target_id == str(user_id)
+        assert audit.details["after"] == {"resetDispatched": True}
         assert client.post(f"/api/admin/recipients/{uuid.uuid4()}/send-password-reset").status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_created_user_account_records_no_known_secret(
+    session,
+    settings,
+    monkeypatch,
+):
+    admin_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    known_password = "Known-secret-password-76"
+
+    async def fake_admin(_settings, _method, _path, _payload):
+        return {"id": str(user_id)}
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=admin_id,
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
+    try:
+        response = TestClient(app).post(
+            "/api/admin/customers",
+            json={
+                "email": "new-user@example.com",
+                "first_name": "New",
+                "last_name": "User",
+                "password": known_password,
+            },
+        )
+        assert response.status_code == 201
+        audit = session.scalar(
+            select(AuditEntry).where(
+                AuditEntry.action == "user_account_created"
+            )
+        )
+        assert audit is not None
+        assert audit.actor_user_id == str(admin_id)
+        assert audit.target_type == "user_account"
+        assert audit.target_id == str(user_id)
+        assert audit.details["after"] == {
+            "mappingConfirmed": False,
+            "customerId": None,
+        }
+        assert known_password not in json.dumps(
+            {
+                "reason": audit.reason,
+                "details": audit.details,
+            }
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_batch_request_decision_records_actor_reason_and_change(
+    session,
+):
+    admin_id = uuid.uuid4()
+    customer = Agent(
+        slug="request-audit-customer",
+        name="Request Audit Customer",
+    )
+    user_id = uuid.uuid4()
+    profile = CustomerProfile(
+        user_id=user_id,
+        email="request-audit@example.com",
+        licensed_states=["TX"],
+        agent=customer,
+        mapping_confirmed_at=utcnow(),
+    )
+    request = LeadRequest(
+        user_id=user_id,
+        agent=customer,
+        lead_count=10,
+        state_mode="selected",
+        states_snapshot=["TX"],
+        delivery_email="request-audit@example.com",
+        status="pending",
+    )
+    session.add_all([customer, profile, request])
+    session.commit()
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=admin_id,
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    try:
+        response = TestClient(app).post(
+            f"/api/admin/requests/{request.id}/approve",
+            json={"reason": "Inventory and Customer scope verified."},
+        )
+        assert response.status_code == 200
+        audit = session.scalar(
+            select(AuditEntry).where(
+                AuditEntry.action == "batch_request_approve"
+            )
+        )
+        assert audit is not None
+        assert audit.actor_user_id == str(admin_id)
+        assert audit.target_type == "batch_request"
+        assert audit.target_id == str(request.id)
+        assert audit.reason == "Inventory and Customer scope verified."
+        assert audit.details == {
+            "before": {"status": "pending"},
+            "after": {"status": "approved"},
+        }
     finally:
         app.dependency_overrides.clear()
 
@@ -1416,6 +1546,21 @@ def test_admin_replaces_user_account_without_replacing_customer_identity(
         assert current.status_code == 200
         assert current.json()["customer_id"] == customer.id
         assert current.json()["licensed_states"] == ["FL", "TX"]
+        audit = session.scalar(
+            select(AuditEntry).where(
+                AuditEntry.action
+                == "customer_user_account_replaced"
+            )
+        )
+        assert audit is not None
+        assert audit.target_type == "customer"
+        assert audit.target_id == str(customer.id)
+        assert audit.details["before"] == {
+            "activeAuthUserIds": [str(old_user_id)]
+        }
+        assert audit.details["after"] == {
+            "activeAuthUserIds": [str(new_user_id)]
+        }
     finally:
         app.dependency_overrides.clear()
 
@@ -1494,6 +1639,17 @@ def test_customer_lifecycle_blocks_hard_delete_and_erases_to_tombstone(
         )
         assert blocked.status_code == 409
         assert blocked.json()["detail"]["dependencies"]["distributions"] == 1
+        refusal = session.scalar(
+            select(AuditEntry).where(
+                AuditEntry.action
+                == "customer_hard_delete_refused"
+            )
+        )
+        assert refusal is not None
+        assert refusal.actor_user_id == str(admin_id)
+        assert refusal.reason == "Requested deletion."
+        assert refusal.details["guard"] == "dependent_history"
+        assert refusal.details["after"] == {"deleted": False}
 
         erased = client.post(
             f"/api/admin/customers/{customer.id}/erase",
@@ -1611,6 +1767,67 @@ def test_admin_creates_immutable_versioned_scraper_configuration(session):
         ] == [2, 1]
         assert session.query(ScraperConfiguration).count() == 2
         assert session.query(SourceSegment).count() == 2
+        audit = session.scalar(
+            select(AuditEntry).where(
+                AuditEntry.target_id == body["id"],
+                AuditEntry.action
+                == "scraper_configuration_created",
+            )
+        )
+        assert audit is not None
+        assert audit.actor_user_id == str(admin_id)
+        assert audit.reason == "Add Texas roofing acquisition"
+        assert audit.details["before"] is None
+        assert audit.details["after"] == {
+            "version": 1,
+            "status": "draft",
+            "segmentCount": 1,
+        }
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_action_fails_visibly_when_activity_cannot_record(
+    session,
+    monkeypatch,
+):
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+
+    def fail_recording(*_args, **_kwargs):
+        raise RuntimeError("activity store unavailable")
+
+    monkeypatch.setattr("jawnix.api.record_activity", fail_recording)
+    try:
+        response = TestClient(
+            app,
+            raise_server_exceptions=False,
+        ).post(
+            "/api/admin/scraper-configurations",
+            json={
+                "reason": "This action must not pass silently.",
+                "segments": [
+                    {
+                        "key": "visible-failure",
+                        "niche": "Roofing",
+                        "query": "roofing",
+                        "geography": "TX",
+                        "parameters": {},
+                    }
+                ],
+            },
+        )
+        assert response.status_code == 500
+        session.rollback()
+        assert session.query(ScraperConfiguration).count() == 0
     finally:
         app.dependency_overrides.clear()
 
@@ -1697,11 +1914,13 @@ def test_configuration_schedule_manual_run_and_rollback_are_separate_audited_act
         assert rollback.json()["version"] == 3
         assert rollback.json()["status"] == "scheduled"
         assert rollback.json()["basedOnConfigurationId"] == first["id"]
-        assert session.query(AuditEntry).count() == 3
+        assert session.query(AuditEntry).count() == 5
         assert [
             entry.action
             for entry in session.query(AuditEntry).order_by(AuditEntry.created_at)
         ] == [
+            "scraper_configuration_created",
+            "scraper_configuration_created",
             "scraper_configuration_scheduled",
             "scraper_manual_run_queued",
             "scraper_configuration_rollback_scheduled",
@@ -1742,6 +1961,11 @@ def test_admin_suppression_is_reversible_audited_and_controls_eligibility(
         )
         assert suppressed.status_code == 200
         assert suppressed.json()["suppressed"] is True
+        duplicate = client.put(
+            f"/api/admin/leads/{lead.id}/suppression",
+            json={"reason": "Duplicate suppression request"},
+        )
+        assert duplicate.status_code == 200
         result = allocate_request(session, request.id, settings)
         session.commit()
         assert result.status == "waiting_inventory"
@@ -1766,6 +1990,16 @@ def test_admin_suppression_is_reversible_audited_and_controls_eligibility(
             "lead_unsuppressed",
         ]
         assert all(entry.reason for entry in audits)
+        assert all(
+            entry.actor_user_id == str(admin_id)
+            for entry in audits
+        )
+        assert audits[0].details == {
+            "before": {"suppressed": False},
+            "after": {"suppressed": True},
+        }
+        assert audits[1].details["before"]["suppressed"] is True
+        assert audits[1].details["after"] == {"suppressed": False}
     finally:
         app.dependency_overrides.clear()
 

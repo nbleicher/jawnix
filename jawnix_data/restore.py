@@ -10,9 +10,9 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from jawnix.activity import record_activity
 from jawnix.config import Settings
 from jawnix.models import (
-    AuditEntry,
     DatasetPublication,
     ScraperConfiguration,
     ScraperRun,
@@ -165,19 +165,21 @@ def validate_or_replay_restored_dataset(
         settings,
         restored_version,
     )
-    session.add(
-        AuditEntry(
-            action="scraper_dataset_restore_replayed",
-            target_type="dataset_publication",
-            target_id=str(existing.id),
-            actor_user_id="system:restore",
-            reason="Validated restore replay",
-            details={
+    record_activity(
+        session,
+        action="scraper_dataset_restore_replayed",
+        target_type="dataset_publication",
+        target_id=existing.id,
+        actor_id="system:restore",
+        reason="Validated restore replay",
+        details={
+            "before": None,
+            "after": {
                 "datasetVersion": restored_version,
-                "checksum": restored_checksum,
                 "syncStatus": sync_result["status"],
             },
-        )
+            "checksum": restored_checksum,
+        },
     )
     session.flush()
     return {

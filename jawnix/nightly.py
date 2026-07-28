@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .activity import record_activity
 from .config import Settings
 from .jobs import enqueue_job
 from .models import (
@@ -20,7 +21,6 @@ from .models import (
     Lead,
     LeadRequest,
     NightlyReview,
-    AuditEntry,
     ScraperConfiguration,
     ScraperRun,
     SourceSegment,
@@ -159,23 +159,26 @@ def sync_scraper_configuration_baseline(
     )
     session.add(imported)
     session.flush()
-    session.add(
-        AuditEntry(
-            action="scraper_configuration_baseline_imported",
-            target_type="scraper_configuration",
-            target_id=str(imported.id),
-            actor_user_id="system:nightly-scheduler",
-            reason=(
-                "Reconciled the existing authoritative Scraper Source "
-                "Segment baseline without changing acquisition."
-            ),
-            details={
+    record_activity(
+        session,
+        action="scraper_configuration_baseline_imported",
+        target_type="scraper_configuration",
+        target_id=imported.id,
+        actor_id="system:nightly-scheduler",
+        reason=(
+            "Reconciled the existing authoritative Scraper Source "
+            "Segment baseline without changing acquisition."
+        ),
+        details={
+            "before": None,
+            "after": {
                 "version": version,
-                "contractChecksum": checksum,
+                "status": "active",
                 "segmentCount": len(rows),
-                "acquisitionChanged": False,
             },
-        )
+            "contractChecksum": checksum,
+            "acquisitionChanged": False,
+        },
     )
     session.flush()
     return imported
@@ -294,19 +297,20 @@ def activate_scheduled_scraper_configuration(
         active.status = "superseded"
     scheduled.status = "active"
     scheduled.activated_at = as_of
-    session.add(
-        AuditEntry(
-            action="scraper_configuration_activated",
-            target_type="scraper_configuration",
-            target_id=str(scheduled.id),
-            actor_user_id="system:nightly-scheduler",
-            reason="Scheduled explicit Source Segment activation",
-            details={
-                "version": scheduled.version,
-                "contractChecksum": payload["checksum"],
-                "scraperVersion": accepted["version"],
-            },
-        )
+    record_activity(
+        session,
+        action="scraper_configuration_activated",
+        target_type="scraper_configuration",
+        target_id=scheduled.id,
+        actor_id="system:nightly-scheduler",
+        reason="Scheduled explicit Source Segment activation",
+        details={
+            "before": {"status": "scheduled"},
+            "after": {"status": "active"},
+            "version": scheduled.version,
+            "contractChecksum": payload["checksum"],
+            "scraperVersion": accepted["version"],
+        },
     )
     session.flush()
     return scheduled
