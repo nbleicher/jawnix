@@ -110,6 +110,31 @@ silently, `running_services` resolve to **0**, and the five-minute monitor flip 
 and fire a Telegram alert. I reproduced that exact failure before changing the script to use the
 base compose. `OPERATIONS.md` updated in the same commit.
 
+### CI caught a latent test bug that predates this branch
+
+`tests/test_cli.py` (from `a911d53`, untouched by this branch) asserted
+`"--request-id" in redistribute.stdout`. Rich colourises help output whenever it believes it is
+writing to a terminal — **and it treats GitHub Actions as one**. It styles each option name, so
+the escape codes land *inside* the token and the raw substring is absent even though the option
+is documented correctly.
+
+Narrowed it by elimination rather than guessing:
+
+| Condition | `--request-id` found |
+|---|---|
+| local default | ✅ |
+| `COLUMNS=80` (first theory — wrong) | ✅ |
+| `TERM=dumb` | ✅ |
+| `NO_COLOR=1` | ❌ does not override CI detection |
+| **`GITHUB_ACTIONS=true`** | ❌ **reproduced** |
+
+The test now asserts on the visible text with styling stripped, which is what it always meant,
+and the compound assertion is split so a failure names the offending command. No other test
+asserts on CLI stdout.
+
+**This is the case for CI in one example**: that test would have passed locally forever and
+failed the first time anyone ran it in an automated environment.
+
 ### CI added — and it caught a real defect on its first run
 
 `.github/workflows/ci.yml` runs on every push and pull request:
