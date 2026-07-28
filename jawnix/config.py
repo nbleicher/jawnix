@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     resend_api_key: str = Field(default="", alias="RESEND_API_KEY")
     resend_webhook_secret: str = Field(default="", alias="RESEND_WEBHOOK_SECRET")
     batch_from_email: str = Field(default="Jawnix <hai@jawnix.com>", alias="JAWNIX_BATCH_FROM_EMAIL")
+    # The address a Customer is pointed at when a Batch Request needs a human.
+    support_email: str = Field(default="hai@jawnix.com", alias="JAWNIX_SUPPORT_EMAIL")
     batch_dir: Path = Field(default=Path("./batches"), alias="JAWNIX_BATCH_DIR")
     batch_retention_days: int = Field(default=30, alias="JAWNIX_BATCH_RETENTION_DAYS")
     global_cooldown_days: int = Field(default=7, alias="JAWNIX_GLOBAL_COOLDOWN_DAYS")

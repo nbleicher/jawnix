@@ -23,6 +23,7 @@ from .models import (
     ScrapeAnomaly,
     ScraperRun,
     SourceRecommendation,
+    utcnow,
 )
 from .telegram import TelegramClient
 from .transitions import TransitionError, transition_request
@@ -391,6 +392,7 @@ def process_job(job_id: int) -> None:
                     if job.kind == "allocate_request"
                     else "Email delivery failed. The existing batch is preserved for retry."
                 )
+                request.closed_at = utcnow()
                 if job.kind == "deliver_request":
                     mark_delivery_failed(session, request.id, str(exc))
                 else:

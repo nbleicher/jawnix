@@ -1,0 +1,122 @@
+/* Stage indicator. The current stage is named in text and marked with
+   aria-current; the rule and weight only reinforce what is already written. */
+.request-flow__stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jx-space-2) var(--jx-space-4);
+}
+
+.request-flow__stage {
+  padding-block-end: var(--jx-space-2);
+  border-block-end: 3px solid var(--jx-color-border);
+  color: var(--jx-color-text-muted);
+  flex: 1 1 8rem;
+  min-width: 0;
+}
+
+.request-flow__stage--done {
+  border-block-end-color: var(--jx-color-accent);
+  color: var(--jx-color-text);
+}
+
+.request-flow__stage--current {
+  border-block-end-color: var(--jx-color-accent-strong);
+  color: var(--jx-color-text-strong);
+}
+
+.request-flow__failure {
+  padding: var(--jx-space-3) var(--jx-space-4);
+  border: 1px solid var(--jx-color-danger);
+  border-radius: var(--jx-radius-md);
+  background: var(--jx-color-danger-soft);
+}
+
+/* Radio and checkbox rows. Full-width targets so the whole row is tappable. */
+.request-flow__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-3);
+  min-height: var(--jx-touch-target);
+  padding: var(--jx-space-2) var(--jx-space-3);
+  border: 1px solid var(--jx-color-border);
+  border-radius: var(--jx-radius-md);
+  background: var(--jx-color-surface);
+  cursor: pointer;
+}
+
+.request-flow__choice:has(input:checked) {
+  border-color: var(--jx-color-accent);
+  background: var(--jx-color-accent-soft);
+}
+
+.request-flow__choice:has(input:focus-visible) {
+  outline: 3px solid var(--jx-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.request-flow__states {
+  display: grid;
+  gap: var(--jx-space-2);
+  grid-template-columns: repeat(auto-fit, minmax(min(6rem, 100%), 1fr));
+}
+
+.request-flow__review {
+  display: grid;
+  gap: var(--jx-space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+}
+
+.request-flow__review div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+  min-width: 0;
+}
+
+.request-flow__review dd {
+  color: var(--jx-color-text-strong);
+  font-weight: var(--jx-weight-semibold);
+}
+
+.request-flow__receipt {
+  border-color: var(--jx-color-success);
+  background: var(--jx-color-success-soft);
+}
+
+.request-list {
+  list-style: none;
+}
+
+/* A pause and an outcome are both explanations, distinguished by their words
+   and their border rather than by colour alone. */
+.request-card__note {
+  padding: var(--jx-space-3) var(--jx-space-4);
+  border: 1px solid var(--jx-color-border-strong);
+  border-inline-start-width: 4px;
+  border-radius: var(--jx-radius-md);
+  background: var(--jx-color-surface-recessed);
+}
+
+.request-card__note--pause {
+  border-inline-start-color: var(--jx-color-warning);
+}
+
+.request-card__note--danger {
+  border-inline-start-color: var(--jx-color-danger);
+}
+
+.request-card__note--neutral {
+  border-inline-start-color: var(--jx-color-neutral);
+}
+
+.request-card__note--warning {
+  border-inline-start-color: var(--jx-color-warning);
+}
+
+.request-card__note--info {
+  border-inline-start-color: var(--jx-color-info);
+}
+
+.request-card__note--success {
+  border-inline-start-color: var(--jx-color-success);
+}

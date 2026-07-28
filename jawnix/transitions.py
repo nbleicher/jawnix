@@ -38,6 +38,8 @@ def transition_request(
     elif action == "retry" and item.status in {RequestStatus.waiting_inventory.value, RequestStatus.failed.value}:
         item.status = RequestStatus.approved.value
         item.status_message = "Retry approved; allocation is queued."
+        # The request is moving again, so it no longer has a stopping point.
+        item.closed_at = None
         enqueue_job(db, "update_notification", item.id)
         enqueue_job(db, "fulfill_round_robin")
     elif action == "retry_delivery" and item.status == RequestStatus.failed.value:
@@ -45,11 +47,13 @@ def transition_request(
             raise TransitionError("No generated artifact is available for delivery retry.")
         item.status = RequestStatus.generated.value
         item.status_message = "Delivery retry queued."
+        item.closed_at = None
         enqueue_job(db, "update_notification", item.id)
         enqueue_job(db, "deliver_request", item.id)
     elif action == "reject" and item.status in {RequestStatus.pending.value, RequestStatus.waiting_inventory.value}:
         item.status = RequestStatus.rejected.value
         item.status_message = "Rejected by admin."
+        item.closed_at = utcnow()
         enqueue_job(db, "update_notification", item.id)
     else:
         raise TransitionError(f"Action {action} is not valid while request is {item.status}.")
