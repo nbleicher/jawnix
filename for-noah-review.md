@@ -42,9 +42,48 @@ be squeezed in beside unrelated work.
 
 ---
 
+### B. The `calllog` Supabase stack cannot be moved into a Jawnix workspace
+
+**Authorised by Noah 2026-07-28 to move it here and run `supabase start`. Not carried out —
+the premise does not hold.** Recording rather than executing.
+
+Three facts, each verified:
+
+| Check | Result |
+|---|---|
+| Owning repository | `conductor/workspaces/cauli/cayenne` is a checkout of **`nbleicher/cauli.git`** — a different repo from `nbleicher/jawnix` |
+| Its Supabase project | `supabase/config.toml` → `project_id = "calllog"` |
+| Jawnix's Supabase project | **none.** No `supabase/` directory, no `config.toml` |
+| How Jawnix reaches Supabase | **hosted**: `JAWNIX_SUPABASE_URL=https://YOUR_PROJECT.supabase.co` |
+
+So the stack is the **cauli/calllog** product's local development database, not Jawnix's. Moving
+it under a Jawnix workspace would misfile another product's database, and `supabase start` in
+this repository would fail outright because there is no Supabase project here to start.
+
+Jawnix does not use a local Supabase stack at all — it talks to a hosted project, which is why
+its 128 tests pass with the `calllog` containers stopped.
+
+**To fix the actual problem**, run `supabase start` in the cauli workspace that owns it:
+
+```sh
+cd /Users/noahbleicher/conductor/workspaces/cauli/cayenne && supabase start
+```
+
+**If you did mean to give Jawnix its own local Supabase**, that is a different and larger piece
+of work — `supabase init`, a schema baseline from `supabase-schema.sql`, and pointing
+`JAWNIX_SUPABASE_URL` at the local instance. Worth doing deliberately, not as a side effect of
+restarting a container. Note the stray `supabase/.temp/` line in `.gitignore` is the only trace
+of a local Supabase in this repo and looks like carried-over boilerplate.
+
+*Aside, possibly useful for #49:* `cauli`'s config already enables `[auth.mfa.totp]`. If that
+project has working TOTP enrolment, it is a reference implementation worth reading before
+building Jawnix's.
+
+---
+
 ## 🟡 Worth knowing
 
-### B. `supabase_edge_runtime_calllog` is still down — not a Jawnix issue
+### C. `supabase_edge_runtime_calllog` is still down — not a Jawnix issue
 
 Casualty of the Colima restart. It bind-mounts an ephemeral Supabase CLI file from a *different*
 workspace that no longer exists:
@@ -59,7 +98,7 @@ project's workspace.
 The other 9 `calllog` containers came back healthy. Two disposable test containers
 (`calllog-web-test`, `gms-web-test`) also did not restart — both were `restart=no`.
 
-### C. `Dockerfile.railway` has no frontend — and that is correct
+### D. `Dockerfile.railway` has no frontend — and that is correct
 
 Railway builds a different image entirely (legacy `app.py` monolith, no `jawnix/` package). Per
 `OPERATIONS.md:82,244,253`, **Railway is the retained legacy rollback target**, not current
@@ -68,7 +107,7 @@ production.
 Noted so nobody later "fixes" it by adding the frontend and couples the rollback target to the
 new UI.
 
-### D. Pre-existing deprecation that will eventually break the test suite
+### E. Pre-existing deprecation that will eventually break the test suite
 
 Every `pytest` run emits:
 
@@ -77,7 +116,7 @@ Every `pytest` run emits:
 Not from my change, but it affects all 128 tests and becomes a hard failure on a future
 Starlette release.
 
-### E. Eight screens are deliberate placeholders
+### F. Eight screens are deliberate placeholders
 
 `/app/overview`, `/requests`, `/feedback`, `/account`, `/admin/overview`, `/admin/fulfillment`,
 `/admin/acquisition`, `/admin/customers` each render "Not built yet — this screen arrives with
@@ -86,13 +125,13 @@ Starlette release.
 Real and working: navigation, routing, deep links, landmarks, theming, the design system, and
 the full accessibility contract.
 
-### F. `/app/design-system` is the gate fixture for #70
+### G. `/app/design-system` is the gate fixture for #70
 
 The gallery renders every primitive in both themes. The axe sweep and the future
 visual-regression baseline (#70) run against it. **New primitives must be added there** or they
 get no coverage.
 
-### G. `AdminShell` hard-codes Acquisition → terminal theme by pathname
+### H. `AdminShell` hard-codes Acquisition → terminal theme by pathname
 
 `frontend/src/app/shells/AdminShell.tsx:21`. The minimal honest demonstration that the design
 system supports both themes, but the route→theme binding properly belongs to **#62**. Commented
