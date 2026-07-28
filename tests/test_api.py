@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from jawnix.allocation import allocate_request
-from jawnix.api import app
+from jawnix.api import _customer_invitation_redirect, app
 from jawnix.auth import Principal, require_admin, require_principal
 from jawnix.config import get_settings
 from jawnix.database import get_db
@@ -1156,16 +1156,40 @@ def test_admin_can_send_recipient_password_reset(session, settings, monkeypatch)
         app.dependency_overrides.clear()
 
 
-def test_admin_created_user_account_records_no_known_secret(
+def test_customer_invitation_redirect_follows_the_ui_feature_flag(settings):
+    settings = settings.model_copy(
+        update={"public_base_url": "https://jawnix.example/"}
+    )
+
+    assert (
+        _customer_invitation_redirect(settings)
+        == "https://jawnix.example/portal-accept.html"
+    )
+    assert (
+        _customer_invitation_redirect(
+            settings.model_copy(update={"new_ui_enabled": True})
+        )
+        == "https://jawnix.example/app/accept-invitation"
+    )
+
+
+def test_admin_invites_user_account_without_receiving_or_recording_a_password(
     session,
     settings,
     monkeypatch,
 ):
     admin_id = uuid.uuid4()
     user_id = uuid.uuid4()
-    known_password = "Known-secret-password-76"
+    settings = settings.model_copy(
+        update={
+            "new_ui_enabled": True,
+            "public_base_url": "https://jawnix.example",
+        }
+    )
+    provider_requests: list[tuple[str, str, dict]] = []
 
-    async def fake_admin(_settings, _method, _path, _payload):
+    async def fake_admin(_settings, method, path, payload):
+        provider_requests.append((method, path, payload))
         return {"id": str(user_id)}
 
     def database_override():
@@ -1187,13 +1211,34 @@ def test_admin_created_user_account_records_no_known_secret(
                 "email": "new-user@example.com",
                 "first_name": "New",
                 "last_name": "User",
-                "password": known_password,
             },
         )
         assert response.status_code == 201
+        assert response.json() == {
+            "ok": True,
+            "userId": str(user_id),
+            "mappingConfirmed": False,
+        }
+        assert provider_requests == [
+            (
+                "POST",
+                (
+                    "/auth/v1/invite?"
+                    "redirect_to=https%3A%2F%2Fjawnix.example"
+                    "%2Fapp%2Faccept-invitation"
+                ),
+                {
+                    "email": "new-user@example.com",
+                    "data": {
+                        "first_name": "New",
+                        "last_name": "User",
+                    },
+                },
+            )
+        ]
         audit = session.scalar(
             select(AuditEntry).where(
-                AuditEntry.action == "user_account_created"
+                AuditEntry.action == "user_account_invitation_sent"
             )
         )
         assert audit is not None
@@ -1201,15 +1246,57 @@ def test_admin_created_user_account_records_no_known_secret(
         assert audit.target_type == "user_account"
         assert audit.target_id == str(user_id)
         assert audit.details["after"] == {
+            "invitationDispatched": True,
             "mappingConfirmed": False,
             "customerId": None,
         }
-        assert known_password not in json.dumps(
-            {
-                "reason": audit.reason,
-                "details": audit.details,
-            }
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_customer_invitation_rejects_and_redacts_known_password(
+    session,
+    settings,
+    monkeypatch,
+):
+    known_password = "Known-secret-password-48"
+    provider_called = False
+
+    async def fake_admin(*_args):
+        nonlocal provider_called
+        provider_called = True
+        return {"id": str(uuid.uuid4())}
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
+    try:
+        response = TestClient(app).post(
+            "/api/admin/customers",
+            json={
+                "email": "new-user@example.com",
+                "first_name": "New",
+                "last_name": "User",
+                "password": known_password,
+            },
         )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "The Customer invitation request was invalid."
+        }
+        assert known_password not in response.text
+        assert provider_called is False
+        assert session.scalar(select(func.count(AuditEntry.id))) == 0
     finally:
         app.dependency_overrides.clear()
 
@@ -2358,6 +2445,98 @@ def test_customer_session_cannot_target_admin_portal(session, settings, monkeypa
         )
         assert response.status_code == 403
         assert response.json()["detail"] == "Sign in with noah@jawnix.com to access administration."
+        assert session.get(CustomerProfile, customer_id) is None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_active_customer_session_uses_safe_react_destination_when_enabled(
+    session,
+    settings,
+    monkeypatch,
+):
+    customer_id = uuid.uuid4()
+    settings = settings.model_copy(update={"new_ui_enabled": True})
+
+    async def fake_verify(_token, _settings):
+        return {
+            "id": str(customer_id),
+            "email": "customer@example.com",
+            "app_metadata": {"jawnix_role": "customer"},
+            "user_metadata": {},
+        }
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    monkeypatch.setattr("jawnix.api.verify_supabase_token", fake_verify)
+    try:
+        client = TestClient(app)
+        requested = client.post(
+            "/api/auth/session",
+            json={
+                "access_token": "test-access-token-long-enough",
+                "requested_next": "/app/account",
+            },
+        )
+        assert requested.status_code == 200
+        assert requested.json()["next"] == "/app/account"
+
+        refused_admin_path = client.post(
+            "/api/auth/session",
+            json={
+                "access_token": "test-access-token-long-enough",
+                "requested_next": "/app/admin/overview",
+            },
+        )
+        assert refused_admin_path.status_code == 200
+        assert refused_admin_path.json()["next"] == "/app/overview"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_inactive_user_account_cannot_establish_a_session(
+    session,
+    settings,
+    monkeypatch,
+):
+    customer_id = uuid.uuid4()
+    session.add(
+        UserAccount(
+            auth_user_id=customer_id,
+            email="replaced@example.com",
+            active=False,
+            replaced_at=utcnow(),
+        )
+    )
+    session.commit()
+
+    async def fake_verify(_token, _settings):
+        return {
+            "id": str(customer_id),
+            "email": "replaced@example.com",
+            "app_metadata": {"jawnix_role": "customer"},
+            "user_metadata": {},
+        }
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    monkeypatch.setattr("jawnix.api.verify_supabase_token", fake_verify)
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/api/auth/session",
+            json={"access_token": "test-access-token-long-enough"},
+        )
+
+        assert response.status_code == 403
+        assert "set-cookie" not in response.headers
+        assert "jawnix_session" not in client.cookies
         assert session.get(CustomerProfile, customer_id) is None
     finally:
         app.dependency_overrides.clear()

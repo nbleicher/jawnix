@@ -94,6 +94,8 @@ def test_referenced_assets_are_content_hashed_and_cached_immutably(client):
     "path",
     [
         f"{MOUNT_PREFIX}/overview",
+        f"{MOUNT_PREFIX}/sign-in",
+        f"{MOUNT_PREFIX}/accept-invitation",
         f"{MOUNT_PREFIX}/requests",
         f"{MOUNT_PREFIX}/admin/fulfillment",
         f"{MOUNT_PREFIX}/design-system",
