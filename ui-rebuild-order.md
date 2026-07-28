@@ -108,6 +108,19 @@ Plan both as human-led, with agents preparing evidence rather than executing.
 
 ---
 
+## Definition of done for each slice
+
+Established by #47 and enforced by `.github/workflows/ci.yml` on every push and pull request:
+
+- `npm run typecheck`, `npm test`, `npm run test:e2e` and `uv run pytest` all green.
+- New primitives added to `/app/design-system`, or they get no accessibility or
+  visual-regression coverage.
+- New routes covered by the axe WCAG 2.2 AA sweep in `e2e/accessibility.spec.ts`.
+- Screens read their data through a route loader, so the pending and error seams the shell
+  provides are actually used.
+- Anything touching the serving path covered in `tests/test_frontend_shell_integration.py`,
+  which runs against the real compiled bundle rather than a fixture.
+
 ## Ordering caveats
 
 - **#70's `Blocked by` list omits some ancestors** (#48, #50, #51, #55, #59, #62). They are
