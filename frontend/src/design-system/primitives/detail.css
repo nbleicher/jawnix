@@ -1,0 +1,41 @@
+.jx-detail {
+  margin: 0;
+  display: grid;
+  gap: var(--jx-space-3);
+}
+
+.jx-detail__row {
+  display: grid;
+  gap: var(--jx-space-1);
+  padding-block-end: var(--jx-space-3);
+  border-block-end: 1px solid var(--jx-color-border);
+}
+
+.jx-detail__row:last-child {
+  padding-block-end: 0;
+  border-block-end: none;
+}
+
+.jx-detail__term {
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-semibold);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
+  color: var(--jx-color-text-muted);
+}
+
+.jx-detail__description {
+  margin: 0;
+  font-size: var(--jx-text-sm);
+  color: var(--jx-color-text);
+  overflow-wrap: anywhere;
+}
+
+/* Desktop earns the term its own column; mobile keeps the stacked reading. */
+@media (min-width: 40rem) {
+  .jx-detail__row {
+    grid-template-columns: minmax(8rem, 14rem) 1fr;
+    gap: var(--jx-space-4);
+    align-items: baseline;
+  }
+}

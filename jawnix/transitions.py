@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .activity import record_activity
+from .fulfillment import RequestActionContext, available_action_names
 from .jobs import enqueue_job
-from .models import BatchArtifact, LeadRequest, RequestStatus, utcnow
+from .models import (
+    BatchArtifact,
+    DistributionEvent,
+    LeadRequest,
+    RequestStatus,
+    utcnow,
+)
 
 
 class TransitionError(Exception):
@@ -29,29 +36,58 @@ def transition_request(
     if item is None:
         raise TransitionError("Request was not found.", 404)
     previous_status = item.status
-    if action == "approve" and item.status == RequestStatus.pending.value:
+    # Enforcement asks the same question the administrator read contract asks,
+    # against the same table, so the set a screen may offer and the set this
+    # function accepts are the same set rather than two that agree today. See
+    # jawnix/fulfillment.py.
+    artifact = db.scalar(
+        select(BatchArtifact).where(BatchArtifact.request_id == item.id)
+    )
+    committed = db.scalar(
+        select(func.count(DistributionEvent.id)).where(
+            DistributionEvent.request_id == item.id
+        )
+    )
+    context = RequestActionContext(
+        status=item.status,
+        has_artifact=artifact is not None,
+        committed_distributions=committed or 0,
+    )
+    if action == "retry_delivery" and artifact is None:
+        # Worth its own sentence: the state is right, the evidence is missing.
+        raise TransitionError("No generated artifact is available for delivery retry.")
+    if action not in available_action_names(context):
+        raise TransitionError(f"Action {action} is not valid while request is {item.status}.")
+    if action == "approve":
         item.status = RequestStatus.approved.value
         item.approved_at = utcnow()
         item.status_message = "Approved; allocation is queued."
         enqueue_job(db, "update_notification", item.id)
         enqueue_job(db, "fulfill_round_robin")
-    elif action == "retry" and item.status in {RequestStatus.waiting_inventory.value, RequestStatus.failed.value}:
+    elif action == "retry":
         item.status = RequestStatus.approved.value
         item.status_message = "Retry approved; allocation is queued."
         enqueue_job(db, "update_notification", item.id)
         enqueue_job(db, "fulfill_round_robin")
-    elif action == "retry_delivery" and item.status == RequestStatus.failed.value:
-        if db.scalar(select(BatchArtifact).where(BatchArtifact.request_id == item.id)) is None:
-            raise TransitionError("No generated artifact is available for delivery retry.")
+    elif action == "retry_delivery":
         item.status = RequestStatus.generated.value
         item.status_message = "Delivery retry queued."
         enqueue_job(db, "update_notification", item.id)
         enqueue_job(db, "deliver_request", item.id)
-    elif action == "reject" and item.status in {RequestStatus.pending.value, RequestStatus.waiting_inventory.value}:
+    elif action == "reject":
         item.status = RequestStatus.rejected.value
         item.status_message = "Rejected by admin."
         enqueue_job(db, "update_notification", item.id)
-    else:
+    elif action == "cancel":
+        # A Canceled Request is withdrawn before any Distribution Event
+        # commits. The table's precondition checks that under the request's row
+        # lock, because an approved request can be mid-rotation and status
+        # alone would not settle it. Cancellation is terminal and cannot
+        # release Leads from an already generated batch.
+        item.status = RequestStatus.canceled.value
+        item.status_message = "Canceled by admin."
+        enqueue_job(db, "update_notification", item.id)
+    else:  # pragma: no cover - the table and this branch list are one commit apart
         raise TransitionError(f"Action {action} is not valid while request is {item.status}.")
     record_activity(
         db,

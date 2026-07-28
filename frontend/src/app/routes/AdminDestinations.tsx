@@ -85,87 +85,6 @@ const OVERVIEW: AdminDestinationData = {
   },
 };
 
-const FULFILLMENT: AdminDestinationData = {
-  title: "Fulfillment",
-  description:
-    "Delivery work stays together so an administrator can follow a Batch Request from review through allocation, artifact generation, and delivery recovery.",
-  sectionTitle: "Fulfillment work",
-  sectionDescription:
-    "Records and state-valid controls stay grouped by the decision an administrator needs to make.",
-  actions: [
-    {
-      label: "Back to Overview",
-      href: "/app/admin/overview",
-    },
-  ],
-  areas: [
-    {
-      title: "Batch delivery",
-      description:
-        "Review Batch Requests, recover failed deliveries, and distinguish retrying an exact Batch Artifact from regenerating one.",
-    },
-    {
-      title: "Inventory decisions",
-      description:
-        "Resolve Inventory Conflicts with the competing requests, overlapping inventory, and current decision scope together.",
-    },
-    {
-      title: "Lead eligibility",
-      description:
-        "Review immutable Lead Reports alongside Eligibility Holds, Lead Corrections, and Lead Suppression evidence.",
-    },
-  ],
-  empty: {
-    title: "No Fulfillment areas are available",
-    description:
-      "Return to the administrator Overview and choose another workspace.",
-    action: {
-      label: "Back to Overview",
-      href: "/app/admin/overview",
-    },
-  },
-};
-
-const CUSTOMERS: AdminDestinationData = {
-  title: "Customers",
-  description:
-    "Customer administration keeps durable Customer identity separate from replaceable User Account access and Agency membership.",
-  sectionTitle: "Customer administration",
-  sectionDescription:
-    "The workspace keeps search and record details out of a hierarchy-first editor.",
-  actions: [
-    {
-      label: "Back to Overview",
-      href: "/app/admin/overview",
-    },
-  ],
-  areas: [
-    {
-      title: "Customer directory",
-      description:
-        "Find durable Customers by identity, Agency, Licensed States, recent activity, and setup state.",
-    },
-    {
-      title: "User Account access",
-      description:
-        "Invite or replace the one active User Account without changing its Customer or permanent history.",
-    },
-    {
-      title: "Agency membership",
-      description:
-        "Review Agency grouping and the permanent no-repeat impact before membership changes are confirmed.",
-    },
-  ],
-  empty: {
-    title: "No Customer administration areas are available",
-    description:
-      "Return to the administrator Overview rather than changing Customer records through another surface.",
-    action: {
-      label: "Back to Overview",
-      href: "/app/admin/overview",
-    },
-  },
-};
 
 /** Route data stays behind a loader even while it is a local information
  * architecture contract. Later slices can replace the source without changing
@@ -174,13 +93,6 @@ export async function adminOverviewLoader(): Promise<AdminDestinationData> {
   return OVERVIEW;
 }
 
-export async function adminFulfillmentLoader(): Promise<AdminDestinationData> {
-  return FULFILLMENT;
-}
-
-export async function adminCustomersLoader(): Promise<AdminDestinationData> {
-  return CUSTOMERS;
-}
 
 export function AdminDestinationRoute() {
   const data = useLoaderData<AdminDestinationData>();

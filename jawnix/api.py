@@ -21,6 +21,19 @@ from .activity import record_activity
 from .auth import Principal, clear_session, issue_session, require_admin, require_principal, verify_supabase_token
 from .admin_mfa_api import router as admin_mfa_router
 from .config import Settings, get_settings
+from .customer_accounts import (
+    ProvisionResult,
+    UserAccountConflict,
+    accept_user_account_invitation,
+    cancel_user_account_invitation,
+    invite_user_account,
+    pending_invitation,
+)
+from .customer_directory import (
+    build_customer_details,
+    build_customer_directory,
+    customer_dependency_counts,
+)
 from .customer_overview import build_customer_overview
 from .database import get_db
 from .feedback import apply_disposition_controls, release_report_hold
@@ -59,6 +72,7 @@ from .models import (
     SourceNicheMapping,
     SourceSegment,
     UserAccount,
+    UserAccountInvitation,
     WebhookReceipt,
     utcnow,
 )
@@ -73,6 +87,8 @@ from .schemas import (
     CustomerUpdate,
     CustomerCreate,
     CustomerDelete,
+    CustomerDetailsOut,
+    CustomerDirectoryOut,
     DeleteConfirmation,
     FeedbackCreate,
     FeedbackLookup,
@@ -88,6 +104,7 @@ from .schemas import (
     SessionExchange,
     ScraperConfigurationCreate,
     SourceNicheDecision,
+    UserAccountInvite,
     UserAccountReplace,
 )
 from .scraper_proxy import (
@@ -109,6 +126,13 @@ from .telegram import (
     verify_telegram_secret,
 )
 from .transitions import TransitionError, transition_request
+from .fulfillment import (
+    TRANSITION_ACTIONS,
+    artifact_available,
+    describe_conflict,
+    describe_request,
+    workspace as fulfillment_workspace,
+)
 
 
 app = FastAPI(title="Jawnix VPS API", version="1.0.0")
@@ -391,6 +415,23 @@ async def create_session(
         settings,
         **session_kwargs,
     )
+    if principal.role != "admin":
+        # Signing in is what acceptance means: the invited person has proved
+        # they hold the invited identity. Do this before the replaced-account
+        # guard below, so an invitation that has just been accepted is not
+        # mistaken for access that was taken away.
+        try:
+            accept_user_account_invitation(
+                db,
+                auth_user_id=principal.user_id,
+                email=principal.email,
+            )
+        except UserAccountConflict as conflict:
+            db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=conflict.message,
+            ) from None
     profile = db.get(CustomerProfile, principal.user_id)
     account = db.get(UserAccount, principal.user_id)
     if account is not None and not account.active:
@@ -1504,6 +1545,47 @@ def admin_requests(_: Principal = Depends(require_admin), db: Session = Depends(
     return [_request_dict(item) for item in db.scalars(select(LeadRequest).order_by(LeadRequest.created_at.desc()))]
 
 
+@app.get("/api/admin/fulfillment")
+def admin_fulfillment(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """The one aggregate the Fulfillment workspace reads.
+
+    Gathering outstanding Batch Requests, pending Inventory Conflicts, and
+    delivery failures here keeps the screen from stitching together several
+    unrelated browser requests, and gives every item the actions its current
+    state actually permits.
+    """
+    return fulfillment_workspace(db)
+
+
+@app.get("/api/admin/requests/{request_id}")
+def admin_request_detail(
+    request_id: uuid.UUID,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    item = db.get(LeadRequest, request_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Request was not found.")
+    return describe_request(db, item)
+
+
+@app.get("/api/admin/inventory-conflicts/{conflict_id}")
+def admin_inventory_conflict_detail(
+    conflict_id: uuid.UUID,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    conflict = db.get(InventoryConflict, conflict_id)
+    if conflict is None:
+        raise HTTPException(
+            status_code=404, detail="Inventory Conflict was not found."
+        )
+    return describe_conflict(db, conflict)
+
+
 @app.get("/api/admin/recipients", include_in_schema=False)
 def admin_recipients(_: Principal = Depends(require_admin), db: Session = Depends(get_db)):
     profiles = list(db.scalars(select(CustomerProfile).order_by(CustomerProfile.email)))
@@ -1645,6 +1727,43 @@ def _configuration_dict(item: ScraperConfiguration) -> dict:
             for segment in item.segments
         ],
     }
+
+
+@app.get("/api/admin/customers/directory", response_model=CustomerDirectoryOut)
+def admin_customer_directory(
+    q: str = "",
+    status: str = "all",
+    agency_id: int | None = None,
+    state: str = "",
+    problems_only: bool = False,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Search Customers instead of navigating down the Agency hierarchy."""
+    return build_customer_directory(
+        db,
+        query=q,
+        status=status,
+        agency_id=agency_id,
+        state=state,
+        problems_only=problems_only,
+    )
+
+
+@app.get(
+    "/api/admin/customers/{customer_id}/details",
+    response_model=CustomerDetailsOut,
+)
+def admin_customer_details(
+    customer_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Read one Customer, with durable identity separated from its access."""
+    customer = db.get(Customer, customer_id)
+    if customer is None or customer.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Customer was not found.")
+    return build_customer_details(db, customer=customer)
 
 
 @app.get("/api/admin/scraper-configurations")
@@ -2214,6 +2333,32 @@ def replace_user_account(
     principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    """Provision a known authentication identity as the Customer's access.
+
+    First provisioning takes effect immediately. Anything that would displace
+    an existing active User Account is recorded as a pending invitation
+    instead, so the Customer keeps working until the replacement is accepted.
+    """
+    customer = _locked_customer(db, customer_id)
+    try:
+        result = invite_user_account(
+            db,
+            customer=customer,
+            auth_user_id=payload.auth_user_id,
+            email=str(payload.email),
+            actor_id=principal.user_id,
+            reason=payload.reason,
+        )
+    except UserAccountConflict as conflict:
+        raise HTTPException(
+            status_code=409,
+            detail=conflict.message,
+        ) from None
+    db.commit()
+    return _provision_response(customer, result)
+
+
+def _locked_customer(db: Session, customer_id: int) -> Customer:
     customer = db.scalar(
         select(Customer)
         .where(
@@ -2224,102 +2369,102 @@ def replace_user_account(
     )
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer was not found.")
+    return customer
+
+
+def _provision_response(customer: Customer, result: ProvisionResult) -> dict:
+    return {
+        "customerId": customer.id,
+        "authUserId": str(result.auth_user_id),
+        "email": result.email,
+        "licensedStates": normalize_states(customer.licensed_states),
+        "activated": result.activated,
+        "invitationId": (
+            str(result.invitation_id) if result.invitation_id else None
+        ),
+        "replacesAuthUserId": (
+            str(result.replaces_auth_user_id)
+            if result.replaces_auth_user_id
+            else None
+        ),
+    }
+
+
+@app.post(
+    "/api/admin/customers/{customer_id}/user-account-invitation",
+    status_code=201,
+)
+async def invite_customer_user_account(
+    customer_id: int,
+    payload: UserAccountInvite,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Invite a replacement User Account without disturbing current access.
+
+    The provider is asked first. If the invitation cannot be dispatched
+    nothing is written, so a failed send leaves the Customer exactly as it
+    was rather than stranding a half-made replacement.
+    """
+    customer = _locked_customer(db, customer_id)
     if not customer.active:
         raise HTTPException(
             status_code=409,
-            detail="A User Account cannot be assigned to a deactivated Customer.",
+            detail=(
+                "A User Account cannot be provisioned for a deactivated "
+                "Customer."
+            ),
         )
-    now = utcnow()
-    current_accounts = list(
-        db.scalars(
-            select(UserAccount)
-            .where(
-                UserAccount.customer_id == customer.id,
-                UserAccount.active.is_(True),
-            )
-            .with_for_update()
+    if pending_invitation(db, customer.id) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This Customer already has an outstanding User Account "
+                "invitation. Cancel it before inviting a different account."
+            ),
         )
-    )
-    licensed_states = normalize_states(customer.licensed_states)
-    requested_email = str(payload.email).lower()
-    existing_profile = db.get(CustomerProfile, payload.auth_user_id)
-    if (
-        len(current_accounts) == 1
-        and current_accounts[0].auth_user_id == payload.auth_user_id
-        and current_accounts[0].email == requested_email
-        and existing_profile is not None
-        and existing_profile.customer_id == customer.id
-        and existing_profile.email == requested_email
-        and normalize_states(existing_profile.licensed_states)
-        == licensed_states
-        and existing_profile.mapping_confirmed_at is not None
-    ):
-        return {
-            "customerId": customer.id,
-            "authUserId": str(payload.auth_user_id),
-            "email": requested_email,
-            "licensedStates": licensed_states,
-        }
-    for account in current_accounts:
-        account.active = False
-        account.replaced_at = now
+    auth_user_id = await _dispatch_invitation(settings, payload)
+    try:
+        result = invite_user_account(
+            db,
+            customer=customer,
+            auth_user_id=auth_user_id,
+            email=str(payload.email),
+            actor_id=principal.user_id,
+            reason=payload.reason,
+        )
+    except UserAccountConflict as conflict:
+        raise HTTPException(
+            status_code=409,
+            detail=conflict.message,
+        ) from None
+    db.commit()
+    return _provision_response(customer, result)
 
-    account = db.get(UserAccount, payload.auth_user_id)
-    if account is None:
-        account = UserAccount(
-            auth_user_id=payload.auth_user_id,
-            customer_id=customer.id,
-            email=requested_email,
-            active=True,
-        )
-        db.add(account)
-    else:
-        account.customer_id = customer.id
-        account.email = requested_email
-        account.active = True
-        account.replaced_at = None
 
-    profile = existing_profile
-    if profile is None:
-        profile = CustomerProfile(
-            user_id=payload.auth_user_id,
-            email=account.email,
-            licensed_states=licensed_states,
-            agent_id=customer.id,
-            mapping_confirmed_at=now,
-        )
-        db.add(profile)
-    else:
-        profile.email = account.email
-        profile.licensed_states = licensed_states
-        profile.customer_id = customer.id
-        profile.mapping_confirmed_at = now
-    record_activity(
+@app.delete("/api/admin/customers/{customer_id}/user-account-invitation")
+def cancel_customer_user_account_invitation(
+    customer_id: int,
+    payload: ActionReason,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Withdraw an outstanding invitation. Current access is untouched."""
+    customer = _locked_customer(db, customer_id)
+    invitation = cancel_user_account_invitation(
         db,
-        action="customer_user_account_replaced",
-        target_type="customer",
-        target_id=customer.id,
+        customer=customer,
         actor_id=principal.user_id,
         reason=payload.reason,
-        details={
-            "before": {
-                "activeAuthUserIds": [
-                    str(current.auth_user_id)
-                    for current in current_accounts
-                ]
-            },
-            "after": {
-                "activeAuthUserIds": [str(account.auth_user_id)]
-            },
-        },
     )
+    if invitation is None:
+        raise HTTPException(
+            status_code=404,
+            detail="This Customer has no outstanding invitation.",
+        )
     db.commit()
-    return {
-        "customerId": customer.id,
-        "authUserId": str(account.auth_user_id),
-        "email": account.email,
-        "licensedStates": licensed_states,
-    }
+    return {"ok": True, "invitationId": str(invitation.id)}
 
 
 @app.post("/api/admin/user-accounts/sync")
@@ -2570,59 +2715,6 @@ def update_customer(
     return {"ok": True}
 
 
-def _customer_dependency_counts(db: Session, customer_id: int) -> dict:
-    return {
-        "requests": int(
-            db.scalar(
-                select(func.count(LeadRequest.id)).where(
-                    LeadRequest.agent_id == customer_id
-                )
-            )
-            or 0
-        ),
-        "distributions": int(
-            db.scalar(
-                select(func.count(DistributionEvent.id)).where(
-                    DistributionEvent.agent_id == customer_id
-                )
-            )
-            or 0
-        ),
-        "outcomes": int(
-            db.scalar(
-                select(func.count(LeadOutcome.id)).where(
-                    LeadOutcome.customer_id == customer_id
-                )
-            )
-            or 0
-        ),
-        "reports": int(
-            db.scalar(
-                select(func.count(LeadReport.id)).where(
-                    LeadReport.customer_id == customer_id
-                )
-            )
-            or 0
-        ),
-        "profiles": int(
-            db.scalar(
-                select(func.count(CustomerProfile.user_id)).where(
-                    CustomerProfile.agent_id == customer_id
-                )
-            )
-            or 0
-        ),
-        "userAccounts": int(
-            db.scalar(
-                select(func.count(UserAccount.auth_user_id)).where(
-                    UserAccount.customer_id == customer_id
-                )
-            )
-            or 0
-        ),
-    }
-
-
 @app.delete("/api/admin/customers/{customer_id}")
 def delete_customer(
     customer_id: int,
@@ -2647,7 +2739,7 @@ def delete_customer(
             status_code=409,
             detail="Deactivate the Customer before deletion.",
         )
-    dependencies = _customer_dependency_counts(db, customer.id)
+    dependencies = customer_dependency_counts(db, customer.id)
     if payload.hard_delete:
         if any(dependencies.values()):
             refused_customer_id = customer.id
@@ -2706,6 +2798,14 @@ def delete_customer(
     ):
         account.active = False
         account.replaced_at = utcnow()
+    # An outstanding invitation would otherwise still be acceptable and would
+    # hand a removed Customer working access.
+    cancel_user_account_invitation(
+        db,
+        customer=customer,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+    )
     customer.deleted_at = utcnow()
     record_activity(
         db,
@@ -2791,6 +2891,15 @@ def erase_customer_personal_data(
         account.email = anonymous_email
         account.active = False
         account.replaced_at = utcnow()
+    for invitation in db.scalars(
+        select(UserAccountInvitation).where(
+            UserAccountInvitation.customer_id == customer.id
+        )
+    ):
+        invitation.email = anonymous_email
+        if invitation.status == "pending":
+            invitation.status = "canceled"
+            invitation.canceled_at = utcnow()
     original_slug = customer.slug
     customer.name = "Deleted Customer"
     customer.slug = f"deleted-customer-{customer.id}"
@@ -3070,6 +3179,29 @@ def _customer_invitation_redirect(settings: Settings) -> str:
     return f"{settings.public_base_url.rstrip('/')}{path}"
 
 
+async def _dispatch_invitation(settings: Settings, payload) -> uuid.UUID:
+    """Ask the provider to invite an email and return its identity.
+
+    Jawnix never sets or reads a credential. The provider owns the invitation
+    link and the password behind it; all that comes back here is the
+    authentication identity to attach to a Customer.
+    """
+    redirect_to = _customer_invitation_redirect(settings)
+    created = await _supabase_admin(
+        settings,
+        "POST",
+        f"/auth/v1/invite?{urlencode({'redirect_to': redirect_to})}",
+        {
+            "email": str(payload.email).lower(),
+            "data": {
+                "first_name": payload.first_name,
+                "last_name": payload.last_name,
+            },
+        },
+    )
+    return uuid.UUID(str(created["id"]))
+
+
 async def _send_password_reset(settings: Settings, email: str) -> None:
     if not settings.supabase_url or not settings.supabase_anon_key:
         raise HTTPException(status_code=503, detail="Supabase password recovery is not configured.")
@@ -3121,6 +3253,18 @@ async def send_user_account_password_reset(
     return {"ok": True, "email": profile.email}
 
 
+def _customer_slug(db: Session, name: str, requested: str | None) -> str:
+    """Derive a stable, unique slug for a brand-new Customer."""
+    base = re.sub(r"[^a-z0-9]+", "-", (requested or name).lower()).strip("-")
+    base = base[:70] or "customer"
+    candidate = base
+    suffix = 2
+    while db.scalar(select(Customer.id).where(Customer.slug == candidate)):
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    return candidate
+
+
 @app.post("/api/admin/customers", status_code=201)
 async def create_customer(
     payload: CustomerCreate,
@@ -3128,57 +3272,110 @@ async def create_customer(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    redirect_to = _customer_invitation_redirect(settings)
-    created = await _supabase_admin(
-        settings,
-        "POST",
-        f"/auth/v1/invite?{urlencode({'redirect_to': redirect_to})}",
-        {
-            "email": str(payload.email).lower(),
-            "data": {
-                "first_name": payload.first_name,
-                "last_name": payload.last_name,
-            },
-        },
+    """Create a truly new, independent Customer and invite its access.
+
+    The durable Customer and its first User Account are created together, but
+    they stay separate things: the Customer owns the Licensed States, Agency
+    membership, and all future history, while the invited account is only the
+    way somebody signs in on its behalf.
+
+    The provider invitation is dispatched before anything commits, so a failed
+    send leaves no half-created Customer behind.
+    """
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Customer name is required.")
+    agency = None
+    if payload.agency_id is not None:
+        agency = db.get(Agency, payload.agency_id)
+        if agency is None or agency.deleted_at is not None:
+            raise HTTPException(status_code=404, detail="Agency was not found.")
+        if not agency.active:
+            raise HTTPException(
+                status_code=409,
+                detail="A Customer cannot join a deactivated Agency.",
+            )
+    slug = _customer_slug(db, name, payload.slug)
+    auth_user_id = await _dispatch_invitation(settings, payload)
+
+    customer = Customer(
+        slug=slug,
+        name=name,
+        licensed_states=payload.licensed_states,
+        agency_id=agency.id if agency else None,
+        active=True,
     )
-    profile = CustomerProfile(
-        user_id=uuid.UUID(str(created["id"])),
-        email=str(payload.email).lower(),
-        first_name=payload.first_name.strip(),
-        last_name=payload.last_name.strip(),
-        licensed_states=[],
-    )
-    db.add(profile)
+    db.add(customer)
+    db.flush()
+    profile = db.get(CustomerProfile, auth_user_id)
+    if profile is None:
+        profile = CustomerProfile(
+            user_id=auth_user_id,
+            email=str(payload.email).lower(),
+            first_name=payload.first_name.strip(),
+            last_name=payload.last_name.strip(),
+            licensed_states=payload.licensed_states,
+        )
+        db.add(profile)
+    else:
+        profile.first_name = payload.first_name.strip() or profile.first_name
+        profile.last_name = payload.last_name.strip() or profile.last_name
     db.flush()
     record_activity(
         db,
-        action="user_account_invitation_sent",
-        target_type="user_account",
-        target_id=profile.user_id,
+        action="customer_created",
+        target_type="customer",
+        target_id=customer.id,
         actor_id=principal.user_id,
-        reason="Administrator invited a Customer User Account.",
+        reason=payload.reason,
         details={
             "before": None,
             "after": {
-                "invitationDispatched": True,
-                "mappingConfirmed": False,
-                "customerId": None,
+                "slug": customer.slug,
+                "name": customer.name,
+                "active": True,
+                "agencyId": customer.agency_id,
+                "licensedStates": list(customer.licensed_states),
             },
         },
     )
+    try:
+        result = invite_user_account(
+            db,
+            customer=customer,
+            auth_user_id=auth_user_id,
+            email=str(payload.email),
+            actor_id=principal.user_id,
+            reason=payload.reason,
+        )
+    except UserAccountConflict as conflict:
+        raise HTTPException(
+            status_code=409,
+            detail=conflict.message,
+        ) from None
     db.commit()
-    return {"ok": True, "userId": str(profile.user_id), "mappingConfirmed": False}
+    return {
+        "ok": True,
+        "customerId": customer.id,
+        "slug": customer.slug,
+        "userId": str(result.auth_user_id),
+        "mappingConfirmed": result.activated,
+    }
 
 
 @app.post("/api/admin/requests/{request_id}/{action}")
 def admin_request_action(
     request_id: uuid.UUID,
     action: str,
-    payload: ActionReason | None = None,
+    payload: ActionReason,
     principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    if action not in {"approve", "reject", "retry", "retry_delivery"}:
+    # The reason is required, not defaulted. A synthesised "Administrator
+    # requested approve." records that something happened while explaining
+    # nothing, which is the failure an audit trail exists to prevent — and it
+    # made the contract's `requiresReason` a claim the API did not keep.
+    if action not in TRANSITION_ACTIONS:
         raise HTTPException(status_code=404, detail="Unknown action.")
     try:
         item = transition_request(
@@ -3186,11 +3383,7 @@ def admin_request_action(
             request_id,
             action,
             actor_id=str(principal.user_id),
-            reason=(
-                payload.reason
-                if payload is not None
-                else f"Administrator requested {action.replace('_', ' ')}."
-            ),
+            reason=payload.reason,
         )
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
@@ -3231,12 +3424,9 @@ def regenerate_batch_artifact(
         )
     artifact = item.artifact
     now = utcnow()
-    if (
-        artifact is not None
-        and Path(artifact.path).is_file()
-        and artifact.expires_at is not None
-        and artifact.expires_at > now
-    ):
+    # Shares the offer surface's predicate: if these two ever disagreed the
+    # workspace would offer a regeneration this endpoint then refuses.
+    if artifact_available(artifact, now=now):
         raise HTTPException(
             status_code=409,
             detail="Batch Artifact has not expired.",

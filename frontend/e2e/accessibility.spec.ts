@@ -3,6 +3,12 @@ import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
 import { mockAcquisition } from "./acquisition-fixtures";
+import { mockAdminCustomers } from "./admin-customers-fixtures";
+import {
+  CONFLICT_ID,
+  PENDING_REQUEST_ID,
+  mockFulfillment,
+} from "./fulfillment-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 
 /**
@@ -19,13 +25,17 @@ const ROUTES = [
   "./accept-invitation",
   "./overview",
   "./requests",
+  "./feedback",
   "./account",
   "./admin/overview",
   "./admin/fulfillment",
+  `./admin/fulfillment/requests/${PENDING_REQUEST_ID}`,
+  `./admin/fulfillment/conflicts/${CONFLICT_ID}`,
   "./admin/acquisition",
   "./admin/acquisition/scraper",
   "./admin/acquisition/scraper/workspace",
   "./admin/customers",
+  "./admin/customers/7",
   "./admin/security",
   "./admin/mfa/enroll",
   "./admin/mfa/challenge",
@@ -36,6 +46,8 @@ const ROUTES = [
 test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
   await mockAcquisition(page);
+  await mockAdminCustomers(page, { pendingInvitation: true });
+  await mockFulfillment(page);
 });
 
 test.describe("Automated WCAG 2.2 AA sweep", () => {
