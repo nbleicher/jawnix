@@ -129,8 +129,16 @@ The Customer-maintained set of states where the Customer is authorized to operat
 _Avoid_: Preferred states, administrator-assigned states
 
 **User Account**:
-A replaceable authentication identity used to access Jawnix on behalf of a Customer. Each Customer has one active User Account, and replacing it never creates a new Customer or resets distribution history.
+A replaceable authentication identity used to access Jawnix on behalf of a Customer. Each Customer has exactly one active User Account, enforced in persistence rather than by any screen, and replacing it never creates a new Customer or resets distribution history. Administrators provision it only through a User Account Invitation and never set or view its password.
 _Avoid_: Customer, agent
+
+**User Account Invitation**:
+An outstanding offer of access to one durable Customer, addressed to an email the provider owns the credential for. A Customer has at most one outstanding invitation, and the Customer's existing User Account stays active until the invitation is accepted; acceptance is the invited person signing in, which activates the new User Account and deactivates the former one in one step without touching the Customer or its history. Canceling an invitation leaves current access exactly as it was.
+_Avoid_: Password reset, account replacement, pending user
+
+**Setup Problem**:
+A named reason a Customer cannot currently work — no User Account invited, an invitation not yet accepted, no Licensed States, or a deactivated Agency. It describes readiness, not the Customer's standing.
+_Avoid_: Deactivated Customer, error, validation failure
 
 **Agency**:
 A group of Customers that share permanent no-repeat history.

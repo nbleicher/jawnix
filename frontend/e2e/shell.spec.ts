@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 
 /**
@@ -12,6 +13,7 @@ import { mockAdminMFA } from "./mfa-fixtures";
 
 test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
+  await mockAdminCustomers(page);
 });
 
 test.describe("Customer shell", () => {
@@ -121,12 +123,14 @@ test.describe("Administration shell", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Customers" })).toBeVisible();
     await expect(page.getByText("Not built yet")).toHaveCount(0);
 
-    for (const area of ["Customer directory", "User Account access", "Agency membership"]) {
-      await expect(page.getByRole("heading", { level: 3, name: area })).toBeVisible();
-    }
-    const back = page.getByRole("link", { name: "Back to Overview" });
-    await expect(back).toBeVisible();
-    await back.click();
+    // Each row carries two separately labelled standings: the durable Customer
+    // and the replaceable access.
+    const harbor = page.getByRole("article", { name: "Harbor Insurance" });
+    await expect(harbor.getByText("Customer", { exact: true })).toBeVisible();
+    await expect(harbor.getByText("User Account", { exact: true })).toBeVisible();
+
+    const nav = page.getByRole("navigation", { name: "Administration" });
+    await nav.getByRole("link", { name: "Overview" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
   });
 

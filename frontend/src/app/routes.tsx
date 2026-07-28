@@ -15,10 +15,17 @@ import {
 import {
   AdminDestinationRoute,
   adminAcquisitionLoader,
-  adminCustomersLoader,
   adminFulfillmentLoader,
   adminOverviewLoader,
 } from "./routes/AdminDestinations";
+import {
+  AdminCustomersRoute,
+  adminCustomerDirectoryLoader,
+} from "./routes/AdminCustomers";
+import {
+  AdminCustomerDetailsRoute,
+  adminCustomerDetailsLoader,
+} from "./routes/AdminCustomerDetails";
 import {
   adminAccessLoader,
   adminMFAStatusLoader,
@@ -48,9 +55,10 @@ import { CustomerOverviewRoute } from "./routes/CustomerOverview";
  * feature flag switch between them without touching the legacy pages.
  *
  * #47 established the shell, routing, and design system. Customer routes remain
- * placeholders for their later slices; administrator destinations are real
- * task maps whose loaders and screen bodies are replaced by the operational
- * slices without rebuilding the shell.
+ * placeholders for their later slices; the remaining administrator destinations
+ * are task maps whose loaders and screen bodies are replaced by the operational
+ * slices without rebuilding the shell. Customers is one that has been: it is a
+ * real directory and record screen backed by the administration API.
  */
 export const router = createBrowserRouter(
   [
@@ -158,8 +166,13 @@ export const router = createBrowserRouter(
             },
             {
               path: "customers",
-              loader: adminCustomersLoader,
-              element: <AdminDestinationRoute />,
+              loader: adminCustomerDirectoryLoader,
+              element: <AdminCustomersRoute />,
+            },
+            {
+              path: "customers/:customerId",
+              loader: adminCustomerDetailsLoader,
+              element: <AdminCustomerDetailsRoute />,
             },
             {
               path: "security",

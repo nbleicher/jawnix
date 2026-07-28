@@ -1,0 +1,230 @@
+import type { Page, Route } from "@playwright/test";
+
+export interface AdminCustomersMockOptions {
+  /** Serves the details payload that has an unaccepted replacement pending. */
+  pendingInvitation?: boolean;
+}
+
+export interface AdminCustomersMockState {
+  /** Full request URLs, so a spec can assert which filters reached the API. */
+  directoryRequests: string[];
+  detailsRequests: string[];
+  invitationRequests: unknown[];
+}
+
+const AGENCIES = [
+  { id: 4, name: "Gulf Coast Agency", active: true },
+  { id: 9, name: "Lakeside Agency", active: true },
+];
+
+const STATES = ["FL", "GA", "NY", "TX"];
+
+const ACTIVE_CUSTOMER = {
+  label: "Active",
+  description: "This Customer can receive Batches.",
+  tone: "success",
+};
+
+const CUSTOMERS = [
+  {
+    id: 7,
+    slug: "harbor-insurance",
+    name: "Harbor Insurance",
+    agency_id: 4,
+    agency: "Gulf Coast Agency",
+    licensed_states: ["FL", "TX"],
+    customer_status: ACTIVE_CUSTOMER,
+    account_status: {
+      label: "Account active",
+      description: "The User Account can sign in.",
+      tone: "success",
+    },
+    account_email: "owner@harbor.example",
+    last_activity_at: "2026-07-20T12:00:00Z",
+    problems: [],
+    href: "/app/admin/customers/7",
+  },
+  {
+    id: 11,
+    slug: "lakeside-brokers",
+    name: "Lakeside Brokers",
+    agency_id: 9,
+    agency: "Lakeside Agency",
+    licensed_states: [],
+    customer_status: ACTIVE_CUSTOMER,
+    account_status: {
+      label: "Invitation sent",
+      description: "The invited address has not signed in yet.",
+      tone: "warning",
+    },
+    account_email: "owner@lakeside.example",
+    last_activity_at: null,
+    problems: ["Invitation has not been accepted yet", "No Licensed States"],
+    href: "/app/admin/customers/11",
+  },
+];
+
+const CURRENT_ACCOUNT = {
+  auth_user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  email: "owner@harbor.example",
+  name: "Casey Reyes",
+  active: true,
+  created_at: "2026-01-05T12:00:00Z",
+  replaced_at: null,
+  replaced_by_auth_user_id: null,
+};
+
+const DETAILS = {
+  customer: {
+    id: 7,
+    slug: "harbor-insurance",
+    name: "Harbor Insurance",
+    agency_id: 4,
+    agency: "Gulf Coast Agency",
+    active: true,
+    licensed_states: ["FL", "TX"],
+    status: ACTIVE_CUSTOMER,
+    last_activity_at: "2026-07-20T12:00:00Z",
+  },
+  history: {
+    requests: 18,
+    distributions: 16,
+    outcomes: 240,
+    reports: 9,
+    first_delivered_at: "2026-01-20T12:00:00Z",
+    last_delivered_at: "2026-07-20T12:00:00Z",
+  },
+  user_account: CURRENT_ACCOUNT,
+  invitation: null as unknown,
+  former_accounts: [
+    {
+      auth_user_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      email: "previous@harbor.example",
+      name: "Jordan Vale",
+      active: false,
+      created_at: "2025-03-01T12:00:00Z",
+      replaced_at: "2026-01-05T12:00:00Z",
+      replaced_by_auth_user_id: CURRENT_ACCOUNT.auth_user_id,
+    },
+  ],
+  activity: [
+    {
+      id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      action: "user_account_replaced",
+      label: "User Account replaced",
+      actor: "admin@jawnix.example",
+      reason: "Owner changed",
+      created_at: "2026-01-05T12:00:00Z",
+    },
+  ],
+  deletion: {
+    dependencies: { requests: 18, distributions: 16, userAccounts: 1 },
+    requires_deactivation: true,
+    can_hard_delete: false,
+    tombstoned: false,
+  },
+};
+
+const PENDING_INVITATION = {
+  id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  email: "newowner@harbor.example",
+  invited_at: "2026-07-25T12:00:00Z",
+  replaces_auth_user_id: CURRENT_ACCOUNT.auth_user_id,
+  status: {
+    label: "Awaiting acceptance",
+    description: "The invited address has not signed in yet.",
+    tone: "info",
+  },
+};
+
+function json(route: Route, value: unknown, status = 200) {
+  return route.fulfill({
+    status,
+    contentType: "application/json",
+    body: JSON.stringify(value),
+  });
+}
+
+function matches(customer: (typeof CUSTOMERS)[number], term: string): boolean {
+  const needle = term.trim().toLowerCase();
+  if (!needle) return true;
+  return [customer.name, customer.slug, customer.account_email].some((value) =>
+    value.toLowerCase().includes(needle),
+  );
+}
+
+export async function mockAdminCustomers(
+  page: Page,
+  options: AdminCustomersMockOptions = {},
+): Promise<AdminCustomersMockState> {
+  const state: AdminCustomersMockState = {
+    directoryRequests: [],
+    detailsRequests: [],
+    invitationRequests: [],
+  };
+
+  await page.addInitScript(() => {
+    document.cookie = "jawnix_csrf=e2e-csrf; path=/";
+  });
+
+  await page.route(/\/api\/auth\/admin-mfa\/access$/, (route) =>
+    json(route, { ok: true }),
+  );
+
+  await page.route(/\/api\/admin\/customers\/directory/, (route) => {
+    const url = new URL(route.request().url());
+    state.directoryRequests.push(route.request().url());
+    const term = url.searchParams.get("q") ?? "";
+    const problemsOnly = url.searchParams.get("problems_only") === "true";
+    const rows = CUSTOMERS.filter(
+      (customer) =>
+        matches(customer, term) && (!problemsOnly || customer.problems.length),
+    );
+    return json(route, {
+      filters: {
+        query: term,
+        status: url.searchParams.get("status") ?? "all",
+        agency_id: url.searchParams.get("agency_id")
+          ? Number(url.searchParams.get("agency_id"))
+          : null,
+        state: url.searchParams.get("state") ?? "",
+        problems_only: problemsOnly,
+      },
+      agencies: AGENCIES,
+      states: STATES,
+      total: CUSTOMERS.length,
+      matched: rows.length,
+      customers: rows,
+    });
+  });
+
+  await page.route(/\/api\/admin\/customers\/\d+\/details$/, (route) => {
+    state.detailsRequests.push(route.request().url());
+    return json(route, {
+      ...DETAILS,
+      invitation: options.pendingInvitation ? PENDING_INVITATION : null,
+    });
+  });
+
+  await page.route(
+    /\/api\/admin\/customers\/\d+\/user-account-invitation$/,
+    (route) => {
+      state.invitationRequests.push(route.request().postDataJSON());
+      return json(
+        route,
+        {
+          customerId: 7,
+          authUserId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+          email: "newowner@harbor.example",
+          licensedStates: ["FL", "TX"],
+          activated: false,
+          invitationId: PENDING_INVITATION.id,
+          replacesAuthUserId: CURRENT_ACCOUNT.auth_user_id,
+        },
+        201,
+      );
+    },
+  );
+
+  return state;
+}

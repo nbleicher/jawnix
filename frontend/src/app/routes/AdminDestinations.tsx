@@ -175,47 +175,6 @@ const ACQUISITION: AdminDestinationData = {
   },
 };
 
-const CUSTOMERS: AdminDestinationData = {
-  title: "Customers",
-  description:
-    "Customer administration keeps durable Customer identity separate from replaceable User Account access and Agency membership.",
-  sectionTitle: "Customer administration",
-  sectionDescription:
-    "The workspace keeps search and record details out of a hierarchy-first editor.",
-  actions: [
-    {
-      label: "Back to Overview",
-      href: "/app/admin/overview",
-    },
-  ],
-  areas: [
-    {
-      title: "Customer directory",
-      description:
-        "Find durable Customers by identity, Agency, Licensed States, recent activity, and setup state.",
-    },
-    {
-      title: "User Account access",
-      description:
-        "Invite or replace the one active User Account without changing its Customer or permanent history.",
-    },
-    {
-      title: "Agency membership",
-      description:
-        "Review Agency grouping and the permanent no-repeat impact before membership changes are confirmed.",
-    },
-  ],
-  empty: {
-    title: "No Customer administration areas are available",
-    description:
-      "Return to the administrator Overview rather than changing Customer records through another surface.",
-    action: {
-      label: "Back to Overview",
-      href: "/app/admin/overview",
-    },
-  },
-};
-
 /** Route data stays behind a loader even while it is a local information
  * architecture contract. Later slices can replace the source without changing
  * the screen or bypassing the shell's pending and error seams. */
@@ -229,10 +188,6 @@ export async function adminFulfillmentLoader(): Promise<AdminDestinationData> {
 
 export async function adminAcquisitionLoader(): Promise<AdminDestinationData> {
   return ACQUISITION;
-}
-
-export async function adminCustomersLoader(): Promise<AdminDestinationData> {
-  return CUSTOMERS;
 }
 
 export function AdminDestinationRoute() {
