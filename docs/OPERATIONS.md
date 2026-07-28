@@ -27,7 +27,15 @@ Do not stop Railway or delete old Supabase application tables during provisionin
 
 The `buzz-prod` stack that previously shared this VPS was retired on 2026-07-27, so Jawnix is now the only application on the host and host ports 80/443 are free.
 
-`docker-compose.staging.yml` still assumes the old arrangement: it resets the Jawnix Caddy's published ports and joins the external network `buzz-prod_buzz-net`, relying on the retired edge Caddy to terminate TLS for `staging.jawnix.com`. **That override cannot start now** — Compose fails when an `external: true` network is missing. Before using staging again, either delete the override and run the base compose with `JAWNIX_DOMAIN=staging.jawnix.com`, or give staging its own network and published ports. See `for-noah-review.md`.
+`docker-compose.staging.yml` existed only to work around that shared edge: it reset the Jawnix Caddy's published ports and joined buzz-prod's external network so buzz-prod's Caddy could terminate TLS. With buzz-prod gone the override could no longer start at all — Compose fails when a network declared `external: true` is missing — so it was deleted on 2026-07-28.
+
+Staging now runs the base stack directly, owning ports 80/443 and terminating its own TLS:
+
+```sh
+JAWNIX_DOMAIN=staging.jawnix.com docker compose up -d
+```
+
+Set `JAWNIX_SCRAPER_OPS_DOMAIN` to the staging Scraper hostname in the same way. Nothing else differs from production.
 
 `config.js` contains only the Supabase browser URL and publishable/anon key. Service-role, Telegram, Resend, PostgreSQL, and Restic secrets remain server-side.
 
@@ -60,8 +68,9 @@ by Jawnix issue #29.
    WireGuard address. Reject the same port on the public interface.
 4. Point `scraper.jawnix.com` at the Jawnix edge, set
    `JAWNIX_SCRAPER_OPS_ORIGIN=https://scraper.jawnix.com` and
-   `JAWNIX_SCRAPER_OPS_DOMAIN=scraper.jawnix.com`. On the shared-edge staging
-   stack, route the staging Scraper hostname to `jawnix-caddy:8081`.
+   `JAWNIX_SCRAPER_OPS_DOMAIN=scraper.jawnix.com`. On staging, set the same two
+   variables to the staging Scraper hostname; the base Caddy terminates its TLS
+   directly now that the shared edge is gone.
 5. On Jawnix, set `JAWNIX_SCRAPER_OPS_URL=http://10.77.0.2:8090` plus
    `JAWNIX_SCRAPER_OPS_USER` and `JAWNIX_SCRAPER_OPS_PASSWORD`, then recreate
    the API and Caddy services.

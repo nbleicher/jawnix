@@ -29,12 +29,15 @@ bundle in a separate Node stage and always ships it, so enabling the flag needs 
 
 ## Local verification
 
-```sh
-python3.12 -m venv .venv
-.venv/bin/pip install -e '.[test]'
-.venv/bin/pytest
+CI (`.github/workflows/ci.yml`) runs all of the following on every push and pull request, and
+also builds the Docker image and smoke-tests both feature-flag states.
 
-# Frontend. The shell integration tests skip without a build.
+```sh
+# Python. `.python-version` pins 3.12 to match the runtime image.
+uv sync --extra test
+uv run pytest
+
+# Frontend. The shell integration tests skip without a build, so build first.
 cd frontend && npm ci && npm run build && npm test && npm run test:e2e && cd ..
 
 cp .env.example .env
