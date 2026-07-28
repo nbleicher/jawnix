@@ -9,9 +9,18 @@ Legend: 🔴 needs your decision · 🟡 worth knowing · 🟢 found and fixed
 
 ## 🔴 Needs a decision
 
-### 1. Typecheck restored to the image build — RESOLVED, but unverified locally
+### 1. Typecheck restored to the image build — RESOLVED AND VERIFIED
 
 **Decision taken (Noah, 2026-07-27): option (b) — the VPS has more RAM.**
+
+**✅ Verified end-to-end in Docker** after raising Colima to 8 GB (see finding 4):
+
+| Check | Result |
+|---|---|
+| `docker build` with clean source | succeeds; asset hashes match the local build byte-for-byte |
+| `docker build` with a deliberate type error | **fails, exit 2**, `error TS2339` — the bug cannot ship |
+| Image, flag on | `/app/` 200, deep link 200, hashed asset 200 `immutable` |
+| Image, flag off (default) | `/app/*` 404, `/api/healthz` 200 |
 
 `Dockerfile` now runs `npm run build` (`tsc -b && vite build`) again, with
 `NODE_OPTIONS=--max-old-space-size=1024` as a guardrail so a runaway typecheck cannot grow
@@ -30,23 +39,15 @@ demonstrated this by introducing a typo (`titel` for `title` on loader data):
 **Measured requirement:** peak RSS **~388 MB** for `tsc -b`, ~237 MB for `vite build`. They run
 in sequence, so ~388 MB is the high-water mark. That is small; any normal VPS is fine.
 
-**⚠️ Not verified on this machine.** `docker build` still fails here with exit 137. Cause is
-purely local and now fully understood: the Docker Desktop VM is 1.9 GB with **no swap**, and a
-Supabase stack from another project (`*_calllog`, ~10 containers) occupies most of it —
-a build container sees only **~238 MB available**, less than the 388 MB `tsc` needs.
-
-**To verify on the VPS**, before relying on a deploy:
+**On the VPS**, sanity-check headroom before relying on a deploy:
 
 ```sh
-free -m                       # confirm >~1GB available with buzz-prod running
-docker compose build          # should now typecheck as part of the build
+free -m               # want comfortably more than ~400MB available
+docker compose build  # now typechecks as part of the build
 ```
 
-If it ever dies with exit 137, that is host memory, not the heap cap — the cap produces an
-explicit V8 "heap out of memory" message instead.
-
-**To build locally**, raise Docker Desktop's memory (Settings → Resources) or stop the
-`calllog` Supabase stack.
+If it ever dies with exit **137**, that is host memory, not the heap cap — the cap produces an
+explicit V8 "heap out of memory" message instead. Exit **2** means a genuine type error.
 
 ---
 
@@ -104,13 +105,29 @@ All 37 unit tests and 58 Playwright tests pass on v8; audit is now clean.
 
 ## 🟡 Worth knowing
 
-### 4. Local Docker cannot build this image (resolved diagnosis)
+### 4. Local Docker runtime resized — RESOLVED
 
-Superseded by finding 1. Root cause is environmental, not a defect: the Docker Desktop VM is
-1.9 GB with no swap, and another project's Supabase stack (`*_calllog`) holds most of it,
-leaving ~238 MB available against a 388 MB requirement.
+The container runtime here is **Colima**, not Docker Desktop. It was allocated **2 GB / 2 CPU**
+on a 24 GB machine, shared by four projects' containers (Supabase `calllog`, `buzz`, `textro`,
+test containers), leaving only ~238 MB available against a 388 MB requirement.
 
-Nothing to fix in the repo. Raise Docker Desktop's memory or stop that stack to build here.
+**Done 2026-07-27:**
+
+- Retired the `buzz` containers (`buzz-keycloak`, `buzz-prometheus`, `buzz-minio`).
+  `buzz-keycloak` was in an OOM crash-loop (`Restarting (137)`). The named volumes
+  `buzz-minio-data`, `buzz-postgres-data`, and `buzz-prometheus-data` were **preserved** —
+  `docker rm` without `-v` — so the data is recoverable.
+- Raised Colima to **8 GB / 4 CPU** (`colima start --cpu 4 --memory 8`, persisted to
+  `~/.colima/default/colima.yaml`).
+
+Available memory inside a container went from **238 MB → 6.3 GB**.
+
+**One casualty, needs your action:** `supabase_edge_runtime_calllog` will not restart. It
+bind-mounts an ephemeral Supabase CLI file from a *different* workspace
+(`conductor/workspaces/cauli/cayenne/supabase/.temp/start-secrets/...`) that no longer exists.
+Fix by running `supabase start` in that workspace. The other 9 `calllog` containers came back
+healthy. Two disposable test containers (`calllog-web-test`, `gms-web-test`) also did not
+restart — both were `restart=no`.
 
 ### 5. `Dockerfile.railway` does not contain the new shell — and that is correct
 
