@@ -9,26 +9,63 @@ Legend: 🔴 needs your decision · 🟡 worth knowing · 🟢 found and fixed
 
 ## 🔴 Needs a decision
 
-### 1. There is no CI, and I removed typechecking from the image build
+### 1. Typecheck restored to the image build — RESOLVED, but unverified locally
 
-**What.** The Docker image build runs `vite build` without `tsc -b`, because `tsc -b` is
-OOM-killed in the build container (exit 137, verified — see #4 below).
+**Decision taken (Noah, 2026-07-27): option (b) — the VPS has more RAM.**
 
-**Why it matters.** I originally justified this as "types are gated in CI". Then I checked:
-**`.github/workflows/` does not exist. This repo has no CI at all.** So nothing enforces
-`npm run typecheck`, `npm test`, or `pytest` before an image is built or deployed. A type
-error can reach a production image.
+`Dockerfile` now runs `npm run build` (`tsc -b && vite build`) again, with
+`NODE_OPTIONS=--max-old-space-size=1024` as a guardrail so a runaway typecheck cannot grow
+into the co-hosted `buzz-prod` stack. `frontend/package.json`'s `build:bundle` escape hatch
+was removed as dead.
 
-My commit message `9a3f8f5` repeats the incorrect "and CI" claim. I corrected the Dockerfile
-comment afterwards; the commit message text is still wrong.
+**Why the typecheck has to be there.** Vite only *strips* types; it never checks them. I
+demonstrated this by introducing a typo (`titel` for `title` on loader data):
 
-**Options.**
-- (a) Add a GitHub Actions workflow running `pytest`, `npm run typecheck`, `npm test`,
-  `npm run test:e2e`. Recommended — the rebuild has 24 more slices and no safety net.
-- (b) Give the build host more memory and restore `tsc -b` to the image build.
-- (c) Accept the risk and rely on local discipline.
+| Command | Result |
+|---|---|
+| `tsc -b` | `error TS2339: Property 'titel' does not exist on type 'PlaceholderData'` |
+| `vite build` alone | **exit 0** — bundled and shipped the bug |
+| E2E against that bundle | ✗ failed (`h1` rendered empty) — the tests do catch it |
 
-**I have not done any of these.** Tell me which and I'll implement it.
+**Measured requirement:** peak RSS **~388 MB** for `tsc -b`, ~237 MB for `vite build`. They run
+in sequence, so ~388 MB is the high-water mark. That is small; any normal VPS is fine.
+
+**⚠️ Not verified on this machine.** `docker build` still fails here with exit 137. Cause is
+purely local and now fully understood: the Docker Desktop VM is 1.9 GB with **no swap**, and a
+Supabase stack from another project (`*_calllog`, ~10 containers) occupies most of it —
+a build container sees only **~238 MB available**, less than the 388 MB `tsc` needs.
+
+**To verify on the VPS**, before relying on a deploy:
+
+```sh
+free -m                       # confirm >~1GB available with buzz-prod running
+docker compose build          # should now typecheck as part of the build
+```
+
+If it ever dies with exit 137, that is host memory, not the heap cap — the cap produces an
+explicit V8 "heap out of memory" message instead.
+
+**To build locally**, raise Docker Desktop's memory (Settings → Resources) or stop the
+`calllog` Supabase stack.
+
+---
+
+### 1b. There is still no CI — the automation gap is open
+
+Restoring `tsc` closes the *typecheck* hole in the deploy path. It does **not** close the
+bigger one: **`.github/workflows/` does not exist, there is no husky, no git hooks, and no
+lint config.** I checked all four.
+
+So `pytest`, `npm test`, and `npm run test:e2e` — 223 tests that demonstrably catch real
+regressions — run only when a human remembers to run them. Nothing gates a
+`docker compose build` on the VPS.
+
+Note also that my commit message `9a3f8f5` claims types are "gated by CI". That was wrong when
+written; the Dockerfile comment has since been corrected, the commit message text cannot be.
+
+**Still open. Say the word and I'll add a workflow** (`pytest` + `typecheck` + `vitest` +
+`playwright`), optionally with pre-commit hooks — there is already a `setup-pre-commit` skill
+installed.
 
 ---
 
@@ -67,13 +104,13 @@ All 37 unit tests and 58 Playwright tests pass on v8; audit is now clean.
 
 ## 🟡 Worth knowing
 
-### 4. The build container has 1.9GB / 2 CPUs, and `tsc` does not fit
+### 4. Local Docker cannot build this image (resolved diagnosis)
 
-Measured: `docker info` → `Total Memory: 1.913GiB`, `CPUs: 2`. Isolated the failure —
-`vite build` alone succeeds; `tsc -b` is killed even with `--max-old-space-size=1400`.
+Superseded by finding 1. Root cause is environmental, not a defect: the Docker Desktop VM is
+1.9 GB with no swap, and another project's Supabase stack (`*_calllog`) holds most of it,
+leaving ~238 MB available against a 388 MB requirement.
 
-If your real build host is larger this is a non-issue and option 1(b) above is the clean fix.
-Worth confirming what the actual deployment builder has.
+Nothing to fix in the repo. Raise Docker Desktop's memory or stop that stack to build here.
 
 ### 5. `Dockerfile.railway` does not contain the new shell — and that is correct
 
