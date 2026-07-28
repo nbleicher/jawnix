@@ -1,0 +1,117 @@
+.jx-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-stack-gap, var(--jx-space-4));
+  min-width: 0;
+}
+
+.jx-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jx-cluster-gap, var(--jx-space-3));
+  min-width: 0;
+}
+
+.jx-grid {
+  display: grid;
+  gap: var(--jx-grid-gap, var(--jx-space-4));
+  /* `min()` keeps the track from overflowing a narrow viewport when
+     --jx-grid-min is wider than the container. */
+  grid-template-columns: repeat(auto-fit, minmax(min(var(--jx-grid-min, 18rem), 100%), 1fr));
+}
+
+.jx-card {
+  background: var(--jx-color-surface);
+  border: 1px solid var(--jx-color-border);
+  border-radius: var(--jx-radius-lg);
+  padding: var(--jx-card-padding, var(--jx-space-5));
+  box-shadow: var(--jx-shadow-sm);
+  min-width: 0;
+}
+
+.jx-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-5);
+  max-width: var(--jx-content-max-width);
+}
+
+.jx-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+}
+
+.jx-page__heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+  min-width: 0;
+}
+
+.jx-page__title {
+  font-size: var(--jx-text-2xl);
+  font-weight: var(--jx-weight-bold);
+  line-height: var(--jx-leading-tight);
+  color: var(--jx-color-text-strong);
+  text-wrap: balance;
+}
+
+.jx-page__description {
+  color: var(--jx-color-text-muted);
+  font-size: var(--jx-text-sm);
+  max-width: 65ch;
+}
+
+.jx-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jx-space-2);
+}
+
+.jx-page__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-5);
+}
+
+.jx-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+  min-width: 0;
+}
+
+.jx-section__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+}
+
+.jx-section__title {
+  font-size: var(--jx-text-lg);
+  font-weight: var(--jx-weight-semibold);
+  line-height: var(--jx-leading-tight);
+  color: var(--jx-color-text-strong);
+}
+
+.jx-section__description {
+  color: var(--jx-color-text-muted);
+  font-size: var(--jx-text-sm);
+  max-width: 65ch;
+}
+
+/* Desktop expands from the same mobile-first structure: the title and its
+   actions share a row once there is room for both. */
+@media (min-width: 48rem) {
+  .jx-page__header {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--jx-space-5);
+  }
+
+  .jx-page__title {
+    font-size: var(--jx-text-3xl);
+  }
+}

@@ -1,0 +1,99 @@
+/* Baseline reset. Deliberately small — it normalises box sizing, media, form
+   inheritance, focus visibility, and motion, and leaves everything else to the
+   primitives. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  /* Never set a px font-size here: it would break user text scaling (1.4.4). */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--jx-color-page);
+  color: var(--jx-color-text);
+  font-family: var(--jx-font-body);
+  font-size: var(--jx-text-md);
+  line-height: var(--jx-leading-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure,
+blockquote,
+dl,
+dd {
+  margin: 0;
+}
+
+ul[class],
+ol[class] {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+img,
+picture,
+svg,
+video,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* A single, high-contrast focus indicator for the whole system. `:focus-visible`
+   keeps it off pointer interactions while guaranteeing it for keyboard users
+   (WCAG 2.4.7, 2.4.13). */
+:focus-visible {
+  outline: 3px solid var(--jx-color-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--jx-radius-sm);
+}
+
+/* Remove the default ring only where :focus-visible is supported, so older
+   engines keep a visible indicator. */
+@supports selector(:focus-visible) {
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Honour the OS reduced-motion preference globally. Individual primitives never
+   rely on animation to convey state, so collapsing motion loses no meaning. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

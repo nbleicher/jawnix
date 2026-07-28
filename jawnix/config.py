@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     session_ttl_seconds: int = Field(default=86400, alias="JAWNIX_SESSION_TTL_SECONDS")
     cookie_secure: bool = Field(default=True, alias="JAWNIX_COOKIE_SECURE")
     billing_enabled: bool = Field(default=False, alias="JAWNIX_ENABLE_BILLING")
+    # Selects the redesigned React shell at /app. Off by default: the shell stays
+    # non-public until the controlled cutover, and the current static UI is
+    # unaffected either way.
+    new_ui_enabled: bool = Field(default=False, alias="JAWNIX_ENABLE_NEW_UI")
+    frontend_dist_dir: Path = Field(default=Path("./frontend/dist"), alias="JAWNIX_FRONTEND_DIST_DIR")
     public_base_url: str = Field(default="http://localhost:8080", alias="JAWNIX_PUBLIC_BASE_URL")
 
     supabase_url: str = Field(default="", alias="JAWNIX_SUPABASE_URL")

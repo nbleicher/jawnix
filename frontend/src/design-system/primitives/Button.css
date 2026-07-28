@@ -1,0 +1,97 @@
+.jx-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--jx-space-2);
+  /* 44px minimum in both dimensions — the product touch-target rule. */
+  min-height: var(--jx-touch-target);
+  min-width: var(--jx-touch-target);
+  padding: var(--jx-space-2) var(--jx-space-5);
+  border-radius: var(--jx-radius-md);
+  border: 1px solid transparent;
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-semibold);
+  line-height: var(--jx-leading-tight);
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background-color var(--jx-motion-fast) var(--jx-motion-ease),
+    border-color var(--jx-motion-fast) var(--jx-motion-ease),
+    color var(--jx-motion-fast) var(--jx-motion-ease);
+}
+
+.jx-button--full {
+  width: 100%;
+}
+
+.jx-button[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.jx-button--primary {
+  background: var(--jx-color-accent);
+  border-color: var(--jx-color-accent);
+  color: var(--jx-color-accent-contrast);
+}
+.jx-button--primary:hover:not([aria-disabled="true"]) {
+  background: var(--jx-color-accent-strong);
+  border-color: var(--jx-color-accent-strong);
+}
+
+.jx-button--secondary {
+  background: var(--jx-color-surface);
+  border-color: var(--jx-color-border-strong);
+  color: var(--jx-color-text);
+}
+.jx-button--secondary:hover:not([aria-disabled="true"]) {
+  background: var(--jx-color-surface-strong);
+}
+
+.jx-button--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--jx-color-accent);
+}
+.jx-button--ghost:hover:not([aria-disabled="true"]) {
+  background: var(--jx-color-accent-soft);
+}
+
+.jx-button--danger {
+  background: var(--jx-color-danger);
+  border-color: var(--jx-color-danger);
+  color: #ffffff;
+}
+.jx-button--danger:hover:not([aria-disabled="true"]) {
+  filter: brightness(0.92);
+}
+
+[data-theme="terminal"] .jx-button--danger {
+  color: var(--jx-color-accent-contrast);
+}
+
+.jx-button__spinner {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: jx-button-spin 700ms linear infinite;
+  flex: none;
+}
+
+@keyframes jx-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Under reduced motion the ring stops spinning; the busy *label* already
+   carries the meaning, so nothing is lost. */
+@media (prefers-reduced-motion: reduce) {
+  .jx-button__spinner {
+    animation: none;
+    border-top-color: currentColor;
+    opacity: 0.5;
+  }
+}

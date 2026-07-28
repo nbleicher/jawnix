@@ -1,5 +1,18 @@
 FROM postgres:18 AS postgres-client
 
+# Compile the redesigned shell to content-hashed assets. Kept in its own stage
+# so Node never reaches the runtime image.
+FROM node:22-slim AS frontend-build
+WORKDIR /build
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+# Bundle only. `npm run build` also runs `tsc -b`, which needs more memory than a
+# modest build host has (it is OOM-killed under ~2GB). Types are gated by
+# `npm run typecheck` in local verification and CI, so the image build does not
+# need to repeat it.
+RUN npm run build:bundle
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -26,6 +39,10 @@ RUN pip install --no-cache-dir .
 
 COPY admin.html login.html portal.html portal-accept.html theme.css config.example.js ./static/
 COPY index.html app.py supabase-schema.sql ./legacy/
+
+# Served by jawnix.frontend at /app when JAWNIX_ENABLE_NEW_UI is on. Present in
+# the image either way, so enabling the flag needs no rebuild.
+COPY --from=frontend-build /build/dist ./frontend/dist
 COPY docker-entrypoint.sh ./
 COPY ops ./ops
 RUN chmod +x /app/docker-entrypoint.sh \

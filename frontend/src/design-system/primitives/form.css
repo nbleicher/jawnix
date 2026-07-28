@@ -1,0 +1,99 @@
+.jx-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-2);
+  min-width: 0;
+}
+
+.jx-field__label {
+  color: var(--jx-color-text-strong);
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-semibold);
+}
+
+.jx-field__required {
+  color: var(--jx-color-text-muted);
+  font-weight: var(--jx-weight-normal);
+}
+
+.jx-field__description {
+  color: var(--jx-color-text-muted);
+  font-size: var(--jx-text-sm);
+  max-width: 65ch;
+}
+
+.jx-field__error {
+  color: var(--jx-color-danger);
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-medium);
+  max-width: 65ch;
+}
+
+.jx-input {
+  width: 100%;
+  min-height: var(--jx-touch-target);
+  padding: var(--jx-space-2) var(--jx-space-3);
+  background: var(--jx-color-surface);
+  color: var(--jx-color-text);
+  border: 1px solid var(--jx-color-border-strong);
+  border-radius: var(--jx-radius-md);
+  font-size: var(--jx-text-md);
+  transition: border-color var(--jx-motion-fast) var(--jx-motion-ease);
+}
+
+.jx-input::placeholder {
+  color: var(--jx-color-text-muted);
+}
+
+.jx-input:hover:not(:disabled) {
+  border-color: var(--jx-color-accent);
+}
+
+.jx-input:disabled {
+  background: var(--jx-color-surface-strong);
+  color: var(--jx-color-text-muted);
+  cursor: not-allowed;
+}
+
+/* The red border reinforces the message but never carries it alone — the error
+   text and aria-invalid do that. */
+.jx-input[aria-invalid="true"] {
+  border-color: var(--jx-color-danger);
+}
+
+.jx-textarea {
+  min-height: calc(var(--jx-touch-target) * 2);
+  resize: vertical;
+  line-height: var(--jx-leading-normal);
+}
+
+.jx-select {
+  appearance: none;
+  padding-right: var(--jx-space-6);
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 1.15rem) calc(50% + 2px),
+    calc(100% - 0.85rem) calc(50% + 2px);
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+}
+
+.jx-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.jx-fieldset__legend {
+  padding: 0;
+  color: var(--jx-color-text-strong);
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-semibold);
+}

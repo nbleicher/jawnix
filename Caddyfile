@@ -9,6 +9,14 @@
 		reverse_proxy api:8001
 	}
 
+	# Redesigned React shell. FastAPI owns the whole prefix so it can apply the
+	# feature flag, serve content-hashed assets immutably, and return the shell
+	# document for direct navigation to any application route. While the flag is
+	# off this answers 404, keeping the surface non-public before cutover (#71).
+	handle /app* {
+		reverse_proxy api:8001
+	}
+
 	redir / /login.html 302
 	redir /index.html /login.html 302
 	redir /login /login.html 308

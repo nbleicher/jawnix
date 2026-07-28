@@ -9,3 +9,9 @@ __pycache__/
 .coverage
 *.egg-info/
 supabase/.temp/
+
+# Frontend. The lockfile is committed; build output and caches are not.
+node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
