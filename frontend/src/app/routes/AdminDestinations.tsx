@@ -1,0 +1,294 @@
+import { useLoaderData } from "react-router";
+
+import { ActionLink } from "../../design-system/primitives/Button";
+import { EmptyState } from "../../design-system/primitives/feedback";
+import {
+  Card,
+  Cluster,
+  Grid,
+  Page,
+  Section,
+  Stack,
+} from "../../design-system/primitives/layout";
+import { Heading, Text } from "../../design-system/primitives/typography";
+import { useDocumentTitle } from "../shell/useDocumentTitle";
+
+interface DestinationAction {
+  label: string;
+  href: string;
+}
+
+interface WorkspaceArea {
+  title: string;
+  description: string;
+  action?: DestinationAction;
+}
+
+interface AdminDestinationData {
+  title: string;
+  description: string;
+  sectionTitle: string;
+  sectionDescription: string;
+  actions?: DestinationAction[];
+  areas: WorkspaceArea[];
+  empty: {
+    title: string;
+    description: string;
+    action: DestinationAction;
+  };
+}
+
+const OVERVIEW: AdminDestinationData = {
+  title: "Overview",
+  description:
+    "Start with the workspace that owns the task. This wayfinder avoids presenting work without a valid destination and next action.",
+  sectionTitle: "Choose a workspace",
+  sectionDescription:
+    "Administration is organized by the work being done, not by the underlying record hierarchy.",
+  areas: [
+    {
+      title: "Fulfillment",
+      description:
+        "Batch delivery, inventory decisions, delivery recovery, and lead eligibility controls.",
+      action: {
+        label: "Open Fulfillment",
+        href: "/app/admin/fulfillment",
+      },
+    },
+    {
+      title: "Acquisition",
+      description:
+        "Scraper operations, source inputs, pipeline health, and acquired-data review.",
+      action: {
+        label: "Open Acquisition",
+        href: "/app/admin/acquisition",
+      },
+    },
+    {
+      title: "Customers",
+      description:
+        "Durable Customer identity, User Account access, Licensed States, and Agency membership.",
+      action: {
+        label: "Open Customers",
+        href: "/app/admin/customers",
+      },
+    },
+  ],
+  empty: {
+    title: "No administration workspaces are available",
+    description:
+      "Review administrator security while the workspace directory is restored.",
+    action: {
+      label: "Review administrator security",
+      href: "/app/admin/security",
+    },
+  },
+};
+
+const FULFILLMENT: AdminDestinationData = {
+  title: "Fulfillment",
+  description:
+    "Delivery work stays together so an administrator can follow a Batch Request from review through allocation, artifact generation, and delivery recovery.",
+  sectionTitle: "Fulfillment work",
+  sectionDescription:
+    "Records and state-valid controls stay grouped by the decision an administrator needs to make.",
+  actions: [
+    {
+      label: "Back to Overview",
+      href: "/app/admin/overview",
+    },
+  ],
+  areas: [
+    {
+      title: "Batch delivery",
+      description:
+        "Review Batch Requests, recover failed deliveries, and distinguish retrying an exact Batch Artifact from regenerating one.",
+    },
+    {
+      title: "Inventory decisions",
+      description:
+        "Resolve Inventory Conflicts with the competing requests, overlapping inventory, and current decision scope together.",
+    },
+    {
+      title: "Lead eligibility",
+      description:
+        "Review immutable Lead Reports alongside Eligibility Holds, Lead Corrections, and Lead Suppression evidence.",
+    },
+  ],
+  empty: {
+    title: "No Fulfillment areas are available",
+    description:
+      "Return to the administrator Overview and choose another workspace.",
+    action: {
+      label: "Back to Overview",
+      href: "/app/admin/overview",
+    },
+  },
+};
+
+const ACQUISITION: AdminDestinationData = {
+  title: "Acquisition",
+  description:
+    "Acquisition is the native Jawnix home for Scraper Operations, source inputs, pipeline health, and acquired-data review.",
+  sectionTitle: "Acquisition work",
+  sectionDescription:
+    "The terminal workspace keeps operational density while Jawnix remains the browser's only application boundary.",
+  actions: [
+    {
+      label: "Review administrator security",
+      href: "/app/admin/security",
+    },
+    {
+      label: "Back to Overview",
+      href: "/app/admin/overview",
+    },
+  ],
+  areas: [
+    {
+      title: "Scraper operations",
+      description:
+        "Service status, workers, pipeline activity, logs, incidents, and protected controls belong together.",
+    },
+    {
+      title: "Source planning",
+      description:
+        "State coverage, keyword activity, campaign inputs, and runtime configuration share one geographic context.",
+    },
+    {
+      title: "Operational history",
+      description:
+        "Scrape Runs, campaign history, Source Performance, recommendations, and safe data exports remain inspectable.",
+    },
+  ],
+  empty: {
+    title: "No Acquisition areas are available",
+    description:
+      "Return to the administrator Overview; do not retry protected Scraper operations from another surface.",
+    action: {
+      label: "Back to Overview",
+      href: "/app/admin/overview",
+    },
+  },
+};
+
+const CUSTOMERS: AdminDestinationData = {
+  title: "Customers",
+  description:
+    "Customer administration keeps durable Customer identity separate from replaceable User Account access and Agency membership.",
+  sectionTitle: "Customer administration",
+  sectionDescription:
+    "The workspace keeps search and record details out of a hierarchy-first editor.",
+  actions: [
+    {
+      label: "Back to Overview",
+      href: "/app/admin/overview",
+    },
+  ],
+  areas: [
+    {
+      title: "Customer directory",
+      description:
+        "Find durable Customers by identity, Agency, Licensed States, recent activity, and setup state.",
+    },
+    {
+      title: "User Account access",
+      description:
+        "Invite or replace the one active User Account without changing its Customer or permanent history.",
+    },
+    {
+      title: "Agency membership",
+      description:
+        "Review Agency grouping and the permanent no-repeat impact before membership changes are confirmed.",
+    },
+  ],
+  empty: {
+    title: "No Customer administration areas are available",
+    description:
+      "Return to the administrator Overview rather than changing Customer records through another surface.",
+    action: {
+      label: "Back to Overview",
+      href: "/app/admin/overview",
+    },
+  },
+};
+
+/** Route data stays behind a loader even while it is a local information
+ * architecture contract. Later slices can replace the source without changing
+ * the screen or bypassing the shell's pending and error seams. */
+export async function adminOverviewLoader(): Promise<AdminDestinationData> {
+  return OVERVIEW;
+}
+
+export async function adminFulfillmentLoader(): Promise<AdminDestinationData> {
+  return FULFILLMENT;
+}
+
+export async function adminAcquisitionLoader(): Promise<AdminDestinationData> {
+  return ACQUISITION;
+}
+
+export async function adminCustomersLoader(): Promise<AdminDestinationData> {
+  return CUSTOMERS;
+}
+
+export function AdminDestinationRoute() {
+  const data = useLoaderData<AdminDestinationData>();
+  useDocumentTitle(data.title);
+
+  return (
+    <Page
+      title={data.title}
+      description={data.description}
+      actions={
+        data.actions?.length ? (
+          <Cluster gap={2}>
+            {data.actions.map((action) => (
+              <ActionLink key={action.href} href={action.href}>
+                {action.label}
+              </ActionLink>
+            ))}
+          </Cluster>
+        ) : undefined
+      }
+    >
+      <Section
+        title={data.sectionTitle}
+        description={data.sectionDescription}
+      >
+        {data.areas.length ? (
+          <Grid minColumnWidth="16rem">
+            {data.areas.map((area) => (
+              <Card as="article" key={area.title}>
+                <Stack gap={4}>
+                  <Stack gap={2}>
+                    <Heading level={3}>{area.title}</Heading>
+                    <Text size="sm" tone="muted">
+                      {area.description}
+                    </Text>
+                  </Stack>
+                  {area.action ? (
+                    <div>
+                      <ActionLink href={area.action.href}>
+                        {area.action.label}
+                      </ActionLink>
+                    </div>
+                  ) : null}
+                </Stack>
+              </Card>
+            ))}
+          </Grid>
+        ) : (
+          <EmptyState
+            title={data.empty.title}
+            description={data.empty.description}
+            action={
+              <ActionLink href={data.empty.action.href}>
+                {data.empty.action.label}
+              </ActionLink>
+            }
+          />
+        )}
+      </Section>
+    </Page>
+  );
+}

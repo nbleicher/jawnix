@@ -13,6 +13,13 @@ import {
   AdminMFASecurityRoute,
 } from "./routes/AdminMFA";
 import {
+  AdminDestinationRoute,
+  adminAcquisitionLoader,
+  adminCustomersLoader,
+  adminFulfillmentLoader,
+  adminOverviewLoader,
+} from "./routes/AdminDestinations";
+import {
   adminAccessLoader,
   adminMFAStatusLoader,
 } from "./auth/adminMFA";
@@ -33,10 +40,10 @@ import {
  * while the current static UI keeps the site root, which is what lets the
  * feature flag switch between them without touching the legacy pages.
  *
- * Screens are placeholders at this slice — #47 establishes the shell, routing,
- * and design system; later slices replace each element with the real screen.
- * The navigation contract, landmarks, loader seam, and loading/error states are
- * real now, so those slices only have to supply content.
+ * #47 established the shell, routing, and design system. Customer routes remain
+ * placeholders for their later slices; administrator destinations are real
+ * task maps whose loaders and screen bodies are replaced by the operational
+ * slices without rebuilding the shell.
  */
 export const router = createBrowserRouter(
   [
@@ -119,26 +126,23 @@ export const router = createBrowserRouter(
             { index: true, element: <Navigate to="/admin/overview" replace /> },
             {
               path: "overview",
-              loader: placeholderLoader({ title: "Operations overview", slice: "#55 — Operations overview" }),
-              element: <PlaceholderRoute />,
+              loader: adminOverviewLoader,
+              element: <AdminDestinationRoute />,
             },
             {
               path: "fulfillment",
-              loader: placeholderLoader({ title: "Fulfillment", slice: "#57 — Core Fulfillment operations" }),
-              element: <PlaceholderRoute />,
+              loader: adminFulfillmentLoader,
+              element: <AdminDestinationRoute />,
             },
             {
               path: "acquisition",
-              loader: placeholderLoader({ title: "Acquisition", slice: "#62 — Scraper terminal workspace" }),
-              element: <PlaceholderRoute />,
+              loader: adminAcquisitionLoader,
+              element: <AdminDestinationRoute />,
             },
             {
               path: "customers",
-              loader: placeholderLoader({
-                title: "Customers",
-                slice: "#59 — Customer and User Account management",
-              }),
-              element: <PlaceholderRoute />,
+              loader: adminCustomersLoader,
+              element: <AdminDestinationRoute />,
             },
             {
               path: "security",

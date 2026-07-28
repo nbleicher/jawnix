@@ -52,6 +52,84 @@ test.describe("Customer shell", () => {
 });
 
 test.describe("Administration shell", () => {
+  test("keeps primary navigation to the four domain-work destinations", async ({ page }) => {
+    await page.goto("./admin/overview");
+
+    const nav = page.getByRole("navigation", { name: "Administration" });
+    await expect(nav.getByRole("link")).toHaveCount(4);
+    for (const destination of ["Overview", "Fulfillment", "Acquisition", "Customers"]) {
+      await expect(nav.getByRole("link", { name: destination })).toBeVisible();
+    }
+    await expect(nav.getByRole("link", { name: "Security" })).toHaveCount(0);
+  });
+
+  test("Overview is a task-first wayfinder at both form factors", async ({ page }) => {
+    await page.goto("./admin/overview");
+
+    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+    await expect(page.getByText("Not built yet")).toHaveCount(0);
+
+    for (const workspace of ["Fulfillment", "Acquisition", "Customers"]) {
+      await page.goto("./admin/overview");
+      await expect(page.getByRole("heading", { level: 3, name: workspace })).toBeVisible();
+      const action = page.getByRole("link", { name: `Open ${workspace}` });
+      await expect(action).toBeVisible();
+      await action.click();
+      await expect(page.getByRole("heading", { level: 1, name: workspace })).toBeVisible();
+    }
+  });
+
+  test("Fulfillment groups its operational work at both form factors", async ({ page }) => {
+    await page.goto("./admin/fulfillment");
+
+    await expect(page.getByRole("heading", { level: 1, name: "Fulfillment" })).toBeVisible();
+    await expect(page.getByText("Not built yet")).toHaveCount(0);
+
+    for (const area of ["Batch delivery", "Inventory decisions", "Lead eligibility"]) {
+      await expect(page.getByRole("heading", { level: 3, name: area })).toBeVisible();
+    }
+    const back = page.getByRole("link", { name: "Back to Overview" });
+    await expect(back).toBeVisible();
+    await back.click();
+    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+  });
+
+  test("Acquisition exposes its operating areas and security action at both form factors", async ({ page }) => {
+    await page.goto("./admin/acquisition");
+
+    await expect(page.getByRole("heading", { level: 1, name: "Acquisition" })).toBeVisible();
+    await expect(page.getByText("Not built yet")).toHaveCount(0);
+
+    for (const area of ["Scraper operations", "Source planning", "Operational history"]) {
+      await expect(page.getByRole("heading", { level: 3, name: area })).toBeVisible();
+    }
+    const security = page.getByRole("link", { name: "Review administrator security" });
+    await expect(security).toBeVisible();
+    await security.click();
+    await expect(page.getByRole("heading", { level: 1, name: "Administrator security" })).toBeVisible();
+
+    await page.goto("./admin/acquisition");
+    const back = page.getByRole("link", { name: "Back to Overview" });
+    await expect(back).toBeVisible();
+    await back.click();
+    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+  });
+
+  test("Customers separates durable identity from account access at both form factors", async ({ page }) => {
+    await page.goto("./admin/customers");
+
+    await expect(page.getByRole("heading", { level: 1, name: "Customers" })).toBeVisible();
+    await expect(page.getByText("Not built yet")).toHaveCount(0);
+
+    for (const area of ["Customer directory", "User Account access", "Agency membership"]) {
+      await expect(page.getByRole("heading", { level: 3, name: area })).toBeVisible();
+    }
+    const back = page.getByRole("link", { name: "Back to Overview" });
+    await expect(back).toBeVisible();
+    await back.click();
+    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+  });
+
   test("reaches every primary destination", async ({ page }) => {
     await page.goto("./admin");
 

@@ -10,7 +10,6 @@ const DESTINATIONS: NavigationDestination[] = [
   { to: "/admin/fulfillment", label: "Fulfillment", icon: "▤" },
   { to: "/admin/acquisition", label: "Acquisition", icon: "▚" },
   { to: "/admin/customers", label: "Customers", icon: "◑" },
-  { to: "/admin/security", label: "Security", icon: "●" },
 ];
 
 export function AdminShell() {

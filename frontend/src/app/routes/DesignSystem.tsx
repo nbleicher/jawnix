@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { Button } from "../../design-system/primitives/Button";
+import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { AuthPanel } from "../../design-system/primitives/auth";
 import { ConfirmDialog, Dialog } from "../../design-system/primitives/Dialog";
 import { EmptyState, ErrorState, Loading, Skeleton } from "../../design-system/primitives/feedback";
@@ -99,6 +99,7 @@ export function DesignSystemRoute() {
               <Button variant="secondary">Secondary</Button>
               <Button variant="ghost">Ghost</Button>
               <Button variant="danger">Danger</Button>
+              <ActionLink href="#jx-main">Navigation action</ActionLink>
             </Cluster>
             <Cluster gap={2}>
               <Button variant="primary" busy>
