@@ -1,6 +1,7 @@
 import type { Page, Route } from "@playwright/test";
 
 import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
+import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
 
 export interface CustomerAuthMockOptions {
   signInAccepted?: boolean;
@@ -171,6 +172,12 @@ export async function mockCustomerAuth(
     }
     return json(route, settings.overview);
   });
+
+  // Enough for a customer journey to arrive at /app/requests. Specs that
+  // exercise the guided flow itself layer mockBatchRequests over this.
+  await page.route(/\/api\/me\/batch-requests$/, (route) =>
+    json(route, BATCH_REQUEST_WORKSPACE),
+  );
 
   await page.route(/\/api\/auth\/logout$/, (route) => {
     state.jawnixLogoutCalls += 1;

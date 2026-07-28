@@ -423,6 +423,151 @@ class CustomerOverviewOut(BaseModel):
     primary_actions: list[CustomerOverviewAction]
 
 
+CustomerMilestoneKey = Literal[
+    "submitted",
+    "under_review",
+    "preparing_batch",
+    "delivered",
+]
+
+
+class CustomerMilestone(BaseModel):
+    """One node of the Customer-facing Batch Request journey.
+
+    `state` carries the whole meaning of the node, so a client can render the
+    graph without animation and describe it in text. `not_reached` is
+    deliberately distinct from `upcoming`: a stopped request never arrives.
+    """
+
+    key: CustomerMilestoneKey
+    label: str
+    description: str
+    state: Literal[
+        "complete",
+        "current",
+        "paused",
+        "stopped",
+        "upcoming",
+        "not_reached",
+    ]
+    occurred_at: datetime | None
+
+
+class CustomerRequestPause(BaseModel):
+    """An explained wait inside the journey rather than an ending.
+
+    Waiting for Inventory is the only pause the Customer vocabulary exposes.
+    It has no next action because there is nothing the Customer can do.
+    """
+
+    kind: Literal["inventory_wait"]
+    milestone_key: CustomerMilestoneKey
+    label: str
+    description: str
+
+
+class CustomerRequestOutcome(BaseModel):
+    """Why a Batch Request stopped short of Delivered."""
+
+    kind: Literal["rejected", "canceled", "failed"]
+    milestone_key: CustomerMilestoneKey
+    label: str
+    description: str
+    tone: Literal["neutral", "info", "success", "warning", "danger"]
+    occurred_at: datetime | None
+
+
+class CustomerRequestMilestones(BaseModel):
+    milestones: list[CustomerMilestone]
+    current_key: CustomerMilestoneKey | None
+    pause: CustomerRequestPause | None
+    outcome: CustomerRequestOutcome | None
+
+
+class CustomerRequestAction(BaseModel):
+    kind: Literal[
+        "request_batch",
+        "submit_feedback",
+        "contact_support",
+    ]
+    label: str
+    description: str
+    href: str
+
+
+class CustomerRequestDetail(BaseModel):
+    """One Batch Request as the Customer application reads it."""
+
+    id: uuid.UUID
+    lead_count: int
+    states: list[str]
+    submitted_at: datetime
+    delivered_at: datetime | None
+    status: CustomerOverviewStatus
+    milestones: CustomerRequestMilestones
+    can_cancel: bool
+    next_action: CustomerRequestAction | None
+    receipt_href: str
+
+
+class CustomerRequestLimits(BaseModel):
+    """The domain bounds the guided stages validate against."""
+
+    minimum_lead_count: int
+    maximum_lead_count: int
+    licensed_states: list[str]
+
+
+class CustomerRequestBlocker(BaseModel):
+    """Why the guided flow cannot start at all."""
+
+    reason: Literal["mapping_unconfirmed", "no_licensed_states"]
+    label: str
+    description: str
+    action: CustomerOverviewAction
+
+
+class CustomerRequestWorkspaceOut(BaseModel):
+    """Stable read contract for the guided Batch Request screen."""
+
+    limits: CustomerRequestLimits
+    blocker: CustomerRequestBlocker | None
+    requests: list[CustomerRequestDetail]
+
+
+class CustomerRequestCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The client mints this once per guided flow. Replaying it returns the
+    # request that already exists instead of creating a second one.
+    idempotency_key: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9._:-]+$")
+    lead_count: int = Field(ge=1, le=100_000)
+    state_mode: Literal["all_saved", "selected"] = "all_saved"
+    states: list[str] = Field(default_factory=list)
+
+    @field_validator("states")
+    @classmethod
+    def valid_states(cls, value: list[str]) -> list[str]:
+        return normalize_states(value)
+
+    @model_validator(mode="after")
+    def selected_requires_states(self):
+        if self.state_mode == "selected" and not self.states:
+            raise ValueError("Select at least one Licensed State for this request.")
+        return self
+
+
+class CustomerRequestReceipt(BaseModel):
+    """The submit response.
+
+    `created` is False when an idempotent replay resolved to the request the
+    first attempt already made, which is what lets a client retry safely.
+    """
+
+    created: bool
+    request: CustomerRequestDetail
+
+
 class FeedbackLookup(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

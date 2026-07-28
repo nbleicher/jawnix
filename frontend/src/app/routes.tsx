@@ -56,6 +56,8 @@ import {
   scraperWorkspaceLoader,
 } from "./routes/ScraperWorkspace";
 import { CustomerOverviewRoute } from "./routes/CustomerOverview";
+import { CustomerRequestsRoute } from "./routes/CustomerRequests";
+import { batchRequestsLoader } from "./routes/batchRequests";
 
 /**
  * Route table for the redesigned application.
@@ -100,8 +102,8 @@ export const router = createBrowserRouter(
             },
             {
               path: "requests",
-              loader: placeholderLoader({ title: "Requests", slice: "#51 — Guided Batch Requests" }),
-              element: <PlaceholderRoute />,
+              loader: batchRequestsLoader,
+              element: <CustomerRequestsRoute />,
             },
             {
               path: "feedback",

@@ -1,6 +1,7 @@
 import type { Page, Route } from "@playwright/test";
 
 import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
+import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
 
 export interface MockFactor {
   id: string;
@@ -262,6 +263,10 @@ export async function mockAdminMFA(
 
   await page.route(/\/api\/me\/overview$/, (route) =>
     json(route, CUSTOMER_OVERVIEW),
+  );
+
+  await page.route(/\/api\/me\/batch-requests$/, (route) =>
+    json(route, BATCH_REQUEST_WORKSPACE),
   );
 
   await page.route(/\/api\/me\/profile$/, (route) =>
