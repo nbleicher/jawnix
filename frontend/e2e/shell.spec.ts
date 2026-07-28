@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { mockAdminMFA } from "./mfa-fixtures";
+
 /**
  * Shell journeys against the compiled application.
  *
@@ -7,6 +9,10 @@ import { expect, test } from "@playwright/test";
  * server, so they exercise the same hashed assets and the same base path the
  * deployment edge serves.
  */
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminMFA(page, { assurance: "aal2" });
+});
 
 test.describe("Customer shell", () => {
   test("lands on Overview and reaches every primary destination", async ({ page }) => {

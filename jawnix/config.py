@@ -25,6 +25,24 @@ class Settings(BaseSettings):
     supabase_url: str = Field(default="", alias="JAWNIX_SUPABASE_URL")
     supabase_anon_key: str = Field(default="", alias="JAWNIX_SUPABASE_ANON_KEY")
     supabase_service_role_key: str = Field(default="", alias="SUPABASE_SERVICE_ROLE_KEY")
+    admin_mfa_max_attempts: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        alias="JAWNIX_ADMIN_MFA_MAX_ATTEMPTS",
+    )
+    admin_mfa_attempt_window_seconds: int = Field(
+        default=900,
+        ge=60,
+        le=86400,
+        alias="JAWNIX_ADMIN_MFA_ATTEMPT_WINDOW_SECONDS",
+    )
+    admin_mfa_lock_seconds: int = Field(
+        default=900,
+        ge=60,
+        le=86400,
+        alias="JAWNIX_ADMIN_MFA_LOCK_SECONDS",
+    )
 
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")

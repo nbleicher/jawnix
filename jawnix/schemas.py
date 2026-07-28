@@ -21,6 +21,36 @@ class SessionExchange(BaseModel):
     requested_next: str | None = Field(default=None, max_length=200)
 
 
+class AdminMFAAccessToken(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    access_token: str = Field(min_length=20, max_length=10000)
+
+
+class AdminMFAEnrollStart(AdminMFAAccessToken):
+    slot: str = Field(pattern="^(primary|backup)$")
+
+
+class AdminMFACode(AdminMFAAccessToken):
+    code: str = Field(min_length=6, max_length=32)
+
+    @field_validator("code")
+    @classmethod
+    def normalize_code(cls, value: str) -> str:
+        normalized = "".join(character for character in value if character.isdigit())
+        if len(normalized) != 6:
+            raise ValueError("Enter the six-digit authenticator code.")
+        return normalized
+
+
+class AdminMFAChallenge(AdminMFACode):
+    factor_id: uuid.UUID
+
+
+class AdminMFAReplacementStart(AdminMFAAccessToken):
+    lost_factor_id: uuid.UUID
+
+
 class ProfileUpdate(BaseModel):
     first_name: str = Field(default="", max_length=120)
     last_name: str = Field(default="", max_length=120)

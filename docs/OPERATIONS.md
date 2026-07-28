@@ -39,6 +39,56 @@ Set `JAWNIX_SCRAPER_OPS_DOMAIN` to the staging Scraper hostname in the same way.
 
 `config.js` contains only the Supabase browser URL and publishable/anon key. Service-role, Telegram, Resend, PostgreSQL, and Restic secrets remain server-side.
 
+## Administrator MFA break-glass recovery
+
+Break-glass Recovery is for an administrator who has lost both the Primary and
+Backup Authenticators. It is not a password reset, cannot be initiated from the
+application, and restores access only to MFA enrollment. Every administrator
+endpoint remains closed until two replacement Authenticator Factors are
+verified and the new session reaches AAL2.
+
+Prerequisites:
+
+1. The operator verifies the recipient's identity out of band using the
+   business's incident procedure.
+2. A second person explicitly authorizes the recovery. The operator and
+   authorizer must be different named people.
+3. Open an incident or support ticket containing the reason, identity evidence,
+   authorizer approval, and intended execution time.
+4. Confirm a current database backup and access to the Supabase service-role
+   credential. Never place that credential in the command line, ticket, or
+   application configuration.
+
+From the deployed revision, run the command in a one-off API container. Replace
+every example value and copy the immutable Supabase Auth user UUID from the
+verified operator record:
+
+```sh
+docker compose run --rm api python -m jawnix_data admin-mfa-break-glass \
+  --target-user-id 00000000-0000-4000-8000-000000000000 \
+  --target-email administrator@example.com \
+  --operator "Named operator" \
+  --authorizer "Different named authorizer" \
+  --reason "Both enrolled authenticators were lost" \
+  --reference "INC-0000" \
+  --confirm REVOKE-AND-REENROLL
+```
+
+The command first increments the administrator's Jawnix session generation and
+commits an authorization Audit Entry. It then confirms the provider identity is
+still an administrator with the exact supplied email, removes every provider
+factor, and commits the completed Audit Entry. If provider work fails, stop:
+sessions remain revoked and the authorized-attempt entry remains durable.
+Record the error in the incident and investigate before rerunning.
+
+After success, have the recipient sign in with the existing password and enroll
+a new Primary Authenticator and a separately stored Backup Authenticator.
+Confirm that an administrative route refuses the enrollment-only session, both
+factors show their expected last-use information, and the completed Audit Entry
+names the recipient, operator, authorizer, reference, reason, removed-factor
+count, and `mfa_enrollment_only` access result. Close the incident only after
+those checks pass.
+
 ## Private Scraper Operations mount
 
 Jawnix links the Scraper control plane from Admin at `/admin/scraper/`. After

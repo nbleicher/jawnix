@@ -1,10 +1,21 @@
 import { createBrowserRouter, Navigate } from "react-router";
 
 import { AdminShell } from "./shells/AdminShell";
+import { MFAShell } from "./shells/MFAShell";
 import { CustomerShell } from "./shells/CustomerShell";
 import { RouteError } from "./routes/RouteError";
 import { DesignSystemRoute } from "./routes/DesignSystem";
 import { PlaceholderRoute, placeholderLoader } from "./routes/Placeholder";
+import {
+  AdminMFAChallengeRoute,
+  AdminMFAEnrollmentRoute,
+  AdminMFARecoveryRoute,
+  AdminMFASecurityRoute,
+} from "./routes/AdminMFA";
+import {
+  adminAccessLoader,
+  adminMFAStatusLoader,
+} from "./auth/adminMFA";
 
 /**
  * Route table for the redesigned application.
@@ -53,10 +64,37 @@ export const router = createBrowserRouter(
           ],
         },
 
-        // Administration — Overview, Fulfillment, Acquisition, Customers.
+        // Administrator verification is intentionally outside AdminShell:
+        // below AAL2 it must expose enrollment/recovery and no administration.
+        {
+          path: "admin/mfa",
+          element: <MFAShell />,
+          children: [
+            { index: true, element: <Navigate to="/admin/mfa/challenge" replace /> },
+            {
+              path: "enroll",
+              loader: adminMFAStatusLoader,
+              element: <AdminMFAEnrollmentRoute />,
+            },
+            {
+              path: "challenge",
+              loader: adminMFAStatusLoader,
+              element: <AdminMFAChallengeRoute />,
+            },
+            {
+              path: "recover",
+              loader: adminMFAStatusLoader,
+              element: <AdminMFARecoveryRoute />,
+            },
+          ],
+        },
+
+        // Administration — every child first crosses the backend's real
+        // require_admin boundary through this parent loader.
         {
           path: "admin",
           element: <AdminShell />,
+          loader: adminAccessLoader,
           children: [
             { index: true, element: <Navigate to="/admin/overview" replace /> },
             {
@@ -81,6 +119,11 @@ export const router = createBrowserRouter(
                 slice: "#59 — Customer and User Account management",
               }),
               element: <PlaceholderRoute />,
+            },
+            {
+              path: "security",
+              loader: adminMFAStatusLoader,
+              element: <AdminMFASecurityRoute />,
             },
           ],
         },
