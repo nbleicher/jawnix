@@ -467,7 +467,13 @@ export function ControlActionBar({
     }
   }
 
-  if (!actions.length) {
+  // A refused action re-reads the record, which can empty `actions` while the
+  // dialog is still open. Unmounting here would destroy the refusal message in
+  // the same tick it was written, so the operator would never learn why — the
+  // faster the re-read, the less chance they have of reading it. Keep the open
+  // dialog mounted; the action buttons still disappear, which is the part that
+  // must not survive.
+  if (!actions.length && pending === null) {
     return (
       <Text size="sm" tone="muted">
         {settled}
@@ -477,17 +483,23 @@ export function ControlActionBar({
 
   return (
     <>
-      <Cluster gap={2}>
-        {actions.map((action) => (
-          <Button
-            key={action.name}
-            variant={action.destructive ? "danger" : "secondary"}
-            onClick={() => open(action)}
-          >
-            {action.label}
-          </Button>
-        ))}
-      </Cluster>
+      {actions.length ? (
+        <Cluster gap={2}>
+          {actions.map((action) => (
+            <Button
+              key={action.name}
+              variant={action.destructive ? "danger" : "secondary"}
+              onClick={() => open(action)}
+            >
+              {action.label}
+            </Button>
+          ))}
+        </Cluster>
+      ) : (
+        <Text size="sm" tone="muted">
+          {settled}
+        </Text>
+      )}
       <ConfirmDialog
         open={pending !== null}
         onClose={close}

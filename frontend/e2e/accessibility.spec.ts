@@ -56,6 +56,44 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("Automated WCAG 2.2 AA sweep", () => {
+  /*
+   * Colour tokens transition, and routes that own a theme swap it in an effect
+   * after mount. The <h1> becomes visible before that transition settles, so an
+   * axe run started at that moment samples *interpolated* colours — values in
+   * neither theme's palette — and reports contrast failures that no user can
+   * ever see. It fails or passes purely on machine speed, which is how it
+   * survived on main: CI's usual ordering happened to be slow enough.
+   *
+   * Collapsing motion is the product's own guard for this (reset.css), and a
+   * reduced-motion user must pass the same sweep anyway, so opting in costs no
+   * coverage and makes the sampled colours the settled ones.
+   */
+  test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const reduced = await page.evaluate(
+      () => matchMedia("(prefers-reduced-motion: reduce)").matches,
+    );
+    expect(reduced, "reduced-motion emulation did not apply").toBe(true);
+
+    /*
+     * Reduced motion alone only shrinks transitions to 0.01ms — it narrows the
+     * window rather than closing it, which showed up as roughly one failure in
+     * five full-suite runs. Removing transitions outright makes the computed
+     * colour jump straight to its settled value, so the result no longer
+     * depends on how fast the machine is.
+     */
+    await page.addInitScript(() => {
+      const kill = () => {
+        const style = document.createElement("style");
+        style.textContent =
+          "*,*::before,*::after{transition:none !important;animation:none !important}";
+        document.head.appendChild(style);
+      };
+      if (document.head) kill();
+      else document.addEventListener("DOMContentLoaded", kill, { once: true });
+    });
+  });
+
   for (const route of ROUTES) {
     test(`${route} has no accessibility violations`, async ({ page }) => {
       await page.goto(route);

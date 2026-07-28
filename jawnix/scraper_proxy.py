@@ -19,7 +19,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
 
 from .activity import record_activity
@@ -40,6 +40,15 @@ from .config import Settings, get_settings
 from .database import get_db
 from .mfa_provider import MFAProviderError, get_mfa_provider
 from .schemas import AdminMFAChallenge
+from .scraper_monitoring import (
+    REGION_INTERVALS,
+    REGIONS,
+    MonitoringRegion,
+    MonitoringSnapshot,
+    RegionKey,
+    region_data,
+    snapshot_regions,
+)
 
 
 MOUNT_PREFIX = "/admin/scraper"
@@ -81,7 +90,32 @@ class PipelineControl(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action: Literal["pause", "resume"]
+    # Only meaningful while pausing, and the whole difference between the two
+    # pauses the dashboard offers: draining stops the refill and lets running
+    # jobs finish, clearing also cancels every job already queued. Defaulting
+    # to False keeps the destructive one an explicit choice.
+    clear_queue: bool = False
     reason: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def only_a_pause_clears_the_queue(self):
+        if self.clear_queue and self.action != "pause":
+            raise ValueError("Only a pause can clear the queue.")
+        return self
+
+
+class PipelineResult(BaseModel):
+    """The write's outcome plus the activity region it just changed.
+
+    Returning the region means the screen shows the new pipeline state without
+    waiting for its next poll, which for a destructive action is the difference
+    between confirming what happened and hoping.
+    """
+
+    ok: bool
+    pipeline_state: str
+    cancelled_jobs: int
+    region: MonitoringRegion
 
 
 native_router = APIRouter(
@@ -408,7 +442,105 @@ async def scraper_workspace(
     }
 
 
-@native_router.post("/pipeline")
+async def _native_json(
+    request: Request,
+    settings: Settings,
+    *,
+    path: str,
+) -> dict | None:
+    """A JSON read from the Scraper projection, or None if it did not answer."""
+
+    upstream = await _native_upstream(
+        request,
+        settings,
+        method="GET",
+        path=path,
+    )
+    if upstream is None:
+        return None
+    try:
+        payload = upstream.json()
+    except ValueError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _unavailable_region(region: str) -> MonitoringRegion:
+    return MonitoringRegion(
+        region=region,
+        state="unavailable",
+        refresh_seconds=REGION_INTERVALS[region],
+    )
+
+
+@native_router.get("/monitoring", response_model=MonitoringSnapshot)
+async def scraper_monitoring(
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Every monitoring region at once, for the workspace's first paint.
+
+    An outage answers 200 with `service_state: unavailable` rather than an
+    error status. The Jawnix request did succeed; what it reports is the
+    Scraper's health, and a client that receives a well-formed snapshot can
+    show the outage while keeping whatever it already had on screen.
+    """
+
+    _require_scraper_grant(request, response, principal, settings)
+    payload = await _native_json(request, settings, path="/api/dashboard")
+    state = _state(request, settings)
+    if payload is None:
+        return MonitoringSnapshot(
+            service_state="unavailable",
+            last_successful_at=state.last_success,
+            idle_expires_in=SCRAPER_IDLE_SECONDS,
+            regions=[_unavailable_region(region) for region in REGIONS],
+        )
+    return MonitoringSnapshot(
+        service_state="connected",
+        last_successful_at=state.last_success,
+        idle_expires_in=SCRAPER_IDLE_SECONDS,
+        regions=snapshot_regions(payload, fetched_at=_workspace_now(request)),
+    )
+
+
+@native_router.get(
+    "/monitoring/{region}",
+    response_model=MonitoringRegion,
+)
+async def scraper_monitoring_region(
+    region: RegionKey,
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """One region, so a screen can refresh each at its own cadence.
+
+    Reading regions separately is what preserves the dashboard's failure
+    isolation: this call failing says nothing about the other eight.
+    """
+
+    _require_scraper_grant(request, response, principal, settings)
+    payload = await _native_json(
+        request,
+        settings,
+        path=f"/api/dashboard/{region}",
+    )
+    if payload is None:
+        return _unavailable_region(region)
+    return MonitoringRegion(
+        region=region,
+        state="ok",
+        refresh_seconds=REGION_INTERVALS[region],
+        fetched_at=_workspace_now(request),
+        data=region_data(region, payload),
+    )
+
+
+@native_router.post("/pipeline", response_model=PipelineResult)
 async def control_scraper_pipeline(
     payload: PipelineControl,
     request: Request,
@@ -417,34 +549,86 @@ async def control_scraper_pipeline(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    _require_scraper_grant(
-        request,
-        response,
-        principal,
-        settings,
-    )
+    """Pause, pause-and-clear, or resume the acquisition pipeline.
+
+    The write goes to the same upstream control the dashboard has always
+    posted to, so this is not a second way to change the pipeline. What Jawnix
+    adds around it is the privileged session, the required reason, and a
+    durable audit entry that distinguishes the destructive pause from the
+    ordinary one.
+    """
+
+    _require_scraper_grant(request, response, principal, settings)
+    form = {"action": payload.action}
+    if payload.action == "pause":
+        form["clear_queue"] = "yes" if payload.clear_queue else "no"
     upstream = await _native_upstream(
         request,
         settings,
         method="POST",
         path="/dashboard/pipeline",
-        form={"action": payload.action},
+        form=form,
     )
     state = _state(request, settings)
     if upstream is None:
         return _native_unavailable(state)
-    pipeline_state = "paused" if payload.action == "pause" else "running"
+
+    # Read the resulting activity back rather than predicting it. The cancelled
+    # job count only exists upstream, and an audit entry that guessed it would
+    # be worse than one that recorded nothing.
+    activity = await _native_json(
+        request,
+        settings,
+        path="/api/dashboard/activity",
+    )
+    region = (
+        MonitoringRegion(
+            region="activity",
+            state="ok",
+            refresh_seconds=REGION_INTERVALS["activity"],
+            fetched_at=_workspace_now(request),
+            data=region_data("activity", activity),
+        )
+        if activity is not None
+        else _unavailable_region("activity")
+    )
+    pipeline_state = (
+        region.data.pipeline_state.key
+        if region.data is not None and region.data.pipeline_state is not None
+        else ("paused" if payload.action == "pause" else "running")
+    )
+    cancelled_jobs = (
+        region.data.pause_info.cancelled_jobs
+        if region.data is not None and region.data.pause_info is not None
+        else 0
+    )
+
+    if payload.action == "resume":
+        action = "scraper_pipeline_resumed"
+    elif payload.clear_queue:
+        action = "scraper_pipeline_queue_cleared"
+    else:
+        action = "scraper_pipeline_paused"
     record_activity(
         db,
-        action=f"scraper_pipeline_{payload.action}d",
+        action=action,
         target_type="scraper_pipeline",
         target_id="primary",
         actor_id=principal.user_id,
         reason=payload.reason,
-        details={"pipelineState": pipeline_state},
+        details={
+            "pipelineState": pipeline_state,
+            "clearedQueue": payload.clear_queue,
+            "cancelledJobs": cancelled_jobs,
+        },
     )
     db.commit()
-    return {"ok": True, "pipelineState": pipeline_state}
+    return PipelineResult(
+        ok=True,
+        pipeline_state=pipeline_state,
+        cancelled_jobs=cancelled_jobs,
+        region=region,
+    )
 
 
 def request_is_scraper_origin(
