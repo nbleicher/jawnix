@@ -85,47 +85,6 @@ const OVERVIEW: AdminDestinationData = {
   },
 };
 
-const FULFILLMENT: AdminDestinationData = {
-  title: "Fulfillment",
-  description:
-    "Delivery work stays together so an administrator can follow a Batch Request from review through allocation, artifact generation, and delivery recovery.",
-  sectionTitle: "Fulfillment work",
-  sectionDescription:
-    "Records and state-valid controls stay grouped by the decision an administrator needs to make.",
-  actions: [
-    {
-      label: "Back to Overview",
-      href: "/app/admin/overview",
-    },
-  ],
-  areas: [
-    {
-      title: "Batch delivery",
-      description:
-        "Review Batch Requests, recover failed deliveries, and distinguish retrying an exact Batch Artifact from regenerating one.",
-    },
-    {
-      title: "Inventory decisions",
-      description:
-        "Resolve Inventory Conflicts with the competing requests, overlapping inventory, and current decision scope together.",
-    },
-    {
-      title: "Lead eligibility",
-      description:
-        "Review immutable Lead Reports alongside Eligibility Holds, Lead Corrections, and Lead Suppression evidence.",
-    },
-  ],
-  empty: {
-    title: "No Fulfillment areas are available",
-    description:
-      "Return to the administrator Overview and choose another workspace.",
-    action: {
-      label: "Back to Overview",
-      href: "/app/admin/overview",
-    },
-  },
-};
-
 const ACQUISITION: AdminDestinationData = {
   title: "Acquisition",
   description:
@@ -180,10 +139,6 @@ const ACQUISITION: AdminDestinationData = {
  * the screen or bypassing the shell's pending and error seams. */
 export async function adminOverviewLoader(): Promise<AdminDestinationData> {
   return OVERVIEW;
-}
-
-export async function adminFulfillmentLoader(): Promise<AdminDestinationData> {
-  return FULFILLMENT;
 }
 
 export async function adminAcquisitionLoader(): Promise<AdminDestinationData> {

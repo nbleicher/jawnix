@@ -15,7 +15,6 @@ import {
 import {
   AdminDestinationRoute,
   adminAcquisitionLoader,
-  adminFulfillmentLoader,
   adminOverviewLoader,
 } from "./routes/AdminDestinations";
 import {
@@ -26,6 +25,14 @@ import {
   AdminCustomerDetailsRoute,
   adminCustomerDetailsLoader,
 } from "./routes/AdminCustomerDetails";
+import {
+  AdminFulfillmentConflictRoute,
+  AdminFulfillmentRequestRoute,
+  AdminFulfillmentRoute,
+  fulfillmentConflictLoader,
+  fulfillmentLoader,
+  fulfillmentRequestLoader,
+} from "./routes/AdminFulfillment";
 import {
   adminAccessLoader,
   adminMFAStatusLoader,
@@ -144,10 +151,24 @@ export const router = createBrowserRouter(
               loader: adminOverviewLoader,
               element: <AdminDestinationRoute />,
             },
+            // #57 replaced the Fulfillment task map with the real workspace.
+            // Its loaders read one aggregate contract, and every action the
+            // screens render is projected by the backend rather than derived
+            // here, so the UI cannot offer what the domain refuses.
             {
               path: "fulfillment",
-              loader: adminFulfillmentLoader,
-              element: <AdminDestinationRoute />,
+              loader: fulfillmentLoader,
+              element: <AdminFulfillmentRoute />,
+            },
+            {
+              path: "fulfillment/requests/:requestId",
+              loader: fulfillmentRequestLoader,
+              element: <AdminFulfillmentRequestRoute />,
+            },
+            {
+              path: "fulfillment/conflicts/:conflictId",
+              loader: fulfillmentConflictLoader,
+              element: <AdminFulfillmentConflictRoute />,
             },
             {
               path: "acquisition",
