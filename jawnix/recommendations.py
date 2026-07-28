@@ -21,6 +21,25 @@ class RecommendationDecisionError(ValueError):
     pass
 
 
+def evidence_matches(
+    recommendation: SourceRecommendation, checksum: str | None
+) -> bool:
+    """Whether a decision was made against this recommendation's evidence.
+
+    Prefix rather than equality, because Telegram's callback data is capped at
+    64 bytes and carries only the first eight characters of the checksum. A
+    caller that has the whole checksum still matches, so both channels can ask
+    this one question and get the same answer — which is the point: one
+    decision must not mean two things depending on where it was made.
+
+    ``None`` means the caller did not show the evidence and so is not bound
+    to it.
+    """
+    if not checksum:
+        return True
+    return recommendation.evidence_checksum.startswith(checksum)
+
+
 def _scheduled_acquisition(now: datetime) -> datetime:
     scheduled = (now + timedelta(days=1)).replace(
         hour=8,
@@ -115,7 +134,15 @@ def decide_recommendation(
     apply_enabled: bool,
     shadow_mode: bool,
     now: datetime | None = None,
+    expected_evidence_checksum: str | None = None,
 ) -> SourceRecommendation:
+    """Decide a Source Recommendation.
+
+    ``expected_evidence_checksum`` binds the decision to the evidence the
+    caller displayed. It is checked here, under the row lock, so both the
+    browser and the Telegram worker ask the same question at the same moment
+    rather than each checking beforehand and racing the answer.
+    """
     if action not in {"approve", "deny"}:
         raise RecommendationDecisionError("Unknown decision action.")
     recommendation = session.scalar(
@@ -125,6 +152,11 @@ def decide_recommendation(
     )
     if recommendation is None:
         raise LookupError("Source Recommendation was not found.")
+    if not evidence_matches(recommendation, expected_evidence_checksum):
+        raise RecommendationDecisionError(
+            "The evidence changed since it was shown; "
+            "production was not changed."
+        )
     if recommendation.status != "pending":
         raise RecommendationDecisionError(
             "Source Recommendation was already decided."

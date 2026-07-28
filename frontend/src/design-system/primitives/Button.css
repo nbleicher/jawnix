@@ -66,8 +66,14 @@
   filter: brightness(0.92);
 }
 
+/* A filled red button cannot reach 4.5:1 over the terminal canvas: the CRT
+   scanline overlay blends into its background and drags the ratio under.
+   Inverting to a dark fill with red text clears it comfortably and reads
+   closer to the rest of the terminal surface. */
 [data-theme="terminal"] .jx-button--danger {
-  color: var(--jx-color-accent-contrast);
+  background: var(--jx-color-danger-soft);
+  border-color: var(--jx-color-danger);
+  color: var(--jx-color-danger);
 }
 
 .jx-button__spinner {

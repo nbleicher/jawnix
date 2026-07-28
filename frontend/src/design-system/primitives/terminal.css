@@ -49,6 +49,23 @@
   color: var(--jx-color-accent);
 }
 
+/* The status words carry the meaning (WCAG 1.4.1); the indicator only
+   reinforces them, so a degraded frame stops reading as healthy. */
+.jx-terminal__status--warning::before {
+  color: var(--jx-color-warning);
+}
+
+.jx-terminal__status--offline::before {
+  color: var(--jx-color-danger);
+}
+
+/* The rail had no current-destination style while it held one link. */
+.jx-terminal__rail a[aria-current="page"] {
+  color: var(--jx-color-accent-strong);
+  background: var(--jx-color-accent-soft);
+  border-inline-start-color: var(--jx-color-accent-strong);
+}
+
 .jx-terminal__grid {
   display: grid;
 }

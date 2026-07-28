@@ -126,55 +126,6 @@ const FULFILLMENT: AdminDestinationData = {
   },
 };
 
-const ACQUISITION: AdminDestinationData = {
-  title: "Acquisition",
-  description:
-    "Acquisition is the native Jawnix home for Scraper Operations, source inputs, pipeline health, and acquired-data review.",
-  sectionTitle: "Acquisition work",
-  sectionDescription:
-    "The terminal workspace keeps operational density while Jawnix remains the browser's only application boundary.",
-  actions: [
-    {
-      label: "Review administrator security",
-      href: "/app/admin/security",
-    },
-    {
-      label: "Back to Overview",
-      href: "/app/admin/overview",
-    },
-  ],
-  areas: [
-    {
-      title: "Scraper operations",
-      description:
-        "Service status, workers, pipeline activity, logs, incidents, and protected controls belong together.",
-      action: {
-        label: "Enter Scraper Operations",
-        href: "/app/admin/acquisition/scraper",
-      },
-    },
-    {
-      title: "Source planning",
-      description:
-        "State coverage, keyword activity, campaign inputs, and runtime configuration share one geographic context.",
-    },
-    {
-      title: "Operational history",
-      description:
-        "Scrape Runs, campaign history, Source Performance, recommendations, and safe data exports remain inspectable.",
-    },
-  ],
-  empty: {
-    title: "No Acquisition areas are available",
-    description:
-      "Return to the administrator Overview; do not retry protected Scraper operations from another surface.",
-    action: {
-      label: "Back to Overview",
-      href: "/app/admin/overview",
-    },
-  },
-};
-
 const CUSTOMERS: AdminDestinationData = {
   title: "Customers",
   description:
@@ -225,10 +176,6 @@ export async function adminOverviewLoader(): Promise<AdminDestinationData> {
 
 export async function adminFulfillmentLoader(): Promise<AdminDestinationData> {
   return FULFILLMENT;
-}
-
-export async function adminAcquisitionLoader(): Promise<AdminDestinationData> {
-  return ACQUISITION;
 }
 
 export async function adminCustomersLoader(): Promise<AdminDestinationData> {

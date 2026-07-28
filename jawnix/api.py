@@ -82,6 +82,7 @@ from .schemas import (
     ProfileUpdate,
     CustomerMappingUpdate,
     CustomerOverviewOut,
+    RecommendationDecision,
     RequestCreate,
     RequestOut,
     SessionExchange,
@@ -1254,18 +1255,10 @@ def list_source_niches(
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    from .acquisition import niche_dict
+
     return [
-        {
-            "segment": item.segment_key,
-            "state": item.state,
-            "keyword": item.keyword,
-            "niche": item.niche,
-            "confirmed": item.confirmed,
-            "proposalSource": item.proposal_source,
-            "evidence": item.proposed_evidence,
-            "confirmedBy": item.confirmed_by,
-            "confirmedAt": item.confirmed_at,
-        }
+        niche_dict(item)
         for item in db.scalars(
             select(SourceNicheMapping).order_by(
                 SourceNicheMapping.state,
@@ -1331,25 +1324,31 @@ def confirm_source_niche(
     }
 
 
+@app.get("/api/admin/acquisition")
+def admin_acquisition(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """One authenticated read for the Acquisition workspace.
+
+    Read-only by design: every action the workspace offers posts back to the
+    endpoint that already owns that decision, so this contract can never
+    become a second way to change acquisition.
+    """
+    from .acquisition import workspace as acquisition_workspace
+
+    return acquisition_workspace(db)
+
+
 @app.get("/api/admin/source-recommendations")
 def list_source_recommendations(
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    from .acquisition import recommendation_dict
+
     return [
-        {
-            "id": str(item.id),
-            "niche": item.niche,
-            "segment": item.segment_key,
-            "action": item.action,
-            "status": item.status,
-            "evidence": item.evidence,
-            "resultingConfigurationId": (
-                str(item.resulting_configuration_id)
-                if item.resulting_configuration_id is not None
-                else None
-            ),
-        }
+        recommendation_dict(item, decidable=False)
         for item in db.scalars(
             select(SourceRecommendation).order_by(
                 SourceRecommendation.created_at.desc(),
@@ -1365,13 +1364,17 @@ def list_source_recommendations(
 def decide_source_recommendation(
     recommendation_id: uuid.UUID,
     action: str,
-    payload: ActionReason,
+    payload: RecommendationDecision,
     principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
     if action not in {"approve", "deny"}:
         raise HTTPException(status_code=404, detail="Unknown action.")
+    # A caller that showed the evidence decides on the evidence it showed. The
+    # check happens inside decide_recommendation, under the same row lock the
+    # decision takes, so it cannot be raced. A caller that showed nothing sends
+    # nothing and stays unbound, which is how the legacy page still works.
     try:
         recommendation = decide_recommendation(
             db,
@@ -1381,6 +1384,7 @@ def decide_source_recommendation(
             reason=payload.reason.strip(),
             apply_enabled=settings.recommendation_apply_enabled,
             shadow_mode=settings.recommendation_shadow_mode,
+            expected_evidence_checksum=payload.evidence_checksum,
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
@@ -3280,6 +3284,57 @@ def regenerate_batch_artifact(
         "sha256": artifact.sha256,
         "expiresAt": artifact.expires_at,
     }
+
+
+@app.post("/api/admin/scrape-anomalies/{anomaly_id}/{action}")
+def admin_scrape_anomaly_action(
+    anomaly_id: uuid.UUID,
+    action: str,
+    payload: ActionReason,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Confirm or deny a held Scrape Anomaly from the browser.
+
+    Deliberately a thin adapter over the same command the Telegram worker
+    calls (jawnix/worker.py, the ``telegram_anomaly_action`` job). The dataset
+    lock, the staged-file checksum guard, the supersede-on-newer-run rule, the
+    idempotent duplicate return, ``record_activity()``, and the follow-up
+    Telegram message edit all live inside ``decide_scrape_anomaly``. Deriving
+    any of them again here would give one decision two behaviours, which is
+    what #68 exists to prevent.
+    """
+    from jawnix_data.scraper import decide_scrape_anomaly
+
+    if action not in {"confirm", "deny"}:
+        raise HTTPException(status_code=404, detail="Unknown action.")
+    try:
+        result = decide_scrape_anomaly(
+            db,
+            settings,
+            anomaly_id,
+            action,
+            str(principal.user_id),
+            payload.reason,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except RuntimeError as exc:
+        # The command raises RuntimeError for two different situations. A held
+        # run or configuration that has gone missing is a broken reference no
+        # retry resolves; a staged dataset that moved or changed underneath is
+        # a genuine conflict. Reporting both as 409 would invite a retry that
+        # can never succeed.
+        detail = str(exc)
+        raise HTTPException(
+            status_code=404 if "was not found" in detail else 409,
+            detail=detail,
+        ) from None
+    db.commit()
+    return result
 
 
 @app.post("/api/admin/inventory-conflicts/{conflict_id}/{action}")

@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+import { mockAcquisition } from "./acquisition-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 
 /**
@@ -34,6 +35,7 @@ const ROUTES = [
 
 test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
+  await mockAcquisition(page);
 });
 
 test.describe("Automated WCAG 2.2 AA sweep", () => {

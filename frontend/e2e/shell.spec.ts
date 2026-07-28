@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { mockAcquisition } from "./acquisition-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 
 /**
@@ -12,6 +13,9 @@ import { mockAdminMFA } from "./mfa-fixtures";
 
 test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
+  // Acquisition reads a real contract since #68; the remaining administrator
+  // destinations are still local task maps.
+  await mockAcquisition(page);
 });
 
 test.describe("Customer shell", () => {
@@ -100,16 +104,28 @@ test.describe("Administration shell", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Acquisition" })).toBeVisible();
     await expect(page.getByText("Not built yet")).toHaveCount(0);
 
-    for (const area of ["Scraper operations", "Source planning", "Operational history"]) {
-      await expect(page.getByRole("heading", { level: 3, name: area })).toBeVisible();
+    // #68 replaced the task map with the native terminal workspace: the areas
+    // are now the records themselves.
+    for (const area of [
+      "Held Scrape Anomalies",
+      "Source Recommendations",
+      "Scraper Configuration versions",
+      "Nightly Reviews",
+    ]) {
+      await expect(page.getByRole("region", { name: area })).toBeVisible();
     }
-    const security = page.getByRole("link", { name: "Review administrator security" });
+
+    // Administrator navigation omits Security, so this rail is its only route.
+    const rail = page.getByRole("navigation", {
+      name: "Acquisition terminal sections",
+    });
+    const security = rail.getByRole("link", { name: "Administrator security" });
     await expect(security).toBeVisible();
     await security.click();
     await expect(page.getByRole("heading", { level: 1, name: "Administrator security" })).toBeVisible();
 
     await page.goto("./admin/acquisition");
-    const back = page.getByRole("link", { name: "Back to Overview" });
+    const back = rail.getByRole("link", { name: "Exit to Overview" });
     await expect(back).toBeVisible();
     await back.click();
     await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
