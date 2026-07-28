@@ -15,9 +15,11 @@ Last updated 2026-07-28. Companion sheet: [for-noah-review.md](for-noah-review.m
 | 🔓 Unblocked, ready to start | 2 (#48, #49) |
 | 🔒 Blocked | 22 |
 
-All 26 issues (#46–#71) are still **OPEN on GitHub**, including #47 — the work is committed on
-`implement-issues-47-71-spec-46` but not pushed, and there is no PR yet. Nothing has been
-closed.
+**#47 is in review** — [PR #72](https://github.com/nbleicher/jawnix/pull/72), which closes it on
+merge. All 26 issues (#46–#71) remain OPEN until then.
+
+Later slices should branch from `implement-issues-47-71-spec-46` (or from `main` once #72
+merges) so #47 stays reviewable as a discrete unit.
 
 ---
 

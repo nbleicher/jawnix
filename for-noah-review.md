@@ -12,80 +12,26 @@ Legend: 🔴 open, needs your decision · 🟡 worth knowing · 🟢 resolved
 
 ## 🔴 Open — needs a decision
 
-### A. Retiring `buzz-prod` breaks `docker-compose.staging.yml`
+### A. #49 (administrator MFA) is a large security slice, not a screen
 
-Removing buzz was not just a documentation reference. Staging has a **hard functional
-dependency** on it:
+Next on the critical path, and materially bigger than #47. Today `require_admin`
+(`jawnix/auth.py:90`) checks **only** `role != "admin"` — there is no MFA, no assurance level,
+and no factor state anywhere in the codebase. It guards **39 endpoints**.
 
-```yaml
-# docker-compose.staging.yml
-    ports: !reset []            # publishes NO host ports…
-    networks: [private, edge]
-networks:
-  edge:
-    external: true
-    name: buzz-prod_buzz-net    # …and joins buzz-prod's network
-```
+Delivering #49 honestly means:
 
-Two consequences:
+- Supabase TOTP enrolment with a **primary and a separately stored backup factor**;
+- capturing the Supabase access token's assurance level (`aal`) into the signed session, and
+  enforcing **aal2 in the backend** — the criteria explicitly reject a frontend-only gate;
+- validating live factor state against Supabase rather than trusting the token;
+- rejecting stale, revoked, replayed, and Customer-scoped sessions on admin routes;
+- a **documented break-glass** path with explicit authorisation and a complete audit entry;
+- accessible enrolment / challenge / retry / cancellation / lost-device screens;
+- browser and API tests for assurance, dual enrolment, recovery, CSRF, and secret redaction.
 
-1. **Staging cannot start.** Verified the exact failure —
-   `network buzz-prod_buzz-net declared as external, but could not be found`.
-2. **Nothing terminates TLS** for `staging.jawnix.com` even if it could. That was buzz-prod's
-   edge Caddy's job.
-
-The silver lining: buzz-prod was the *only* reason staging needed this override. Host ports
-80/443 are now free, so staging can work the way production does.
-
-**Options.**
-- **(a)** Delete `docker-compose.staging.yml`; run the base compose with
-  `JAWNIX_DOMAIN=staging.jawnix.com`. Simplest, probably right.
-- **(b)** Keep the override, give it its own network and publish 80/443.
-- **(c)** Leave it — production cut over to the VPS on 2026-07-25 (`OPERATIONS.md:79`), so
-  staging may be vestigial.
-
-**Not changed.** I documented the breakage in `OPERATIONS.md` only, because choosing needs a
-view of the VPS I do not have.
-
----
-
-### B. There is no CI — nothing runs the tests automatically
-
-**`.github/workflows/` does not exist. No husky, no git hooks, no lint config.** I checked all
-four.
-
-`pytest`, `npm run typecheck`, `npm test`, and `npm run test:e2e` — **223 tests that
-demonstrably catch real regressions** — run only when a human remembers. Nothing gates a
-`docker compose build` on the VPS.
-
-This is now the largest remaining risk to the rebuild: 24 more slices will be built on top of
-this shell with no automated safety net.
-
-**Offer.** A workflow running `pytest` + `typecheck` + `vitest` + `playwright`, optionally with
-pre-commit hooks (a `setup-pre-commit` skill is already installed). Pin it to **Python 3.12** to
-close item D at the same time.
-
----
-
-### C. #47 is complete but still open, unpushed, and unreviewed
-
-5 commits sit on `implement-issues-47-71-spec-46` with no remote branch and no PR. Issue #47 is
-still `OPEN`. I have not pushed or closed anything — both are outward-facing actions.
-
-Tell me when you want a PR raised against `main`.
-
----
-
-### D. Python version drift between dev and production
-
-| Where | Version |
-|---|---|
-| Local `.venv` (what the 128 tests ran on) | **3.14.6** |
-| `Dockerfile` / `Dockerfile.railway` | **3.12-slim** |
-| `pyproject.toml` `requires-python` | `>=3.12` |
-
-`requires-python = ">=3.12"` permits both, so nothing catches a divergence. A 3.14-only
-behaviour passes locally and fails in the image. Closed for free by pinning CI to 3.12 (item B).
+**Recommendation: give #49 its own session or workspace.** A half-built authentication gate is
+worse than none, and this is the slice that protects every administrator surface. It should not
+be squeezed in beside unrelated work.
 
 ---
 
