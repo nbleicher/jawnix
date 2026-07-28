@@ -14,9 +14,12 @@ import {
 } from "./routes/AdminMFA";
 import {
   AdminDestinationRoute,
-  adminAcquisitionLoader,
   adminOverviewLoader,
 } from "./routes/AdminDestinations";
+import {
+  AdminAcquisitionRoute,
+  acquisitionLoader,
+} from "./routes/AdminAcquisition";
 import {
   AdminCustomersRoute,
   adminCustomerDirectoryLoader,
@@ -172,10 +175,14 @@ export const router = createBrowserRouter(
               loader: fulfillmentConflictLoader,
               element: <AdminFulfillmentConflictRoute />,
             },
+            // #68 replaced the Acquisition task map with the native
+            // terminal-themed workspace. Its decisions post back to the
+            // endpoints that already own them, so the screen never becomes a
+            // second path to change acquisition.
             {
               path: "acquisition",
-              loader: adminAcquisitionLoader,
-              element: <AdminDestinationRoute />,
+              loader: acquisitionLoader,
+              element: <AdminAcquisitionRoute />,
             },
             {
               path: "acquisition/scraper",

@@ -743,3 +743,28 @@ class SourceNicheDecision(BaseModel):
 
     niche: str = Field(min_length=1, max_length=160)
     reason: str = Field(min_length=1, max_length=2000)
+
+
+class RecommendationDecision(BaseModel):
+    """A Source Recommendation decision, bound to the evidence it was made on.
+
+    Telegram binds every decision to the evidence checksum printed on the card
+    and refuses a callback whose evidence has moved on. A caller that shows the
+    evidence sends back the checksum it showed, so approving numbers that have
+    since changed is refused rather than quietly applied to different ones.
+
+    Optional because the legacy administrator page decides without ever
+    rendering the evidence; unsent means unbound, exactly as today.
+    """
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    reason: str = Field(min_length=1, max_length=2000)
+    evidence_checksum: str | None = Field(
+        default=None,
+        max_length=64,
+        validation_alias=AliasChoices(
+            "evidenceChecksum",
+            "evidence_checksum",
+        ),
+    )

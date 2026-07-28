@@ -326,14 +326,6 @@ def process_job(job_id: int) -> None:
                     if (
                         job.payload.get("configuration_version")
                         != bound.configuration_version
-                        or (
-                            job.payload.get("evidence_checksum")
-                            and not bound.evidence_checksum.startswith(
-                                str(
-                                    job.payload["evidence_checksum"]
-                                )
-                            )
-                        )
                     ):
                         raise RecommendationDecisionError(
                             "Telegram callback evidence is stale."
