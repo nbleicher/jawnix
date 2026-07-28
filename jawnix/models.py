@@ -319,6 +319,19 @@ class CustomerProfile(Base):
 
 class LeadRequest(Base):
     __tablename__ = "lead_requests"
+    __table_args__ = (
+        # One Batch Request per submission key. A retried or double-clicked
+        # submission therefore cannot become a second request even when two
+        # attempts reach the database concurrently. A unique index rather than
+        # a constraint so the same DDL applies on SQLite and PostgreSQL; NULL
+        # keys stay distinct under both, leaving pre-existing rows valid.
+        Index(
+            "uq_lead_request_idempotency",
+            "user_id",
+            "idempotency_key",
+            unique=True,
+        ),
+    )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("customer_profiles.user_id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="RESTRICT"), index=True)
@@ -333,6 +346,12 @@ class LeadRequest(Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # When the request stopped short of delivery. It timestamps the rejected,
+    # canceled, or failed node of the Customer milestone graph, and a retry
+    # clears it because the request is moving again.
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Supplied by the Customer application, once per guided submission.
+    idempotency_key: Mapped[str | None] = mapped_column(String(64))
     profile: Mapped[CustomerProfile] = relationship()
     agent: Mapped[Agent] = relationship()
     artifact: Mapped[BatchArtifact | None] = relationship(back_populates="request", uselist=False)

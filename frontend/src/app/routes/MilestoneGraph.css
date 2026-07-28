@@ -1,0 +1,116 @@
+/* The Batch Request milestone graph.
+   Nothing here animates. Each node's state is spelled out in text beside it and
+   reinforced by a distinct mark and border, so the graph reads the same with
+   motion suppressed, with colour ignored, and read aloud. */
+
+.jx-milestones {
+  /* Direction follows the space this graph actually has, not the viewport, so
+     the same component reads correctly in a wide card and in a narrow one. */
+  container-type: inline-size;
+}
+
+.jx-milestones__track {
+  --jx-milestone-mark: 1.75rem;
+  --jx-milestone-gap: var(--jx-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-milestone-gap);
+}
+
+.jx-milestone {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--jx-space-3);
+  min-width: 0;
+}
+
+.jx-milestone__mark {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: var(--jx-milestone-mark);
+  height: var(--jx-milestone-mark);
+  border: 2px solid var(--jx-color-border-strong);
+  border-radius: var(--jx-radius-pill);
+  background: var(--jx-color-surface);
+  color: var(--jx-color-text-muted);
+  font-size: var(--jx-text-xs);
+  line-height: 1;
+}
+
+.jx-milestone__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+  min-width: 0;
+  /* Centre the label against the mark in the stacked layout. */
+  padding-block-start: calc((var(--jx-milestone-mark) - 1.25rem) / 2);
+}
+
+/* The connector runs between marks. It is decorative: a completed segment is
+   also stated as "Completed" on the node it leaves. */
+.jx-milestone:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: calc(var(--jx-milestone-mark) / 2 - 1px);
+  inset-block-start: var(--jx-milestone-mark);
+  width: 2px;
+  height: calc(100% - var(--jx-milestone-mark) + var(--jx-milestone-gap));
+  background: var(--jx-color-border);
+}
+
+.jx-milestone--complete:not(:last-child)::after {
+  background: var(--jx-color-accent);
+}
+
+.jx-milestone--complete .jx-milestone__mark {
+  border-color: var(--jx-color-accent);
+  background: var(--jx-color-accent);
+  color: var(--jx-color-accent-contrast);
+}
+
+.jx-milestone--current .jx-milestone__mark {
+  border-color: var(--jx-color-accent);
+  background: var(--jx-color-accent-soft);
+  color: var(--jx-color-accent-strong);
+}
+
+.jx-milestone--paused .jx-milestone__mark {
+  border-color: var(--jx-color-warning);
+  background: var(--jx-color-warning-soft);
+  color: var(--jx-color-text-strong);
+}
+
+.jx-milestone--stopped .jx-milestone__mark {
+  border-color: var(--jx-color-danger);
+  background: var(--jx-color-danger-soft);
+  color: var(--jx-color-text-strong);
+}
+
+.jx-milestone--not_reached .jx-milestone__mark {
+  border-style: dashed;
+}
+
+@container (min-width: 40rem) {
+  .jx-milestones__track {
+    flex-direction: row;
+  }
+
+  .jx-milestone {
+    flex: 1 1 0;
+    flex-direction: column;
+    gap: var(--jx-space-2);
+  }
+
+  .jx-milestone__body {
+    padding-block-start: 0;
+  }
+
+  .jx-milestone:not(:last-child)::after {
+    inset-inline-start: calc(var(--jx-milestone-mark) + var(--jx-space-2));
+    inset-block-start: calc(var(--jx-milestone-mark) / 2 - 1px);
+    width: calc(100% - var(--jx-milestone-mark) - var(--jx-space-2));
+    height: 2px;
+  }
+}

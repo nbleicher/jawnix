@@ -1,0 +1,612 @@
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import { useLoaderData, useRevalidator } from "react-router";
+
+import { ActionLink, Button } from "../../design-system/primitives/Button";
+import { cx } from "../../design-system/primitives/cx";
+import { ConfirmDialog } from "../../design-system/primitives/Dialog";
+import { EmptyState } from "../../design-system/primitives/feedback";
+import { Field, Fieldset, Input } from "../../design-system/primitives/form";
+import {
+  Card,
+  Cluster,
+  Page,
+  Section,
+  Stack,
+} from "../../design-system/primitives/layout";
+import { StatusBadge } from "../../design-system/primitives/status";
+import {
+  Heading,
+  LabelText,
+  Text,
+  VisuallyHidden,
+} from "../../design-system/primitives/typography";
+import { useDocumentTitle } from "../shell/useDocumentTitle";
+
+import { MilestoneGraph, formatMilestoneTime } from "./MilestoneGraph";
+import {
+  cancelBatchRequest,
+  newSubmissionKey,
+  submitBatchRequest,
+} from "./batchRequests";
+import type {
+  BatchRequest,
+  BatchRequestReceipt,
+  BatchRequestWorkspace,
+  RequestLimits,
+} from "./batchRequests";
+
+import "./CustomerRequests.css";
+
+/**
+ * The three guided stages.
+ *
+ * Quantity and scope are separate because each has its own rule, and a rule
+ * that can be broken has to be answerable before the Customer is asked to
+ * confirm anything. Review is the only stage with a Submit button.
+ */
+const STAGES = [
+  { key: "quantity", title: "Quantity" },
+  { key: "scope", title: "Licensed States" },
+  { key: "review", title: "Review" },
+] as const;
+
+function formatCount(value: number): string {
+  return value.toLocaleString();
+}
+
+function formatStates(states: string[]): string {
+  return states.join(", ");
+}
+
+// --- The guided flow --------------------------------------------------------
+
+function StageIndicator({ stage }: { stage: number }) {
+  return (
+    <ol className="request-flow__stages" role="list" aria-label="Request stages">
+      {STAGES.map((entry, index) => (
+        <li
+          key={entry.key}
+          className={cx(
+            "request-flow__stage",
+            index === stage && "request-flow__stage--current",
+            index < stage && "request-flow__stage--done",
+          )}
+          {...(index === stage ? { "aria-current": "step" as const } : {})}
+        >
+          <Text as="span" size="sm" weight={index === stage ? "semibold" : "normal"}>
+            {`${index + 1}. ${entry.title}`}
+          </Text>
+          <VisuallyHidden>
+            {index < stage
+              ? "Completed"
+              : index === stage
+                ? "Current stage"
+                : "Not started"}
+          </VisuallyHidden>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function Receipt({
+  receipt,
+  onRestart,
+}: {
+  receipt: BatchRequestReceipt;
+  onRestart: () => void;
+}) {
+  const headingRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, []);
+
+  return (
+    <Card className="request-flow__receipt">
+      <Stack gap={4}>
+        <div ref={headingRef} tabIndex={-1} role="status">
+          <Stack gap={2}>
+            <Heading level={3} size="lg">
+              Request submitted
+            </Heading>
+            <Text>
+              {`We have your request for ${formatCount(receipt.request.lead_count)} leads in ${formatStates(receipt.request.states)}, submitted ${formatMilestoneTime(receipt.request.submitted_at)}.`}
+            </Text>
+            {receipt.created ? null : (
+              <Text size="sm" tone="muted">
+                This is the request your earlier submission already created — it
+                was not sent twice.
+              </Text>
+            )}
+          </Stack>
+        </div>
+        <MilestoneGraph
+          graph={receipt.request.milestones}
+          label="Progress for the request you just submitted"
+        />
+        <Cluster>
+          <ActionLink href={receipt.request.receipt_href} variant="primary">
+            View this Batch Request
+          </ActionLink>
+          <Button onClick={onRestart}>Request another Batch</Button>
+        </Cluster>
+      </Stack>
+    </Card>
+  );
+}
+
+function RequestFlow({
+  limits,
+  onSubmitted,
+}: {
+  limits: RequestLimits;
+  onSubmitted: () => void;
+}) {
+  const [stage, setStage] = useState(0);
+  const [submissionKey, setSubmissionKey] = useState(newSubmissionKey);
+  const [quantity, setQuantity] = useState("");
+  const [wholeScope, setWholeScope] = useState(true);
+  const [chosenStates, setChosenStates] = useState<string[]>([]);
+  const [quantityError, setQuantityError] = useState("");
+  const [scopeError, setScopeError] = useState("");
+  const [failure, setFailure] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [receipt, setReceipt] = useState<BatchRequestReceipt | null>(null);
+  const quantityRef = useRef<HTMLInputElement>(null);
+  const scopeRef = useRef<HTMLInputElement>(null);
+  const failureRef = useRef<HTMLDivElement>(null);
+
+  // Selected scope can only ever contain Licensed States, so an unlicensed
+  // request is not something the Customer can express and then be told off for.
+  const states = wholeScope ? limits.licensed_states : chosenStates;
+
+  useEffect(() => {
+    if (receipt) return;
+    if (stage === 0) quantityRef.current?.focus();
+    if (stage === 1) scopeRef.current?.focus();
+  }, [stage, receipt]);
+
+  useEffect(() => {
+    if (failure) failureRef.current?.focus();
+  }, [failure]);
+
+  function validQuantity(): boolean {
+    const trimmed = quantity.trim();
+    if (!trimmed) {
+      setQuantityError("Enter how many leads you want.");
+      return false;
+    }
+    if (!/^\d+$/.test(trimmed)) {
+      setQuantityError("Enter a whole number of leads.");
+      return false;
+    }
+    const value = Number(trimmed);
+    if (
+      value < limits.minimum_lead_count
+      || value > limits.maximum_lead_count
+    ) {
+      setQuantityError(
+        `Enter between ${formatCount(limits.minimum_lead_count)} and ${formatCount(limits.maximum_lead_count)} leads.`,
+      );
+      return false;
+    }
+    setQuantityError("");
+    return true;
+  }
+
+  function validScope(): boolean {
+    if (states.length === 0) {
+      setScopeError("Choose at least one Licensed State.");
+      return false;
+    }
+    setScopeError("");
+    return true;
+  }
+
+  function toggleState(state: string) {
+    setScopeError("");
+    setChosenStates((current) =>
+      current.includes(state)
+        ? current.filter((entry) => entry !== state)
+        : [...current, state],
+    );
+  }
+
+  async function send() {
+    // The guarded re-entry and the submission key answer the same question at
+    // two levels: this one stops a second request leaving the browser, the key
+    // stops a second Batch Request existing if one does.
+    if (busy) return;
+    setBusy(true);
+    setFailure("");
+    try {
+      setReceipt(
+        await submitBatchRequest({
+          idempotency_key: submissionKey,
+          lead_count: Number(quantity.trim()),
+          state_mode: wholeScope ? "all_saved" : "selected",
+          states: wholeScope ? [] : chosenStates,
+        }),
+      );
+      onSubmitted();
+    } catch (caught) {
+      setFailure(
+        caught instanceof Error
+          ? caught.message
+          : "We could not submit this request. Please try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function advance(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (stage === 0) {
+      if (validQuantity()) setStage(1);
+      return;
+    }
+    if (stage === 1) {
+      if (validScope()) setStage(2);
+      return;
+    }
+    void send();
+  }
+
+  function restart() {
+    setReceipt(null);
+    setSubmissionKey(newSubmissionKey());
+    setQuantity("");
+    setWholeScope(true);
+    setChosenStates([]);
+    setQuantityError("");
+    setScopeError("");
+    setFailure("");
+    setStage(0);
+  }
+
+  if (receipt) {
+    return <Receipt receipt={receipt} onRestart={restart} />;
+  }
+
+  return (
+    <Card>
+      <Stack gap={5}>
+        <StageIndicator stage={stage} />
+        <form className="request-flow__form" onSubmit={advance} noValidate>
+          <Stack gap={5}>
+            {failure ? (
+              <div
+                className="request-flow__failure"
+                ref={failureRef}
+                role="alert"
+                tabIndex={-1}
+              >
+                <Text tone="danger">{failure}</Text>
+              </div>
+            ) : null}
+
+            {stage === 0 ? (
+              <Field
+                label="How many leads do you want?"
+                description={`Any exact quantity from ${formatCount(limits.minimum_lead_count)} to ${formatCount(limits.maximum_lead_count)}. Your Batch is delivered whole or not at all.`}
+                required
+                {...(quantityError ? { error: quantityError } : {})}
+              >
+                <Input
+                  ref={quantityRef}
+                  type="number"
+                  inputMode="numeric"
+                  min={limits.minimum_lead_count}
+                  max={limits.maximum_lead_count}
+                  step={1}
+                  value={quantity}
+                  onChange={(event) => {
+                    setQuantity(event.currentTarget.value);
+                    setQuantityError("");
+                  }}
+                />
+              </Field>
+            ) : null}
+
+            {stage === 1 ? (
+              <Stack gap={4}>
+                <Fieldset
+                  legend="Which states should this Batch cover?"
+                  description="Only the states saved to your account can be requested."
+                  {...(scopeError ? { error: scopeError } : {})}
+                >
+                  <Stack gap={2}>
+                    <label className="request-flow__choice">
+                      <input
+                        ref={scopeRef}
+                        type="radio"
+                        name="request-scope"
+                        checked={wholeScope}
+                        onChange={() => {
+                          setWholeScope(true);
+                          setScopeError("");
+                        }}
+                      />
+                      <Text as="span" weight="semibold">
+                        {`All my Licensed States (${formatStates(limits.licensed_states)})`}
+                      </Text>
+                    </label>
+                    <label className="request-flow__choice">
+                      <input
+                        type="radio"
+                        name="request-scope"
+                        checked={!wholeScope}
+                        onChange={() => {
+                          setWholeScope(false);
+                          setScopeError("");
+                        }}
+                      />
+                      <Text as="span" weight="semibold">
+                        Choose specific states
+                      </Text>
+                    </label>
+                  </Stack>
+                </Fieldset>
+                {wholeScope ? null : (
+                  <Fieldset legend="States for this Batch">
+                    <div className="request-flow__states">
+                      {limits.licensed_states.map((state) => (
+                        <label key={state} className="request-flow__choice">
+                          <input
+                            type="checkbox"
+                            checked={chosenStates.includes(state)}
+                            onChange={() => toggleState(state)}
+                          />
+                          <Text as="span" weight="semibold">
+                            {state}
+                          </Text>
+                        </label>
+                      ))}
+                    </div>
+                  </Fieldset>
+                )}
+              </Stack>
+            ) : null}
+
+            {stage === 2 ? (
+              <Stack gap={3}>
+                <Heading level={3}>Review your request</Heading>
+                <dl className="request-flow__review">
+                  <div>
+                    <dt>
+                      <LabelText>Quantity</LabelText>
+                    </dt>
+                    <dd>{`${formatCount(Number(quantity.trim()))} leads`}</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      <LabelText>Licensed States</LabelText>
+                    </dt>
+                    <dd>{formatStates(states)}</dd>
+                  </div>
+                </dl>
+                <Text size="sm" tone="muted">
+                  Submitting sends this to Jawnix for review. You can cancel it
+                  while it is still waiting.
+                </Text>
+              </Stack>
+            ) : null}
+
+            <Cluster>
+              {stage > 0 ? (
+                <Button onClick={() => setStage(stage - 1)}>Back</Button>
+              ) : null}
+              <Button
+                type="submit"
+                variant="primary"
+                busy={busy}
+                busyLabel="Submitting…"
+              >
+                {stage === 2 ? "Submit request" : "Continue"}
+              </Button>
+            </Cluster>
+          </Stack>
+        </form>
+      </Stack>
+    </Card>
+  );
+}
+
+// --- Submitted requests -----------------------------------------------------
+
+function RequestCard({
+  request,
+  onCanceled,
+}: {
+  request: BatchRequest;
+  onCanceled: (updated: BatchRequest) => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState("");
+  const { pause, outcome } = request.milestones;
+
+  async function confirmCancel() {
+    if (busy) return;
+    setBusy(true);
+    setFailure("");
+    try {
+      onCanceled(await cancelBatchRequest(request.id));
+      setConfirming(false);
+    } catch (caught) {
+      setConfirming(false);
+      setFailure(
+        caught instanceof Error
+          ? caught.message
+          : "We could not cancel this request.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <li id={`request-${request.id}`}>
+      <Card>
+        <Stack gap={4}>
+          <Cluster justify="space-between" align="flex-start">
+            <Stack gap={1}>
+              <Heading level={3}>
+                {`${formatCount(request.lead_count)} leads`}
+              </Heading>
+              <Text size="sm" tone="muted">
+                {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)}`}
+              </Text>
+            </Stack>
+            <StatusBadge tone={request.status.tone}>
+              {request.status.label}
+            </StatusBadge>
+          </Cluster>
+
+          <MilestoneGraph
+            graph={request.milestones}
+            label={`Progress for the ${formatCount(request.lead_count)} lead request submitted ${formatMilestoneTime(request.submitted_at)}`}
+          />
+
+          {pause ? (
+            <div className="request-card__note request-card__note--pause">
+              <Stack gap={1}>
+                <Text weight="semibold">{pause.label}</Text>
+                <Text size="sm">{pause.description}</Text>
+              </Stack>
+            </div>
+          ) : null}
+
+          {outcome ? (
+            <div
+              className={cx(
+                "request-card__note",
+                `request-card__note--${outcome.tone}`,
+              )}
+            >
+              <Stack gap={1}>
+                <Text weight="semibold">
+                  {outcome.occurred_at
+                    ? `${outcome.label} · ${formatMilestoneTime(outcome.occurred_at)}`
+                    : outcome.label}
+                </Text>
+                <Text size="sm">{outcome.description}</Text>
+              </Stack>
+            </div>
+          ) : null}
+
+          {failure ? (
+            <Text tone="danger" role="alert">
+              {failure}
+            </Text>
+          ) : null}
+
+          {request.next_action || request.can_cancel ? (
+            <Cluster>
+              {request.next_action ? (
+                <ActionLink href={request.next_action.href} variant="secondary">
+                  {request.next_action.label}
+                </ActionLink>
+              ) : null}
+              {/* Offered only while the domain still allows withdrawal, so the
+                  button is never a promise the backend will refuse. */}
+              {request.can_cancel ? (
+                <Button variant="danger" onClick={() => setConfirming(true)}>
+                  Cancel request
+                </Button>
+              ) : null}
+            </Cluster>
+          ) : null}
+        </Stack>
+      </Card>
+
+      <ConfirmDialog
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        onConfirm={() => void confirmCancel()}
+        title="Cancel this Batch Request?"
+        consequence={`Cancelling withdraws your request for ${formatCount(request.lead_count)} leads. It cannot be undone, but you can submit a new request at any time.`}
+        confirmLabel="Cancel request"
+        cancelLabel="Keep request"
+        busy={busy}
+      />
+    </li>
+  );
+}
+
+// --- The route --------------------------------------------------------------
+
+export function CustomerRequestsRoute() {
+  const workspace = useLoaderData<BatchRequestWorkspace>();
+  const revalidator = useRevalidator();
+  useDocumentTitle("Requests");
+
+  // A cancellation answers with the request's new timeline, so the screen shows
+  // it at once instead of waiting for the list to be fetched again.
+  const [canceled, setCanceled] = useState<Record<string, BatchRequest>>({});
+  useEffect(() => {
+    setCanceled((current) => (Object.keys(current).length ? {} : current));
+  }, [workspace]);
+
+  const requests = workspace.requests.map(
+    (request) => canceled[request.id] ?? request,
+  );
+
+  return (
+    <Page
+      title="Requests"
+      description="Ask for an exact Batch, then follow it from Submitted to Delivered."
+    >
+      <Section
+        title="Request a Batch"
+        description="Three short stages: how many leads, which Licensed States, then review."
+      >
+        {workspace.blocker ? (
+          <EmptyState
+            title={workspace.blocker.label}
+            description={workspace.blocker.description}
+            action={
+              <ActionLink href={workspace.blocker.action.href} variant="primary">
+                {workspace.blocker.action.label}
+              </ActionLink>
+            }
+          />
+        ) : (
+          <RequestFlow
+            limits={workspace.limits}
+            onSubmitted={() => void revalidator.revalidate()}
+          />
+        )}
+      </Section>
+
+      <Section
+        title="Your Batch Requests"
+        description="Every request you have submitted, newest first."
+      >
+        {requests.length ? (
+          <Stack as="ul" gap={4} className="request-list">
+            {requests.map((request) => (
+              <RequestCard
+                key={request.id}
+                request={request}
+                onCanceled={(updated) =>
+                  setCanceled((current) => ({
+                    ...current,
+                    [updated.id]: updated,
+                  }))
+                }
+              />
+            ))}
+          </Stack>
+        ) : (
+          <EmptyState
+            title="No Batch Requests yet"
+            description="Nothing has been requested. Your first Batch Request will appear here with its full timeline."
+          />
+        )}
+      </Section>
+    </Page>
+  );
+}

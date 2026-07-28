@@ -1,0 +1,261 @@
+import { expect, test } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+
+import { mockCustomerAuth } from "./customer-auth-fixtures";
+import {
+  BLOCKED_BATCH_REQUEST_WORKSPACE,
+  EMPTY_BATCH_REQUEST_WORKSPACE,
+  mockBatchRequests,
+} from "./customer-requests-fixtures";
+
+async function openRequests(page: Page, options: Parameters<typeof mockBatchRequests>[1] = {}) {
+  await mockCustomerAuth(page);
+  const state = await mockBatchRequests(page, options);
+  await page.goto("./requests");
+  await expect(page.getByRole("heading", { level: 1, name: "Requests" })).toBeVisible();
+  return state;
+}
+
+/** Quantity → scope → review, with nothing typed that is not needed. */
+async function completeGuidedFlow(page: Page, quantity = "750") {
+  await page.getByRole("spinbutton", { name: /How many leads/ }).fill(quantity);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Review your request" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Submit request" }).click();
+}
+
+function milestoneNodes(page: Page, name: RegExp): Locator {
+  return page.getByRole("list", { name }).getByRole("listitem");
+}
+
+test.describe("Guided Batch Requests", () => {
+  test("completes a valid request through three stages in well under a minute", async ({
+    page,
+  }) => {
+    const state = await openRequests(page, {
+      workspace: EMPTY_BATCH_REQUEST_WORKSPACE,
+    });
+
+    const started = Date.now();
+    await completeGuidedFlow(page);
+    await expect(
+      page.getByRole("heading", { name: "Request submitted" }),
+    ).toBeVisible();
+    const elapsed = Date.now() - started;
+
+    expect(elapsed).toBeLessThan(60_000);
+    expect(state.submissions).toHaveLength(1);
+    expect(state.submissions[0]).toMatchObject({
+      lead_count: 750,
+      state_mode: "all_saved",
+    });
+    await expect(
+      page.getByRole("link", { name: "View this Batch Request" }),
+    ).toHaveAttribute(
+      "href",
+      "/app/requests?request=33333333-3333-4333-8333-333333333333",
+    );
+  });
+
+  test("keeps invalid and unlicensed requests out of the review stage", async ({
+    page,
+  }) => {
+    const state = await openRequests(page, {
+      workspace: EMPTY_BATCH_REQUEST_WORKSPACE,
+    });
+
+    await page.getByRole("spinbutton", { name: /How many leads/ }).fill("100001");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(page.getByRole("alert")).toContainText(
+      "Enter between 1 and 100,000 leads.",
+    );
+    await expect(
+      page.getByRole("heading", { name: "Review your request" }),
+    ).toHaveCount(0);
+
+    await page.getByRole("spinbutton", { name: /How many leads/ }).fill("750");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("radio", { name: /Choose specific states/ }).check();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(page.getByRole("alert")).toContainText(
+      "Choose at least one Licensed State.",
+    );
+
+    // Only Licensed States are offered, so an unlicensed scope is unreachable.
+    await expect(page.getByRole("checkbox")).toHaveCount(2);
+    await expect(page.getByRole("checkbox", { name: "FL" })).toBeVisible();
+    await expect(page.getByRole("checkbox", { name: "TX" })).toBeVisible();
+    await expect(page.getByRole("checkbox", { name: "NY" })).toHaveCount(0);
+    expect(state.submissions).toHaveLength(0);
+  });
+
+  test("a double-clicked submit creates exactly one Batch Request", async ({
+    page,
+  }) => {
+    const state = await openRequests(page, {
+      workspace: EMPTY_BATCH_REQUEST_WORKSPACE,
+      submitDelayMs: 600,
+    });
+
+    await page.getByRole("spinbutton", { name: /How many leads/ }).fill("750");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Submit request" }).dblclick();
+
+    await expect(
+      page.getByRole("heading", { name: "Request submitted" }),
+    ).toBeVisible();
+    const keys = new Set(
+      state.submissions.map((body) => String(body.idempotency_key)),
+    );
+    expect(keys.size).toBe(1);
+    await expect(page.getByText(/was not sent twice/)).toHaveCount(0);
+  });
+
+  test("offers the account fix instead of the stages when nothing valid can be entered", async ({
+    page,
+  }) => {
+    await openRequests(page, { workspace: BLOCKED_BATCH_REQUEST_WORKSPACE });
+
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Add a Licensed State first" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Add Licensed States" }),
+    ).toHaveAttribute("href", "/app/account");
+    await expect(
+      page.getByRole("spinbutton", { name: /How many leads/ }),
+    ).toHaveCount(0);
+  });
+});
+
+test.describe("The milestone graph", () => {
+  test("reads as an ordered, timestamped, state-labelled list", async ({
+    page,
+  }) => {
+    await openRequests(page);
+
+    const nodes = milestoneNodes(page, /Progress for the 750 lead request/);
+    await expect(nodes).toHaveCount(4);
+    await expect(nodes.nth(0)).toContainText("Submitted");
+    await expect(nodes.nth(0)).toContainText("Completed");
+    await expect(nodes.nth(0)).toContainText("2026");
+    await expect(nodes.nth(2)).toContainText("Paused");
+    await expect(nodes.nth(2)).toHaveAttribute("aria-current", "step");
+    await expect(nodes.nth(3)).toContainText("Not started");
+
+    // The shape of the graph is also available as text.
+    const summaryId = await page
+      .getByRole("list", { name: /Progress for the 750 lead request/ })
+      .getAttribute("aria-describedby");
+    await expect(page.locator(`#${summaryId}`)).toHaveText(
+      "At step 3 of 4, Preparing Batch, paused. Waiting for Inventory.",
+    );
+  });
+
+  test("runs along the inline axis when there is room and stacks when there is not", async ({
+    page,
+  }, testInfo) => {
+    await openRequests(page);
+
+    const nodes = milestoneNodes(page, /Progress for the 750 lead request/);
+    const first = await nodes.nth(0).boundingBox();
+    const second = await nodes.nth(1).boundingBox();
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+
+    if (testInfo.project.name === "mobile") {
+      expect(second!.y).toBeGreaterThan(first!.y);
+      expect(Math.abs(second!.x - first!.x)).toBeLessThan(2);
+    } else {
+      expect(second!.x).toBeGreaterThan(first!.x);
+      expect(Math.abs(second!.y - first!.y)).toBeLessThan(2);
+    }
+  });
+
+  test("never marks a milestone the request will not reach as merely upcoming", async ({
+    page,
+  }) => {
+    await openRequests(page);
+
+    const nodes = milestoneNodes(page, /Progress for the 300 lead request/);
+    await expect(nodes.nth(1)).toContainText("Stopped");
+    await expect(nodes.nth(2)).toContainText("Not reached");
+    await expect(nodes.nth(3)).toContainText("Not reached");
+  });
+});
+
+test.describe("The milestone graph with motion suppressed", () => {
+  test("says exactly the same thing", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await openRequests(page);
+
+    const nodes = milestoneNodes(page, /Progress for the 750 lead request/);
+    await expect(nodes.nth(0)).toContainText("Completed");
+    await expect(nodes.nth(2)).toContainText("Paused");
+    await expect(nodes.nth(2)).toHaveAttribute("aria-current", "step");
+    await expect(nodes.nth(3)).toContainText("Not started");
+    await expect(page.getByText("Waiting for Inventory").first()).toBeVisible();
+  });
+});
+
+test.describe("Outcomes and pauses", () => {
+  test("explains Waiting for Inventory as a pause rather than a failure", async ({
+    page,
+  }) => {
+    await openRequests(page);
+
+    await expect(page.getByText("Waiting for Inventory").first()).toBeVisible();
+    await expect(
+      page.getByText("Nothing has gone wrong", { exact: false }),
+    ).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(page.locator("body")).not.toContainText("waiting_inventory");
+  });
+
+  test("gives a rejected request its own outcome and a valid next action", async ({
+    page,
+  }) => {
+    await openRequests(page);
+
+    await expect(
+      page.getByText("This request was not approved", { exact: false }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Request another Batch" }),
+    ).toHaveAttribute("href", "/app/requests");
+  });
+});
+
+test.describe("Pending cancellation", () => {
+  test("appears only for the request the domain still allows withdrawing", async ({
+    page,
+  }) => {
+    await openRequests(page);
+
+    await expect(page.getByRole("button", { name: "Cancel request" })).toHaveCount(1);
+  });
+
+  test("updates the timeline as soon as it is confirmed", async ({ page }) => {
+    const state = await openRequests(page);
+
+    await page.getByRole("button", { name: "Cancel request" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("It cannot be undone");
+    await dialog.getByRole("button", { name: "Cancel request" }).click();
+
+    await expect(
+      page.getByText("This request was withdrawn", { exact: false }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: "Cancel request" })).toHaveCount(0);
+    const nodes = milestoneNodes(page, /Progress for the 750 lead request/);
+    await expect(nodes.nth(2)).toContainText("Stopped");
+    expect(state.cancellations).toEqual([
+      "11111111-1111-4111-8111-111111111111",
+    ]);
+  });
+});

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from .config import Settings
 from .jobs import enqueue_job
-from .models import BatchArtifact, LeadRequest, RequestStatus
+from .models import BatchArtifact, LeadRequest, RequestStatus, utcnow
 
 
 def mark_delivery_failed(session: Session, request_id: uuid.UUID, error: str) -> None:
@@ -20,6 +20,7 @@ def mark_delivery_failed(session: Session, request_id: uuid.UUID, error: str) ->
     if request is not None:
         request.status = RequestStatus.failed.value
         request.status_message = "Email delivery failed. The existing batch is preserved for retry."
+        request.closed_at = utcnow()
         enqueue_job(session, "update_notification", request.id)
     if artifact is not None:
         artifact.delivery_status = "failed"

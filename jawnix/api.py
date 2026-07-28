@@ -35,6 +35,13 @@ from .customer_directory import (
     customer_dependency_counts,
 )
 from .customer_overview import build_customer_overview
+from .customer_requests import (
+    RequestSubmissionError,
+    build_request_workspace,
+    cancel_request as withdraw_request,
+    request_detail,
+    submit_request,
+)
 from .database import get_db
 from .feedback import apply_disposition_controls, release_report_hold
 from .frontend import register_frontend_shell
@@ -98,6 +105,10 @@ from .schemas import (
     ProfileUpdate,
     CustomerMappingUpdate,
     CustomerOverviewOut,
+    CustomerRequestCreate,
+    CustomerRequestDetail,
+    CustomerRequestReceipt,
+    CustomerRequestWorkspaceOut,
     RequestCreate,
     RequestOut,
     SessionExchange,
@@ -511,8 +522,16 @@ def logout(
     return {"ok": True}
 
 
-@app.get("/api/me/profile", response_model=ProfileOut)
-def get_profile(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
+def _current_customer_profile(
+    db: Session,
+    principal: Principal,
+) -> CustomerProfile:
+    """The signed-in Customer's profile, or the reason there is none.
+
+    Every Customer screen crosses this: a replaced User Account is refused
+    before it can read or write anything under its old identity.
+    """
+
     account = db.get(UserAccount, principal.user_id)
     if account is not None and not account.active:
         raise HTTPException(
@@ -525,25 +544,98 @@ def get_profile(principal: Principal = Depends(require_principal), db: Session =
     return profile
 
 
+@app.get("/api/me/profile", response_model=ProfileOut)
+def get_profile(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
+    return _current_customer_profile(db, principal)
+
+
 @app.get("/api/me/overview", response_model=CustomerOverviewOut)
 def get_customer_overview(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
-    account = db.get(UserAccount, principal.user_id)
-    if account is not None and not account.active:
-        raise HTTPException(
-            status_code=403,
-            detail="This User Account has been replaced.",
-        )
-    profile = db.get(CustomerProfile, principal.user_id)
-    if profile is None:
-        raise HTTPException(status_code=404, detail="Profile was not found.")
     return build_customer_overview(
         db,
         user_id=principal.user_id,
-        profile=profile,
+        profile=_current_customer_profile(db, principal),
     )
+
+
+@app.get("/api/me/batch-requests", response_model=CustomerRequestWorkspaceOut)
+def get_batch_request_workspace(
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    """Everything the guided Batch Request screen needs, in one read."""
+
+    return build_request_workspace(
+        db,
+        user_id=principal.user_id,
+        profile=_current_customer_profile(db, principal),
+    )
+
+
+@app.post(
+    "/api/me/batch-requests",
+    response_model=CustomerRequestReceipt,
+    status_code=201,
+    responses={
+        200: {
+            "model": CustomerRequestReceipt,
+            "description": "This submission key already created a Batch Request.",
+        }
+    },
+)
+def submit_batch_request(
+    payload: CustomerRequestCreate,
+    response: Response,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    """Submit the reviewed request, at most once per submission key.
+
+    A replay answers 200 with the request the first attempt created, so a
+    double-click or a retried POST is indistinguishable from a single one.
+    """
+
+    profile = _current_customer_profile(db, principal)
+    try:
+        item, created = submit_request(
+            db,
+            user_id=principal.user_id,
+            profile=profile,
+            payload=payload,
+        )
+    except RequestSubmissionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    if not created:
+        response.status_code = 200
+    return CustomerRequestReceipt(created=created, request=request_detail(item))
+
+
+@app.post(
+    "/api/me/batch-requests/{request_id}/cancel",
+    response_model=CustomerRequestDetail,
+)
+def cancel_batch_request(
+    request_id: uuid.UUID,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    """Withdraw a Batch Request and return its updated milestone graph."""
+
+    # Called for its refusals: a replaced User Account may not withdraw work
+    # belonging to the identity it replaced.
+    _current_customer_profile(db, principal)
+    try:
+        item = withdraw_request(
+            db,
+            user_id=principal.user_id,
+            request_id=request_id,
+        )
+    except RequestSubmissionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    return request_detail(item)
 
 
 @app.patch("/api/me/profile", response_model=ProfileOut)
@@ -602,6 +694,7 @@ def update_profile(
                     "Canceled because no requested states remain in the "
                     "Customer's Licensed States."
                 )
+                item.closed_at = utcnow()
             enqueue_job(
                 db,
                 "licensed_states_changed",
@@ -1495,26 +1588,10 @@ def cancel_request(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
-    item = db.scalar(
-        select(LeadRequest)
-        .where(LeadRequest.id == request_id, LeadRequest.user_id == principal.user_id)
-        .with_for_update()
-    )
-    if item is None:
-        raise HTTPException(status_code=404, detail="Request was not found.")
-    if item.status not in {
-        RequestStatus.pending.value,
-        RequestStatus.approved.value,
-        RequestStatus.waiting_inventory.value,
-    }:
-        raise HTTPException(
-            status_code=409,
-            detail="Only uncommitted requests can be canceled.",
-        )
-    item.status = RequestStatus.canceled.value
-    item.status_message = "Canceled by customer."
-    enqueue_job(db, "update_notification", item.id)
-    db.commit()
+    try:
+        withdraw_request(db, user_id=principal.user_id, request_id=request_id)
+    except RequestSubmissionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     return {"ok": True}
 
 
@@ -3650,6 +3727,7 @@ async def resend_webhook(request: Request, db: Session = Depends(get_db), settin
             if item:
                 item.status = RequestStatus.failed.value
                 item.status_message = f"Email provider reported {event_type.replace('email.', '')}."
+                item.closed_at = utcnow()
                 enqueue_job(db, "update_notification", item.id)
     db.commit()
     return {"ok": True}
