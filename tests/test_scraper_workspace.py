@@ -265,10 +265,18 @@ def test_native_adapter_injects_credentials_normalizes_and_audits_operation(
     )
 
     assert operation.status_code == 200
-    assert operation.json() == {"ok": True, "pipelineState": "paused"}
-    assert calls[-1].url.path == "/dashboard/pipeline"
-    assert calls[-1].content == b"action=pause"
-    assert calls[-1].headers["authorization"].startswith("Basic ")
+    body = operation.json()
+    assert body["ok"] is True
+    assert body["pipeline_state"] == "paused"
+    # This upstream answers HTML to every path, so the activity read-back does
+    # not parse. The write still reports its outcome, and the region says it
+    # could not be refreshed rather than inventing one.
+    assert body["region"]["state"] == "unavailable"
+    write = next(
+        call for call in calls if call.url.path == "/dashboard/pipeline"
+    )
+    assert write.content == b"action=pause&clear_queue=no"
+    assert write.headers["authorization"].startswith("Basic ")
     assert "upstream-secret" not in operation.text
     entries = session.scalars(
         select(AuditEntry).where(

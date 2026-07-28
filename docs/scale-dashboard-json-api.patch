@@ -1,0 +1,123 @@
+diff --git a/web/app/main.py b/web/app/main.py
+index 601fb8c..e5b2866 100644
+--- a/web/app/main.py
++++ b/web/app/main.py
+@@ -18,6 +18,7 @@ from .routers import (
+     database,
+     history,
+     keywords,
++    monitoring_api,
+     source_segments,
+     states,
+ )
+@@ -47,6 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
+     app.include_router(configure.router)
+     app.include_router(database.router)
+     app.include_router(source_segments.router)
++    app.include_router(monitoring_api.router)
+ 
+     @app.get("/healthz")
+     async def healthz(request: Request):
+diff --git a/web/app/routers/monitoring_api.py b/web/app/routers/monitoring_api.py
+new file mode 100644
+index 0000000..7a59e06
+--- /dev/null
++++ b/web/app/routers/monitoring_api.py
+@@ -0,0 +1,97 @@
++"""JSON projection of the Overview dashboard.
++
++Jawnix renders Scraper monitoring natively (Jawnix #63) and cannot consume the
++HTMX fragments the browser dashboard swaps in. Every region below reuses the
++exact context builder its fragment already renders from, so the JSON and the
++HTML cannot drift into disagreeing about what the pipeline is doing.
++
++The per-region routes mirror ``/frag/dashboard/*`` one for one. That is what
++lets a native client keep the dashboard's independent refresh cadences, and
++its independent failure isolation: one region going dark leaves the rest
++showing their own last good data.
++"""
++
++from fastapi import APIRouter, Depends, HTTPException, Request
++from fastapi.encoders import jsonable_encoder
++from fastapi.responses import JSONResponse
++
++from .. import queries
++from ..auth import require_user
++from ..db import fetch
++from ..monitoring import build_trends
++from .dashboard import (
++    activity_context,
++    pipeline_log_context,
++    stack_context,
++    stats_context,
++    workers_context,
++)
++
++router = APIRouter(dependencies=[Depends(require_user)])
++
++
++async def trends_context(request: Request) -> dict:
++    return {"trends": build_trends(await fetch(request, queries.STACK_TRENDS))}
++
++
++async def top_states_context(request: Request) -> dict:
++    return {
++        "top_states": [
++            dict(row) for row in await fetch(request, queries.TOP_STATES)
++        ]
++    }
++
++
++async def overall_context(request: Request) -> dict:
++    return {"stack_status": (await stack_context(request))["stack_status"]}
++
++
++async def stack_only_context(request: Request) -> dict:
++    context = await stack_context(request)
++    return {key: context[key] for key in ("sample", "stack_status", "services")}
++
++
++async def incidents_context(request: Request) -> dict:
++    return {"incidents": (await stack_context(request))["incidents"]}
++
++
++#: Region name -> builder. Keys match the ``/frag/dashboard/*`` suffixes.
++REGIONS = {
++    "overall": overall_context,
++    "stack": stack_only_context,
++    "stats": stats_context,
++    "activity": activity_context,
++    "log": pipeline_log_context,
++    "workers": workers_context,
++    "trends": trends_context,
++    "incidents": incidents_context,
++    "top-states": top_states_context,
++}
++
++
++@router.get("/api/dashboard")
++async def dashboard_json(request: Request):
++    """Every region in one read, for a client's initial load.
++
++    Composed in the same order as ``dashboard()`` so a native first paint and
++    the rendered page start from identical state.
++    """
++
++    context = await stats_context(request)
++    context.update(await stack_context(request))
++    context.update(await workers_context(request))
++    context.update(await activity_context(request))
++    context.update(await pipeline_log_context(request))
++    context.update(await trends_context(request))
++    context.update(await top_states_context(request))
++    return JSONResponse(jsonable_encoder(context))
++
++
++@router.get("/api/dashboard/{region}")
++async def dashboard_region_json(region: str, request: Request):
++    """One region, for a client's independent refresh of it."""
++
++    build = REGIONS.get(region)
++    if build is None:
++        raise HTTPException(status_code=404, detail="Unknown dashboard region")
++    return JSONResponse(jsonable_encoder(await build(request)))
