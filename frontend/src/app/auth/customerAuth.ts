@@ -21,6 +21,54 @@ export interface InvitationLoaderData {
   canAccept: boolean;
 }
 
+export type CustomerOverviewTone =
+  | "neutral"
+  | "info"
+  | "success"
+  | "warning"
+  | "danger";
+
+export interface CustomerOverviewAction {
+  kind:
+    | "request_batch"
+    | "submit_feedback"
+    | "review_request"
+    | "review_account"
+    | "add_licensed_states";
+  label: string;
+  description: string;
+  href: string;
+}
+
+export interface CustomerOverviewRequest {
+  id: string;
+  lead_count: number;
+  states: string[];
+  submitted_at: string;
+  delivered_at: string | null;
+  status: {
+    label: string;
+    description: string;
+    tone: CustomerOverviewTone;
+  };
+}
+
+export interface CustomerOverviewDelivery {
+  request_id: string;
+  lead_count: number;
+  states: string[];
+  delivered_at: string;
+}
+
+export interface CustomerOverviewData {
+  first_name: string;
+  licensed_states: string[];
+  current_request: CustomerOverviewRequest | null;
+  recent_deliveries: CustomerOverviewDelivery[];
+  next_action: CustomerOverviewAction;
+  primary_actions: CustomerOverviewAction[];
+}
+
 // Invitation/recovery links are hard navigations. Capture the fragment while
 // the application module initializes, before the provider client consumes and
 // removes its one-time credentials from the address bar.
@@ -97,8 +145,10 @@ export async function exchangeJawnixSession(
   return response.json() as Promise<SessionExchangeResponse>;
 }
 
-export async function customerAccessLoader({ request }: LoaderFunctionArgs) {
-  const response = await fetch("/api/me/profile", {
+export async function customerAccessLoader({
+  request,
+}: LoaderFunctionArgs): Promise<CustomerOverviewData> {
+  const response = await fetch("/api/me/overview", {
     credentials: "same-origin",
   });
   if (response.status === 401 || response.status === 403) {
@@ -110,7 +160,7 @@ export async function customerAccessLoader({ request }: LoaderFunctionArgs) {
       status: response.status,
     });
   }
-  return response.json();
+  return response.json() as Promise<CustomerOverviewData>;
 }
 
 export async function signOutCustomer(): Promise<void> {

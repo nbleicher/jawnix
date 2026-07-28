@@ -1,5 +1,7 @@
 import type { Page, Route } from "@playwright/test";
 
+import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
+
 export interface MockFactor {
   id: string;
   name: string;
@@ -257,6 +259,10 @@ export async function mockAdminMFA(
     }
     return json(route, { detail: "Unexpected Scraper mock request" }, 500);
   });
+
+  await page.route(/\/api\/me\/overview$/, (route) =>
+    json(route, CUSTOMER_OVERVIEW),
+  );
 
   await page.route(/\/api\/me\/profile$/, (route) =>
     json(route, {

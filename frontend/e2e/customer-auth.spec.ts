@@ -65,7 +65,7 @@ test.describe("Customer sign-in and session lifecycle", () => {
   test("returns an expired protected session to sign-in with a safe destination", async ({
     page,
   }) => {
-    await mockCustomerAuth(page, { profileStatus: 401 });
+    await mockCustomerAuth(page, { overviewStatus: 401 });
     await page.goto("./account");
 
     await expect(page).toHaveURL(

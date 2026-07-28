@@ -21,6 +21,7 @@ from .activity import record_activity
 from .auth import Principal, clear_session, issue_session, require_admin, require_principal, verify_supabase_token
 from .admin_mfa_api import router as admin_mfa_router
 from .config import Settings, get_settings
+from .customer_overview import build_customer_overview
 from .database import get_db
 from .feedback import apply_disposition_controls, release_report_hold
 from .frontend import register_frontend_shell
@@ -80,6 +81,7 @@ from .schemas import (
     ProfileOut,
     ProfileUpdate,
     CustomerMappingUpdate,
+    CustomerOverviewOut,
     RequestCreate,
     RequestOut,
     SessionExchange,
@@ -480,6 +482,27 @@ def get_profile(principal: Principal = Depends(require_principal), db: Session =
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile was not found.")
     return profile
+
+
+@app.get("/api/me/overview", response_model=CustomerOverviewOut)
+def get_customer_overview(
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    account = db.get(UserAccount, principal.user_id)
+    if account is not None and not account.active:
+        raise HTTPException(
+            status_code=403,
+            detail="This User Account has been replaced.",
+        )
+    profile = db.get(CustomerProfile, principal.user_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile was not found.")
+    return build_customer_overview(
+        db,
+        user_id=principal.user_id,
+        profile=profile,
+    )
 
 
 @app.patch("/api/me/profile", response_model=ProfileOut)
