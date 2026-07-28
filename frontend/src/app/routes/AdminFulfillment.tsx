@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { Link, useLoaderData, useRevalidator } from "react-router";
 
@@ -90,6 +91,132 @@ export interface ConflictDetail {
   actions: FulfillmentAction[];
 }
 
+/**
+ * Lead Report eligibility controls (#58).
+ *
+ * A Lead Report is the Customer's account of a bad Lead. It is evidence, so it
+ * is never edited here: every control below acts on the *Lead*, and the
+ * Distribution Event that was delivered stays exactly as delivered.
+ */
+export interface ControlAction {
+  name: "dismiss" | "correct" | "suppress" | "restore" | "remove-correction";
+  label: string;
+  consequence: string;
+  destructive: boolean;
+  requiresReason: boolean;
+  /** True only for a Lead Correction, which needs a typed title or state on top
+   *  of the reason. The screen reads this rather than checking for `correct`,
+   *  so the override surface follows the domain instead of a name. */
+  requiresOverride: boolean;
+}
+
+/** What the Lead looked like underneath the report — the thing a Lead
+ *  Correction overrides. `kind: "none"` means there is nothing underneath. */
+export interface LeadEvidence {
+  kind: "current_listing" | "legacy_snapshot" | "prior_correction" | "none";
+  label: string;
+  title: string;
+  state: string;
+  observationId: number | null;
+  observedAt: string | null;
+  source: string;
+}
+
+export interface LeadCorrection {
+  id: string;
+  title: string;
+  state: string;
+  reason: string;
+  createdAt: string;
+  basedOnKind: string;
+  basedOnLabel: string;
+  basedOnTitle: string;
+  basedOnState: string;
+  actions: ControlAction[];
+}
+
+export interface LeadReportDetail {
+  id: string;
+  reason: string;
+  reasonLabel: string;
+  /** The Customer's own words. Immutable — never rendered into a form control. */
+  details: string;
+  status: "open" | "dismissed" | "corrected" | "suppressed";
+  createdAt: string;
+  href: string;
+  customer: { id: number; name: string; href: string };
+  distributionEvent: {
+    id: number;
+    phone: string;
+    title: string;
+    state: string;
+    customerName: string;
+    agencyName: string;
+    deliveredAt: string;
+    listingProvenance: Record<string, unknown>;
+    requestId: string | null;
+  };
+  lead: {
+    id: number;
+    phone: string;
+    title: string;
+    state: string;
+    suppressed: boolean;
+    correction: LeadCorrection | null;
+  };
+  evidence: LeadEvidence;
+  controls: {
+    eligibilityHeld: boolean;
+    holdId: string | null;
+    holdReason: string;
+    holdReleasedAt: string | null;
+    /** The release rule, in the domain's words. Rendered verbatim. */
+    holdRelease: string;
+    holdReleasableByCustomer: false;
+    suppressed: boolean;
+    suppressionReason: string;
+    /** What restoring does and does not promise. Rendered verbatim. */
+    restoreNotice: string;
+    /** Actions on the Lead itself rather than on the report's decision.
+     *  Carries Restore once the Lead has been suppressed. */
+    actions?: ControlAction[];
+  };
+  resolution: {
+    action: string;
+    note: string;
+    actorId: string;
+    createdAt: string;
+  } | null;
+  /** Empty once the report is resolved: a decision is taken once. */
+  actions: ControlAction[];
+}
+
+/** The workspace list carries the same projection as the detail. */
+export type LeadReportSummary = LeadReportDetail;
+
+export interface EligibilityHold {
+  id: string;
+  leadId: number;
+  leadPhone: string;
+  reason: string;
+  reasonLabel: string;
+  createdAt: string;
+  reportId: string;
+  reportStatus: string;
+  href: string;
+  release: string;
+}
+
+export interface SuppressedLead {
+  id: number;
+  phone: string;
+  title: string;
+  state: string;
+  reason: string;
+  restoreNotice: string;
+  actions: ControlAction[];
+}
+
 export interface WorkspaceData {
   batchRequests: RequestSummary[];
   inventoryConflicts: ConflictDetail[];
@@ -97,6 +224,18 @@ export interface WorkspaceData {
   /** Settled requests whose Batch Artifact file has expired. They appear
    *  nowhere else, because the request itself is finished work. */
   expiredArtifacts: RequestSummary[];
+  /* The #58 sections are optional on the wire so a response cached before that
+     slice shipped renders an empty section rather than blanking the screen. */
+  leadReports?: LeadReportSummary[];
+  eligibilityHolds?: EligibilityHold[];
+  suppressedLeads?: SuppressedLead[];
+  /* Typed for completeness, deliberately not rendered: a count beside the list
+     it summarizes is a second source of truth that can disagree with it. */
+  controlCounts?: {
+    openReports: number;
+    activeHolds: number;
+    suppressedLeads: number;
+  };
 }
 
 export interface ArtifactState {
@@ -168,12 +307,40 @@ function errorMessage(error: unknown): string {
     : "The action could not be completed.";
 }
 
-function formatDate(value: string | null): string {
+export function formatDate(value: string | null): string {
   if (!value) return "—";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   // Unambiguous across time zones, per the audit-trail requirement.
   return parsed.toISOString().replace("T", " ").slice(0, 16) + " UTC";
+}
+
+/** Server hrefs are absolute so they work outside the shell too. Inside it the
+ *  router owns the `/app` basename, so it has to come back off. */
+export function routePath(href: string): string {
+  return href.startsWith("/app/") ? href.slice("/app".length) : href;
+}
+
+const REPORT_TONES: Record<string, StatusTone> = {
+  open: "warning",
+  dismissed: "neutral",
+  corrected: "info",
+  suppressed: "neutral",
+};
+
+const REPORT_LABELS: Record<string, string> = {
+  open: "Open",
+  dismissed: "Dismissed",
+  corrected: "Corrected",
+  suppressed: "Suppressed",
+};
+
+export function reportStatusLabel(status: string): string {
+  return REPORT_LABELS[status] ?? status;
+}
+
+export function reportStatusTone(status: string): StatusTone {
+  return REPORT_TONES[status] ?? "neutral";
 }
 
 export async function fulfillmentLoader(): Promise<WorkspaceData> {
@@ -304,6 +471,188 @@ function ActionBar({ actions, endpoint, settled }: ActionBarProps) {
   );
 }
 
+export interface ControlRequest {
+  url: string;
+  method: "POST" | "PUT" | "DELETE";
+  body: Record<string, unknown>;
+}
+
+/** Builds the call one control action makes. Callers own it because the two
+ *  families disagree on the wire: a Lead Report decision records the operator's
+ *  words as `note`, while a Lead-level suppression or correction takes a
+ *  `reason`. Guessing that from the action name here would hide the split. */
+export type ControlResolver = (
+  action: ControlAction,
+  reason: string,
+  values: Record<string, string>,
+) => ControlRequest;
+
+export interface ControlExtras {
+  values: Record<string, string>;
+  set: (name: string, value: string) => void;
+}
+
+interface ControlActionBarProps {
+  actions: ControlAction[];
+  resolve: ControlResolver;
+  /** Rendered when the record has nothing left to decide. */
+  settled: string;
+  /** Inputs an action needs beyond the reason, rendered above it. A Lead
+   *  Correction uses this to sit the evidence next to the override being
+   *  typed, so the operator sees what they are overriding while they type. */
+  extras?: (action: ControlAction, control: ControlExtras) => ReactNode;
+  /** Checked before anything is sent. Returns the message to show, or "". */
+  validate?: (action: ControlAction, values: Record<string, string>) => string;
+}
+
+/**
+ * Renders exactly the control actions the server offered, each behind its own
+ * confirmation stating its own consequence.
+ *
+ * Three decisions on a Lead Report are three buttons, not one control with a
+ * mode: Dismissed, Corrected, and Suppressed do different things to the Lead
+ * and a chooser would let one be taken while reading another's consequence.
+ */
+export function ControlActionBar({
+  actions,
+  resolve,
+  settled,
+  extras,
+  validate,
+}: ControlActionBarProps) {
+  const [pending, setPending] = useState<ControlAction | null>(null);
+  const [reason, setReason] = useState("");
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const revalidator = useRevalidator();
+
+  function open(action: ControlAction) {
+    setPending(action);
+    // Nothing is pre-filled: an override must be typed, never defaulted into
+    // agreement with the evidence it is supposed to replace.
+    setReason("");
+    setValues({});
+    setError("");
+  }
+
+  function close() {
+    setPending(null);
+    setReason("");
+    setValues({});
+  }
+
+  async function confirm() {
+    if (!pending) return;
+    if (pending.requiresReason && !reason.trim()) {
+      setError("A reason is required.");
+      return;
+    }
+    const invalid = validate?.(pending, values) ?? "";
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    const request = resolve(pending, reason.trim(), values);
+    setBusy(true);
+    setError("");
+    try {
+      await api(request.url, {
+        method: request.method,
+        body: JSON.stringify(request.body),
+      });
+      close();
+      revalidator.revalidate();
+    } catch (caught) {
+      setError(errorMessage(caught));
+      // A 409 means this report was already decided somewhere else. Re-read it
+      // so the screen stops offering a decision that has already been taken.
+      revalidator.revalidate();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!actions.length) {
+    return (
+      <Text size="sm" tone="muted">
+        {settled}
+      </Text>
+    );
+  }
+
+  return (
+    <>
+      <Cluster gap={2}>
+        {actions.map((action) => (
+          <Button
+            key={action.name}
+            variant={action.destructive ? "danger" : "secondary"}
+            onClick={() => open(action)}
+          >
+            {action.label}
+          </Button>
+        ))}
+      </Cluster>
+      <ConfirmDialog
+        open={pending !== null}
+        onClose={close}
+        onConfirm={() => void confirm()}
+        title={pending?.label ?? ""}
+        consequence={pending?.consequence ?? ""}
+        confirmLabel={pending?.label ?? "Confirm"}
+        destructive={pending?.destructive ?? false}
+        busy={busy}
+      >
+        <Stack gap={4}>
+          {pending && extras
+            ? extras(pending, {
+                values,
+                set: (name, value) =>
+                  setValues((current) => ({ ...current, [name]: value })),
+              })
+            : null}
+          <Field
+            label="Reason"
+            description="Recorded in Activity so this decision can be explained later."
+            required={pending?.requiresReason ?? true}
+          >
+            <Textarea
+              name="reason"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </Field>
+          {error ? (
+            <Text size="sm" tone="danger" role="alert">
+              {error}
+            </Text>
+          ) : null}
+        </Stack>
+      </ConfirmDialog>
+    </>
+  );
+}
+
+/** Lead-level controls. They change the Lead's eligibility; they never touch
+ *  the Lead Report's text or the Distribution Event that was delivered. */
+export function leadControlRequest(leadId: number): ControlResolver {
+  return (action, reason) => {
+    if (action.name === "remove-correction") {
+      return {
+        url: `/api/admin/leads/${leadId}/correction`,
+        method: "DELETE",
+        body: { reason },
+      };
+    }
+    return {
+      url: `/api/admin/leads/${leadId}/suppression`,
+      method: action.name === "restore" ? "DELETE" : "PUT",
+      body: { reason },
+    };
+  };
+}
+
 function requestEndpoint(id: string) {
   return (action: FulfillmentAction) =>
     action.name === "regenerate"
@@ -375,9 +724,93 @@ function ConflictCard({ item }: { item: ConflictDetail }) {
   );
 }
 
+function LeadReportCard({ item }: { item: LeadReportSummary }) {
+  return (
+    <Card as="article">
+      <Stack gap={3}>
+        <Cluster gap={2} justify="space-between">
+          <Heading level={3} size="sm">
+            <Link to={routePath(item.href)}>{item.reasonLabel}</Link>
+          </Heading>
+          <StatusBadge tone={reportStatusTone(item.status)}>
+            {reportStatusLabel(item.status)}
+          </StatusBadge>
+        </Cluster>
+        <Text size="sm" tone="muted">
+          Reported by {item.customer.name} · {formatDate(item.createdAt)}
+        </Text>
+        <Text size="sm">
+          <Mono>{item.lead.phone}</Mono> · {item.lead.title || "No title"} ·{" "}
+          {item.lead.state || "No state"}
+        </Text>
+        {item.controls.eligibilityHeld ? (
+          <Text size="sm" tone="warning">
+            Eligibility Hold active — this Lead is withheld from distribution
+            while the report is open.
+          </Text>
+        ) : (
+          <Text size="sm" tone="muted">
+            No Eligibility Hold on this Lead.
+          </Text>
+        )}
+      </Stack>
+    </Card>
+  );
+}
+
+function EligibilityHoldCard({ item }: { item: EligibilityHold }) {
+  return (
+    <Card as="article">
+      <Stack gap={3}>
+        <Heading level={3} size="sm">
+          <Link to={routePath(item.href)}>{item.reasonLabel}</Link>
+        </Heading>
+        <Text size="sm" tone="muted">
+          <Mono>{item.leadPhone}</Mono> · held {formatDate(item.createdAt)}
+        </Text>
+        {/* The release rule, in the domain's words. Paraphrasing it here would
+            let the screen imply a release path the domain does not have. */}
+        <Text size="sm">{item.release}</Text>
+      </Stack>
+    </Card>
+  );
+}
+
+function SuppressedLeadCard({ item }: { item: SuppressedLead }) {
+  return (
+    <Card as="article">
+      <Stack gap={4}>
+        <Stack gap={2}>
+          <Heading level={3} size="sm">
+            <Mono>{item.phone}</Mono>
+          </Heading>
+          <Text size="sm" tone="muted">
+            {item.title || "No title"} · {item.state || "No state"}
+          </Text>
+          <Text size="sm">{item.reason}</Text>
+          <Text size="sm" tone="muted">
+            {item.restoreNotice}
+          </Text>
+        </Stack>
+        <ControlActionBar
+          actions={item.actions}
+          resolve={leadControlRequest(item.id)}
+          settled="This Lead's suppression cannot be changed from here."
+        />
+      </Stack>
+    </Card>
+  );
+}
+
 export function AdminFulfillmentRoute() {
   const data = useLoaderData<WorkspaceData>();
   useDocumentTitle("Fulfillment");
+
+  // A response cached before #58 shipped carries none of these arrays; an empty
+  // section is a truthful reading of that, a crashed page is not.
+  const leadReports = data.leadReports ?? [];
+  const eligibilityHolds = data.eligibilityHolds ?? [];
+  const suppressedLeads = data.suppressedLeads ?? [];
 
   return (
     <Page
@@ -417,6 +850,60 @@ export function AdminFulfillmentRoute() {
             <EmptyState
               title="No Inventory Conflicts are waiting"
               description="A conflict appears when a newer Batch Request could consume Leads an older waiting request also needs."
+            />
+          )}
+        </Section>
+
+        <Section
+          title="Lead Reports"
+          description="What Customers reported about Leads they received. Each report is evidence and is never edited; the decisions act on the Lead."
+        >
+          {leadReports.length ? (
+            <Grid minColumnWidth="20rem">
+              {leadReports.map((item) => (
+                <LeadReportCard item={item} key={item.id} />
+              ))}
+            </Grid>
+          ) : (
+            <EmptyState
+              title="No Lead Reports are open"
+              description="A Lead Report appears here when a Customer reports a Lead they were delivered. Resolving one never changes what was delivered."
+            />
+          )}
+        </Section>
+
+        <Section
+          title="Eligibility Holds"
+          description="Leads withheld from distribution while a Lead Report is open."
+        >
+          {eligibilityHolds.length ? (
+            <Grid minColumnWidth="20rem">
+              {eligibilityHolds.map((item) => (
+                <EligibilityHoldCard item={item} key={item.id} />
+              ))}
+            </Grid>
+          ) : (
+            <EmptyState
+              title="No Eligibility Holds are active"
+              description="A hold is placed when a Lead Report is filed and is released only by resolving that report. A Customer cannot release one."
+            />
+          )}
+        </Section>
+
+        <Section
+          title="Suppressed Leads"
+          description="Leads withheld from every future Batch Request. Restoring one requires a reason and does not promise it will be allocated."
+        >
+          {suppressedLeads.length ? (
+            <Grid minColumnWidth="20rem">
+              {suppressedLeads.map((item) => (
+                <SuppressedLeadCard item={item} key={item.id} />
+              ))}
+            </Grid>
+          ) : (
+            <EmptyState
+              title="No Leads are suppressed"
+              description="Suppressing a Lead removes it from future distribution without deleting what was already delivered."
             />
           )}
         </Section>

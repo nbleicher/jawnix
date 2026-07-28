@@ -10,9 +10,13 @@ import {
 } from "./AdminFulfillment";
 import type {
   ConflictDetail,
+  ControlAction,
+  EligibilityHold,
   FulfillmentAction,
+  LeadReportSummary,
   RequestDetail,
   RequestSummary,
+  SuppressedLead,
   WorkspaceData,
 } from "./AdminFulfillment";
 
@@ -117,6 +121,114 @@ function conflict(overrides: Partial<ConflictDetail> = {}): ConflictDetail {
         destructive: true,
       }),
     ],
+    ...overrides,
+  };
+}
+
+const LEAD_REPORT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+const HOLD_RELEASE =
+  "This Eligibility Hold is released only when an administrator resolves this Lead Report. It cannot be released or bypassed by the Customer.";
+
+const RESTORE_NOTICE =
+  "Restoring returns this Lead to the eligible pool. It does not promise the Lead will be allocated to anyone.";
+
+function controlAction(overrides: Partial<ControlAction> = {}): ControlAction {
+  return {
+    name: "restore",
+    label: "Restore",
+    consequence: "Returns this Lead to the eligible pool.",
+    destructive: false,
+    requiresReason: true,
+    requiresOverride: false,
+    ...overrides,
+  };
+}
+
+function leadReport(
+  overrides: Partial<LeadReportSummary> = {},
+): LeadReportSummary {
+  return {
+    id: LEAD_REPORT_ID,
+    reason: "wrong_number",
+    reasonLabel: "Wrong number",
+    details: "The number rings a dental office.",
+    status: "open",
+    createdAt: "2026-07-01T10:00:00Z",
+    href: `/app/admin/fulfillment/reports/${LEAD_REPORT_ID}`,
+    customer: { id: 7, name: "Northstar Insurance", href: "/app/admin/customers/7" },
+    distributionEvent: {
+      id: 4021,
+      phone: "+15125550123",
+      title: "Roofing contractor",
+      state: "TX",
+      customerName: "Northstar Insurance",
+      agencyName: "Northstar Agency",
+      deliveredAt: "2026-06-28T12:00:00Z",
+      listingProvenance: {},
+      requestId: null,
+    },
+    lead: {
+      id: 91,
+      phone: "+15125550123",
+      title: "Roofing contractor",
+      state: "TX",
+      suppressed: false,
+      correction: null,
+    },
+    evidence: {
+      kind: "current_listing",
+      label: "Current listing",
+      title: "Ridgeline Roofing",
+      state: "TX",
+      observationId: 552,
+      observedAt: "2026-06-01T09:00:00Z",
+      source: "directory.example",
+    },
+    controls: {
+      eligibilityHeld: true,
+      holdId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      holdReason: "An open Lead Report withholds this Lead.",
+      holdReleasedAt: null,
+      holdRelease: HOLD_RELEASE,
+      holdReleasableByCustomer: false,
+      suppressed: false,
+      suppressionReason: "",
+      restoreNotice: RESTORE_NOTICE,
+    },
+    resolution: null,
+    actions: [],
+    ...overrides,
+  };
+}
+
+function eligibilityHold(
+  overrides: Partial<EligibilityHold> = {},
+): EligibilityHold {
+  return {
+    id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    leadId: 91,
+    leadPhone: "+15125550123",
+    reason: "wrong_number",
+    reasonLabel: "Wrong number",
+    createdAt: "2026-07-01T10:00:00Z",
+    reportId: LEAD_REPORT_ID,
+    reportStatus: "open",
+    href: `/app/admin/fulfillment/reports/${LEAD_REPORT_ID}`,
+    release: HOLD_RELEASE,
+    ...overrides,
+  };
+}
+
+function suppressedLead(overrides: Partial<SuppressedLead> = {}): SuppressedLead {
+  return {
+    id: 91,
+    phone: "+15125550123",
+    title: "Roofing contractor",
+    state: "TX",
+    reason: "Reported as a wrong number twice.",
+    restoreNotice: RESTORE_NOTICE,
+    actions: [controlAction()],
     ...overrides,
   };
 }
@@ -415,6 +527,120 @@ describe("the Batch Request detail", () => {
 
     expect(screen.getByText("Inventory verified.")).toBeVisible();
     expect(screen.getByText(/admin-1 · pending → approved/)).toBeVisible();
+  });
+});
+
+describe("the Lead Report control sections", () => {
+  it("survives a response cached before the sections existed", () => {
+    // `workspace()` carries none of the #58 arrays, exactly like an older
+    // cached payload. The page must still render every other section.
+    renderRoute(<AdminFulfillmentRoute />, workspace());
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "No Lead Reports are open" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", {
+        level: 2,
+        name: "No Eligibility Holds are active",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "No Leads are suppressed" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeVisible();
+  });
+
+  it("links a Lead Report to its record and names the Customer who filed it", () => {
+    renderRoute(
+      <AdminFulfillmentRoute />,
+      workspace({ leadReports: [leadReport()] }),
+    );
+
+    const section = screen.getByRole("region", { name: "Lead Reports" });
+    expect(
+      within(section).getByRole("link", { name: "Wrong number" }),
+    ).toHaveAttribute("href", `/admin/fulfillment/reports/${LEAD_REPORT_ID}`);
+    expect(
+      within(section).getByText(/Reported by Northstar Insurance/),
+    ).toBeVisible();
+    expect(within(section).getByText(/Eligibility Hold active/)).toBeVisible();
+  });
+
+  it("distinguishes a report with no Eligibility Hold", () => {
+    renderRoute(
+      <AdminFulfillmentRoute />,
+      workspace({
+        leadReports: [
+          leadReport({
+            controls: { ...leadReport().controls, eligibilityHeld: false },
+          }),
+        ],
+      }),
+    );
+
+    const section = screen.getByRole("region", { name: "Lead Reports" });
+    expect(
+      within(section).getByText("No Eligibility Hold on this Lead."),
+    ).toBeVisible();
+    expect(within(section).queryByText(/Eligibility Hold active/)).toBeNull();
+  });
+
+  it("states the hold release rule in the domain's own words", () => {
+    renderRoute(
+      <AdminFulfillmentRoute />,
+      workspace({ eligibilityHolds: [eligibilityHold()] }),
+    );
+
+    const section = screen.getByRole("region", { name: "Eligibility Holds" });
+    expect(within(section).getByText(HOLD_RELEASE)).toBeVisible();
+    expect(within(section).getByText("+15125550123")).toBeVisible();
+  });
+
+  it("shows the restore notice beside every Restore control", () => {
+    renderRoute(
+      <AdminFulfillmentRoute />,
+      workspace({ suppressedLeads: [suppressedLead()] }),
+    );
+
+    const section = screen.getByRole("region", { name: "Suppressed Leads" });
+    expect(within(section).getByRole("button", { name: "Restore" })).toBeVisible();
+    expect(within(section).getByText(RESTORE_NOTICE)).toBeVisible();
+  });
+
+  it("restores a Lead through its suppression, with a reason", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    renderRoute(
+      <AdminFulfillmentRoute />,
+      workspace({ suppressedLeads: [suppressedLead()] }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Restore" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveAccessibleDescription(
+      /Returns this Lead to the eligible pool/,
+    );
+    await user.type(
+      within(dialog).getByLabelText("Reason (required)"),
+      "Report was mistaken.",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Restore" }));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/admin/leads/91/suppression",
+        expect.objectContaining({
+          method: "DELETE",
+          body: JSON.stringify({ reason: "Report was mistaken." }),
+        }),
+      );
+    });
   });
 });
 

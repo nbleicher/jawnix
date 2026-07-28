@@ -429,11 +429,8 @@ def test_google_maps_to_customer_feedback_acceptance(
             )
             assert correction_removed.status_code == 200
             resolved = client.post(
-                f"/api/admin/lead-reports/{report_id}/resolve",
-                json={
-                    "action": "dismissed",
-                    "note": "Acceptance review completed",
-                },
+                f"/api/admin/lead-reports/{report_id}/dismiss",
+                json={"note": "Acceptance review completed"},
             )
             assert resolved.status_code == 200
 

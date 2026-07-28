@@ -43,7 +43,21 @@ from .customer_requests import (
     submit_request,
 )
 from .database import get_db
-from .feedback import apply_disposition_controls, release_report_hold
+from .eligibility import (
+    RESTORE_NOTICE,
+    ControlConflict,
+    active_holds,
+    control_counts,
+    correct_from_report,
+    describe_report,
+    dismiss_report,
+    lead_evidence,
+    open_reports,
+    record_correction,
+    suppress_from_report,
+    suppressed_leads,
+)
+from .feedback import apply_disposition_controls
 from .frontend import register_frontend_shell
 from .jobs import enqueue_job
 from .recommendations import (
@@ -89,7 +103,8 @@ from .schemas import (
     ActionReason,
     LeadCorrectionApply,
     LeadReportCreate,
-    LeadReportResolve,
+    LeadReportCorrect,
+    LeadReportNote,
     NightlyDeliveryReconcile,
     CustomerUpdate,
     CustomerCreate,
@@ -2106,6 +2121,55 @@ def rollback_scraper_configuration(
     return _configuration_dict(item)
 
 
+def _evidence_payload(correction: LeadCorrectionEvent) -> dict:
+    """What the override disagreed with, as the correction row recorded it."""
+    return {
+        "kind": correction.based_on_kind,
+        "title": correction.based_on_title,
+        "state": correction.based_on_state,
+        "observationId": correction.based_on_observation_id,
+    }
+
+
+def _correction_activity(
+    db: Session,
+    correction: LeadCorrectionEvent,
+    *,
+    principal: Principal,
+    reason: str,
+    origin: dict | None = None,
+) -> None:
+    record_activity(
+        db,
+        action="lead_correction_applied",
+        target_type="lead",
+        target_id=correction.lead_id,
+        actor_id=principal.user_id,
+        reason=reason,
+        details={
+            "before": {
+                "correctionId": (
+                    str(correction.supersedes_correction_id)
+                    if correction.supersedes_correction_id
+                    else None
+                ),
+                "title": correction.based_on_title,
+                "state": correction.based_on_state,
+            },
+            "after": {
+                "correctionId": str(correction.id),
+                "title": correction.title,
+                "state": correction.state,
+            },
+            # The evidence travels with the decision, so a later Scrape Run
+            # superseding the Current Listing cannot strand this override
+            # with nothing to judge it against.
+            "evidence": _evidence_payload(correction),
+            **(origin or {}),
+        },
+    )
+
+
 @app.put("/api/admin/leads/{lead_id}/suppression")
 def suppress_lead(
     lead_id: int,
@@ -2113,6 +2177,7 @@ def suppress_lead(
     principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    """Make a Lead ineligible for every Customer, with a recorded reason."""
     lead = db.scalar(
         select(Lead).where(Lead.id == lead_id).with_for_update()
     )
@@ -2138,6 +2203,7 @@ def suppress_lead(
         "leadId": lead.id,
         "suppressed": lead.suppressed,
         "reason": lead.suppression_reason,
+        "restoreNotice": RESTORE_NOTICE,
     }
 
 
@@ -2148,6 +2214,12 @@ def unsuppress_lead(
     principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    """Return a Lead to the ordinary allocation rules, with a recorded reason.
+
+    Restoring eligibility is not an allocation: Global Cooldown, permanent
+    no-repeat history, and Licensed State scope all still apply afterwards.
+    ``restoreNotice`` says so wherever this is surfaced.
+    """
     lead = db.scalar(
         select(Lead).where(Lead.id == lead_id).with_for_update()
     )
@@ -2177,6 +2249,7 @@ def unsuppress_lead(
         "leadId": lead.id,
         "suppressed": lead.suppressed,
         "reason": lead.suppression_reason,
+        "restoreNotice": RESTORE_NOTICE,
     }
 
 
@@ -2187,48 +2260,29 @@ def apply_lead_correction(
     principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    """Override a Lead's delivered title or state against its evidence."""
     lead = db.scalar(
         select(Lead).where(Lead.id == lead_id).with_for_update()
     )
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead was not found.")
-    previous_id = lead.active_correction_id
-    previous = {
-        "correctionId": (
-            str(previous_id) if previous_id is not None else None
-        ),
-        "title": lead.title,
-        "state": lead.state,
-    }
-    correction = LeadCorrectionEvent(
-        lead_id=lead.id,
-        action="applied",
-        title=payload.title.strip() if payload.title is not None else lead.title,
-        state=payload.state or lead.state,
-        actor_id=str(principal.user_id),
-        reason=payload.reason.strip(),
-        supersedes_correction_id=previous_id,
-    )
-    db.add(correction)
-    db.flush()
-    lead.active_correction_id = correction.id
-    lead.title = correction.title
-    lead.state = correction.state
-    record_activity(
+    try:
+        correction = record_correction(
+            db,
+            lead,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+            title=payload.title,
+            state=payload.state,
+        )
+    except ControlConflict as conflict:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=conflict.message) from None
+    _correction_activity(
         db,
-        action="lead_correction_applied",
-        target_type="lead",
-        target_id=lead.id,
-        actor_id=principal.user_id,
+        correction,
+        principal=principal,
         reason=payload.reason,
-        details={
-            "before": previous,
-            "after": {
-                "correctionId": str(correction.id),
-                "title": lead.title,
-                "state": lead.state,
-            },
-        },
     )
     db.commit()
     return {
@@ -2236,6 +2290,7 @@ def apply_lead_correction(
         "correctionId": str(correction.id),
         "title": lead.title,
         "state": lead.state,
+        "evidence": _evidence_payload(correction),
     }
 
 
@@ -2246,6 +2301,7 @@ def remove_lead_correction(
     principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    """Drop the override so the Lead falls back to the evidence underneath."""
     lead = db.scalar(
         select(Lead).where(Lead.id == lead_id).with_for_update()
     )
@@ -2262,6 +2318,11 @@ def remove_lead_correction(
         "title": lead.title,
         "state": lead.state,
     }
+    lead.active_correction_id = None
+    # Resolve the fallback *after* clearing the override, so the evidence
+    # reported is what the Lead actually reverts to rather than the override
+    # that is going away.
+    evidence = lead_evidence(db, lead)
     removal = LeadCorrectionEvent(
         lead_id=lead.id,
         action="removed",
@@ -2270,20 +2331,18 @@ def remove_lead_correction(
         actor_id=str(principal.user_id),
         reason=payload.reason.strip(),
         supersedes_correction_id=active.id,
+        based_on_kind=evidence.kind,
+        based_on_observation_id=evidence.observation_id,
+        based_on_title=evidence.title,
+        based_on_state=evidence.state,
     )
     db.add(removal)
-    lead.active_correction_id = None
-    observation = (
-        db.get(ListingObservation, lead.current_listing_observation_id)
-        if lead.current_listing_observation_id is not None
-        else None
-    )
-    if observation is not None:
-        lead.title = observation.title
-        lead.state = observation.state
-    else:
+    if evidence.kind == "none":
         lead.title = lead.legacy_title
         lead.state = lead.legacy_state
+    else:
+        lead.title = evidence.title
+        lead.state = evidence.state
     record_activity(
         db,
         action="lead_correction_removed",
@@ -2298,6 +2357,7 @@ def remove_lead_correction(
                 "title": lead.title,
                 "state": lead.state,
             },
+            "evidence": _evidence_payload(removal),
         },
     )
     db.commit()
@@ -2306,16 +2366,38 @@ def remove_lead_correction(
         "correctionId": None,
         "title": lead.title,
         "state": lead.state,
+        "evidence": _evidence_payload(removal),
     }
 
 
-@app.post("/api/admin/lead-reports/{report_id}/resolve")
-def resolve_lead_report(
-    report_id: uuid.UUID,
-    payload: LeadReportResolve,
-    principal: Principal = Depends(require_admin),
+@app.get("/api/admin/lead-reports")
+def admin_lead_reports(
+    _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    """Every Lead Report awaiting a decision, with its control state."""
+    return {
+        "counts": control_counts(db),
+        "reports": open_reports(db),
+        "eligibilityHolds": active_holds(db),
+        "suppressedLeads": suppressed_leads(db),
+    }
+
+
+@app.get("/api/admin/lead-reports/{report_id}")
+def admin_lead_report_detail(
+    report_id: uuid.UUID,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """One Lead Report, its evidence, and the controls sitting beside it."""
+    report = db.get(LeadReport, report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Lead Report was not found.")
+    return describe_report(db, report)
+
+
+def _open_report(db: Session, report_id: uuid.UUID) -> LeadReport:
     report = db.scalar(
         select(LeadReport)
         .where(LeadReport.id == report_id)
@@ -2323,83 +2405,175 @@ def resolve_lead_report(
     )
     if report is None:
         raise HTTPException(status_code=404, detail="Lead Report was not found.")
-    if report.status != "open":
-        raise HTTPException(
-            status_code=409,
-            detail="Lead Report is already resolved.",
-        )
-    event = db.get(DistributionEvent, report.distribution_event_id)
-    lead = db.scalar(
-        select(Lead).where(Lead.id == event.lead_id).with_for_update()
-    )
-    resolution = LeadReportResolution(
-        report_id=report.id,
-        action=payload.action,
-        note=payload.note.strip(),
-        actor_id=str(principal.user_id),
-    )
-    db.add(resolution)
-    hold = release_report_hold(
-        db,
-        report,
-        actor_id=str(principal.user_id),
-        reason=payload.note.strip(),
-    )
-    if payload.action == "corrected":
-        correction = LeadCorrectionEvent(
-            lead_id=lead.id,
-            action="applied",
-            title=(
-                payload.title.strip()
-                if payload.title is not None
-                else lead.title
-            ),
-            state=payload.state or lead.state,
-            actor_id=str(principal.user_id),
-            reason=payload.note.strip(),
-            supersedes_correction_id=lead.active_correction_id,
-        )
-        db.add(correction)
-        db.flush()
-        lead.active_correction_id = correction.id
-        lead.title = correction.title
-        lead.state = correction.state
-    elif payload.action == "suppressed":
-        lead.suppressed = True
-        lead.suppression_reason = payload.note.strip()
-    report.status = payload.action
+    return report
+
+
+def _report_activity(
+    db: Session,
+    report: LeadReport,
+    *,
+    action: str,
+    principal: Principal,
+    note: str,
+    after: dict,
+) -> None:
     record_activity(
         db,
-        action=f"lead_report_{payload.action}",
+        action=f"lead_report_{action}",
         target_type="lead_report",
         target_id=report.id,
         actor_id=principal.user_id,
+        reason=note,
+        details={
+            "before": {"status": "open"},
+            "after": {"status": report.status, **after},
+            "distributionEventId": report.distribution_event_id,
+            "reportReason": report.reason,
+        },
+    )
+
+
+# The three resolutions are separate endpoints because they are separate
+# decisions. A single /resolve taking an action name made "dismiss" and
+# "suppress" look like variations of one act, and let a caller send a title to
+# an endpoint that has nowhere to put one.
+
+
+@app.post("/api/admin/lead-reports/{report_id}/dismiss")
+def dismiss_lead_report(
+    report_id: uuid.UUID,
+    payload: LeadReportNote,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Judge the report unfounded. Releases the hold; the Lead is untouched."""
+    report = _open_report(db, report_id)
+    try:
+        dismiss_report(
+            db,
+            report,
+            actor_id=principal.user_id,
+            note=payload.note,
+        )
+    except ControlConflict as conflict:
+        raise HTTPException(status_code=409, detail=conflict.message) from None
+    _report_activity(
+        db,
+        report,
+        action="dismissed",
+        principal=principal,
+        note=payload.note,
+        after={"eligibilityHeld": False, "leadChanged": False},
+    )
+    db.commit()
+    return {
+        "reportId": str(report.id),
+        "status": report.status,
+        "eligibilityHeld": False,
+    }
+
+
+@app.post("/api/admin/lead-reports/{report_id}/correct")
+def correct_lead_report(
+    report_id: uuid.UUID,
+    payload: LeadReportCorrect,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Override the Lead's delivered values in answer to the report."""
+    report = _open_report(db, report_id)
+    try:
+        correction = correct_from_report(
+            db,
+            report,
+            actor_id=principal.user_id,
+            note=payload.note,
+            title=payload.title,
+            state=payload.state,
+        )
+    except ControlConflict as conflict:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=conflict.message) from None
+    _report_activity(
+        db,
+        report,
+        action="corrected",
+        principal=principal,
+        note=payload.note,
+        after={
+            "eligibilityHeld": False,
+            "correctionId": str(correction.id),
+        },
+    )
+    # Correcting a Lead is consequential in its own right, so it is recorded
+    # on the Lead as well. Reading only the report's Activity would otherwise
+    # leave the Lead's own history with an unexplained change of values.
+    _correction_activity(
+        db,
+        correction,
+        principal=principal,
+        reason=payload.note,
+        origin={"leadReportId": str(report.id)},
+    )
+    db.commit()
+    return {
+        "reportId": str(report.id),
+        "status": report.status,
+        "correctionId": str(correction.id),
+        "title": correction.title,
+        "state": correction.state,
+        "evidence": _evidence_payload(correction),
+    }
+
+
+@app.post("/api/admin/lead-reports/{report_id}/suppress")
+def suppress_lead_report(
+    report_id: uuid.UUID,
+    payload: LeadReportNote,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Convert the report into audited Lead Suppression."""
+    report = _open_report(db, report_id)
+    try:
+        lead = suppress_from_report(
+            db,
+            report,
+            actor_id=principal.user_id,
+            note=payload.note,
+        )
+    except ControlConflict as conflict:
+        raise HTTPException(status_code=409, detail=conflict.message) from None
+    _report_activity(
+        db,
+        report,
+        action="suppressed",
+        principal=principal,
+        note=payload.note,
+        after={"eligibilityHeld": False, "leadSuppressed": True},
+    )
+    # Suppression is an eligibility change, so it is recorded against the Lead
+    # under the same action name a direct suppression uses.
+    record_activity(
+        db,
+        action="lead_suppressed",
+        target_type="lead",
+        target_id=lead.id,
+        actor_id=principal.user_id,
         reason=payload.note,
         details={
-            "before": {
-                "status": "open",
-                "eligibilityHeld": hold is not None,
-            },
-            "after": {
-                "status": report.status,
-                "eligibilityHeld": False,
-                "leadSuppressed": lead.suppressed,
-                "leadTitle": lead.title,
-                "leadState": lead.state,
-            },
-            "distributionEventId": event.id,
-            "leadId": lead.id,
-            "reportReason": report.reason,
-            "eligibilityHoldId": (
-                str(hold.id) if hold is not None else None
-            ),
+            "before": {"suppressed": False},
+            "after": {"suppressed": True},
+            "leadReportId": str(report.id),
         },
     )
     db.commit()
     return {
         "reportId": str(report.id),
         "status": report.status,
-        "resolutionId": str(resolution.id),
+        "leadId": lead.id,
+        "suppressed": True,
+        "restoreNotice": RESTORE_NOTICE,
     }
 
 

@@ -9,6 +9,7 @@ import {
   PENDING_REQUEST_ID,
   mockFulfillment,
 } from "./fulfillment-fixtures";
+import { mockLeadReports } from "./lead-report-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 import type { RecordedCall } from "./fulfillment-fixtures";
 
@@ -48,6 +49,9 @@ const STALE_APPROVED_DETAIL = {
 test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
   calls = await mockFulfillment(page);
+  // The workspace now carries the #58 sections too; their controls must not
+  // fall through to an unmocked endpoint from these specs.
+  await mockLeadReports(page);
 });
 
 test.describe("Only domain-valid actions are offered", () => {
