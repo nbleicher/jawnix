@@ -232,6 +232,17 @@ test.describe("Stale state", () => {
   }) => {
     await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
 
+    /*
+     * Wait for the *pending* record to be on screen before overriding the
+     * endpoint. Registering the stale response first lets it answer the initial
+     * load too: the page then renders an already-approved request, the Approve
+     * button never exists, and the click below times out after 30s. That is a
+     * race against how quickly the first fetch leaves the page, which is why it
+     * only failed on some machines and some worker counts.
+     */
+    const actionsRegion = page.getByRole("region", { name: "Actions" });
+    await expect(actionsRegion.getByRole("button", { name: "Approve" })).toBeVisible();
+
     // The record moved on elsewhere — in Telegram, or in another tab.
     let reloaded = false;
     await page.route(
@@ -259,10 +270,7 @@ test.describe("Stale state", () => {
         }),
     );
 
-    await page
-      .getByRole("region", { name: "Actions" })
-      .getByRole("button", { name: "Approve" })
-      .click();
+    await actionsRegion.getByRole("button", { name: "Approve" }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Reason (required)").fill("Stale view.");
     await dialog.getByRole("button", { name: "Approve" }).click();
