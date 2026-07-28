@@ -3,9 +3,15 @@
 Findings from implementing **#47** (feature-flagged React application shell) and the follow-up
 infrastructure work.
 
-Last updated 2026-07-28. Branch `implement-issues-47-71-spec-46`, pushed, in review as
-[PR #72](https://github.com/nbleicher/jawnix/pull/72). Build order:
-[ui-rebuild-order.md](ui-rebuild-order.md).
+Last updated 2026-07-28. Build order: [ui-rebuild-order.md](ui-rebuild-order.md).
+
+| | State |
+|---|---|
+| Branch | `implement-issues-47-71-spec-46`, pushed |
+| Pull request | [#72](https://github.com/nbleicher/jawnix/pull/72) — **OPEN, MERGEABLE, CLEAN** |
+| CI | **green** on `93a97d3` — frontend, backend, and image jobs all pass |
+| Issues #46–#71 | all still OPEN; #47 closes when #72 merges |
+| Waiting on you | merge #72, then decide how to resource #49 (item A) |
 
 Legend: 🔴 open, needs your decision · 🟡 worth knowing · 🟢 resolved
 
@@ -226,10 +232,36 @@ Listed because they show where the suite was blind.
 
 ## Verification performed
 
-- **37** unit tests (vitest) · **58** Playwright journeys against the compiled bundle
-  (mobile + desktop) · **128** Python tests (2 skipped — pre-existing environment gates).
-- axe WCAG 2.2 AA sweep over every route, plus the gallery in both themes.
-- Docker image built and run end to end, both flag states.
+**223 automated tests, now running in CI on every pull request** — verified green on the exact
+commit rather than inferred:
+
+| Suite | Count |
+|---|---|
+| vitest (unit) | 37 |
+| Playwright, against the compiled bundle, mobile + desktop | 58 |
+| pytest | 128 (2 skipped — pre-existing environment gates) |
+
+Also covered: axe WCAG 2.2 AA sweep over every route plus the gallery in both themes; Docker
+image built and exercised end to end in both feature-flag states; a deliberate type error
+confirmed to fail the image build.
 
 **Not performed** (all belong to #70): manual screen-reader testing, real-device testing,
 visual regression.
+
+---
+
+## A note on my own reliability
+
+Three times in this work my *measurement* was wrong while the code was fine. Recording it so the
+sheet is not read as more certain than it is:
+
+1. **`docker build` failed** and I initially attributed it to `tsc` being memory-hungry. The real
+   cause was a 1.9 GB Colima VM shared with three other projects. Diagnosed properly only after
+   measuring available memory inside a container.
+2. **A CI monitor reported a stale failure as current** — it polled "latest run" and caught the
+   previous commit's result before the new run registered. I reported it before spotting the
+   race, then corrected it and re-armed pinned to the SHA.
+3. **Two of my own test assertions were wrong**, not the code they tested.
+
+In each case the fix was to verify empirically rather than reason from plausibility. Where this
+sheet says "verified", it means a command was run and its output read.

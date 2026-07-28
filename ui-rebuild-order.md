@@ -11,15 +11,20 @@ Last updated 2026-07-28. Companion sheet: [for-noah-review.md](for-noah-review.m
 
 | | Count |
 |---|---|
-| ✅ Complete | 1 (#47) |
+| ✅ Built, in review | 1 (#47) |
 | 🔓 Unblocked, ready to start | 2 (#48, #49) |
 | 🔒 Blocked | 22 |
 
-**#47 is in review** — [PR #72](https://github.com/nbleicher/jawnix/pull/72), which closes it on
-merge. All 26 issues (#46–#71) remain OPEN until then.
+**#47 is in review** — [PR #72](https://github.com/nbleicher/jawnix/pull/72), CI green,
+`MERGEABLE`/`CLEAN`, closing #47 on merge. All 26 issues (#46–#71) remain OPEN until then.
 
-Later slices should branch from `implement-issues-47-71-spec-46` (or from `main` once #72
-merges) so #47 stays reviewable as a discrete unit.
+**Start #49 before #48.** Both are unblocked, but #49 is on the critical path and gates 17 of
+the 24 remaining issues; #48 gates 7. See the caution on #49's size in
+[for-noah-review.md](for-noah-review.md) item A.
+
+Later slices should branch from `main` once #72 merges — or from
+`implement-issues-47-71-spec-46` if you want to start before then — so #47 stays reviewable as a
+discrete unit.
 
 ---
 
@@ -110,7 +115,9 @@ Plan both as human-led, with agents preparing evidence rather than executing.
 
 ## Definition of done for each slice
 
-Established by #47 and enforced by `.github/workflows/ci.yml` on every push and pull request:
+Established by #47 and **enforced by `.github/workflows/ci.yml` on every pull request** — three
+jobs (frontend, backend, image), currently green. It has already caught two real defects, so
+treat a red build as a finding rather than noise:
 
 - `npm run typecheck`, `npm test`, `npm run test:e2e` and `uv run pytest` all green.
 - New primitives added to `/app/design-system`, or they get no accessibility or
