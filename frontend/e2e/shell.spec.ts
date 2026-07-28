@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { mockAcquisition } from "./acquisition-fixtures";
+import { mockFeedback } from "./customer-feedback-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockFulfillment } from "./fulfillment-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
@@ -20,6 +21,8 @@ test.beforeEach(async ({ page }) => {
   await mockAcquisition(page);
   await mockAdminCustomers(page);
   await mockFulfillment(page);
+  // Feedback reads a real contract since #53.
+  await mockFeedback(page);
 });
 
 test.describe("Customer shell", () => {

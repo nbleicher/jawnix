@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
 import { mockAcquisition } from "./acquisition-fixtures";
+import { mockFeedback } from "./customer-feedback-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import {
   CONFLICT_ID,
@@ -46,6 +47,7 @@ const ROUTES = [
 test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
   await mockAcquisition(page);
+  await mockFeedback(page);
   await mockAdminCustomers(page, { pendingInvitation: true });
   await mockFulfillment(page);
 });
