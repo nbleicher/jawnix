@@ -8,9 +8,11 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
 # Bundle only. `npm run build` also runs `tsc -b`, which needs more memory than a
-# modest build host has (it is OOM-killed under ~2GB). Types are gated by
-# `npm run typecheck` in local verification and CI, so the image build does not
-# need to repeat it.
+# modest build host has (it is OOM-killed under ~2GB).
+#
+# NOTE: this repo has no CI, so nothing currently enforces `npm run typecheck`
+# before an image is built. Until a check exists, a type error can reach an
+# image. See for-noah-review.md.
 RUN npm run build:bundle
 
 FROM python:3.12-slim
