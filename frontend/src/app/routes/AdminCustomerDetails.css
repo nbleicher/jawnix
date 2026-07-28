@@ -1,0 +1,44 @@
+.admin-customer-details__facts {
+  display: grid;
+  gap: var(--jx-space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+}
+
+.admin-customer-details__fact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+  min-width: 0;
+}
+
+.admin-customer-details__fact dd {
+  color: var(--jx-color-text-strong);
+  font-weight: var(--jx-weight-semibold);
+}
+
+/* The pending invitation is set apart deliberately: a replacement that has not
+   been accepted must never read as one that already happened. */
+.admin-customer-details__pending {
+  border-color: var(--jx-color-accent);
+  background: var(--jx-color-accent-soft);
+}
+
+.admin-customer-details__list {
+  list-style: none;
+}
+
+.admin-customer-details__dependencies {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+  padding-inline-start: var(--jx-space-4);
+  list-style: disc;
+}
+
+.admin-customer-details__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-2);
+  min-height: var(--jx-touch-target);
+  color: var(--jx-color-text-strong);
+}

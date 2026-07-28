@@ -4,11 +4,15 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from jawnix.allocation import allocate_request
 from jawnix.api import _customer_invitation_redirect, app
+from jawnix.customer_accounts import accept_user_account_invitation
 from jawnix.auth import Principal, require_admin, require_principal
 from jawnix.config import get_settings
 from jawnix.database import get_db
@@ -35,6 +39,7 @@ from jawnix.models import (
     SourceSegment,
     SourceRecommendation,
     UserAccount,
+    UserAccountInvitation,
     utcnow,
 )
 from jawnix.telegram import anomaly_callback_data, callback_data
@@ -1173,134 +1178,6 @@ def test_customer_invitation_redirect_follows_the_ui_feature_flag(settings):
     )
 
 
-def test_admin_invites_user_account_without_receiving_or_recording_a_password(
-    session,
-    settings,
-    monkeypatch,
-):
-    admin_id = uuid.uuid4()
-    user_id = uuid.uuid4()
-    settings = settings.model_copy(
-        update={
-            "new_ui_enabled": True,
-            "public_base_url": "https://jawnix.example",
-        }
-    )
-    provider_requests: list[tuple[str, str, dict]] = []
-
-    async def fake_admin(_settings, method, path, payload):
-        provider_requests.append((method, path, payload))
-        return {"id": str(user_id)}
-
-    def database_override():
-        yield session
-
-    app.dependency_overrides[get_db] = database_override
-    app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[require_admin] = lambda: Principal(
-        user_id=admin_id,
-        email="admin@example.com",
-        role="admin",
-        csrf="test",
-    )
-    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
-    try:
-        response = TestClient(app).post(
-            "/api/admin/customers",
-            json={
-                "email": "new-user@example.com",
-                "first_name": "New",
-                "last_name": "User",
-            },
-        )
-        assert response.status_code == 201
-        assert response.json() == {
-            "ok": True,
-            "userId": str(user_id),
-            "mappingConfirmed": False,
-        }
-        assert provider_requests == [
-            (
-                "POST",
-                (
-                    "/auth/v1/invite?"
-                    "redirect_to=https%3A%2F%2Fjawnix.example"
-                    "%2Fapp%2Faccept-invitation"
-                ),
-                {
-                    "email": "new-user@example.com",
-                    "data": {
-                        "first_name": "New",
-                        "last_name": "User",
-                    },
-                },
-            )
-        ]
-        audit = session.scalar(
-            select(AuditEntry).where(
-                AuditEntry.action == "user_account_invitation_sent"
-            )
-        )
-        assert audit is not None
-        assert audit.actor_user_id == str(admin_id)
-        assert audit.target_type == "user_account"
-        assert audit.target_id == str(user_id)
-        assert audit.details["after"] == {
-            "invitationDispatched": True,
-            "mappingConfirmed": False,
-            "customerId": None,
-        }
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_admin_customer_invitation_rejects_and_redacts_known_password(
-    session,
-    settings,
-    monkeypatch,
-):
-    known_password = "Known-secret-password-48"
-    provider_called = False
-
-    async def fake_admin(*_args):
-        nonlocal provider_called
-        provider_called = True
-        return {"id": str(uuid.uuid4())}
-
-    def database_override():
-        yield session
-
-    app.dependency_overrides[get_db] = database_override
-    app.dependency_overrides[get_settings] = lambda: settings
-    app.dependency_overrides[require_admin] = lambda: Principal(
-        user_id=uuid.uuid4(),
-        email="admin@example.com",
-        role="admin",
-        csrf="test",
-    )
-    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
-    try:
-        response = TestClient(app).post(
-            "/api/admin/customers",
-            json={
-                "email": "new-user@example.com",
-                "first_name": "New",
-                "last_name": "User",
-                "password": known_password,
-            },
-        )
-
-        assert response.status_code == 422
-        assert response.json() == {
-            "detail": "The Customer invitation request was invalid."
-        }
-        assert known_password not in response.text
-        assert provider_called is False
-        assert session.scalar(select(func.count(AuditEntry.id))) == 0
-    finally:
-        app.dependency_overrides.clear()
-
-
 def test_admin_batch_request_decision_records_actor_reason_and_change(
     session,
 ):
@@ -1546,11 +1423,15 @@ def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
         app.dependency_overrides.clear()
 
 
-def test_admin_replaces_user_account_without_replacing_customer_identity(
+def test_replacement_waits_for_acceptance_then_swaps_access_atomically(
     session,
+    settings,
+    monkeypatch,
 ):
+    """The prior account keeps working until the replacement is accepted."""
     old_user_id = uuid.uuid4()
     new_user_id = uuid.uuid4()
+    admin_id = uuid.uuid4()
     customer = Agent(
         slug="replaceable-account-customer",
         name="Replaceable Account Customer",
@@ -1571,6 +1452,384 @@ def test_admin_replaces_user_account_without_replacing_customer_identity(
     )
     session.add_all([customer, old_profile, old_account])
     session.commit()
+    event = DistributionEvent(
+        lead_id=None,
+        agent_id=customer.id,
+        customer_name=customer.name,
+        phone="2145550111",
+        title="Existing history",
+        state="TX",
+    )
+    lead = Lead(phone="2145550111", title="Existing history", state="TX")
+    session.add(lead)
+    session.flush()
+    event.lead_id = lead.id
+    session.add(event)
+    session.commit()
+    history_event_id = event.id
+
+    settings = settings.model_copy(
+        update={
+            "supabase_url": "https://auth.example.test",
+            "supabase_service_role_key": "service-role-key",
+            "public_base_url": "https://jawnix.example",
+        }
+    )
+
+    async def fake_admin(_settings, _method, _path, _payload):
+        return {"id": str(new_user_id)}
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=admin_id,
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
+    try:
+        client = TestClient(app)
+        invited = client.post(
+            f"/api/admin/customers/{customer.id}/user-account-invitation",
+            json={"email": "new-account@example.com"},
+        )
+        assert invited.status_code == 201
+        assert invited.json()["activated"] is False
+        assert invited.json()["replacesAuthUserId"] == str(old_user_id)
+
+        # Nothing about access has changed yet.
+        session.refresh(old_account)
+        assert old_account.active is True
+        assert old_account.replaced_at is None
+        assert session.get(UserAccount, new_user_id) is None
+
+        details = client.get(
+            f"/api/admin/customers/{customer.id}/details"
+        ).json()
+        assert details["user_account"]["auth_user_id"] == str(old_user_id)
+        assert details["invitation"]["email"] == "new-account@example.com"
+        assert details["history"]["distributions"] == 1
+
+        # The prior account can still sign in while the invitation is open.
+        app.dependency_overrides[require_principal] = lambda: Principal(
+            user_id=old_user_id,
+            email=old_profile.email,
+            role="customer",
+            csrf="test",
+        )
+        assert client.get("/api/me/profile").status_code == 200
+
+        accepted = accept_user_account_invitation(
+            session,
+            auth_user_id=new_user_id,
+            email="new-account@example.com",
+        )
+        session.commit()
+        assert accepted is not None
+
+        session.refresh(old_account)
+        assert old_account.active is False
+        assert old_account.replaced_at is not None
+        assert old_account.replaced_by_auth_user_id == new_user_id
+        new_account = session.get(UserAccount, new_user_id)
+        assert new_account is not None and new_account.active is True
+        assert new_account.customer_id == customer.id
+
+        # The durable Customer and its history are untouched.
+        session.refresh(customer)
+        assert customer.id == new_account.customer_id
+        assert customer.slug == "replaceable-account-customer"
+        assert session.get(DistributionEvent, history_event_id).agent_id == (
+            customer.id
+        )
+        assert session.scalar(
+            select(func.count(DistributionEvent.id)).where(
+                DistributionEvent.agent_id == customer.id
+            )
+        ) == 1
+
+        assert client.get("/api/me/profile").status_code == 403
+        app.dependency_overrides[require_principal] = lambda: Principal(
+            user_id=new_user_id,
+            email="new-account@example.com",
+            role="customer",
+            csrf="test",
+        )
+        current = client.get("/api/me/profile")
+        assert current.status_code == 200
+        assert current.json()["customer_id"] == customer.id
+        assert current.json()["licensed_states"] == ["FL", "TX"]
+
+        audit = session.scalar(
+            select(AuditEntry).where(
+                AuditEntry.action == "customer_user_account_replaced"
+            )
+        )
+        assert audit is not None
+        assert audit.target_type == "customer"
+        assert audit.target_id == str(customer.id)
+        assert audit.details["before"] == {
+            "activeAuthUserIds": [str(old_user_id)]
+        }
+        assert audit.details["after"] == {
+            "activeAuthUserIds": [str(new_user_id)]
+        }
+        assert audit.details["historyPreserved"] is True
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_persistence_refuses_a_second_active_user_account_per_customer(
+    session,
+):
+    """The one-active-account rule is a database constraint, not a screen rule."""
+    customer = Agent(slug="constrained-customer", name="Constrained Customer")
+    session.add(customer)
+    session.flush()
+    session.add(
+        UserAccount(
+            auth_user_id=uuid.uuid4(),
+            email="first@example.com",
+            customer_id=customer.id,
+            active=True,
+        )
+    )
+    session.commit()
+
+    session.add(
+        UserAccount(
+            auth_user_id=uuid.uuid4(),
+            email="second@example.com",
+            customer_id=customer.id,
+            active=True,
+        )
+    )
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+
+    # And at most one outstanding invitation, for the same reason.
+    session.add(
+        UserAccountInvitation(
+            customer_id=customer.id,
+            auth_user_id=uuid.uuid4(),
+            email="invited@example.com",
+            status="pending",
+            invited_by="admin",
+            reason="First invitation",
+        )
+    )
+    session.commit()
+    session.add(
+        UserAccountInvitation(
+            customer_id=customer.id,
+            auth_user_id=uuid.uuid4(),
+            email="other@example.com",
+            status="pending",
+            invited_by="admin",
+            reason="Second invitation",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        session.commit()
+    session.rollback()
+
+
+def test_failed_invitation_dispatch_leaves_the_customer_untouched(
+    session,
+    settings,
+    monkeypatch,
+):
+    old_user_id = uuid.uuid4()
+    customer = Agent(slug="invite-failure-customer", name="Invite Failure")
+    profile = CustomerProfile(
+        user_id=old_user_id,
+        email="held@example.com",
+        agent=customer,
+        mapping_confirmed_at=utcnow(),
+    )
+    account = UserAccount(
+        auth_user_id=old_user_id,
+        email=profile.email,
+        customer=customer,
+        active=True,
+    )
+    session.add_all([customer, profile, account])
+    session.commit()
+
+    settings = settings.model_copy(
+        update={
+            "supabase_url": "https://auth.example.test",
+            "supabase_service_role_key": "service-role-key",
+        }
+    )
+
+    async def failing_admin(*_args):
+        raise HTTPException(
+            status_code=502,
+            detail="Supabase administration failed: rate limited",
+        )
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    monkeypatch.setattr("jawnix.api._supabase_admin", failing_admin)
+    try:
+        failed = TestClient(app).post(
+            f"/api/admin/customers/{customer.id}/user-account-invitation",
+            json={"email": "never-invited@example.com"},
+        )
+        assert failed.status_code == 502
+        session.rollback()
+        session.refresh(account)
+        assert account.active is True
+        assert session.scalar(
+            select(func.count(UserAccountInvitation.id)).where(
+                UserAccountInvitation.customer_id == customer.id
+            )
+        ) == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_an_identity_can_be_invited_again_after_cancellation(
+    session,
+    settings,
+    monkeypatch,
+):
+    """Cancelling is not a permanent ban: the same email can be invited again."""
+    incumbent_id = uuid.uuid4()
+    invited_id = uuid.uuid4()
+    admin_id = uuid.uuid4()
+    first = Agent(slug="reinvite-customer", name="Reinvite Customer")
+    second = Agent(slug="other-customer", name="Other Customer")
+    session.add_all([first, second])
+    session.flush()
+    session.add(
+        UserAccount(
+            auth_user_id=incumbent_id,
+            email="incumbent@example.com",
+            customer_id=first.id,
+            active=True,
+        )
+    )
+    session.add(
+        UserAccount(
+            auth_user_id=uuid.uuid4(),
+            email="other@example.com",
+            customer_id=second.id,
+            active=True,
+        )
+    )
+    session.commit()
+
+    settings = settings.model_copy(
+        update={
+            "supabase_url": "https://auth.example.test",
+            "supabase_service_role_key": "service-role-key",
+        }
+    )
+
+    async def fake_admin(_settings, _method, _path, _payload):
+        return {"id": str(invited_id)}
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=admin_id,
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
+    try:
+        client = TestClient(app)
+        path = f"/api/admin/customers/{first.id}/user-account-invitation"
+        assert client.post(path, json={"email": "invited@example.com"}).status_code == 201
+
+        # The same identity cannot be promised to two Customers at once.
+        elsewhere = client.post(
+            f"/api/admin/customers/{second.id}/user-account-invitation",
+            json={"email": "invited@example.com"},
+        )
+        assert elsewhere.status_code == 409
+        assert "another" in elsewhere.json()["detail"]
+
+        # A second invitation to the same Customer is refused, not duplicated.
+        assert client.post(
+            path, json={"email": "someone-else@example.com"}
+        ).status_code == 409
+
+        canceled = client.request(
+            "DELETE",
+            path,
+            json={"reason": "Wrong address."},
+        )
+        assert canceled.status_code == 200
+        session.refresh(session.get(UserAccount, incumbent_id))
+        assert session.get(UserAccount, incumbent_id).active is True
+
+        # Re-inviting the very same identity now succeeds.
+        again = client.post(path, json={"email": "invited@example.com"})
+        assert again.status_code == 201
+        assert session.scalar(
+            select(func.count(UserAccountInvitation.id)).where(
+                UserAccountInvitation.auth_user_id == invited_id
+            )
+        ) == 2
+        assert session.scalar(
+            select(func.count(UserAccountInvitation.id)).where(
+                UserAccountInvitation.auth_user_id == invited_id,
+                UserAccountInvitation.status == "pending",
+            )
+        ) == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_directory_search_surfaces_setup_problems_and_account_standing(
+    session,
+):
+    agency = Agency(slug="north-agency", name="North Agency")
+    session.add(agency)
+    session.flush()
+    healthy = Agent(
+        slug="healthy-customer",
+        name="Healthy Customer",
+        licensed_states=["TX"],
+        agency_id=agency.id,
+    )
+    stranded = Agent(
+        slug="stranded-customer",
+        name="Stranded Customer",
+        licensed_states=[],
+    )
+    session.add_all([healthy, stranded])
+    session.flush()
+    session.add(
+        UserAccount(
+            auth_user_id=uuid.uuid4(),
+            email="healthy@example.com",
+            customer_id=healthy.id,
+            active=True,
+        )
+    )
+    session.commit()
 
     def database_override():
         yield session
@@ -1584,70 +1843,181 @@ def test_admin_replaces_user_account_without_replacing_customer_identity(
     )
     try:
         client = TestClient(app)
-        replaced = client.put(
-            f"/api/admin/customers/{customer.id}/user-account",
+        directory = client.get("/api/admin/customers/directory").json()
+        assert directory["total"] == 2
+        rows = {row["slug"]: row for row in directory["customers"]}
+        assert rows["healthy-customer"]["agency"] == "North Agency"
+        assert rows["healthy-customer"]["account_status"]["label"] == (
+            "Account active"
+        )
+        assert rows["healthy-customer"]["problems"] == []
+        assert rows["stranded-customer"]["account_status"]["label"] == (
+            "No account"
+        )
+        assert rows["stranded-customer"]["problems"] == [
+            "No User Account has been invited",
+            "No Licensed States",
+        ]
+        assert rows["healthy-customer"]["href"] == (
+            f"/app/admin/customers/{healthy.id}"
+        )
+
+        searched = client.get(
+            "/api/admin/customers/directory",
+            params={"q": "healthy@example.com"},
+        ).json()
+        assert [row["slug"] for row in searched["customers"]] == [
+            "healthy-customer"
+        ]
+
+        filtered = client.get(
+            "/api/admin/customers/directory",
+            params={"problems_only": True, "state": "TX"},
+        ).json()
+        assert filtered["customers"] == []
+
+        by_agency = client.get(
+            "/api/admin/customers/directory",
+            params={"agency_id": agency.id},
+        ).json()
+        assert [row["slug"] for row in by_agency["customers"]] == [
+            "healthy-customer"
+        ]
+        # No internal lifecycle vocabulary leaks into the screen contract.
+        assert "pending" not in json.dumps(directory)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_creating_a_customer_invites_access_and_never_takes_a_password(
+    session,
+    settings,
+    monkeypatch,
+):
+    admin_id = uuid.uuid4()
+    invited_user_id = uuid.uuid4()
+    settings = settings.model_copy(
+        update={
+            "new_ui_enabled": True,
+            "public_base_url": "https://jawnix.example",
+        }
+    )
+    provider_requests: list[tuple[str, str, dict]] = []
+
+    async def fake_admin(_settings, method, path, payload):
+        provider_requests.append((method, path, payload))
+        return {"id": str(invited_user_id)}
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=admin_id,
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
+    try:
+        client = TestClient(app)
+        created = client.post(
+            "/api/admin/customers",
             json={
-                "auth_user_id": str(new_user_id),
-                "email": "new-account@example.com",
+                "name": "Brand New Customer",
+                "email": "new-user@example.com",
+                "first_name": "New",
+                "last_name": "User",
+                "licensed_states": ["tx"],
+                "reason": "Onboarded an independent Customer.",
             },
         )
-        assert replaced.status_code == 200
-        assert replaced.json() == {
-            "customerId": customer.id,
-            "authUserId": str(new_user_id),
-            "email": "new-account@example.com",
-            "licensedStates": ["FL", "TX"],
-        }
+        assert created.status_code == 201
+        body = created.json()
+        assert body["slug"] == "brand-new-customer"
+        assert body["userId"] == str(invited_user_id)
+        # Nothing to displace, so first provisioning takes effect at once.
+        assert body["mappingConfirmed"] is True
 
-        session.refresh(old_account)
-        assert old_account.active is False
-        assert old_account.replaced_at is not None
-        new_account = session.scalar(
-            select(UserAccount).where(
-                UserAccount.auth_user_id == new_user_id
+        customer = session.get(Agent, body["customerId"])
+        assert customer is not None
+        assert customer.licensed_states == ["TX"]
+        assert customer.agency_id is None
+        account = session.get(UserAccount, invited_user_id)
+        assert account is not None
+        assert account.active is True
+        assert account.customer_id == customer.id
+
+        assert provider_requests == [
+            (
+                "POST",
+                (
+                    "/auth/v1/invite?"
+                    "redirect_to=https%3A%2F%2Fjawnix.example"
+                    "%2Fapp%2Faccept-invitation"
+                ),
+                {
+                    "email": "new-user@example.com",
+                    "data": {"first_name": "New", "last_name": "User"},
+                },
             )
-        )
-        assert new_account is not None
-        assert new_account.customer_id == customer.id
-        assert new_account.active is True
-        new_profile = session.get(CustomerProfile, new_user_id)
-        assert new_profile is not None
-        assert new_profile.customer_id == customer.id
-        assert new_profile.licensed_states == ["FL", "TX"]
-
-        app.dependency_overrides[require_principal] = lambda: Principal(
-            user_id=old_user_id,
-            email=old_profile.email,
-            role="customer",
-            csrf="test",
-        )
-        assert client.get("/api/me/profile").status_code == 403
-
-        app.dependency_overrides[require_principal] = lambda: Principal(
-            user_id=new_user_id,
-            email=new_profile.email,
-            role="customer",
-            csrf="test",
-        )
-        current = client.get("/api/me/profile")
-        assert current.status_code == 200
-        assert current.json()["customer_id"] == customer.id
-        assert current.json()["licensed_states"] == ["FL", "TX"]
-        audit = session.scalar(
-            select(AuditEntry).where(
-                AuditEntry.action
-                == "customer_user_account_replaced"
-            )
-        )
-        assert audit is not None
-        assert audit.target_type == "customer"
-        assert audit.target_id == str(customer.id)
-        assert audit.details["before"] == {
-            "activeAuthUserIds": [str(old_user_id)]
+        ]
+        actions = {
+            entry.action
+            for entry in session.scalars(select(AuditEntry))
         }
-        assert audit.details["after"] == {
-            "activeAuthUserIds": [str(new_user_id)]
+        assert "customer_created" in actions
+        assert "customer_user_account_provisioned" in actions
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_customer_invitation_rejects_and_redacts_known_password(
+    session,
+    settings,
+    monkeypatch,
+):
+    known_password = "Known-secret-password-48"
+    provider_called = False
+
+    async def fake_admin(*_args):
+        nonlocal provider_called
+        provider_called = True
+        return {"id": str(uuid.uuid4())}
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
+    try:
+        response = TestClient(app).post(
+            "/api/admin/customers",
+            json={
+                "name": "Password Attempt Customer",
+                "email": "new-user@example.com",
+                "first_name": "New",
+                "last_name": "User",
+                "password": known_password,
+            },
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "The Customer invitation request was invalid."
         }
+        assert known_password not in response.text
+        assert provider_called is False
+        assert session.scalar(select(func.count(AuditEntry.id))) == 0
+        assert session.scalar(select(func.count(Agent.id))) == 0
     finally:
         app.dependency_overrides.clear()
 

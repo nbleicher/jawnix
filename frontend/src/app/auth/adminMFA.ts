@@ -35,8 +35,16 @@ export interface EnrollmentSecret {
   uri: string;
 }
 
+/** `detail` is a plain string on most failures, but blocked lifecycle actions
+ *  answer with a structured object the caller needs intact (the counts that
+ *  explain the block). Both shapes are carried through. */
+interface APIErrorDetail {
+  message?: string;
+  dependencies?: Record<string, number>;
+}
+
 interface APIErrorBody {
-  detail?: string;
+  detail?: string | APIErrorDetail;
 }
 
 function csrf(): string {
@@ -62,8 +70,10 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   const body = (await response.json().catch(() => ({}))) as APIErrorBody;
   if (!response.ok) {
-    const error = new Error(body.detail || "The request could not be completed.");
-    Object.assign(error, { status: response.status });
+    const detail = body.detail;
+    const message = typeof detail === "string" ? detail : detail?.message;
+    const error = new Error(message || "The request could not be completed.");
+    Object.assign(error, { status: response.status, detail });
     throw error;
   }
   return body as T;

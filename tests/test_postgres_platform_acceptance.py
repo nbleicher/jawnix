@@ -20,7 +20,11 @@ from jawnix.allocation import (
     decide_inventory_conflict,
     fulfill_round_robin,
 )
+from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
+
 from jawnix.api import app, replace_user_account
+from jawnix.customer_accounts import accept_user_account_invitation
 from jawnix.auth import Principal, require_admin, require_principal
 from jawnix.config import Settings, get_settings
 from jawnix.database import get_db
@@ -50,6 +54,7 @@ from jawnix.models import (
     SourceRecommendation,
     SourceSegment,
     UserAccount,
+    UserAccountInvitation,
     utcnow,
 )
 from jawnix.telegram import anomaly_callback_data
@@ -1181,21 +1186,35 @@ def test_google_maps_to_customer_feedback_acceptance(
         csrf="concurrent-admin",
     )
 
+    with factory() as session:
+        incumbent_account_id = session.scalar(
+            select(UserAccount.auth_user_id).where(
+                UserAccount.customer_id == customer.id,
+                UserAccount.active.is_(True),
+            )
+        )
+
     def replace_account(auth_user_id):
         with factory() as session:
-            return replace_user_account(
-                customer.id,
-                UserAccountReplace(
-                    auth_user_id=auth_user_id,
-                    email=f"{auth_user_id}@example.com",
-                    reason="Concurrent PostgreSQL acceptance replacement",
-                ),
-                concurrent_admin,
-                session,
-            )
+            try:
+                return replace_user_account(
+                    customer.id,
+                    UserAccountReplace(
+                        auth_user_id=auth_user_id,
+                        email=f"{auth_user_id}@example.com",
+                        reason="Concurrent PostgreSQL acceptance replacement",
+                    ),
+                    concurrent_admin,
+                    session,
+                )
+            except (HTTPException, IntegrityError):
+                # Two administrators racing the same replacement is exactly
+                # what the pending-invitation constraint exists to settle.
+                return None
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        list(executor.map(replace_account, replacement_ids))
+        outcomes = list(executor.map(replace_account, replacement_ids))
+    assert len([outcome for outcome in outcomes if outcome]) == 1
     with factory() as session:
         active_accounts = list(
             session.scalars(
@@ -1205,8 +1224,39 @@ def test_google_maps_to_customer_feedback_acceptance(
                 )
             )
         )
+        # Concurrency never displaces access. The incumbent keeps working and
+        # exactly one replacement is left waiting for acceptance.
         assert len(active_accounts) == 1
-        assert active_accounts[0].auth_user_id in replacement_ids
+        assert active_accounts[0].auth_user_id == incumbent_account_id
+        invitations = list(
+            session.scalars(
+                select(UserAccountInvitation).where(
+                    UserAccountInvitation.customer_id == customer.id,
+                    UserAccountInvitation.status == "pending",
+                )
+            )
+        )
+        assert len(invitations) == 1
+        assert invitations[0].auth_user_id in replacement_ids
+        assert invitations[0].replaces_auth_user_id == incumbent_account_id
+
+        accepted = accept_user_account_invitation(
+            session,
+            auth_user_id=invitations[0].auth_user_id,
+            email=invitations[0].email,
+        )
+        session.commit()
+        assert accepted is not None
+        promoted = list(
+            session.scalars(
+                select(UserAccount).where(
+                    UserAccount.customer_id == customer.id,
+                    UserAccount.active.is_(True),
+                )
+            )
+        )
+        assert len(promoted) == 1
+        assert promoted[0].auth_user_id == invitations[0].auth_user_id
 
     with factory.begin() as session:
         concurrent_request = LeadRequest(

@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+import { mockAdminCustomers } from "./admin-customers-fixtures";
 import {
   CONFLICT_ID,
   PENDING_REQUEST_ID,
@@ -33,6 +34,7 @@ const ROUTES = [
   "./admin/acquisition/scraper",
   "./admin/acquisition/scraper/workspace",
   "./admin/customers",
+  "./admin/customers/7",
   "./admin/security",
   "./admin/mfa/enroll",
   "./admin/mfa/challenge",
@@ -42,6 +44,7 @@ const ROUTES = [
 
 test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
+  await mockAdminCustomers(page, { pendingInvitation: true });
   await mockFulfillment(page);
 });
 
