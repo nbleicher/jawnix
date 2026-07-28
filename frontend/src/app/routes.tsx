@@ -39,6 +39,7 @@ import {
   AcceptInvitationRoute,
   SignInRoute,
 } from "./routes/CustomerAuth";
+import { CustomerOverviewRoute } from "./routes/CustomerOverview";
 
 /**
  * Route table for the redesigned application.
@@ -72,13 +73,13 @@ export const router = createBrowserRouter(
 
         // Customer portal — Overview, Requests, Feedback, Account.
         {
+          id: "customer",
           element: <CustomerShell />,
           loader: customerAccessLoader,
           children: [
             {
               path: "overview",
-              loader: placeholderLoader({ title: "Overview", slice: "#50 — Customer Overview" }),
-              element: <PlaceholderRoute />,
+              element: <CustomerOverviewRoute />,
             },
             {
               path: "requests",

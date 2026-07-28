@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import (
     AliasChoices,
@@ -197,6 +198,59 @@ class RequestOut(BaseModel):
     status_message: str
     created_at: datetime
     delivered_at: datetime | None
+
+
+class CustomerOverviewStatus(BaseModel):
+    """Presentation-safe Batch Request state.
+
+    The backend status and status_message deliberately are not part of this
+    contract. Customer screens should not need to understand the fulfillment
+    state machine.
+    """
+
+    label: str
+    description: str
+    tone: Literal["neutral", "info", "success", "warning", "danger"]
+
+
+class CustomerOverviewRequest(BaseModel):
+    id: uuid.UUID
+    lead_count: int
+    states: list[str]
+    submitted_at: datetime
+    delivered_at: datetime | None
+    status: CustomerOverviewStatus
+
+
+class CustomerOverviewDelivery(BaseModel):
+    request_id: uuid.UUID
+    lead_count: int
+    states: list[str]
+    delivered_at: datetime
+
+
+class CustomerOverviewAction(BaseModel):
+    kind: Literal[
+        "request_batch",
+        "submit_feedback",
+        "review_request",
+        "review_account",
+        "add_licensed_states",
+    ]
+    label: str
+    description: str
+    href: str
+
+
+class CustomerOverviewOut(BaseModel):
+    """Stable aggregate read contract for the Customer application."""
+
+    first_name: str
+    licensed_states: list[str]
+    current_request: CustomerOverviewRequest | None
+    recent_deliveries: list[CustomerOverviewDelivery]
+    next_action: CustomerOverviewAction
+    primary_actions: list[CustomerOverviewAction]
 
 
 class FeedbackLookup(BaseModel):
