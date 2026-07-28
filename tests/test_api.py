@@ -2610,9 +2610,8 @@ def test_customer_report_resolution_and_exact_artifact_regeneration_are_audited(
             csrf="test",
         )
         resolved = client.post(
-            f"/api/admin/lead-reports/{report_id}/resolve",
+            f"/api/admin/lead-reports/{report_id}/correct",
             json={
-                "action": "corrected",
                 "note": "Verified corrected business title.",
                 "title": "Correct Business",
             },

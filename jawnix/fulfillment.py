@@ -33,6 +33,7 @@ from pathlib import Path
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .eligibility import active_holds, report_summaries, suppressed_leads
 from .models import (
     AuditEntry,
     BatchArtifact,
@@ -552,6 +553,12 @@ def workspace(db: Session, *, now: datetime | None = None) -> dict[str, object]:
         ],
         "deliveryFailures": delivery_failures,
         "expiredArtifacts": _expired_artifacts(db, now=moment),
+        # #58 folded the eligibility controls into the same workspace: a Lead
+        # Report and the Batch Request it came from are the same shift's work,
+        # and splitting them across screens hid one behind the other.
+        "leadReports": report_summaries(db),
+        "eligibilityHolds": active_holds(db),
+        "suppressedLeads": suppressed_leads(db),
     }
 
 

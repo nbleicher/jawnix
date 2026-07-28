@@ -710,11 +710,21 @@ class LeadReportCreate(BaseModel):
     details: str = Field(default="", max_length=2000)
 
 
-class LeadReportResolve(BaseModel):
+class LeadReportNote(BaseModel):
+    """The required administrator note behind one Lead Report decision.
+
+    Dismissing and suppressing take nothing else: neither proposes a value,
+    so neither has anywhere for a title or state to go.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    action: str = Field(pattern="^(dismissed|corrected|suppressed)$")
     note: str = Field(min_length=1, max_length=2000)
+
+
+class LeadReportCorrect(LeadReportNote):
+    """Correcting is the one resolution that proposes a replacement value."""
+
     title: str | None = Field(default=None, max_length=500)
     state: str | None = None
 
@@ -727,14 +737,12 @@ class LeadReportResolve(BaseModel):
 
     @model_validator(mode="after")
     def correction_has_value(self):
-        if (
-            self.action == "corrected"
-            and self.title is None
-            and self.state is None
-        ):
+        if self.title is None and self.state is None:
             raise ValueError(
-                "Corrected report resolution requires a title or state."
+                "A Lead Correction must propose a title, a state, or both."
             )
+        if self.title is not None and not self.title.strip():
+            raise ValueError("Corrected title cannot be empty.")
         return self
 
 
