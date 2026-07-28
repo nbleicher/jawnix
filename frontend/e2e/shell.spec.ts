@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { mockFulfillment } from "./fulfillment-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 
 /**
@@ -12,6 +13,9 @@ import { mockAdminMFA } from "./mfa-fixtures";
 
 test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
+  // Fulfillment reads a real contract since #57; the other administrator
+  // destinations are still local task maps.
+  await mockFulfillment(page);
 });
 
 test.describe("Customer shell", () => {
@@ -85,13 +89,24 @@ test.describe("Administration shell", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Fulfillment" })).toBeVisible();
     await expect(page.getByText("Not built yet")).toHaveCount(0);
 
-    for (const area of ["Batch delivery", "Inventory decisions", "Lead eligibility"]) {
-      await expect(page.getByRole("heading", { level: 3, name: area })).toBeVisible();
+    // #57 replaced the task map with the workspace itself: the three areas of
+    // outstanding work, each carrying the records it is responsible for.
+    for (const area of ["Batch Requests", "Inventory Conflicts", "Delivery failures"]) {
+      await expect(page.getByRole("region", { name: area })).toBeVisible();
     }
-    const back = page.getByRole("link", { name: "Back to Overview" });
+
+    await page
+      .getByRole("region", { name: "Batch Requests" })
+      .getByRole("link", { name: "Northstar Insurance" })
+      .click();
+    await expect(
+      page.getByRole("heading", { level: 1, name: /^Batch Request — / }),
+    ).toBeVisible();
+
+    const back = page.getByRole("link", { name: "Back to Fulfillment" });
     await expect(back).toBeVisible();
     await back.click();
-    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Fulfillment" })).toBeVisible();
   });
 
   test("Acquisition exposes its operating areas and security action at both form factors", async ({ page }) => {

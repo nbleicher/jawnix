@@ -108,6 +108,13 @@ from .telegram import (
     verify_telegram_secret,
 )
 from .transitions import TransitionError, transition_request
+from .fulfillment import (
+    TRANSITION_ACTIONS,
+    artifact_available,
+    describe_conflict,
+    describe_request,
+    workspace as fulfillment_workspace,
+)
 
 
 app = FastAPI(title="Jawnix VPS API", version="1.0.0")
@@ -1498,6 +1505,47 @@ def _request_dict(item: LeadRequest) -> dict:
 @app.get("/api/admin/requests")
 def admin_requests(_: Principal = Depends(require_admin), db: Session = Depends(get_db)):
     return [_request_dict(item) for item in db.scalars(select(LeadRequest).order_by(LeadRequest.created_at.desc()))]
+
+
+@app.get("/api/admin/fulfillment")
+def admin_fulfillment(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """The one aggregate the Fulfillment workspace reads.
+
+    Gathering outstanding Batch Requests, pending Inventory Conflicts, and
+    delivery failures here keeps the screen from stitching together several
+    unrelated browser requests, and gives every item the actions its current
+    state actually permits.
+    """
+    return fulfillment_workspace(db)
+
+
+@app.get("/api/admin/requests/{request_id}")
+def admin_request_detail(
+    request_id: uuid.UUID,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    item = db.get(LeadRequest, request_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Request was not found.")
+    return describe_request(db, item)
+
+
+@app.get("/api/admin/inventory-conflicts/{conflict_id}")
+def admin_inventory_conflict_detail(
+    conflict_id: uuid.UUID,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    conflict = db.get(InventoryConflict, conflict_id)
+    if conflict is None:
+        raise HTTPException(
+            status_code=404, detail="Inventory Conflict was not found."
+        )
+    return describe_conflict(db, conflict)
 
 
 @app.get("/api/admin/recipients", include_in_schema=False)
@@ -3170,11 +3218,15 @@ async def create_customer(
 def admin_request_action(
     request_id: uuid.UUID,
     action: str,
-    payload: ActionReason | None = None,
+    payload: ActionReason,
     principal: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    if action not in {"approve", "reject", "retry", "retry_delivery"}:
+    # The reason is required, not defaulted. A synthesised "Administrator
+    # requested approve." records that something happened while explaining
+    # nothing, which is the failure an audit trail exists to prevent — and it
+    # made the contract's `requiresReason` a claim the API did not keep.
+    if action not in TRANSITION_ACTIONS:
         raise HTTPException(status_code=404, detail="Unknown action.")
     try:
         item = transition_request(
@@ -3182,11 +3234,7 @@ def admin_request_action(
             request_id,
             action,
             actor_id=str(principal.user_id),
-            reason=(
-                payload.reason
-                if payload is not None
-                else f"Administrator requested {action.replace('_', ' ')}."
-            ),
+            reason=payload.reason,
         )
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
@@ -3227,12 +3275,9 @@ def regenerate_batch_artifact(
         )
     artifact = item.artifact
     now = utcnow()
-    if (
-        artifact is not None
-        and Path(artifact.path).is_file()
-        and artifact.expires_at is not None
-        and artifact.expires_at > now
-    ):
+    # Shares the offer surface's predicate: if these two ever disagreed the
+    # workspace would offer a regeneration this endpoint then refuses.
+    if artifact_available(artifact, now=now):
         raise HTTPException(
             status_code=409,
             detail="Batch Artifact has not expired.",

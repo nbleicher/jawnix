@@ -2,6 +2,11 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+import {
+  CONFLICT_ID,
+  PENDING_REQUEST_ID,
+  mockFulfillment,
+} from "./fulfillment-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 
 /**
@@ -18,9 +23,12 @@ const ROUTES = [
   "./accept-invitation",
   "./overview",
   "./requests",
+  "./feedback",
   "./account",
   "./admin/overview",
   "./admin/fulfillment",
+  `./admin/fulfillment/requests/${PENDING_REQUEST_ID}`,
+  `./admin/fulfillment/conflicts/${CONFLICT_ID}`,
   "./admin/acquisition",
   "./admin/acquisition/scraper",
   "./admin/acquisition/scraper/workspace",
@@ -34,6 +42,7 @@ const ROUTES = [
 
 test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
+  await mockFulfillment(page);
 });
 
 test.describe("Automated WCAG 2.2 AA sweep", () => {
