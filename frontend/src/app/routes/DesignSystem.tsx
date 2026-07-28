@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { ActionLink, Button } from "../../design-system/primitives/Button";
+import { AuthPanel } from "../../design-system/primitives/auth";
 import { ConfirmDialog, Dialog } from "../../design-system/primitives/Dialog";
 import { EmptyState, ErrorState, Loading, Skeleton } from "../../design-system/primitives/feedback";
 import { Field, Fieldset, Input, Select, Textarea } from "../../design-system/primitives/form";
@@ -143,6 +144,28 @@ export function DesignSystemRoute() {
             </Fieldset>
           </Stack>
         </Card>
+      </Section>
+
+      <Section
+        title="Authentication"
+        description="A narrow, mobile-first panel for public credential and recovery routes."
+      >
+        <AuthPanel
+          headingLevel={2}
+          title="Sign in"
+          description="Use the email address and password for your Customer account."
+          footer={<Text size="sm">Recovery guidance appears here.</Text>}
+        >
+          <Stack gap={4}>
+            <Field label="Email address" required>
+              <Input type="email" autoComplete="email" />
+            </Field>
+            <Field label="Password" required>
+              <Input type="password" autoComplete="current-password" />
+            </Field>
+            <Button variant="primary" fullWidth>Sign in</Button>
+          </Stack>
+        </AuthPanel>
       </Section>
 
       <Section title="Dialogs">

@@ -167,10 +167,11 @@ class CustomerDelete(BaseModel):
 
 
 class CustomerCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: EmailStr
     first_name: str = Field(default="", max_length=120)
     last_name: str = Field(default="", max_length=120)
-    password: str = Field(min_length=8, max_length=256)
 
 
 class ProfileOut(BaseModel):

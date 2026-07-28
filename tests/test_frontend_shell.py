@@ -64,7 +64,15 @@ def test_serves_the_compiled_document(dist_dir):
 
 @pytest.mark.parametrize(
     "path",
-    ["/app", "/app/", "/app/overview", "/app/admin/fulfillment", "/app/requests/1234"],
+    [
+        "/app",
+        "/app/",
+        "/app/sign-in",
+        "/app/accept-invitation",
+        "/app/overview",
+        "/app/admin/fulfillment",
+        "/app/requests/1234",
+    ],
 )
 def test_direct_navigation_to_any_application_route_serves_the_shell(dist_dir, path):
     """Deep links must work on a hard refresh, not just via the client router."""

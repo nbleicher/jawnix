@@ -2,6 +2,7 @@ import { Outlet, useNavigation } from "react-router";
 
 import { ErrorBoundary } from "../../design-system/primitives/feedback";
 import { Navigation } from "./Navigation";
+import type { ReactNode } from "react";
 import type { NavigationDestination } from "./Navigation";
 import { RouteAnnouncer } from "./RouteAnnouncer";
 import "./AppShell.css";
@@ -10,6 +11,7 @@ export interface AppShellProps {
   /** Names the navigation landmark and identifies the surface in the header. */
   audience: string;
   destinations: NavigationDestination[];
+  headerActions?: ReactNode;
 }
 
 /**
@@ -19,7 +21,7 @@ export interface AppShellProps {
  * route-change announcement, and the global pending indicator, so no individual
  * route has to re-implement them.
  */
-export function AppShell({ audience, destinations }: AppShellProps) {
+export function AppShell({ audience, destinations, headerActions }: AppShellProps) {
   const navigation = useNavigation();
   const isNavigating = navigation.state !== "idle";
 
@@ -35,6 +37,9 @@ export function AppShell({ audience, destinations }: AppShellProps) {
           <span className="jx-shell__wordmark">Jawnix</span>
           <span className="jx-shell__audience">{audience}</span>
         </div>
+        {headerActions ? (
+          <div className="jx-shell__header-actions">{headerActions}</div>
+        ) : null}
       </header>
 
       {/* Route transitions are progress, not an error; a determinate bar would

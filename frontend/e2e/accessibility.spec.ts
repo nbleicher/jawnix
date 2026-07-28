@@ -14,6 +14,8 @@ import { mockAdminMFA } from "./mfa-fixtures";
 const WCAG_AA_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 const ROUTES = [
+  "./sign-in",
+  "./accept-invitation",
   "./overview",
   "./requests",
   "./account",

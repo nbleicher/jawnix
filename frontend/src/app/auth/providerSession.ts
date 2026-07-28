@@ -31,13 +31,17 @@ function client() {
   return createClient(config.supabaseUrl, config.supabaseAnonKey);
 }
 
+function remember(session: ProviderIdentitySession) {
+  sessionStorage.setItem(ACCESS_TOKEN_KEY, session.access_token);
+  sessionStorage.setItem(REFRESH_TOKEN_KEY, session.refresh_token);
+}
+
 export async function getProviderSession(): Promise<ProviderIdentitySession> {
   const config = window.JAWNIX_CONFIG ?? {};
   if (config.supabaseUrl && config.supabaseAnonKey) {
     const { data, error } = await client().auth.getSession();
     if (!error && data.session) {
-      sessionStorage.setItem(ACCESS_TOKEN_KEY, data.session.access_token);
-      sessionStorage.setItem(REFRESH_TOKEN_KEY, data.session.refresh_token);
+      remember(data.session);
       return data.session;
     }
   }
@@ -49,9 +53,47 @@ export async function getProviderSession(): Promise<ProviderIdentitySession> {
   return { access_token: accessToken, refresh_token: refreshToken };
 }
 
+export async function signInWithPassword(
+  email: string,
+  password: string,
+): Promise<ProviderIdentitySession> {
+  const { data, error } = await client().auth.signInWithPassword({
+    email,
+    password,
+  });
+  if (error || !data.session) {
+    throw new Error("Sign in was not accepted.");
+  }
+  remember(data.session);
+  return data.session;
+}
+
+export async function updateProviderPassword(password: string): Promise<ProviderIdentitySession> {
+  const current = await getProviderSession();
+  const { error } = await client().auth.updateUser({ password });
+  if (error) {
+    throw new Error("The invitation could not be accepted.");
+  }
+  return current;
+}
+
+export async function signOutProvider(): Promise<void> {
+  try {
+    const config = window.JAWNIX_CONFIG ?? {};
+    if (config.supabaseUrl && config.supabaseAnonKey) {
+      await client().auth.signOut();
+    }
+  } finally {
+    sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+    sessionStorage.removeItem(REFRESH_TOKEN_KEY);
+  }
+}
+
 export async function storeProviderSession(update: ProviderSessionUpdate): Promise<void> {
-  sessionStorage.setItem(ACCESS_TOKEN_KEY, update.accessToken);
-  sessionStorage.setItem(REFRESH_TOKEN_KEY, update.refreshToken);
+  remember({
+    access_token: update.accessToken,
+    refresh_token: update.refreshToken,
+  });
   const config = window.JAWNIX_CONFIG ?? {};
   if (!config.supabaseUrl || !config.supabaseAnonKey) return;
   const { data, error } = await client().auth.setSession({

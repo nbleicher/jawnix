@@ -225,5 +225,18 @@ export async function mockAdminMFA(
     },
   );
 
+  await page.route(/\/api\/me\/profile$/, (route) =>
+    json(route, {
+      user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      email: "customer@example.com",
+      first_name: "Customer",
+      last_name: "Example",
+      phone: "",
+      licensed_states: ["TX"],
+      customer_id: 1,
+      mapping_confirmed_at: "2026-07-28T12:00:00Z",
+    }),
+  );
+
   return state;
 }

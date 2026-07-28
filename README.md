@@ -27,6 +27,12 @@ The rebuilt React interface lives in [`frontend/`](frontend/README.md) and is se
 off the prefix returns 404 and the current static pages are the only UI. The Docker image builds the
 bundle in a separate Node stage and always ships it, so enabling the flag needs no rebuild.
 
+Supabase Auth's allowed redirect URLs must include both
+`$JAWNIX_PUBLIC_BASE_URL/portal-accept.html` and
+`$JAWNIX_PUBLIC_BASE_URL/app/accept-invitation` during the transition. The
+feature flag selects which address new invitations and password-recovery emails
+use; keeping both allow-listed preserves rollback until the controlled cutover.
+
 ## Local verification
 
 CI (`.github/workflows/ci.yml`) runs all of the following on every push and pull request, and

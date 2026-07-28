@@ -5,6 +5,7 @@ import json
 import re
 import uuid
 from datetime import date, datetime, timezone
+from urllib.parse import urlencode
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
@@ -111,7 +112,7 @@ app.include_router(admin_mfa_router)
 
 
 @app.exception_handler(RequestValidationError)
-async def redact_admin_mfa_validation_error(
+async def redact_sensitive_validation_error(
     request: Request,
     exc: RequestValidationError,
 ):
@@ -122,6 +123,11 @@ async def redact_admin_mfa_validation_error(
         return JSONResponse(
             status_code=422,
             content={"detail": "The administrator verification request was invalid."},
+        )
+    if request.url.path == "/api/admin/customers":
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "The Customer invitation request was invalid."},
         )
     return await request_validation_exception_handler(request, exc)
 
@@ -426,11 +432,24 @@ async def create_session(
                     detail="User Account and Customer mapping do not match.",
                 )
     db.commit()
+    if principal.role == "admin":
+        next_path = admin_next
+    elif settings.new_ui_enabled:
+        requested = payload.requested_next or ""
+        next_path = (
+            requested
+            if requested.startswith("/app/")
+            and not requested.startswith("/app/admin/")
+            and not requested.startswith("//")
+            else "/app/overview"
+        )
+    else:
+        next_path = "/portal.html"
     return {
         "ok": True,
         "role": principal.role,
         "assurance": principal.assurance,
-        "next": admin_next if principal.role == "admin" else "/portal.html",
+        "next": next_path,
     }
 
 
@@ -3010,10 +3029,19 @@ async def _supabase_admin(settings: Settings, method: str, path: str, payload: d
     return response.json()
 
 
+def _customer_invitation_redirect(settings: Settings) -> str:
+    path = (
+        "/app/accept-invitation"
+        if settings.new_ui_enabled
+        else "/portal-accept.html"
+    )
+    return f"{settings.public_base_url.rstrip('/')}{path}"
+
+
 async def _send_password_reset(settings: Settings, email: str) -> None:
     if not settings.supabase_url or not settings.supabase_anon_key:
         raise HTTPException(status_code=503, detail="Supabase password recovery is not configured.")
-    redirect_to = f"{settings.public_base_url.rstrip('/')}/portal-accept.html"
+    redirect_to = _customer_invitation_redirect(settings)
     headers = {
         "apikey": settings.supabase_anon_key,
         "Authorization": f"Bearer {settings.supabase_anon_key}",
@@ -3068,16 +3096,17 @@ async def create_customer(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    redirect_to = _customer_invitation_redirect(settings)
     created = await _supabase_admin(
         settings,
         "POST",
-        "/auth/v1/admin/users",
+        f"/auth/v1/invite?{urlencode({'redirect_to': redirect_to})}",
         {
             "email": str(payload.email).lower(),
-            "password": payload.password,
-            "email_confirm": True,
-            "user_metadata": {"first_name": payload.first_name, "last_name": payload.last_name},
-            "app_metadata": {"jawnix_role": "customer"},
+            "data": {
+                "first_name": payload.first_name,
+                "last_name": payload.last_name,
+            },
         },
     )
     profile = CustomerProfile(
@@ -3091,19 +3120,19 @@ async def create_customer(
     db.flush()
     record_activity(
         db,
-        action="user_account_created",
+        action="user_account_invitation_sent",
         target_type="user_account",
         target_id=profile.user_id,
         actor_id=principal.user_id,
-        reason="Administrator created a Customer User Account.",
+        reason="Administrator invited a Customer User Account.",
         details={
             "before": None,
             "after": {
+                "invitationDispatched": True,
                 "mappingConfirmed": False,
                 "customerId": None,
             },
         },
-        known_secrets=(payload.password,),
     )
     db.commit()
     return {"ok": True, "userId": str(profile.user_id), "mappingConfirmed": False}
