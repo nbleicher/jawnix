@@ -3,8 +3,9 @@
 Findings from implementing **#47** (feature-flagged React application shell) and the follow-up
 infrastructure work.
 
-Last updated 2026-07-28. Branch `implement-issues-47-71-spec-46`, 5 commits, **not pushed, no
-PR**. Build order: [ui-rebuild-order.md](ui-rebuild-order.md).
+Last updated 2026-07-28. Branch `implement-issues-47-71-spec-46`, pushed, in review as
+[PR #72](https://github.com/nbleicher/jawnix/pull/72). Build order:
+[ui-rebuild-order.md](ui-rebuild-order.md).
 
 Legend: 🔴 open, needs your decision · 🟡 worth knowing · 🟢 resolved
 
@@ -37,7 +38,7 @@ be squeezed in beside unrelated work.
 
 ## 🟡 Worth knowing
 
-### E. `supabase_edge_runtime_calllog` is still down — not a Jawnix issue
+### B. `supabase_edge_runtime_calllog` is still down — not a Jawnix issue
 
 Casualty of the Colima restart. It bind-mounts an ephemeral Supabase CLI file from a *different*
 workspace that no longer exists:
@@ -52,7 +53,7 @@ project's workspace.
 The other 9 `calllog` containers came back healthy. Two disposable test containers
 (`calllog-web-test`, `gms-web-test`) also did not restart — both were `restart=no`.
 
-### F. `Dockerfile.railway` has no frontend — and that is correct
+### C. `Dockerfile.railway` has no frontend — and that is correct
 
 Railway builds a different image entirely (legacy `app.py` monolith, no `jawnix/` package). Per
 `OPERATIONS.md:82,244,253`, **Railway is the retained legacy rollback target**, not current
@@ -61,7 +62,7 @@ production.
 Noted so nobody later "fixes" it by adding the frontend and couples the rollback target to the
 new UI.
 
-### G. Pre-existing deprecation that will eventually break the test suite
+### D. Pre-existing deprecation that will eventually break the test suite
 
 Every `pytest` run emits:
 
@@ -70,7 +71,7 @@ Every `pytest` run emits:
 Not from my change, but it affects all 128 tests and becomes a hard failure on a future
 Starlette release.
 
-### H. Eight screens are deliberate placeholders
+### E. Eight screens are deliberate placeholders
 
 `/app/overview`, `/requests`, `/feedback`, `/account`, `/admin/overview`, `/admin/fulfillment`,
 `/admin/acquisition`, `/admin/customers` each render "Not built yet — this screen arrives with
@@ -79,13 +80,13 @@ Starlette release.
 Real and working: navigation, routing, deep links, landmarks, theming, the design system, and
 the full accessibility contract.
 
-### I. `/app/design-system` is the gate fixture for #70
+### F. `/app/design-system` is the gate fixture for #70
 
 The gallery renders every primitive in both themes. The axe sweep and the future
 visual-regression baseline (#70) run against it. **New primitives must be added there** or they
 get no coverage.
 
-### J. `AdminShell` hard-codes Acquisition → terminal theme by pathname
+### G. `AdminShell` hard-codes Acquisition → terminal theme by pathname
 
 `frontend/src/app/shells/AdminShell.tsx:21`. The minimal honest demonstration that the design
 system supports both themes, but the route→theme binding properly belongs to **#62**. Commented
@@ -95,7 +96,45 @@ as such; expect #62 to replace it.
 
 ## 🟢 Resolved
 
-### K. Typecheck restored to the image build — verified end to end
+### Staging override deleted; the monitor it would have broken was fixed with it
+
+`docker-compose.staging.yml` is gone. Staging now runs the base stack:
+
+```sh
+JAWNIX_DOMAIN=staging.jawnix.com docker compose up -d
+```
+
+**Deleting it alone would have broken production.** `ops/cutover-monitor.sh:13` passed
+`-f docker-compose.staging.yml` with `2>/dev/null`, so a missing file makes Compose fail
+silently, `running_services` resolve to **0**, and the five-minute monitor flip to *unhealthy*
+and fire a Telegram alert. I reproduced that exact failure before changing the script to use the
+base compose. `OPERATIONS.md` updated in the same commit.
+
+### CI added — and it caught a real defect on its first run
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+| Job | Covers |
+|---|---|
+| **frontend** | typecheck · vitest · build · Playwright (Chromium) · uploads the bundle |
+| **backend** | pytest against that bundle, so the shell integration tests run instead of skipping |
+| **image** | builds the deployment image, smoke-tests **both** flag states, deep links, immutable caching |
+
+The first run **failed** — `Unable to resolve action astral-sh/setup-uv@v9`. That repository
+publishes `v9.0.0` but stopped publishing floating major tags after v7.6. Pinned to the exact
+version. Exactly the class of thing that would otherwise have been discovered during a deploy.
+
+### Python drift closed
+
+The backend job pins **3.12** and fails the build if it resolves anything else; `.python-version`
+pins local development the same way. The full suite passes on 3.12 — **128 passed, 2 skipped** —
+so the drift was latent rather than actual, but it can no longer return silently.
+
+### #47 raised for review
+
+[PR #72](https://github.com/nbleicher/jawnix/pull/72) against `main`, closing #47 on merge.
+
+### Typecheck restored to the image build — verified end to end
 
 **Your call: option (b), the VPS has more RAM.** `Dockerfile` runs `npm run build`
 (`tsc -b && vite build`) again; the `build:bundle` escape hatch was removed as dead.
@@ -121,7 +160,7 @@ as such; expect #62 to replace it.
 Measured peak RSS: **~388 MB** (`tsc`), ~237 MB (`vite`), run in sequence. On the VPS, exit
 **137** means host memory; exit **2** means a real type error.
 
-### L. Container runtime resized, buzz fully retired
+### Container runtime resized, buzz fully retired
 
 Runtime is **Colima**, not Docker Desktop. It had **2 GB / 2 CPU** on a 24 GB machine, shared by
 four projects, leaving **238 MB** available against a 388 MB need.
@@ -136,7 +175,7 @@ Available memory inside a container: **238 MB → 6.3 GB**.
 The `NODE_OPTIONS` heap cap was also removed from the `Dockerfile` — its only justification was
 protecting the co-hosted buzz stack, which no longer exists.
 
-### M. react-router upgraded 7 → 8
+### react-router upgraded 7 → 8
 
 `npm audit` flagged **GHSA-qwww-vcr4-c8h2** (high, *RSC Mode CSRF Bypass*), affecting
 `7.12.0 – 8.2.0`. The 7.x line has **no fixed version**; the fix is in 8.2.1+.
@@ -145,7 +184,7 @@ Upgraded to `^8.3.0`. The advisory is RSC-specific and does not apply to this SP
 server-side router — verified), but upgrading with only a shell built is far cheaper than after
 24 more slices. All tests pass on v8; audit is clean.
 
-### N. Bugs the code review caught that my tests missed
+### Bugs the code review caught that my tests missed
 
 Listed because they show where the suite was blind.
 
