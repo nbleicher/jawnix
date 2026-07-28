@@ -9,6 +9,7 @@ import {
   PENDING_REQUEST_ID,
   mockFulfillment,
 } from "./fulfillment-fixtures";
+import { OPEN_REPORT_ID, mockLeadReports } from "./lead-report-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 
 /**
@@ -31,6 +32,7 @@ const ROUTES = [
   "./admin/fulfillment",
   `./admin/fulfillment/requests/${PENDING_REQUEST_ID}`,
   `./admin/fulfillment/conflicts/${CONFLICT_ID}`,
+  `./admin/fulfillment/reports/${OPEN_REPORT_ID}`,
   "./admin/acquisition",
   "./admin/acquisition/scraper",
   "./admin/acquisition/scraper/workspace",
@@ -48,6 +50,7 @@ test.beforeEach(async ({ page }) => {
   await mockAcquisition(page);
   await mockAdminCustomers(page, { pendingInvitation: true });
   await mockFulfillment(page);
+  await mockLeadReports(page);
 });
 
 test.describe("Automated WCAG 2.2 AA sweep", () => {

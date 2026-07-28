@@ -1,5 +1,7 @@
 import type { Page, Route } from "@playwright/test";
 
+import { LEAD_REPORT_SECTIONS } from "./lead-report-fixtures";
+
 /**
  * A seeded Fulfillment workspace.
  *
@@ -273,6 +275,9 @@ export async function mockFulfillment(page: Page): Promise<RecordedCall[]> {
 
   await page.route(/\/api\/admin\/fulfillment$/, (route) =>
     json(route, {
+      // #58 added the Lead Report sections to this same aggregate. They live in
+      // the Lead Report fixture so the two cannot describe different worlds.
+      ...LEAD_REPORT_SECTIONS,
       batchRequests: [
         requestSummary(),
         DETAILS[FAILED_WITH_ARTIFACT_ID],

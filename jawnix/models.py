@@ -461,6 +461,15 @@ class ListingObservation(Base):
 
 
 class LeadCorrectionEvent(Base):
+    """An audited override of a Lead's delivered title or state.
+
+    A correction outranks the evidence underneath it, so the row records what
+    that evidence said at the moment the override was made. Without it a
+    correction is an assertion: the Current Listing it disagreed with can be
+    superseded by a later Scrape Run, leaving nothing to judge the override
+    against. ``based_on_*`` keeps the comparison permanently available.
+    """
+
     __tablename__ = "lead_correction_events"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     lead_id: Mapped[int] = mapped_column(
@@ -476,11 +485,46 @@ class LeadCorrectionEvent(Base):
         ForeignKey("lead_correction_events.id", ondelete="RESTRICT"),
         index=True,
     )
+    #: Which kind of evidence this override was made against. ``unknown`` is
+    #: reserved for corrections recorded before evidence was captured.
+    based_on_kind: Mapped[str] = mapped_column(
+        String(24),
+        default="unknown",
+        nullable=False,
+    )
+    based_on_observation_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "listing_observations.id",
+            ondelete="SET NULL",
+            name="fk_lead_correction_based_on_observation",
+        ),
+        index=True,
+    )
+    based_on_title: Mapped[str] = mapped_column(
+        Text,
+        default="",
+        nullable=False,
+    )
+    based_on_state: Mapped[str] = mapped_column(
+        String(2),
+        default="",
+        nullable=False,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,
         index=True,
         nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            (
+                "based_on_kind IN ('current_listing', 'legacy_snapshot', "
+                "'prior_correction', 'none', 'unknown')"
+            ),
+            name="ck_lead_correction_based_on_kind",
+        ),
     )
 
 

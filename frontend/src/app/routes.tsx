@@ -37,6 +37,10 @@ import {
   fulfillmentRequestLoader,
 } from "./routes/AdminFulfillment";
 import {
+  AdminLeadReportRoute,
+  adminLeadReportLoader,
+} from "./routes/AdminLeadReport";
+import {
   adminAccessLoader,
   adminMFAStatusLoader,
 } from "./auth/adminMFA";
@@ -174,6 +178,14 @@ export const router = createBrowserRouter(
               path: "fulfillment/conflicts/:conflictId",
               loader: fulfillmentConflictLoader,
               element: <AdminFulfillmentConflictRoute />,
+            },
+            // #58 added the Lead Report and its eligibility controls. The
+            // report is immutable evidence; the controls beside it act on the
+            // Lead, so this route reads one report and never edits it.
+            {
+              path: "fulfillment/reports/:reportId",
+              loader: adminLeadReportLoader,
+              element: <AdminLeadReportRoute />,
             },
             // #68 replaced the Acquisition task map with the native
             // terminal-themed workspace. Its decisions post back to the
