@@ -16,6 +16,15 @@ import {
   adminAccessLoader,
   adminMFAStatusLoader,
 } from "./auth/adminMFA";
+import {
+  customerAccessLoader,
+  invitationLoader,
+  signInLoader,
+} from "./auth/customerAuth";
+import {
+  AcceptInvitationRoute,
+  SignInRoute,
+} from "./routes/CustomerAuth";
 
 /**
  * Route table for the redesigned application.
@@ -36,10 +45,21 @@ export const router = createBrowserRouter(
       errorElement: <RouteError />,
       children: [
         { index: true, element: <Navigate to="/overview" replace /> },
+        {
+          path: "sign-in",
+          loader: signInLoader,
+          element: <SignInRoute />,
+        },
+        {
+          path: "accept-invitation",
+          loader: invitationLoader,
+          element: <AcceptInvitationRoute />,
+        },
 
         // Customer portal — Overview, Requests, Feedback, Account.
         {
           element: <CustomerShell />,
+          loader: customerAccessLoader,
           children: [
             {
               path: "overview",
