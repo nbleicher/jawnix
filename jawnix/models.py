@@ -109,6 +109,89 @@ class UserAccount(Base):
     )
 
 
+class AdminMFAState(Base):
+    """Jawnix-owned state around provider-managed administrator factors.
+
+    Supabase owns every TOTP secret and challenge.  Jawnix stores only the
+    coordination state that Supabase cannot express: which factors pre-dated a
+    resumable enrollment, challenge throttling, and a generation used to revoke
+    all signed Jawnix sessions after a security change.
+    """
+
+    __tablename__ = "admin_mfa_states"
+    user_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    session_generation: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
+    )
+    enrollment_stage: Mapped[str] = mapped_column(
+        String(32),
+        default="idle",
+        index=True,
+        nullable=False,
+    )
+    enrollment_baseline_factor_ids: Mapped[list[str]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    enrollment_new_factor_ids: Mapped[list[str]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    active_factor_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
+    replacement_factor_id: Mapped[uuid.UUID | None] = mapped_column()
+    failed_attempts: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    failure_window_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+        nullable=False,
+    )
+
+
+class AdminMFAFactorUse(Base):
+    """Last successful use location for a provider-managed factor."""
+
+    __tablename__ = "admin_mfa_factor_uses"
+    provider_factor_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(index=True, nullable=False)
+    last_used_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+    ip_address: Mapped[str] = mapped_column(
+        String(80),
+        default="unknown",
+        nullable=False,
+    )
+    user_agent: Mapped[str] = mapped_column(
+        String(320),
+        default="unknown",
+        nullable=False,
+    )
+
+
 class CustomerTombstone(Base):
     __tablename__ = "customer_tombstones"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

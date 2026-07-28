@@ -2,6 +2,8 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
+import { mockAdminMFA } from "./mfa-fixtures";
+
 /**
  * WCAG 2.2 AA foundations, verified in a real browser.
  *
@@ -11,7 +13,22 @@ import type { Page } from "@playwright/test";
 
 const WCAG_AA_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
-const ROUTES = ["./overview", "./requests", "./account", "./admin/overview", "./admin/acquisition", "./design-system"];
+const ROUTES = [
+  "./overview",
+  "./requests",
+  "./account",
+  "./admin/overview",
+  "./admin/acquisition",
+  "./admin/security",
+  "./admin/mfa/enroll",
+  "./admin/mfa/challenge",
+  "./admin/mfa/recover",
+  "./design-system",
+];
+
+test.beforeEach(async ({ page }) => {
+  await mockAdminMFA(page, { assurance: "aal2" });
+});
 
 test.describe("Automated WCAG 2.2 AA sweep", () => {
   for (const route of ROUTES) {

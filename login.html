@@ -29,10 +29,14 @@ const form=document.getElementById('login-form'),message=document.getElementById
 const requestedNext=new URLSearchParams(location.search).get('next');
 function show(text,ok=false){message.hidden=false;message.className=ok?'msg-ok':'error';message.textContent=text;}
 async function establish(session){
+  sessionStorage.setItem('jawnix_provider_access_token',session.access_token);
+  sessionStorage.setItem('jawnix_provider_refresh_token',session.refresh_token);
   const response=await fetch('/api/auth/session',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({access_token:session.access_token,requested_next:requestedNext})});
   const data=await response.json();
   if(!response.ok){if(response.status===403&&requestedNext==='/admin.html')await supabaseClient.auth.signOut();throw new Error(data.detail||'Could not create your Jawnix session.');}
-  const safe=requestedNext&&requestedNext.startsWith('/')&&!requestedNext.startsWith('//')?requestedNext:data.next;
+  // The backend owns an administrator's next step: an AAL1 session must not
+  // let a requested legacy URL skip enrollment or challenge.
+  const safe=data.role==='admin'?data.next:(requestedNext&&requestedNext.startsWith('/')&&!requestedNext.startsWith('//')?requestedNext:data.next);
   location.assign(safe);
 }
 form.addEventListener('submit',async event=>{

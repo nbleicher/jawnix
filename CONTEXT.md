@@ -8,6 +8,26 @@ Jawnix supplies customers with approved batches of leads by maintaining lead inv
 The active product that turns acquired lead data into approved lead batches delivered to customers. Billing, invoicing, payments, and financial reporting are legacy concerns outside this context.
 _Avoid_: Lead tracker, lead-to-cash platform
 
+**Administrator Assurance**:
+The strength of the identity verification completed for an Administrator Session; administration requires a password plus a currently verified Authenticator Factor.
+_Avoid_: Login status, trusted browser
+
+**Authenticator Factor**:
+An authenticator-app credential held by an administrator and verified during enrollment before it can establish Administrator Assurance.
+_Avoid_: Verification code, MFA secret
+
+**Primary Authenticator**:
+The Authenticator Factor an administrator normally uses to establish Administrator Assurance.
+_Avoid_: Only factor, default password
+
+**Backup Authenticator**:
+A second verified Authenticator Factor stored separately from the Primary Authenticator and used when the primary is unavailable.
+_Avoid_: Recovery code, duplicate authenticator
+
+**Break-glass Recovery**:
+A two-person, explicitly authorized operator procedure that revokes Administrator Sessions and restores access only to Authenticator Factor enrollment after both factors are lost.
+_Avoid_: Password reset, self-service recovery, administrator bypass
+
 **Scraper**:
 The Google Maps acquisition setup that collects candidate leads for Jawnix.
 _Avoid_: NPPES collector, inventory synchronization

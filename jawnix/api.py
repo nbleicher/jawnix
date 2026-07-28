@@ -8,12 +8,16 @@ from datetime import date, datetime, timezone
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from svix.webhooks import Webhook, WebhookVerificationError
 
 from .auth import Principal, clear_session, issue_session, require_admin, require_principal, verify_supabase_token
+from .admin_mfa_api import router as admin_mfa_router
 from .config import Settings, get_settings
 from .database import get_db
 from .feedback import apply_disposition_controls, release_report_hold
@@ -25,6 +29,7 @@ from .recommendations import (
 )
 from .models import (
     Agency,
+    AdminMFAState,
     Customer,
     AuditEntry,
     BatchArtifact,
@@ -55,6 +60,7 @@ from .models import (
     WebhookReceipt,
     utcnow,
 )
+from .mfa_provider import MFAProviderError, get_mfa_provider
 from .schemas import (
     AgencyUpdate,
     ActionReason,
@@ -101,6 +107,23 @@ from .transitions import TransitionError, transition_request
 
 
 app = FastAPI(title="Jawnix VPS API", version="1.0.0")
+app.include_router(admin_mfa_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def redact_admin_mfa_validation_error(
+    request: Request,
+    exc: RequestValidationError,
+):
+    # FastAPI's default 422 body includes rejected input.  That is useful for
+    # ordinary forms but would echo provider bearer tokens or TOTP codes from
+    # this security surface.
+    if request.url.path.startswith("/api/auth/admin-mfa"):
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "The administrator verification request was invalid."},
+        )
+    return await request_validation_exception_handler(request, exc)
 
 # The redesigned shell at /app, behind JAWNIX_ENABLE_NEW_UI. Off by default, so
 # the current static UI is the only surface until the cutover in #71.
@@ -135,11 +158,16 @@ async def scraper_operations(
     request: Request,
     path: str = "",
     settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
 ):
     if request_is_scraper_origin(request, settings):
         principal = scraper_principal_from_request(request, settings)
     else:
-        principal = require_admin(require_principal(request, settings))
+        principal = await require_admin(
+            require_principal(request, settings),
+            settings,
+            db,
+        )
         return scraper_handoff_response(principal, settings)
     return await forward_scraper_request(
         request,
@@ -286,7 +314,64 @@ async def create_session(
     role = str((user.get("app_metadata") or {}).get("jawnix_role") or "customer")
     if payload.requested_next == "/admin.html" and role != "admin":
         raise HTTPException(status_code=403, detail="Sign in with noah@jawnix.com to access administration.")
-    principal = issue_session(response, user, settings)
+    session_kwargs: dict = {}
+    admin_next = "/admin.html"
+    if role == "admin" and settings.new_ui_enabled:
+        state = db.get(AdminMFAState, uuid.UUID(str(user["id"])))
+        if state is None:
+            state = AdminMFAState(
+                user_id=uuid.UUID(str(user["id"])),
+                session_generation=1,
+            )
+            db.add(state)
+            db.flush()
+        try:
+            factors = await get_mfa_provider(settings).list_factors(
+                state.user_id
+            )
+        except MFAProviderError:
+            raise HTTPException(
+                status_code=503,
+                detail="Administrator verification is temporarily unavailable.",
+            ) from None
+        verified = [factor for factor in factors if factor.verified_totp]
+        assurance = str(
+            (user.get("_jawnix_auth_claims") or {}).get("aal") or "aal1"
+        )
+        factor_id = None
+        if assurance == "aal2" and verified:
+            factor_id = max(
+                verified,
+                key=lambda factor: (
+                    factor.last_challenged_at
+                    or factor.updated_at
+                    or factor.created_at
+                    or datetime.min.replace(tzinfo=timezone.utc)
+                ),
+            ).id
+        session_kwargs = {
+            "assurance": assurance,
+            "session_generation": state.session_generation,
+            "factor_id": factor_id,
+        }
+        if len(verified) < 2:
+            admin_next = "/app/admin/mfa/enroll"
+        elif assurance != "aal2":
+            admin_next = "/app/admin/mfa/challenge"
+        else:
+            requested = payload.requested_next or ""
+            admin_next = (
+                requested
+                if requested.startswith("/app/admin/")
+                and not requested.startswith("//")
+                else "/app/admin/overview"
+            )
+    principal = issue_session(
+        response,
+        user,
+        settings,
+        **session_kwargs,
+    )
     profile = db.get(CustomerProfile, principal.user_id)
     account = db.get(UserAccount, principal.user_id)
     if account is not None and not account.active:
@@ -336,7 +421,12 @@ async def create_session(
                     detail="User Account and Customer mapping do not match.",
                 )
     db.commit()
-    return {"ok": True, "role": principal.role, "next": "/admin.html" if principal.role == "admin" else "/portal.html"}
+    return {
+        "ok": True,
+        "role": principal.role,
+        "assurance": principal.assurance,
+        "next": admin_next if principal.role == "admin" else "/portal.html",
+    }
 
 
 @app.post("/api/auth/logout")

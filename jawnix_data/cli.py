@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import time
 import uuid
 from pathlib import Path
@@ -13,6 +14,8 @@ from jawnix.config import get_settings
 from jawnix.database import SessionLocal
 from jawnix.delivery import deliver_request, mark_delivery_failed
 from jawnix.maintenance import expire_batch_files
+from jawnix.break_glass import BreakGlassRequest, perform_break_glass
+from jawnix.mfa_provider import get_mfa_provider
 from jawnix.models import Agent, CustomerProfile, DistributionEvent, Lead, LeadRequest, RequestStatus
 from jawnix.states import normalize_states
 
@@ -28,6 +31,47 @@ app = typer.Typer(no_args_is_help=True, help="Jawnix data migration and batch op
 
 def emit(value: object) -> None:
     typer.echo(json.dumps(value, indent=2, default=str))
+
+
+@app.command("admin-mfa-break-glass")
+def admin_mfa_break_glass(
+    target_user_id: uuid.UUID = typer.Option(..., "--target-user-id"),
+    target_email: str = typer.Option(..., "--target-email"),
+    operator: str = typer.Option(..., "--operator"),
+    authorizer: str = typer.Option(..., "--authorizer"),
+    reason: str = typer.Option(..., "--reason"),
+    reference: str = typer.Option(..., "--reference"),
+    confirm: str = typer.Option(..., "--confirm"),
+):
+    """Revoke a locked-out administrator and require two-factor reenrollment."""
+
+    if confirm != "REVOKE-AND-REENROLL":
+        raise typer.BadParameter(
+            "confirmation must be exactly REVOKE-AND-REENROLL",
+            param_hint="--confirm",
+        )
+    request = BreakGlassRequest(
+        target_user_id=target_user_id,
+        target_email=target_email,
+        operator=operator,
+        authorizer=authorizer,
+        reason=reason,
+        reference=reference,
+    )
+    try:
+        request.validate()
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from None
+    settings = get_settings()
+    with SessionLocal() as session:
+        result = asyncio.run(
+            perform_break_glass(
+                session,
+                get_mfa_provider(settings),
+                request,
+            )
+        )
+    emit(result)
 
 
 @app.command("import-config")
