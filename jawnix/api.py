@@ -757,6 +757,23 @@ def _feedback_not_found() -> HTTPException:
     )
 
 
+@app.get("/api/me/feedback/dispositions")
+def feedback_disposition_catalog(
+    _: Principal = Depends(require_principal),
+):
+    """The Lead Dispositions a Customer chooses from, and what each one does.
+
+    Served rather than duplicated in the client so the consequence a Customer
+    reads is derived from the rule that materializes it. A Lead Report and an
+    Eligibility Hold cannot be undone from the Customer's side; copy that
+    drifted from `apply_disposition_controls` would misstate an irreversible
+    effect.
+    """
+    from .dispositions import catalog_payload
+
+    return catalog_payload()
+
+
 @app.post("/api/me/feedback/lookup")
 def lookup_feedback(
     payload: FeedbackLookup,

@@ -60,6 +60,10 @@ import {
 import { ScraperOverviewRoute } from "./routes/ScraperOverview";
 import { scraperOverviewLoader } from "./routes/scraperMonitoring";
 import { CustomerOverviewRoute } from "./routes/CustomerOverview";
+import {
+  CustomerFeedbackRoute,
+  feedbackLoader,
+} from "./routes/CustomerFeedback";
 import { CustomerRequestsRoute } from "./routes/CustomerRequests";
 import { batchRequestsLoader } from "./routes/batchRequests";
 
@@ -109,10 +113,13 @@ export const router = createBrowserRouter(
               loader: batchRequestsLoader,
               element: <CustomerRequestsRoute />,
             },
+            // #53 replaced the placeholder with the guided flow. The loader
+            // reads the Lead Disposition catalog, whose consequence copy is
+            // derived from the rule that materializes the controls.
             {
               path: "feedback",
-              loader: placeholderLoader({ title: "Feedback", slice: "#53 — Guided Customer Feedback" }),
-              element: <PlaceholderRoute />,
+              loader: feedbackLoader,
+              element: <CustomerFeedbackRoute />,
             },
             {
               path: "account",

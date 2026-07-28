@@ -1,0 +1,79 @@
+/* Guided Customer Feedback (#53). */
+
+.customer-feedback__group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+.customer-feedback__group legend {
+  padding: 0;
+  margin-block-end: var(--jx-space-2);
+}
+
+/* Every disposition is a visible control, so the grid has to stay readable
+   with ten of them. One column on a phone, filling out as room appears. */
+.customer-feedback__options {
+  display: grid;
+  gap: var(--jx-space-2);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 34rem) {
+  .customer-feedback__options {
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  }
+}
+
+.customer-feedback__option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+  align-items: flex-start;
+  text-align: start;
+  /* The 44px rule applies to the whole target, not just its label. */
+  min-height: var(--jx-touch-target);
+  padding: var(--jx-space-3);
+  border: 1px solid var(--jx-color-border);
+  border-radius: var(--jx-radius-sm);
+  background: var(--jx-color-surface);
+  color: var(--jx-color-text);
+  cursor: pointer;
+}
+
+.customer-feedback__option:hover {
+  border-color: var(--jx-color-border-strong);
+  background: var(--jx-color-surface-strong);
+}
+
+/* Selection is carried by aria-pressed, so the styling follows the state
+   rather than a parallel class that could disagree with it. */
+.customer-feedback__option[aria-pressed="true"] {
+  border-color: var(--jx-color-accent);
+  background: var(--jx-color-accent-soft);
+  color: var(--jx-color-text-strong);
+}
+
+.customer-feedback__option[aria-pressed="true"] .customer-feedback__option-label::before {
+  content: "✓";
+  margin-inline-end: var(--jx-space-2);
+  color: var(--jx-color-accent);
+}
+
+.customer-feedback__option-label {
+  font-weight: var(--jx-weight-bold);
+}
+
+.customer-feedback__option-description {
+  font-size: var(--jx-text-sm);
+  color: var(--jx-color-text-muted);
+}
+
+.customer-feedback__history {
+  display: grid;
+  gap: var(--jx-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
