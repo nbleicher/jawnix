@@ -13,14 +13,8 @@ COPY frontend/ ./
 #
 # Measured peak RSS: ~388MB for tsc, ~237MB for vite (they run in sequence, so
 # ~388MB is the high-water mark). The build host needs that much *available*,
-# not merely installed.
-#
-# The heap cap is a guardrail, not a fix: this VPS also hosts another production
-# stack (docs/OPERATIONS.md), so a runaway typecheck must not be able to grow
-# into it. It bounds V8's old space well above the measured need. Note it does
-# not protect against a host that is simply short on free memory — there the
-# kernel OOM-killer fires first and the build dies with a bare exit 137.
-ENV NODE_OPTIONS=--max-old-space-size=1024
+# not merely installed. A host too short on free memory kills the build with a
+# bare exit 137; a real type error exits 2.
 RUN npm run build
 
 FROM python:3.12-slim

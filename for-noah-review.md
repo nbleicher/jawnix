@@ -129,6 +129,49 @@ Fix by running `supabase start` in that workspace. The other 9 `calllog` contain
 healthy. Two disposable test containers (`calllog-web-test`, `gms-web-test`) also did not
 restart — both were `restart=no`.
 
+### 4b. 🔴 Retiring `buzz-prod` breaks `docker-compose.staging.yml`
+
+Removing buzz was not just a doc reference — staging has a hard functional dependency on it.
+
+```yaml
+# docker-compose.staging.yml
+    ports: !reset []          # publishes NO host ports…
+    networks: [private, edge]
+networks:
+  edge:
+    external: true
+    name: buzz-prod_buzz-net  # …and joins buzz-prod's network
+```
+
+Two consequences now that buzz-prod is gone:
+
+1. **Staging cannot start.** Compose hard-fails when a network declared `external: true` does
+   not exist.
+2. **Nothing would terminate TLS** for `staging.jawnix.com` even if it did — that was
+   buzz-prod's edge Caddy's job.
+
+The silver lining: buzz-prod was the *only* reason staging needed this override. Host ports
+80/443 are now free, so staging can work the way production does.
+
+**Options.**
+- (a) Delete `docker-compose.staging.yml` and run the base compose with
+  `JAWNIX_DOMAIN=staging.jawnix.com`. Simplest, and probably right.
+- (b) Keep the override but give it its own network and publish 80/443.
+- (c) Leave it if staging is vestigial — production cut over to the VPS on 2026-07-25
+  (`OPERATIONS.md:79`), so staging may no longer be used.
+
+**I did not change it.** I only documented the breakage in `OPERATIONS.md`, because I cannot
+see the VPS to confirm whether staging is still in use. Tell me which and it is a small change.
+
+### 4c. Local buzz fully removed
+
+Containers, the three named volumes (`buzz-minio-data` 17 kB, `buzz-prometheus-data` 1.4 MB,
+`buzz-postgres-data` 0 B — all effectively empty), and the orphaned `buzz-net` network are
+gone. Nothing else was attached to any of them.
+
+The `NODE_OPTIONS` heap cap in the `Dockerfile` was also removed: its only justification was
+protecting the co-hosted buzz stack, and that stack no longer exists.
+
 ### 5. `Dockerfile.railway` does not contain the new shell — and that is correct
 
 Railway builds a completely different image (legacy `app.py` monolith, no `jawnix/` package).
