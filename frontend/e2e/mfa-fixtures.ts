@@ -2,6 +2,12 @@ import type { Page, Route } from "@playwright/test";
 
 import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
 import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
+import {
+  monitoringRegion,
+  monitoringSnapshot,
+  pausedPipelineResult,
+} from "./scraper-monitoring-fixtures";
+import type { RegionKey } from "./scraper-monitoring-fixtures";
 
 export interface MockFactor {
   id: string;
@@ -246,6 +252,18 @@ export async function mockAdminMFA(
         lastSuccessfulAt: "2026-07-28T12:00:00Z",
         idleExpiresIn: 900,
       });
+    }
+    if (path.endsWith("/monitoring")) {
+      return json(route, monitoringSnapshot());
+    }
+    if (path.includes("/monitoring/")) {
+      return json(
+        route,
+        monitoringRegion(path.split("/").pop() as RegionKey),
+      );
+    }
+    if (path.endsWith("/pipeline")) {
+      return json(route, pausedPipelineResult());
     }
     if (path.endsWith("/step-up")) {
       return json(route, {

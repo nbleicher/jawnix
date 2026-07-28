@@ -55,10 +55,10 @@ import {
 } from "./routes/CustomerAuth";
 import {
   ScraperStepUpRoute,
-  ScraperWorkspaceRoute,
   scraperEntryLoader,
-  scraperWorkspaceLoader,
 } from "./routes/ScraperWorkspace";
+import { ScraperOverviewRoute } from "./routes/ScraperOverview";
+import { scraperOverviewLoader } from "./routes/scraperMonitoring";
 import { CustomerOverviewRoute } from "./routes/CustomerOverview";
 import { CustomerRequestsRoute } from "./routes/CustomerRequests";
 import { batchRequestsLoader } from "./routes/batchRequests";
@@ -203,8 +203,11 @@ export const router = createBrowserRouter(
             },
             {
               path: "acquisition/scraper/workspace",
-              loader: scraperWorkspaceLoader,
-              element: <ScraperWorkspaceRoute />,
+              // #63 replaced the placeholder workspace with the real GMS/OPS
+              // overview: nine monitoring regions on their own refresh
+              // cadences, and the audited pipeline controls.
+              loader: scraperOverviewLoader,
+              element: <ScraperOverviewRoute />,
             },
             {
               path: "customers",
