@@ -1,0 +1,99 @@
+.jx-dialog {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  max-width: min(34rem, calc(100vw - 2 * var(--jx-space-4)));
+  width: 100%;
+  max-height: calc(100dvh - 2 * var(--jx-space-4));
+  color: var(--jx-color-text);
+}
+
+.jx-dialog::backdrop {
+  background: var(--jx-color-overlay);
+}
+
+.jx-dialog__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-4);
+  background: var(--jx-color-surface);
+  border: 1px solid var(--jx-color-border);
+  border-radius: var(--jx-radius-lg);
+  box-shadow: var(--jx-shadow-lg);
+  padding: var(--jx-space-5);
+  max-height: inherit;
+  overflow-y: auto;
+}
+
+.jx-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--jx-space-4);
+}
+
+.jx-dialog__title {
+  font-size: var(--jx-text-xl);
+  font-weight: var(--jx-weight-bold);
+  line-height: var(--jx-leading-tight);
+  color: var(--jx-color-text-strong);
+  text-wrap: balance;
+}
+
+.jx-dialog__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Meets the 44px target rule even though the glyph is small. */
+  min-width: var(--jx-touch-target);
+  min-height: var(--jx-touch-target);
+  margin: calc(-1 * var(--jx-space-2)) calc(-1 * var(--jx-space-2)) 0 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--jx-radius-md);
+  color: var(--jx-color-text-muted);
+  font-size: var(--jx-text-xl);
+  line-height: 1;
+  cursor: pointer;
+  flex: none;
+}
+
+.jx-dialog__close:hover {
+  background: var(--jx-color-surface-strong);
+  color: var(--jx-color-text);
+}
+
+.jx-dialog__description {
+  color: var(--jx-color-text-muted);
+  font-size: var(--jx-text-sm);
+  max-width: 65ch;
+}
+
+.jx-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-4);
+}
+
+/* Mobile-first: actions stack full width and the primary action sits last, in
+   thumb reach. */
+.jx-dialog__footer {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--jx-space-2);
+}
+
+.jx-dialog__footer > * {
+  width: 100%;
+}
+
+@media (min-width: 30rem) {
+  .jx-dialog__footer {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+
+  .jx-dialog__footer > * {
+    width: auto;
+  }
+}

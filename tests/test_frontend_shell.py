@@ -1,0 +1,167 @@
+"""Unit cover for `jawnix.frontend` against a fixture build directory.
+
+The real compiled bundle is covered by `test_frontend_shell_integration.py`.
+"""
+
+from __future__ import annotations
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from jawnix.config import Settings, get_settings
+from jawnix.frontend import register_frontend_shell
+
+
+@pytest.fixture
+def dist_dir(tmp_path):
+    """A minimal build output shaped like Vite's."""
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text(
+        '<!doctype html><html><body><div id="root"></div>'
+        '<script type="module" src="/app/assets/index-abc123.js"></script>'
+        "</body></html>",
+        encoding="utf-8",
+    )
+    (dist / "assets" / "index-abc123.js").write_text("console.log('shell')", encoding="utf-8")
+    (dist / "assets" / "index-def456.css").write_text(":root{}", encoding="utf-8")
+    return dist
+
+
+def build_client(dist_dir, *, enabled: bool) -> TestClient:
+    def override() -> Settings:
+        return Settings(
+            JAWNIX_ENABLE_NEW_UI=enabled,
+            JAWNIX_FRONTEND_DIST_DIR=dist_dir,
+            JAWNIX_SESSION_SECRET="test-secret-at-least-long-enough",
+        )
+
+    app = FastAPI()
+    register_frontend_shell(app)
+    app.dependency_overrides[get_settings] = override
+    return TestClient(app)
+
+
+# --- Feature flag off: the shell must be absent, not merely hidden -----------
+
+
+@pytest.mark.parametrize("path", ["/app/", "/app/overview", "/app/assets/index-abc123.js"])
+def test_disabled_flag_hides_every_shell_path(dist_dir, path):
+    assert build_client(dist_dir, enabled=False).get(path).status_code == 404
+
+
+# --- The shell document -----------------------------------------------------
+
+
+def test_serves_the_compiled_document(dist_dir):
+    response = build_client(dist_dir, enabled=True).get("/app/")
+
+    assert response.status_code == 200
+    assert 'id="root"' in response.text
+    assert response.headers["content-type"].startswith("text/html")
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/app", "/app/", "/app/overview", "/app/admin/fulfillment", "/app/requests/1234"],
+)
+def test_direct_navigation_to_any_application_route_serves_the_shell(dist_dir, path):
+    """Deep links must work on a hard refresh, not just via the client router."""
+    response = build_client(dist_dir, enabled=True).get(path, follow_redirects=True)
+
+    assert response.status_code == 200
+    assert 'id="root"' in response.text
+
+
+def test_document_is_revalidated_so_a_deploy_is_picked_up(dist_dir):
+    response = build_client(dist_dir, enabled=True).get("/app/")
+
+    assert "no-store" in response.headers["cache-control"]
+
+
+def test_document_is_not_indexed(dist_dir):
+    response = build_client(dist_dir, enabled=True).get("/app/")
+
+    assert "noindex" in response.headers["x-robots-tag"]
+
+
+# --- Hashed assets ----------------------------------------------------------
+
+
+def test_serves_a_hashed_asset(dist_dir):
+    response = build_client(dist_dir, enabled=True).get("/app/assets/index-abc123.js")
+
+    assert response.status_code == 200
+    assert response.text == "console.log('shell')"
+
+
+def test_hashed_assets_are_cached_immutably(dist_dir):
+    response = build_client(dist_dir, enabled=True).get("/app/assets/index-def456.css")
+
+    cache_control = response.headers["cache-control"]
+    assert "immutable" in cache_control
+    assert "max-age=31536000" in cache_control
+
+
+def test_missing_asset_is_not_found_rather_than_the_shell(dist_dir):
+    """An asset 404 must stay a 404: returning index.html would make a stale
+    bundle reference surface as an unreadable MIME-type error."""
+    response = build_client(dist_dir, enabled=True).get("/app/assets/index-gone.js")
+
+    assert response.status_code == 404
+    assert "root" not in response.text
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        # Percent-encoded so the client cannot normalise the traversal away
+        # before it reaches the server.
+        "/app/assets/%2e%2e/secret.txt",
+        "/app/assets/%2e%2e%2f%2e%2e%2fsecret.txt",
+        "/app/assets/%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+    ],
+)
+def test_traversal_outside_the_build_directory_is_refused(dist_dir, path):
+    secret = dist_dir.parent / "secret.txt"
+    secret.write_text("do-not-serve-this", encoding="utf-8")
+
+    response = build_client(dist_dir, enabled=True).get(path)
+
+    assert response.status_code == 404
+    assert "do-not-serve-this" not in response.text
+    assert "root:" not in response.text
+
+
+def test_a_symlink_escaping_the_build_directory_is_refused(dist_dir):
+    secret = dist_dir.parent / "secret.txt"
+    secret.write_text("do-not-serve-this", encoding="utf-8")
+    (dist_dir / "assets" / "escape.txt").symlink_to(secret)
+
+    response = build_client(dist_dir, enabled=True).get("/app/assets/escape.txt")
+
+    assert response.status_code == 404
+    assert "do-not-serve-this" not in response.text
+
+
+# --- Degraded states --------------------------------------------------------
+
+
+def test_absent_build_reports_unavailable_rather_than_crashing(tmp_path):
+    """The flag can be on before the build artefact is present; that must be a
+    clean 503, not a 500 traceback."""
+    response = build_client(tmp_path / "absent", enabled=True).get("/app/")
+
+    assert response.status_code == 503
+
+
+def test_registering_the_shell_adds_no_route_outside_the_app_prefix():
+    """The current static UI keeps the site root until cutover."""
+    app = FastAPI()
+    before = {route.path for route in app.routes}
+    register_frontend_shell(app)
+    added = {route.path for route in app.routes} - before
+
+    assert added, "expected the shell to register routes"
+    assert all(path.startswith("/app") for path in added), added

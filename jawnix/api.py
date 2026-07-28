@@ -17,6 +17,7 @@ from .auth import Principal, clear_session, issue_session, require_admin, requir
 from .config import Settings, get_settings
 from .database import get_db
 from .feedback import apply_disposition_controls, release_report_hold
+from .frontend import register_frontend_shell
 from .jobs import enqueue_job
 from .recommendations import (
     RecommendationDecisionError,
@@ -100,6 +101,10 @@ from .transitions import TransitionError, transition_request
 
 
 app = FastAPI(title="Jawnix VPS API", version="1.0.0")
+
+# The redesigned shell at /app, behind JAWNIX_ENABLE_NEW_UI. Off by default, so
+# the current static UI is the only surface until the cutover in #71.
+register_frontend_shell(app)
 
 
 @app.post("/admin/scraper/session")

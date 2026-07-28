@@ -10,8 +10,7 @@ ready_body="$(curl -fsS --max-time 20 https://jawnix.com/api/readyz 2>/dev/null 
 health_body="$(curl -fsS --max-time 20 https://jawnix.com/api/healthz 2>/dev/null || true)"
 running_services="$(
   cd "$app_dir" &&
-    docker compose -f docker-compose.yml -f docker-compose.staging.yml \
-      ps --status running --services 2>/dev/null | wc -l | tr -d " "
+    docker compose ps --status running --services 2>/dev/null | wc -l | tr -d " "
 )"
 
 current_status="healthy"

@@ -1,0 +1,42 @@
+.jx-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jx-space-2);
+  padding: var(--jx-space-1) var(--jx-space-3);
+  border-radius: var(--jx-radius-pill);
+  border: 1px solid currentColor;
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-semibold);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.jx-status__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+.jx-status--neutral {
+  color: var(--jx-color-neutral);
+  background: var(--jx-color-neutral-soft);
+}
+.jx-status--info {
+  color: var(--jx-color-info);
+  background: var(--jx-color-info-soft);
+}
+.jx-status--success {
+  color: var(--jx-color-success);
+  background: var(--jx-color-success-soft);
+}
+.jx-status--warning {
+  color: var(--jx-color-warning);
+  background: var(--jx-color-warning-soft);
+}
+.jx-status--danger {
+  color: var(--jx-color-danger);
+  background: var(--jx-color-danger-soft);
+}

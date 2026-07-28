@@ -1,0 +1,129 @@
+.jx-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--jx-space-3);
+  padding: var(--jx-space-6);
+  color: var(--jx-color-text-muted);
+}
+
+.jx-loading__spinner {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  border: 3px solid var(--jx-color-border-strong);
+  border-top-color: var(--jx-color-accent);
+  animation: jx-spin 800ms linear infinite;
+}
+
+.jx-loading__label {
+  font-size: var(--jx-text-sm);
+}
+
+@keyframes jx-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.jx-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+}
+
+.jx-skeleton__line {
+  display: block;
+  height: 1rem;
+  border-radius: var(--jx-radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--jx-color-surface-strong) 25%,
+    var(--jx-color-border) 37%,
+    var(--jx-color-surface-strong) 63%
+  );
+  background-size: 400% 100%;
+  animation: jx-shimmer 1400ms ease-in-out infinite;
+}
+
+.jx-skeleton__line:last-child {
+  width: 60%;
+}
+
+@keyframes jx-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+/* Reduced motion keeps the reserved space and the announcement but drops the
+   movement — no information is carried by the animation. */
+@media (prefers-reduced-motion: reduce) {
+  .jx-loading__spinner {
+    animation: none;
+    border-top-color: var(--jx-color-accent);
+  }
+
+  .jx-skeleton__line {
+    animation: none;
+    background: var(--jx-color-surface-strong);
+  }
+}
+
+.jx-empty,
+.jx-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--jx-space-3);
+  padding: var(--jx-space-6) var(--jx-space-4);
+  text-align: center;
+  background: var(--jx-color-surface);
+  border: 1px solid var(--jx-color-border);
+  border-radius: var(--jx-radius-lg);
+}
+
+.jx-empty__title,
+.jx-error__title {
+  font-size: var(--jx-text-lg);
+  font-weight: var(--jx-weight-semibold);
+  color: var(--jx-color-text-strong);
+}
+
+.jx-empty__description,
+.jx-error__description {
+  color: var(--jx-color-text-muted);
+  font-size: var(--jx-text-sm);
+  max-width: 55ch;
+}
+
+.jx-error {
+  border-color: var(--jx-color-danger);
+  background: var(--jx-color-danger-soft);
+}
+
+.jx-error__title {
+  color: var(--jx-color-danger);
+}
+
+[data-theme="jawnix"] .jx-error__description,
+[data-theme="jawnix"] .jx-error__reference {
+  /* The soft danger background is lighter than the surface these tones were
+     tuned against; the darker ink keeps AA contrast. */
+  color: #7f1d1d;
+}
+
+.jx-error__reference {
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  color: var(--jx-color-text-muted);
+}
+
+.jx-empty__action,
+.jx-error__action {
+  margin-top: var(--jx-space-1);
+}

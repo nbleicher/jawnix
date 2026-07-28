@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  # Only `main` on push. Feature branches are covered by their pull request —
+  # listening to both events on every branch runs the whole suite twice for each
+  # push to an open PR, and the two events carry different `github.ref` values so
+  # a concurrency group cannot dedupe them.
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes an in-flight run obsolete.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend (typecheck, unit, e2e)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Vite only strips types, it never checks them, so this is the only thing
+      # standing between a type error and a shipped bundle.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # Chromium only: both Playwright projects (Pixel 7, Desktop Chrome) are
+      # Chromium-based.
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: npm run test:e2e
+
+      # The Python integration tests assert the real bundle is served correctly
+      # by FastAPI, and skip when it is absent. Hand it to the backend job.
+      - name: Upload build for the backend job
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 1
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7
+
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    # Waits on the frontend build so the shell integration tests run for real
+    # instead of skipping.
+    needs: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned to an exact version: astral-sh/setup-uv stopped publishing
+      # floating major tags after v7.6, so `@v9` does not resolve.
+      - uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+
+      - name: Download the compiled frontend
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      # Pinned to 3.12 to match the runtime image. `requires-python = ">=3.12"`
+      # would otherwise let CI resolve a newer interpreter than production runs.
+      - name: Install dependencies
+        run: uv sync --python 3.12 --extra test
+
+      - name: Confirm the interpreter matches the runtime image
+        run: |
+          version="$(uv run python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+          echo "python $version"
+          test "$version" = "3.12" || { echo "::error::expected Python 3.12, got $version"; exit 1; }
+
+      - name: Confirm the shell integration tests are not silently skipping
+        run: test -f frontend/dist/index.html
+
+      - name: Tests
+        run: uv run pytest
+
+  image:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Builds the real deployment artefact, including the Node stage. This is
+      # what catches a Dockerfile or build-stage regression before the VPS does.
+      - name: Build image
+        run: docker build -t jawnix-ci .
+
+      - name: Feature flag off by default keeps /app absent
+        run: |
+          docker run -d --name jawnix-off -p 18001:8001 \
+            -e JAWNIX_SESSION_SECRET=ci-secret-at-least-long-enough \
+            -e JAWNIX_COOKIE_SECURE=false jawnix-ci
+          for _ in $(seq 1 30); do
+            sleep 1
+            curl -fsS -o /dev/null http://127.0.0.1:18001/api/healthz && break
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18001/app/)" = "404"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18001/api/healthz)" = "200"
+          docker rm -f jawnix-off
+
+      - name: Feature flag on serves the shell and its hashed assets
+        run: |
+          docker run -d --name jawnix-on -p 18002:8001 \
+            -e JAWNIX_ENABLE_NEW_UI=true \
+            -e JAWNIX_SESSION_SECRET=ci-secret-at-least-long-enough \
+            -e JAWNIX_COOKIE_SECURE=false jawnix-ci
+          for _ in $(seq 1 30); do
+            sleep 1
+            curl -fsS -o /dev/null http://127.0.0.1:18002/app/ && break
+          done
+          # Deep links must survive a hard load, not just client-side routing.
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18002/app/admin/fulfillment)" = "200"
+          asset="$(curl -s http://127.0.0.1:18002/app/ | grep -o '/app/assets/[^"]*\.js' | head -1)"
+          test -n "$asset" || { echo "::error::no hashed asset referenced"; exit 1; }
+          test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:18002$asset")" = "200"
+          curl -s -D- -o /dev/null "http://127.0.0.1:18002$asset" | grep -qi 'cache-control: public, max-age=31536000, immutable'
+          docker rm -f jawnix-on

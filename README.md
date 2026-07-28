@@ -10,8 +10,8 @@ by Google Maps Source Segment.
 
 ## Services
 
-- Caddy: public HTTP/HTTPS and static portal
-- FastAPI: session, profile, request, admin, Telegram, and Resend APIs
+- Caddy: public HTTP/HTTPS and static portal; proxies `/api`, `/admin/scraper`, and `/app` to FastAPI
+- FastAPI: session, profile, request, admin, Telegram, and Resend APIs, plus the redesigned React shell at `/app`
 - Worker: durable approval, allocation, Telegram, and delivery jobs
 - PostgreSQL 18: private inventory and permanent allocation history
 - Scheduler: nightly Google Maps dataset synchronization, Nightly Review, waiting-request retry, and 30-day CSV cleanup
@@ -20,12 +20,26 @@ by Google Maps Source Segment.
 
 Only Caddy publishes ports. PostgreSQL, the API, worker, and schedulers remain on the Docker network.
 
+## Redesigned UI
+
+The rebuilt React interface lives in [`frontend/`](frontend/README.md) and is served by FastAPI at
+`/app` behind `JAWNIX_ENABLE_NEW_UI`. Keep it `false` until the controlled cutover: while the flag is
+off the prefix returns 404 and the current static pages are the only UI. The Docker image builds the
+bundle in a separate Node stage and always ships it, so enabling the flag needs no rebuild.
+
 ## Local verification
 
+CI (`.github/workflows/ci.yml`) runs all of the following on every push and pull request, and
+also builds the Docker image and smoke-tests both feature-flag states.
+
 ```sh
-python3.12 -m venv .venv
-.venv/bin/pip install -e '.[test]'
-.venv/bin/pytest
+# Python. `.python-version` pins 3.12 to match the runtime image.
+uv sync --extra test
+uv run pytest
+
+# Frontend. The shell integration tests skip without a build, so build first.
+cd frontend && npm ci && npm run build && npm test && npm run test:e2e && cd ..
+
 cp .env.example .env
 # Replace every placeholder, then:
 ./scripts/render-config.sh
