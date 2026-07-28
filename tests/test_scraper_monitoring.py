@@ -9,12 +9,12 @@ from sqlalchemy import select
 from jawnix.api import app
 from jawnix.models import AuditEntry
 from jawnix.scraper_monitoring import REGION_INTERVALS, REGIONS
-from tests.scraper_fake import (
+from scraper_fake import (
     ScraperFake,
     SAMPLE,
     paused_activity,
 )
-from tests.test_scraper_workspace import (  # noqa: F401 — fixtures
+from test_scraper_workspace import (  # noqa: F401 — fixtures
     enter_and_verify,
     workspace_client,
     workspace_settings,
