@@ -32,6 +32,12 @@ import {
   AcceptInvitationRoute,
   SignInRoute,
 } from "./routes/CustomerAuth";
+import {
+  ScraperStepUpRoute,
+  ScraperWorkspaceRoute,
+  scraperEntryLoader,
+  scraperWorkspaceLoader,
+} from "./routes/ScraperWorkspace";
 import { CustomerOverviewRoute } from "./routes/CustomerOverview";
 
 /**
@@ -139,6 +145,16 @@ export const router = createBrowserRouter(
               path: "acquisition",
               loader: adminAcquisitionLoader,
               element: <AdminDestinationRoute />,
+            },
+            {
+              path: "acquisition/scraper",
+              loader: scraperEntryLoader,
+              element: <ScraperStepUpRoute />,
+            },
+            {
+              path: "acquisition/scraper/workspace",
+              loader: scraperWorkspaceLoader,
+              element: <ScraperWorkspaceRoute />,
             },
             {
               path: "customers",

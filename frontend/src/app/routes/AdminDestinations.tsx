@@ -148,6 +148,10 @@ const ACQUISITION: AdminDestinationData = {
       title: "Scraper operations",
       description:
         "Service status, workers, pipeline activity, logs, incidents, and protected controls belong together.",
+      action: {
+        label: "Enter Scraper Operations",
+        href: "/app/admin/acquisition/scraper",
+      },
     },
     {
       title: "Source planning",

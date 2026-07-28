@@ -49,10 +49,11 @@ export function useTheme(): ThemeContextValue {
  * offered a manual toggle, which the effect silently reverted on the next
  * render.
  */
-export function useRouteTheme(theme: Theme): void {
+export function useRouteTheme(theme: Theme, restoreTheme?: Theme): void {
   const { setTheme } = useTheme();
 
   useEffect(() => {
     setTheme(theme);
-  }, [theme, setTheme]);
+    return restoreTheme ? () => setTheme(restoreTheme) : undefined;
+  }, [restoreTheme, theme, setTheme]);
 }

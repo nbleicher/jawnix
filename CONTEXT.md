@@ -24,6 +24,10 @@ _Avoid_: Only factor, default password
 A second verified Authenticator Factor stored separately from the Primary Authenticator and used when the primary is unavailable.
 _Avoid_: Recovery code, duplicate authenticator
 
+**Scraper Privileged Session**:
+A short-lived grant to Scraper Operations established by a fresh Authenticator Factor challenge on every entry, independent of an existing Administrator Session's assurance.
+_Avoid_: Administrator session, trusted Scraper access, persistent elevation
+
 **Break-glass Recovery**:
 A two-person, explicitly authorized operator procedure that revokes Administrator Sessions and restores access only to Authenticator Factor enrollment after both factors are lost.
 _Avoid_: Password reset, self-service recovery, administrator bypass

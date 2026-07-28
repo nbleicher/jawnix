@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .activity import record_activity
 from .auth import (
     Principal,
     clear_session,
@@ -25,12 +26,7 @@ from .mfa_provider import (
     SupabaseMFAProvider,
     get_mfa_provider,
 )
-from .models import (
-    AdminMFAFactorUse,
-    AdminMFAState,
-    AuditEntry,
-    utcnow,
-)
+from .models import AdminMFAFactorUse, AdminMFAState, utcnow
 from .schemas import (
     AdminMFAAccessToken,
     AdminMFAChallenge,
@@ -80,15 +76,14 @@ def _audit(
     reason: str,
     details: dict | None = None,
 ) -> None:
-    db.add(
-        AuditEntry(
-            action=action,
-            target_type="administrator_mfa",
-            target_id=str(principal.user_id),
-            actor_user_id=str(principal.user_id),
-            reason=reason,
-            details=details or {},
-        )
+    record_activity(
+        db,
+        action=action,
+        target_type="administrator_mfa",
+        target_id=principal.user_id,
+        actor_id=principal.user_id,
+        reason=reason,
+        details=details,
     )
 
 
