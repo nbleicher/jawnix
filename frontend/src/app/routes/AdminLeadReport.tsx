@@ -64,11 +64,13 @@ function reportControlRequest(report: LeadReportDetail): ControlResolver {
     if (action.name === "restore" || action.name === "remove-correction") {
       return leadControlRequest(report.lead.id)(action, reason, values);
     }
-    if (action.name === "correct") {
+    // Keyed on the domain flag rather than the name, so the one decision that
+    // proposes a replacement value stays defined by the server.
+    if (action.requiresOverride) {
       const title = (values.title ?? "").trim();
       const state = (values.state ?? "").trim();
       return {
-        url: `/api/admin/lead-reports/${report.id}/correct`,
+        url: `/api/admin/lead-reports/${report.id}/${action.name}`,
         method: "POST",
         body: {
           note: reason,
@@ -413,13 +415,28 @@ export function AdminLeadReportRoute() {
                     },
                   ]}
                 />
-                {/* Verbatim: the release rule is the domain's sentence, and
-                    paraphrasing it would soften a rule that has no exception. */}
-                <Text size="sm">{controls.holdRelease}</Text>
-                <Text size="sm" tone="warning">
-                  A Customer cannot release or bypass this Eligibility Hold. It
-                  is released only by resolving this Lead Report here.
-                </Text>
+                {/* Only where a hold actually exists. Stating the release
+                    rule beside a "Not held" badge would assert a hold and
+                    deny one in the same breath. Not every report creates one:
+                    Wrong Business is report-only. */}
+                {controls.holdId ? (
+                  <>
+                    {/* Verbatim: the release rule is the domain's sentence,
+                        and paraphrasing it would soften a rule that has no
+                        exception. */}
+                    <Text size="sm">{controls.holdRelease}</Text>
+                    <Text size="sm" tone="warning">
+                      A Customer cannot release or bypass this Eligibility
+                      Hold. It is released only by an administrator resolving
+                      this Lead Report.
+                    </Text>
+                  </>
+                ) : (
+                  <Text size="sm" tone="muted">
+                    This Lead Report never created an Eligibility Hold. Only an
+                    Invalid Phone or Do Not Contact disposition does.
+                  </Text>
+                )}
               </Stack>
             </Card>
 

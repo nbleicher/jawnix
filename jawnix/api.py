@@ -46,16 +46,12 @@ from .database import get_db
 from .eligibility import (
     RESTORE_NOTICE,
     ControlConflict,
-    active_holds,
-    control_counts,
     correct_from_report,
     describe_report,
     dismiss_report,
     lead_evidence,
-    open_reports,
     record_correction,
     suppress_from_report,
-    suppressed_leads,
 )
 from .feedback import apply_disposition_controls
 from .frontend import register_frontend_shell
@@ -2370,20 +2366,6 @@ def remove_lead_correction(
     }
 
 
-@app.get("/api/admin/lead-reports")
-def admin_lead_reports(
-    _: Principal = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """Every Lead Report awaiting a decision, with its control state."""
-    return {
-        "counts": control_counts(db),
-        "reports": open_reports(db),
-        "eligibilityHolds": active_holds(db),
-        "suppressedLeads": suppressed_leads(db),
-    }
-
-
 @app.get("/api/admin/lead-reports/{report_id}")
 def admin_lead_report_detail(
     report_id: uuid.UUID,
@@ -2456,6 +2438,7 @@ def dismiss_lead_report(
             note=payload.note,
         )
     except ControlConflict as conflict:
+        db.rollback()
         raise HTTPException(status_code=409, detail=conflict.message) from None
     _report_activity(
         db,
@@ -2543,6 +2526,7 @@ def suppress_lead_report(
             note=payload.note,
         )
     except ControlConflict as conflict:
+        db.rollback()
         raise HTTPException(status_code=409, detail=conflict.message) from None
     _report_activity(
         db,

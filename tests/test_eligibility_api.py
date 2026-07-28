@@ -185,13 +185,6 @@ class TestReportQueueAndDetail:
         )
         client = as_admin(session)
         try:
-            queue = client.get("/api/admin/lead-reports")
-            assert queue.status_code == 200
-            body = queue.json()
-            assert body["counts"]["openReports"] == 1
-            assert body["counts"]["activeHolds"] == 1
-            assert [item["id"] for item in body["reports"]] == [str(report.id)]
-
             detail = client.get(f"/api/admin/lead-reports/{report.id}")
             assert detail.status_code == 200
             item = detail.json()
@@ -221,10 +214,9 @@ class TestReportQueueAndDetail:
         app.dependency_overrides[get_db] = database_override
         try:
             client = TestClient(app)
-            assert client.get("/api/admin/lead-reports").status_code in {
-                401,
-                403,
-            }
+            assert client.get(
+                f"/api/admin/lead-reports/{report.id}"
+            ).status_code in {401, 403}
             assert client.post(
                 f"/api/admin/lead-reports/{report.id}/dismiss",
                 json={"note": "Not allowed"},
@@ -538,6 +530,6 @@ class TestSuppressionAndCorrectionControls:
             assert [item["leadId"] for item in workspace["eligibilityHolds"]] == [
                 lead.id
             ]
-            assert workspace["controlCounts"]["openReports"] == 1
+            assert workspace["leadReports"][0]["eligibilityHeld"] is True
         finally:
             app.dependency_overrides.clear()

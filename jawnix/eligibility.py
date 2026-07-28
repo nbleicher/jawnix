@@ -28,9 +28,9 @@ kinder disposition afterwards adds history; it does not reopen eligibility.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .feedback import release_report_hold
@@ -153,12 +153,6 @@ SUPPRESS = ControlAction(
 
 REPORT_ACTIONS: tuple[ControlAction, ...] = (DISMISS, CORRECT, SUPPRESS)
 
-SUPPRESS_LEAD = ControlAction(
-    name="suppress",
-    label="Suppress Lead",
-    consequence=SUPPRESS.consequence,
-    destructive=True,
-)
 RESTORE_LEAD = ControlAction(
     name="restore",
     label="Restore eligibility",
@@ -181,14 +175,6 @@ _EVIDENCE_LABELS = {
     "prior_correction": "Active Lead Correction",
     "none": "No underlying listing evidence",
 }
-
-
-def action_named(name: str) -> ControlAction:
-    """Return the report action, or raise ``KeyError`` for an unknown name."""
-    for action in REPORT_ACTIONS:
-        if action.name == name:
-            return action
-    raise KeyError(name)
 
 
 def lead_evidence(db: Session, lead: Lead) -> LeadEvidence:
@@ -474,24 +460,74 @@ def describe_report(db: Session, report: LeadReport) -> dict[str, object]:
     }
 
 
-def open_reports(db: Session) -> list[dict[str, object]]:
-    """Every Lead Report still awaiting an administrator decision."""
-    return [
-        describe_report(db, report)
-        for report in db.scalars(
+def report_summaries(
+    db: Session,
+    *,
+    limit: int = 50,
+) -> list[dict[str, object]]:
+    """Open Lead Reports as list rows, newest first.
+
+    Deliberately not :func:`describe_report`: a queue needs enough to choose
+    what to open, and building the full evidence-and-controls aggregate per
+    row turned one workspace load into a query per report.
+    """
+    reports = list(
+        db.scalars(
             select(LeadReport)
             .where(LeadReport.status == "open")
             .order_by(LeadReport.created_at.desc(), LeadReport.id)
+            .limit(limit)
         )
+    )
+    if not reports:
+        return []
+    customers = {
+        customer.id: customer
+        for customer in db.scalars(
+            select(Customer).where(
+                Customer.id.in_({item.customer_id for item in reports})
+            )
+        )
+    }
+    held = set(
+        db.scalars(
+            select(EligibilityHold.report_id).where(
+                EligibilityHold.report_id.in_({item.id for item in reports}),
+                EligibilityHold.active.is_(True),
+            )
+        )
+    )
+    return [
+        {
+            "id": str(item.id),
+            "reason": item.reason,
+            "reasonLabel": _REPORT_REASONS.get(item.reason, item.reason),
+            "details": item.details,
+            "status": item.status,
+            "createdAt": item.created_at,
+            "href": f"/app/admin/fulfillment/reports/{item.id}",
+            "customer": {
+                "id": item.customer_id,
+                "name": (
+                    customers[item.customer_id].name
+                    if item.customer_id in customers
+                    else ""
+                ),
+                "href": f"/app/admin/customers/{item.customer_id}",
+            },
+            "eligibilityHeld": item.id in held,
+        }
+        for item in reports
     ]
 
 
-def active_holds(db: Session) -> list[dict[str, object]]:
+def active_holds(db: Session, *, limit: int = 50) -> list[dict[str, object]]:
     """Eligibility Holds currently blocking allocation, newest first."""
     holds = db.scalars(
         select(EligibilityHold)
         .where(EligibilityHold.active.is_(True))
         .order_by(EligibilityHold.created_at.desc(), EligibilityHold.id)
+        .limit(limit)
     )
     described = []
     for hold in holds:
@@ -533,34 +569,6 @@ def suppressed_leads(db: Session, *, limit: int = 50) -> list[dict[str, object]]
             .limit(limit)
         )
     ]
-
-
-def control_counts(db: Session) -> dict[str, int]:
-    """Counts the Operations overview reads without loading the records."""
-    return {
-        "openReports": int(
-            db.scalar(
-                select(func.count(LeadReport.id)).where(
-                    LeadReport.status == "open"
-                )
-            )
-            or 0
-        ),
-        "activeHolds": int(
-            db.scalar(
-                select(func.count(EligibilityHold.id)).where(
-                    EligibilityHold.active.is_(True)
-                )
-            )
-            or 0
-        ),
-        "suppressedLeads": int(
-            db.scalar(
-                select(func.count(Lead.id)).where(Lead.suppressed.is_(True))
-            )
-            or 0
-        ),
-    }
 
 
 _REPORT_REASONS = {
@@ -629,15 +637,6 @@ def _describe_lead(
     }
 
 
-def utc(value: datetime | None) -> datetime | None:
-    """Normalize a stored timestamp for comparison against ``now``."""
-    if value is None:
-        return None
-    return (
-        value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
-    )
-
-
 __all__ = [
     "ControlAction",
     "ControlConflict",
@@ -647,17 +646,13 @@ __all__ = [
     "REPORT_ACTIONS",
     "RESTORE_LEAD",
     "RESTORE_NOTICE",
-    "SUPPRESS_LEAD",
-    "action_named",
     "active_holds",
-    "control_counts",
     "correct_from_report",
     "describe_report",
     "dismiss_report",
     "lead_evidence",
-    "open_reports",
     "record_correction",
+    "report_summaries",
     "suppress_from_report",
     "suppressed_leads",
-    "utc",
 ]

@@ -181,13 +181,26 @@ const SUPPRESSED_LEAD = {
   actions: [RESTORE],
 };
 
+/** The queue row, which is lighter than the detail: enough to choose what to
+ *  open, without every report's evidence and controls. */
+const OPEN_REPORT_SUMMARY = {
+  id: OPEN_REPORT.id,
+  reason: OPEN_REPORT.reason,
+  reasonLabel: OPEN_REPORT.reasonLabel,
+  details: OPEN_REPORT.details,
+  status: OPEN_REPORT.status,
+  createdAt: OPEN_REPORT.createdAt,
+  href: OPEN_REPORT.href,
+  customer: OPEN_REPORT.customer,
+  eligibilityHeld: true,
+};
+
 /** The #58 additions to `GET /api/admin/fulfillment`. Kept here so the
  *  Fulfillment fixture and this one cannot drift apart. */
 export const LEAD_REPORT_SECTIONS = {
-  leadReports: [OPEN_REPORT],
+  leadReports: [OPEN_REPORT_SUMMARY],
   eligibilityHolds: [ELIGIBILITY_HOLD],
   suppressedLeads: [SUPPRESSED_LEAD],
-  controlCounts: { openReports: 1, activeHolds: 1, suppressedLeads: 1 },
 };
 
 const REPORTS: Record<string, unknown> = {
@@ -212,14 +225,6 @@ export async function mockLeadReports(page: Page): Promise<RecordedCall[]> {
     const path = new URL(request.url()).pathname;
 
     if (request.method() === "GET") {
-      if (path.endsWith("/lead-reports")) {
-        return json(route, {
-          counts: LEAD_REPORT_SECTIONS.controlCounts,
-          reports: LEAD_REPORT_SECTIONS.leadReports,
-          eligibilityHolds: LEAD_REPORT_SECTIONS.eligibilityHolds,
-          suppressedLeads: LEAD_REPORT_SECTIONS.suppressedLeads,
-        });
-      }
       const report = REPORTS[path.split("/").pop() ?? ""];
       if (!report) {
         return json(route, { detail: "Lead Report was not found." }, 404);

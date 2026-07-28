@@ -12,7 +12,7 @@ from jawnix.eligibility import (
     describe_report,
     dismiss_report,
     lead_evidence,
-    open_reports,
+    report_summaries,
     suppress_from_report,
 )
 from jawnix.models import (
@@ -343,9 +343,10 @@ class TestReadModel:
         dismiss_report(session, second, actor_id=ACTOR, note="Reviewed")
         session.flush()
 
-        queued = open_reports(session)
+        queued = report_summaries(session)
 
         assert [item["id"] for item in queued] == [str(first.id)]
+        assert queued[0]["eligibilityHeld"] is True
 
     def test_a_suppressed_lead_offers_restoration_from_its_report(
         self,

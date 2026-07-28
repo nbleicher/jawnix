@@ -157,47 +157,7 @@ function leadReport(
     createdAt: "2026-07-01T10:00:00Z",
     href: `/app/admin/fulfillment/reports/${LEAD_REPORT_ID}`,
     customer: { id: 7, name: "Northstar Insurance", href: "/app/admin/customers/7" },
-    distributionEvent: {
-      id: 4021,
-      phone: "+15125550123",
-      title: "Roofing contractor",
-      state: "TX",
-      customerName: "Northstar Insurance",
-      agencyName: "Northstar Agency",
-      deliveredAt: "2026-06-28T12:00:00Z",
-      listingProvenance: {},
-      requestId: null,
-    },
-    lead: {
-      id: 91,
-      phone: "+15125550123",
-      title: "Roofing contractor",
-      state: "TX",
-      suppressed: false,
-      correction: null,
-    },
-    evidence: {
-      kind: "current_listing",
-      label: "Current listing",
-      title: "Ridgeline Roofing",
-      state: "TX",
-      observationId: 552,
-      observedAt: "2026-06-01T09:00:00Z",
-      source: "directory.example",
-    },
-    controls: {
-      eligibilityHeld: true,
-      holdId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-      holdReason: "An open Lead Report withholds this Lead.",
-      holdReleasedAt: null,
-      holdRelease: HOLD_RELEASE,
-      holdReleasableByCustomer: false,
-      suppressed: false,
-      suppressionReason: "",
-      restoreNotice: RESTORE_NOTICE,
-    },
-    resolution: null,
-    actions: [],
+    eligibilityHeld: true,
     ...overrides,
   };
 }
@@ -572,9 +532,7 @@ describe("the Lead Report control sections", () => {
       <AdminFulfillmentRoute />,
       workspace({
         leadReports: [
-          leadReport({
-            controls: { ...leadReport().controls, eligibilityHeld: false },
-          }),
+          leadReport({ eligibilityHeld: false }),
         ],
       }),
     );

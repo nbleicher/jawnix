@@ -99,7 +99,7 @@ export interface ConflictDetail {
  * Distribution Event that was delivered stays exactly as delivered.
  */
 export interface ControlAction {
-  name: "dismiss" | "correct" | "suppress" | "restore" | "remove-correction";
+  name: string;
   label: string;
   consequence: string;
   destructive: boolean;
@@ -107,7 +107,7 @@ export interface ControlAction {
   /** True only for a Lead Correction, which needs a typed title or state on top
    *  of the reason. The screen reads this rather than checking for `correct`,
    *  so the override surface follows the domain instead of a name. */
-  requiresOverride: boolean;
+  requiresOverride?: boolean;
 }
 
 /** What the Lead looked like underneath the report — the thing a Lead
@@ -191,8 +191,19 @@ export interface LeadReportDetail {
   actions: ControlAction[];
 }
 
-/** The workspace list carries the same projection as the detail. */
-export type LeadReportSummary = LeadReportDetail;
+/** The queue row. Deliberately lighter than the detail: enough to choose what
+ *  to open, without building every report's evidence and controls up front. */
+export interface LeadReportSummary {
+  id: string;
+  reason: string;
+  reasonLabel: string;
+  details: string;
+  status: string;
+  createdAt: string;
+  href: string;
+  customer: { id: number; name: string; href: string };
+  eligibilityHeld: boolean;
+}
 
 export interface EligibilityHold {
   id: string;
@@ -229,13 +240,6 @@ export interface WorkspaceData {
   leadReports?: LeadReportSummary[];
   eligibilityHolds?: EligibilityHold[];
   suppressedLeads?: SuppressedLead[];
-  /* Typed for completeness, deliberately not rendered: a count beside the list
-     it summarizes is a second source of truth that can disagree with it. */
-  controlCounts?: {
-    openReports: number;
-    activeHolds: number;
-    suppressedLeads: number;
-  };
 }
 
 export interface ArtifactState {
@@ -358,116 +362,6 @@ export async function fulfillmentConflictLoader({
 }: LoaderFunctionArgs): Promise<ConflictDetail> {
   return api<ConflictDetail>(
     `/api/admin/inventory-conflicts/${params.conflictId}`,
-  );
-}
-
-interface ActionBarProps {
-  actions: FulfillmentAction[];
-  /** Resolves the endpoint for one action. Kept out of this component so the
-   *  Batch Request and Inventory Conflict surfaces share the confirm flow
-   *  without sharing a URL scheme. */
-  endpoint: (action: FulfillmentAction) => string;
-  /** Rendered when the record has nothing valid left to do. */
-  settled: string;
-}
-
-/**
- * Renders exactly the actions the server offered, each behind a confirmation
- * that states its consequence and collects the reason the audit trail needs.
- */
-function ActionBar({ actions, endpoint, settled }: ActionBarProps) {
-  const [pending, setPending] = useState<FulfillmentAction | null>(null);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const revalidator = useRevalidator();
-
-  function open(action: FulfillmentAction) {
-    setPending(action);
-    setReason("");
-    setError("");
-  }
-
-  function close() {
-    setPending(null);
-    setReason("");
-  }
-
-  async function confirm() {
-    if (!pending) return;
-    // A reason is required for every consequential action, so an empty one
-    // never reaches the server and never reaches Activity.
-    if (pending.requiresReason && !reason.trim()) {
-      setError("A reason is required.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      await api(endpoint(pending), {
-        method: "POST",
-        body: JSON.stringify({ reason: reason.trim() }),
-      });
-      close();
-      revalidator.revalidate();
-    } catch (caught) {
-      setError(errorMessage(caught));
-      // A refusal usually means this view is stale — the record moved on, in
-      // Telegram or in another tab. Re-read it so the buttons stop offering
-      // what the domain has already ruled out.
-      revalidator.revalidate();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!actions.length) {
-    return (
-      <Text size="sm" tone="muted">
-        {settled}
-      </Text>
-    );
-  }
-
-  return (
-    <>
-      <Cluster gap={2}>
-        {actions.map((action) => (
-          <Button
-            key={action.name}
-            variant={action.destructive ? "danger" : "secondary"}
-            onClick={() => open(action)}
-          >
-            {action.label}
-          </Button>
-        ))}
-      </Cluster>
-      <ConfirmDialog
-        open={pending !== null}
-        onClose={close}
-        onConfirm={() => void confirm()}
-        title={pending?.label ?? ""}
-        consequence={pending?.consequence ?? ""}
-        confirmLabel={pending?.label ?? "Confirm"}
-        destructive={pending?.destructive ?? false}
-        busy={busy}
-      >
-        <Stack gap={3}>
-          <Field
-            label="Reason"
-            description="Recorded in Activity so this decision can be explained later."
-            required={pending?.requiresReason ?? true}
-            {...(error ? { error } : {})}
-          >
-            <Textarea
-              name="reason"
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
-          </Field>
-        </Stack>
-      </ConfirmDialog>
-    </>
   );
 }
 
@@ -653,15 +547,27 @@ export function leadControlRequest(leadId: number): ControlResolver {
   };
 }
 
+/** Adapts the Batch Request and Inventory Conflict surfaces, which all POST
+ *  `{reason}` to a per-action endpoint, onto the one confirm flow. */
+function postReason(
+  endpoint: (action: ControlAction) => string,
+): ControlResolver {
+  return (action, reason) => ({
+    url: endpoint(action),
+    method: "POST",
+    body: { reason },
+  });
+}
+
 function requestEndpoint(id: string) {
-  return (action: FulfillmentAction) =>
+  return (action: ControlAction) =>
     action.name === "regenerate"
       ? `/api/admin/requests/${id}/artifact/regenerate`
       : `/api/admin/requests/${id}/${action.name}`;
 }
 
 function conflictEndpoint(id: string) {
-  return (action: FulfillmentAction) =>
+  return (action: ControlAction) =>
     `/api/admin/inventory-conflicts/${id}/${action.name}`;
 }
 
@@ -689,9 +595,9 @@ function RequestCard({ item }: { item: RequestSummary }) {
             <Text size="sm">{item.statusMessage}</Text>
           ) : null}
         </Stack>
-        <ActionBar
+        <ControlActionBar
           actions={item.actions}
-          endpoint={requestEndpoint(item.id)}
+          resolve={postReason(requestEndpoint(item.id))}
           settled="No action is valid in this state."
         />
       </Stack>
@@ -714,9 +620,9 @@ function ConflictCard({ item }: { item: ConflictDetail }) {
             {item.overlappingLeadCount.toLocaleString()} overlapping Leads
           </Text>
         </Stack>
-        <ActionBar
+        <ControlActionBar
           actions={item.actions}
-          endpoint={conflictEndpoint(item.id)}
+          resolve={postReason(conflictEndpoint(item.id))}
           settled="This Inventory Conflict has already been decided."
         />
       </Stack>
@@ -739,11 +645,8 @@ function LeadReportCard({ item }: { item: LeadReportSummary }) {
         <Text size="sm" tone="muted">
           Reported by {item.customer.name} · {formatDate(item.createdAt)}
         </Text>
-        <Text size="sm">
-          <Mono>{item.lead.phone}</Mono> · {item.lead.title || "No title"} ·{" "}
-          {item.lead.state || "No state"}
-        </Text>
-        {item.controls.eligibilityHeld ? (
+        <Text size="sm">{item.details || "No details were given."}</Text>
+        {item.eligibilityHeld ? (
           <Text size="sm" tone="warning">
             Eligibility Hold active — this Lead is withheld from distribution
             while the report is open.
@@ -931,9 +834,9 @@ export function AdminFulfillmentRoute() {
                         {item.deliveryAttempts === 1 ? "" : "s"}
                       </Text>
                     </Stack>
-                    <ActionBar
+                    <ControlActionBar
                       actions={item.actions}
-                      endpoint={requestEndpoint(item.id)}
+                      resolve={postReason(requestEndpoint(item.id))}
                       settled="No recovery action is valid in this state."
                     />
                   </Stack>
@@ -1043,9 +946,9 @@ export function AdminFulfillmentRequestRoute() {
                 both places.
               </Text>
             ) : null}
-            <ActionBar
+            <ControlActionBar
               actions={item.actions}
-              endpoint={requestEndpoint(item.id)}
+              resolve={postReason(requestEndpoint(item.id))}
               settled="This Batch Request has reached a state with no valid actions."
             />
           </Stack>
@@ -1270,9 +1173,9 @@ export function AdminFulfillmentConflictRoute() {
           title="Decision"
           description="One decision authorizes one attempt against this exact snapshot."
         >
-          <ActionBar
+          <ControlActionBar
             actions={item.actions}
-            endpoint={conflictEndpoint(item.id)}
+            resolve={postReason(conflictEndpoint(item.id))}
             settled="This Inventory Conflict has already been decided and cannot be decided again."
           />
         </Section>
