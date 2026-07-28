@@ -1,15 +1,19 @@
 import type { Page, Route } from "@playwright/test";
 
+import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
+
 export interface CustomerAuthMockOptions {
   signInAccepted?: boolean;
   passwordUpdateAccepted?: boolean;
   sessionExchangeStatus?: number;
-  profileStatus?: number;
+  overviewStatus?: number;
+  overview?: unknown;
 }
 
 export interface CustomerAuthMockState {
   providerRequests: Array<{ path: string; method: string; body: unknown }>;
   sessionRequests: unknown[];
+  overviewRequests: number;
   jawnixLogoutCalls: number;
   providerLogoutCalls: number;
 }
@@ -66,6 +70,7 @@ export async function mockCustomerAuth(
   const state: CustomerAuthMockState = {
     providerRequests: [],
     sessionRequests: [],
+    overviewRequests: 0,
     jawnixLogoutCalls: 0,
     providerLogoutCalls: 0,
   };
@@ -73,7 +78,8 @@ export async function mockCustomerAuth(
     signInAccepted: true,
     passwordUpdateAccepted: true,
     sessionExchangeStatus: 200,
-    profileStatus: 200,
+    overviewStatus: 200,
+    overview: CUSTOMER_OVERVIEW,
     ...options,
   };
 
@@ -154,24 +160,16 @@ export async function mockCustomerAuth(
     });
   });
 
-  await page.route(/\/api\/me\/profile$/, (route) => {
-    if (settings.profileStatus !== 200) {
+  await page.route(/\/api\/me\/overview$/, (route) => {
+    state.overviewRequests += 1;
+    if (settings.overviewStatus !== 200) {
       return json(
         route,
         { detail: "expired-session-known-secret-48" },
-        settings.profileStatus,
+        settings.overviewStatus,
       );
     }
-    return json(route, {
-      user_id: USER.id,
-      email: USER.email,
-      first_name: "Customer",
-      last_name: "Example",
-      phone: "",
-      licensed_states: ["TX"],
-      customer_id: 1,
-      mapping_confirmed_at: "2026-07-28T12:00:00Z",
-    });
+    return json(route, settings.overview);
   });
 
   await page.route(/\/api\/auth\/logout$/, (route) => {
