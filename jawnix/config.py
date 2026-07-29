@@ -77,8 +77,14 @@ class Settings(BaseSettings):
         default="",
         alias="JAWNIX_SCRAPER_OPS_PASSWORD",
     )
+    #: The Scraper database page runs several live aggregates over ~772k rows and
+    #: measured 11.3s against production on 2026-07-29 — count(DISTINCT phone)
+    #: alone is 1.4s. A 10s ceiling sat *below* a known-good response, so the
+    #: screen reported "the private record store did not respond" for a request
+    #: that would have succeeded a second later. 30s keeps the guard against a
+    #: genuinely hung upstream without failing a slow-but-working one.
     scraper_ops_timeout_seconds: float = Field(
-        default=10,
+        default=30,
         alias="JAWNIX_SCRAPER_OPS_TIMEOUT_SECONDS",
     )
     scraper_publication_hour_utc: int = Field(

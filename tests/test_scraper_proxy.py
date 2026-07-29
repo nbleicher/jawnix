@@ -526,3 +526,20 @@ def test_scraper_staging_network_contract():
     finally:
         client.close()
         clear_proxy()
+
+
+def test_scraper_ops_timeout_default_exceeds_the_slowest_known_page():
+    """The Scraper database page measured 11.3s against production on
+    2026-07-29 — several live aggregates over ~772k rows. The default was 10,
+    so httpx raised ReadTimeout, `_raw_native_upstream` swallowed it as a
+    RequestError, and the screen reported the upstream as unresponsive for a
+    request that was merely slow.
+
+    Ceilings below a known-good response time are worse than no ceiling: they
+    fail correctly-working systems and blame the wrong component.
+    """
+    from jawnix.config import Settings
+
+    settings = Settings(JAWNIX_SESSION_SECRET="test-secret-at-least-long-enough")
+
+    assert settings.scraper_ops_timeout_seconds >= 15
