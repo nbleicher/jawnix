@@ -1,7 +1,7 @@
-import { useLoaderData } from "react-router";
+import { useLoaderData, useRevalidator } from "react-router";
 
 import { ActionLink } from "../../design-system/primitives/Button";
-import { EmptyState } from "../../design-system/primitives/feedback";
+import { ErrorState } from "../../design-system/primitives/feedback";
 import {
   Card,
   Cluster,
@@ -10,148 +10,223 @@ import {
   Section,
   Stack,
 } from "../../design-system/primitives/layout";
+import { StatusBadge } from "../../design-system/primitives/status";
+import type { StatusTone } from "../../design-system/primitives/status";
 import { Heading, Text } from "../../design-system/primitives/typography";
+import { api } from "../auth/adminMFA";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
+import "./AdminDestinations.css";
 
-interface DestinationAction {
+interface OperationAction {
   label: string;
   href: string;
 }
 
-interface WorkspaceArea {
+interface OperationItem {
+  id: string;
+  title: string;
+  summary: string;
+  status: string;
+  tone: StatusTone;
+  nextAction: string;
+  recordedAt: string;
+  action: OperationAction;
+}
+
+interface OperationQueue {
+  key: string;
   title: string;
   description: string;
-  action?: DestinationAction;
+  count: number;
+  items: OperationItem[];
+  emptyTitle: string;
+  emptyDescription: string;
 }
 
-interface AdminDestinationData {
+interface OperationSource {
+  key: string;
   title: string;
   description: string;
-  sectionTitle: string;
-  sectionDescription: string;
-  actions?: DestinationAction[];
-  areas: WorkspaceArea[];
-  empty: {
-    title: string;
-    description: string;
-    action: DestinationAction;
-  };
+  status: "available" | "unavailable";
+  count: number | null;
+  queues: OperationQueue[];
+  workspace: OperationAction;
+  errorTitle: string | null;
+  errorDescription: string | null;
 }
 
-const OVERVIEW: AdminDestinationData = {
-  title: "Overview",
-  description:
-    "Start with the workspace that owns the task. This wayfinder avoids presenting work without a valid destination and next action.",
-  sectionTitle: "Choose a workspace",
-  sectionDescription:
-    "Administration is organized by the work being done, not by the underlying record hierarchy.",
-  areas: [
-    {
-      title: "Fulfillment",
-      description:
-        "Batch delivery, inventory decisions, delivery recovery, and lead eligibility controls.",
-      action: {
-        label: "Open Fulfillment",
-        href: "/app/admin/fulfillment",
-      },
-    },
-    {
-      title: "Acquisition",
-      description:
-        "Scraper operations, source inputs, pipeline health, and acquired-data review.",
-      action: {
-        label: "Open Acquisition",
-        href: "/app/admin/acquisition",
-      },
-    },
-    {
-      title: "Customers",
-      description:
-        "Durable Customer identity, User Account access, Licensed States, and Agency membership.",
-      action: {
-        label: "Open Customers",
-        href: "/app/admin/customers",
-      },
-    },
-  ],
-  empty: {
-    title: "No administration workspaces are available",
-    description:
-      "Review administrator security while the workspace directory is restored.",
-    action: {
-      label: "Review administrator security",
-      href: "/app/admin/security",
-    },
-  },
-};
-
-
-/** Route data stays behind a loader even while it is a local information
- * architecture contract. Later slices can replace the source without changing
- * the screen or bypassing the shell's pending and error seams. */
-export async function adminOverviewLoader(): Promise<AdminDestinationData> {
-  return OVERVIEW;
+export interface OperationsOverviewData {
+  generatedAt: string;
+  availableCount: number;
+  degraded: boolean;
+  sources: OperationSource[];
 }
 
+export async function adminOverviewLoader(): Promise<OperationsOverviewData> {
+  return api<OperationsOverviewData>("/api/admin/operations-overview");
+}
 
-export function AdminDestinationRoute() {
-  const data = useLoaderData<AdminDestinationData>();
-  useDocumentTitle(data.title);
+function formatDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return `${parsed.toISOString().replace("T", " ").slice(0, 16)} UTC`;
+}
 
+function OperationCard({ item }: { item: OperationItem }) {
   return (
-    <Page
-      title={data.title}
-      description={data.description}
-      actions={
-        data.actions?.length ? (
-          <Cluster gap={2}>
-            {data.actions.map((action) => (
-              <ActionLink key={action.href} href={action.href}>
-                {action.label}
-              </ActionLink>
-            ))}
-          </Cluster>
-        ) : undefined
-      }
-    >
-      <Section
-        title={data.sectionTitle}
-        description={data.sectionDescription}
-      >
-        {data.areas.length ? (
-          <Grid minColumnWidth="16rem">
-            {data.areas.map((area) => (
-              <Card as="article" key={area.title}>
-                <Stack gap={4}>
-                  <Stack gap={2}>
-                    <Heading level={3}>{area.title}</Heading>
-                    <Text size="sm" tone="muted">
-                      {area.description}
-                    </Text>
-                  </Stack>
-                  {area.action ? (
-                    <div>
-                      <ActionLink href={area.action.href}>
-                        {area.action.label}
-                      </ActionLink>
-                    </div>
-                  ) : null}
-                </Stack>
-              </Card>
+    <Card as="article" aria-label={item.title}>
+      <Stack gap={3}>
+        <Cluster gap={2} justify="space-between">
+          <Heading level={4} size="sm">
+            {item.title}
+          </Heading>
+          <StatusBadge tone={item.tone}>{item.status}</StatusBadge>
+        </Cluster>
+        <Text size="sm">{item.summary}</Text>
+        <Text size="sm" tone="muted">
+          Next: {item.nextAction}
+        </Text>
+        <Text size="xs" tone="muted">
+          Recorded {formatDate(item.recordedAt)}
+        </Text>
+        <div>
+          <ActionLink href={item.action.href}>
+            {item.action.label}
+          </ActionLink>
+        </div>
+      </Stack>
+    </Card>
+  );
+}
+
+function Queue({ queue }: { queue: OperationQueue }) {
+  return (
+    <section className="jx-operations-queue" aria-label={queue.title}>
+      <Stack gap={3}>
+        <Cluster gap={2} justify="space-between">
+          <Heading level={3}>{queue.title}</Heading>
+          <StatusBadge tone={queue.count ? "warning" : "success"}>
+            {queue.count.toLocaleString()} pending
+          </StatusBadge>
+        </Cluster>
+        <Text size="sm" tone="muted">
+          {queue.description}
+        </Text>
+        {queue.items.length ? (
+          <Grid minColumnWidth="18rem">
+            {queue.items.map((item) => (
+              <OperationCard item={item} key={item.id} />
             ))}
           </Grid>
         ) : (
-          <EmptyState
-            title={data.empty.title}
-            description={data.empty.description}
-            action={
-              <ActionLink href={data.empty.action.href}>
-                {data.empty.action.label}
-              </ActionLink>
-            }
-          />
+          <Card padding={4}>
+            <Stack gap={1}>
+              <Heading level={4} size="sm">
+                {queue.emptyTitle}
+              </Heading>
+              <Text size="sm" tone="muted">
+                {queue.emptyDescription}
+              </Text>
+            </Stack>
+          </Card>
         )}
-      </Section>
+        {queue.count > queue.items.length ? (
+          <Text size="sm" tone="muted">
+            Showing {queue.items.length.toLocaleString()} of{" "}
+            {queue.count.toLocaleString()} pending items. Open the workspace
+            for the complete queue.
+          </Text>
+        ) : null}
+      </Stack>
+    </section>
+  );
+}
+
+function Source({ source }: { source: OperationSource }) {
+  const revalidator = useRevalidator();
+  return (
+    <Section
+      title={source.title}
+      description={source.description}
+    >
+      {source.status === "unavailable" ? (
+        <Card>
+          <Stack gap={3}>
+            <ErrorState
+              title={
+                source.errorTitle ??
+                `${source.title} work is temporarily unavailable`
+              }
+              description={
+                source.errorDescription ??
+                "This section could not be refreshed. Other Operations sections remain usable."
+              }
+              retryLabel={`Retry ${source.title}`}
+              onRetry={() => revalidator.revalidate()}
+            />
+            <div>
+              <ActionLink href="/app/admin/activity" variant="ghost">
+                Review Activity
+              </ActionLink>
+            </div>
+          </Stack>
+        </Card>
+      ) : (
+        <Stack gap={5}>
+          {source.queues.map((queue) => (
+            <Queue queue={queue} key={queue.key} />
+          ))}
+          <div>
+            <ActionLink href={source.workspace.href} variant="ghost">
+              {source.workspace.label}
+            </ActionLink>
+          </div>
+        </Stack>
+      )}
+    </Section>
+  );
+}
+
+export function AdminDestinationRoute() {
+  const data = useLoaderData<OperationsOverviewData>();
+  const unavailable = data.sources.filter(
+    (source) => source.status === "unavailable",
+  ).length;
+  useDocumentTitle("Overview");
+
+  return (
+    <Page
+      title="Overview"
+      description={
+        "One actionable queue across Fulfillment, background work, and " +
+        "Acquisition. Each item opens the affected record or the workspace " +
+        "that owns its next valid action."
+      }
+      actions={
+        <ActionLink href="/app/admin/activity" variant="ghost">
+          Investigate Activity
+        </ActionLink>
+      }
+    >
+      <Stack gap={6}>
+        <Card padding={4}>
+          <Cluster gap={3} justify="space-between">
+            <Text role="status" aria-live="polite" weight="semibold">
+              {data.availableCount.toLocaleString()} pending operation
+              {data.availableCount === 1 ? "" : "s"} identified
+            </Text>
+            <StatusBadge tone={data.degraded ? "warning" : "success"}>
+              {data.degraded
+                ? `${unavailable} source unavailable`
+                : "All sources available"}
+            </StatusBadge>
+          </Cluster>
+        </Card>
+
+        {data.sources.map((source) => (
+          <Source source={source} key={source.key} />
+        ))}
+      </Stack>
     </Page>
   );
 }
