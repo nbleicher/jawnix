@@ -30,6 +30,10 @@ const RAIL = [
   { label: "Pipeline", href: "#scraper-pipeline" },
   { label: "Throughput", href: "#scraper-throughput" },
   { label: "Fleet", href: "#scraper-fleet" },
+  {
+    label: "Keywords",
+    href: "/app/admin/acquisition/scraper/workspace/keywords",
+  },
   { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
 ];
 

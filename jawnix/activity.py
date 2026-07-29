@@ -56,6 +56,15 @@ _ENTITY_DESTINATIONS = {
     "scrape_anomaly": "/app/admin/acquisition",
     "scraper_pipeline": "/app/admin/acquisition/scraper/workspace",
     "scraper_privileged_session": "/app/admin/acquisition/scraper",
+    "scraper_keywords": (
+        "/app/admin/acquisition/scraper/workspace/keywords"
+    ),
+    "scraper_keyword_generation": (
+        "/app/admin/acquisition/scraper/workspace/keywords"
+    ),
+    "scraper_keyword_rollover": (
+        "/app/admin/acquisition/scraper/workspace/keywords"
+    ),
     "source_recommendation": "/app/admin/acquisition",
     "source_segment": "/app/admin/acquisition",
     "user_account": "/app/admin/customers",
