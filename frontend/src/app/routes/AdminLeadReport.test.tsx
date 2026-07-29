@@ -127,18 +127,28 @@ function report(overrides: Partial<LeadReportDetail> = {}): LeadReportDetail {
 }
 
 function renderReport(data: LeadReportDetail) {
+  const loaderData = {
+    ...data,
+    activityTimeline: {
+      entries: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      pages: 1,
+    },
+  };
   const router = createMemoryRouter(
     [
       {
         id: "leadReport",
         path: "/admin/fulfillment/reports/:reportId",
-        loader: () => data,
+        loader: () => loaderData,
         element: <AdminLeadReportRoute />,
       },
     ],
     {
       initialEntries: [`/admin/fulfillment/reports/${data.id}`],
-      hydrationData: { loaderData: { leadReport: data } },
+      hydrationData: { loaderData: { leadReport: loaderData } },
     },
   );
   render(<RouterProvider router={router} />);

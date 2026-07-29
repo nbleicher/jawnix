@@ -2,7 +2,12 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-import { mockAcquisition } from "./acquisition-fixtures";
+import {
+  CONFIGURATION_ID,
+  SCRAPE_RUN_ID,
+  mockAcquisition,
+} from "./acquisition-fixtures";
+import { mockActivity } from "./activity-fixtures";
 import { mockFeedback } from "./customer-feedback-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import {
@@ -35,9 +40,12 @@ const ROUTES = [
   `./admin/fulfillment/conflicts/${CONFLICT_ID}`,
   `./admin/fulfillment/reports/${OPEN_REPORT_ID}`,
   "./admin/acquisition",
+  `./admin/acquisition/configurations/${CONFIGURATION_ID}`,
+  `./admin/acquisition/runs/${SCRAPE_RUN_ID}`,
   "./admin/acquisition/scraper",
   "./admin/acquisition/scraper/workspace",
   "./admin/customers",
+  "./admin/activity",
   "./admin/customers/7",
   "./admin/agencies",
   "./admin/agencies/4",
@@ -55,6 +63,7 @@ test.beforeEach(async ({ page }) => {
   await mockAdminCustomers(page, { pendingInvitation: true });
   await mockFulfillment(page);
   await mockLeadReports(page);
+  await mockActivity(page);
 });
 
 test.describe("Automated WCAG 2.2 AA sweep", () => {

@@ -256,5 +256,19 @@ export async function mockLeadReports(page: Page): Promise<RecordedCall[]> {
     },
   );
 
+  await page.route(/\/api\/admin\/activity/, (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("entityType") !== "lead_report") {
+      return route.fallback();
+    }
+    return json(route, {
+      entries: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      pages: 1,
+    });
+  });
+
   return calls;
 }

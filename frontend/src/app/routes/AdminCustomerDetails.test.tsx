@@ -19,6 +19,13 @@ function details(
   overrides: Partial<CustomerDetailsData> = {},
 ): CustomerDetailsData {
   return {
+    activityTimeline: {
+      entries: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      pages: 1,
+    },
     customer: {
       id: 7,
       slug: "harbor-insurance",

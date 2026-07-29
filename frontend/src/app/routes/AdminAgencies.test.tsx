@@ -44,6 +44,13 @@ function directory(): AgencyDirectoryData {
 
 function details(): AgencyDetailsData {
   return {
+    activityTimeline: {
+      entries: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      pages: 1,
+    },
     agency: {
       id: 4,
       slug: "gulf-coast",

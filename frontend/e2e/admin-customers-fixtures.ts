@@ -395,5 +395,15 @@ export async function mockAdminCustomers(
     },
   );
 
+  await page.route(/\/api\/admin\/activity/, (route) =>
+    json(route, {
+      entries: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      pages: 1,
+    }),
+  );
+
   return state;
 }

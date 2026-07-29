@@ -1,0 +1,16 @@
+.jx-activity-list {
+  display: grid;
+  gap: var(--jx-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jx-activity-filters {
+  display: grid;
+  gap: var(--jx-space-4);
+}
+
+.jx-activity-list .jx-mono {
+  overflow-wrap: anywhere;
+}

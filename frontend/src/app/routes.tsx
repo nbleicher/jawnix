@@ -21,6 +21,12 @@ import {
   acquisitionLoader,
 } from "./routes/AdminAcquisition";
 import {
+  ScrapeRunDetailsRoute,
+  ScraperConfigurationDetailsRoute,
+  scrapeRunDetailsLoader,
+  scraperConfigurationDetailsLoader,
+} from "./routes/AdminAcquisitionDetails";
+import {
   AdminCustomersRoute,
   adminCustomerDirectoryLoader,
 } from "./routes/AdminCustomers";
@@ -46,6 +52,10 @@ import {
   AdminLeadReportRoute,
   adminLeadReportLoader,
 } from "./routes/AdminLeadReport";
+import {
+  AdminActivityRoute,
+  adminActivityLoader,
+} from "./routes/AdminActivity";
 import {
   adminAccessLoader,
   adminMFAStatusLoader,
@@ -210,6 +220,16 @@ export const router = createBrowserRouter(
               element: <AdminAcquisitionRoute />,
             },
             {
+              path: "acquisition/configurations/:configurationId",
+              loader: scraperConfigurationDetailsLoader,
+              element: <ScraperConfigurationDetailsRoute />,
+            },
+            {
+              path: "acquisition/runs/:runId",
+              loader: scrapeRunDetailsLoader,
+              element: <ScrapeRunDetailsRoute />,
+            },
+            {
               path: "acquisition/scraper",
               loader: scraperEntryLoader,
               element: <ScraperStepUpRoute />,
@@ -226,6 +246,11 @@ export const router = createBrowserRouter(
               path: "customers",
               loader: adminCustomerDirectoryLoader,
               element: <AdminCustomersRoute />,
+            },
+            {
+              path: "activity",
+              loader: adminActivityLoader,
+              element: <AdminActivityRoute />,
             },
             {
               path: "customers/:customerId",

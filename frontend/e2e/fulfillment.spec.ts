@@ -304,9 +304,10 @@ test.describe("Telegram-originated state", () => {
   test("attributes a decision taken in Telegram", async ({ page }) => {
     await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
 
-    const history = page.getByRole("region", { name: "History" });
-    await expect(history.getByText(/telegram:12345/)).toBeVisible();
-    await expect(history.getByText(/pending → approved/)).toBeVisible();
+    const activity = page.getByRole("region", { name: "Activity" });
+    await expect(activity.getByText(/telegram:12345/)).toBeVisible();
+    await expect(activity.getByText("pending")).toBeVisible();
+    await expect(activity.getByText("approved")).toBeVisible();
   });
 });
 

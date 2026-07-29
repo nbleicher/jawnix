@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable, Mapping
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
+from urllib.parse import quote
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .models import AuditEntry
@@ -30,6 +33,33 @@ _SECRET_KEY_PARTS = {
 
 class UnsafeActivityDetailsError(ValueError):
     """Raised before secret-bearing details can reach an Audit Entry."""
+
+
+ACTIVITY_PAGE_SIZE = 25
+MAX_ACTIVITY_PAGE_SIZE = 100
+
+
+_ENTITY_PATHS = {
+    "agency": "/app/admin/agencies/{id}",
+    "batch_request": "/app/admin/fulfillment/requests/{id}",
+    "customer": "/app/admin/customers/{id}",
+    "inventory_conflict": "/app/admin/fulfillment/conflicts/{id}",
+    "lead_report": "/app/admin/fulfillment/reports/{id}",
+    "scrape_run": "/app/admin/acquisition/runs/{id}",
+    "scraper_configuration": "/app/admin/acquisition/configurations/{id}",
+}
+
+_ENTITY_DESTINATIONS = {
+    "administrator_mfa": "/app/admin/security",
+    "lead": "/app/admin/fulfillment",
+    "nightly_review": "/app/admin/acquisition",
+    "scrape_anomaly": "/app/admin/acquisition",
+    "scraper_pipeline": "/app/admin/acquisition/scraper/workspace",
+    "scraper_privileged_session": "/app/admin/acquisition/scraper",
+    "source_recommendation": "/app/admin/acquisition",
+    "source_segment": "/app/admin/acquisition",
+    "user_account": "/app/admin/customers",
+}
 
 
 def _normalized_key(key: object) -> str:
@@ -64,6 +94,99 @@ def _contains_secret(value: object, secret: str) -> bool:
     if isinstance(value, (list, tuple)):
         return any(_contains_secret(nested, secret) for nested in value)
     return False
+
+
+def _activity_entity_href(target_type: str, target_id: str) -> str:
+    if path := _ENTITY_PATHS.get(target_type):
+        return path.format(id=quote(target_id, safe=""))
+    if destination := _ENTITY_DESTINATIONS.get(target_type):
+        return destination
+    return (
+        "/app/admin/activity?"
+        f"entityType={quote(target_type, safe='')}&"
+        f"entityId={quote(target_id, safe='')}"
+    )
+
+
+def _activity_entry(entry: AuditEntry) -> dict[str, object]:
+    return {
+        "id": str(entry.id),
+        "action": entry.action,
+        "entityType": entry.target_type,
+        "entityId": entry.target_id,
+        "entityHref": _activity_entity_href(
+            entry.target_type,
+            entry.target_id,
+        ),
+        "actor": entry.actor_user_id,
+        "reason": entry.reason,
+        "details": entry.details or {},
+        "recordedAt": entry.created_at,
+    }
+
+
+def query_activity(
+    session: Session,
+    *,
+    actor: str | None = None,
+    action: str | None = None,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    page: int = 1,
+    page_size: int = ACTIVITY_PAGE_SIZE,
+) -> dict[str, object]:
+    """Read global Activity and entity timelines through one query seam."""
+
+    normalized_page = max(1, page)
+    normalized_page_size = min(
+        MAX_ACTIVITY_PAGE_SIZE,
+        max(1, page_size),
+    )
+    filters = []
+    if actor and actor.strip():
+        filters.append(AuditEntry.actor_user_id == actor.strip())
+    if action and action.strip():
+        filters.append(AuditEntry.action == action.strip())
+    if entity_type and entity_type.strip():
+        filters.append(AuditEntry.target_type == entity_type.strip())
+    if entity_id and entity_id.strip():
+        filters.append(AuditEntry.target_id == entity_id.strip())
+    if date_from is not None:
+        filters.append(
+            AuditEntry.created_at
+            >= datetime.combine(date_from, time.min, tzinfo=timezone.utc)
+        )
+    if date_to is not None:
+        filters.append(
+            AuditEntry.created_at
+            < datetime.combine(
+                date_to + timedelta(days=1),
+                time.min,
+                tzinfo=timezone.utc,
+            )
+        )
+
+    total = session.scalar(
+        select(func.count()).select_from(AuditEntry).where(*filters)
+    ) or 0
+    pages = max(1, (total + normalized_page_size - 1) // normalized_page_size)
+    bounded_page = min(normalized_page, pages)
+    entries = session.scalars(
+        select(AuditEntry)
+        .where(*filters)
+        .order_by(AuditEntry.created_at.desc(), AuditEntry.id.desc())
+        .offset((bounded_page - 1) * normalized_page_size)
+        .limit(normalized_page_size)
+    )
+    return {
+        "entries": [_activity_entry(entry) for entry in entries],
+        "page": bounded_page,
+        "pageSize": normalized_page_size,
+        "total": total,
+        "pages": pages,
+    }
 
 
 def record_activity(

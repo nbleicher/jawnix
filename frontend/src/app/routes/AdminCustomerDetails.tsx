@@ -24,6 +24,11 @@ import {
 } from "../../design-system/primitives/typography";
 import type { CustomerAdminStatus } from "./AdminCustomers";
 import { errorMessage, formatAdminDate } from "./AdminCustomers";
+import {
+  ActivityTimeline,
+  loadEntityActivity,
+} from "./AdminActivity";
+import type { ActivityPage } from "./AdminActivity";
 
 import "./AdminCustomerDetails.css";
 
@@ -38,6 +43,7 @@ export interface UserAccountRecord {
 }
 
 export interface CustomerDetailsData {
+  activityTimeline: ActivityPage;
   customer: {
     id: number;
     slug: string;
@@ -160,16 +166,18 @@ function blockingDependencies(error: unknown): Record<string, number> | null {
 export async function adminCustomerDetailsLoader({
   params,
 }: LoaderFunctionArgs): Promise<CustomerDetailsData> {
-  const [details, directory] = await Promise.all([
+  const [details, directory, activityTimeline] = await Promise.all([
     api<Omit<CustomerDetailsData, "agencies">>(
       `/api/admin/customers/${params.customerId}/details`,
     ),
     api<{
       agencies: { id: number; name: string; active: boolean }[];
     }>("/api/admin/agencies/directory"),
+    loadEntityActivity("customer", params.customerId),
   ]);
   return {
     ...details,
+    activityTimeline,
     agencies: directory.agencies.map(({ id, name, active }) => ({
       id,
       name,
@@ -605,33 +613,10 @@ export function AdminCustomerDetailsRoute() {
         title="Activity"
         description="What administrators have done to this Customer and its access."
       >
-        {data.activity.length ? (
-          <Stack as="ul" gap={3} className="admin-customer-details__list">
-            {data.activity.map((entry) => (
-              <li key={entry.id}>
-                <Card>
-                  <Stack gap={2}>
-                    <Cluster justify="space-between" align="flex-start">
-                      <Text weight="semibold">{entry.label}</Text>
-                      <Text size="sm" tone="muted">
-                        {formatAdminDate(entry.created_at)}
-                      </Text>
-                    </Cluster>
-                    <Text size="sm" tone="muted">
-                      {entry.actor}
-                    </Text>
-                    {entry.reason ? <Text size="sm">{entry.reason}</Text> : null}
-                  </Stack>
-                </Card>
-              </li>
-            ))}
-          </Stack>
-        ) : (
-          <EmptyState
-            title="No activity recorded"
-            description="No administrator has changed this Customer yet."
-          />
-        )}
+        <ActivityTimeline
+          activity={data.activityTimeline}
+          emptyDescription="No administrator has changed this Customer yet."
+        />
       </Section>
 
       <Section

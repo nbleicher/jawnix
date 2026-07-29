@@ -8,7 +8,7 @@ from datetime import date, datetime, timezone
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from svix.webhooks import Webhook, WebhookVerificationError
 
-from .activity import record_activity
+from .activity import ACTIVITY_PAGE_SIZE, query_activity, record_activity
 from .agency_management import (
     AgencyAssignmentConflict,
     agency_details,
@@ -92,8 +92,10 @@ from .models import (
     NightlyReview,
     PerformanceSuggestionNote,
     RequestStatus,
+    ScrapeSegmentResult,
     ScraperConfiguration,
     ScrapeAnomaly,
+    ScraperRun,
     SourceRecommendation,
     SourceNicheMapping,
     SourceSegment,
@@ -199,6 +201,62 @@ async def redact_sensitive_validation_error(
 # The redesigned shell at /app, behind JAWNIX_ENABLE_NEW_UI. Off by default, so
 # the current static UI is the only surface until the cutover in #71.
 register_frontend_shell(app)
+
+
+@app.get("/api/admin/activity")
+def admin_activity(
+    actor: str | None = None,
+    action: str | None = None,
+    entity_type: str | None = Query(default=None, alias="entityType"),
+    entity_id: str | None = Query(default=None, alias="entityId"),
+    date_from: date | None = Query(default=None, alias="dateFrom"),
+    date_to: date | None = Query(default=None, alias="dateTo"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(
+        default=ACTIVITY_PAGE_SIZE,
+        alias="pageSize",
+        ge=1,
+        le=100,
+    ),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Global administrator Activity, filtered and paginated on the server."""
+    return query_activity(
+        db,
+        actor=actor,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        date_from=date_from,
+        date_to=date_to,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@app.get("/api/admin/activity/{entity_type}/{entity_id}")
+def admin_entity_activity(
+    entity_type: str,
+    entity_id: str,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(
+        default=ACTIVITY_PAGE_SIZE,
+        alias="pageSize",
+        ge=1,
+        le=100,
+    ),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """One entity timeline through the same query as global Activity."""
+    return query_activity(
+        db,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @app.post("/admin/scraper/session")
@@ -2054,6 +2112,58 @@ def get_scraper_configuration(
             detail="Scraper Configuration was not found.",
         )
     return _configuration_dict(item)
+
+
+@app.get("/api/admin/scrape-runs/{run_id}")
+def get_scrape_run(
+    run_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    run = db.get(ScraperRun, run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Scrape Run was not found.",
+        )
+    return {
+        "id": run.id,
+        "source": run.source,
+        "sourceVersion": run.source_version,
+        "configurationId": (
+            str(run.configuration_id)
+            if run.configuration_id is not None
+            else None
+        ),
+        "datasetVersion": run.dataset_version,
+        "manual": run.manual,
+        "checksum": run.checksum,
+        "status": run.status,
+        "rowsSeen": run.rows_seen,
+        "rowsImported": run.rows_imported,
+        "details": run.details,
+        "startedAt": run.started_at,
+        "finishedAt": run.finished_at,
+        "segments": [
+            {
+                "key": result.segment_key,
+                "niche": result.niche,
+                "geography": result.geography,
+                "observed": result.observed_count,
+                "valid": result.valid_count,
+                "new": result.new_count,
+                "duplicates": result.duplicate_count,
+                "quarantined": result.quarantined_count,
+                "anomalous": result.anomalous,
+                "anomalyReasons": result.anomaly_reasons,
+            }
+            for result in db.scalars(
+                select(ScrapeSegmentResult)
+                .where(ScrapeSegmentResult.scraper_run_id == run.id)
+                .order_by(ScrapeSegmentResult.segment_key)
+            )
+        ],
+    }
 
 
 @app.post(

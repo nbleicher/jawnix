@@ -21,6 +21,11 @@ import type { StatusTone } from "../../design-system/primitives/status";
 import { Heading, Mono, Text } from "../../design-system/primitives/typography";
 import { api } from "../auth/adminMFA";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
+import {
+  ActivityTimeline,
+  loadEntityActivity,
+} from "./AdminActivity";
+import type { ActivityPage } from "./AdminActivity";
 
 /**
  * The administrator Fulfillment workspace (#57).
@@ -264,6 +269,7 @@ export interface HistoryEntry {
 }
 
 export interface RequestDetail extends RequestSummary {
+  activityTimeline: ActivityPage;
   approvedAt: string | null;
   deliveredAt: string | null;
   artifact: ArtifactState | null;
@@ -354,7 +360,13 @@ export async function fulfillmentLoader(): Promise<WorkspaceData> {
 export async function fulfillmentRequestLoader({
   params,
 }: LoaderFunctionArgs): Promise<RequestDetail> {
-  return api<RequestDetail>(`/api/admin/requests/${params.requestId}`);
+  const [details, activityTimeline] = await Promise.all([
+    api<Omit<RequestDetail, "activityTimeline">>(
+      `/api/admin/requests/${params.requestId}`,
+    ),
+    loadEntityActivity("batch_request", params.requestId),
+  ]);
+  return { ...details, activityTimeline };
 }
 
 export async function fulfillmentConflictLoader({
@@ -1022,39 +1034,14 @@ export function AdminFulfillmentRequestRoute() {
         </Section>
 
         <Section
-          title="History"
+          title="Activity"
           description="Every recorded decision, most recent first."
         >
-          {item.history.length ? (
-            <Stack gap={3}>
-              {item.history.map((entry) => (
-                <Card as="article" key={`${entry.action}-${entry.recordedAt}`}>
-                  <Stack gap={2}>
-                    <Cluster gap={2} justify="space-between">
-                      <Heading level={3} size="sm">
-                        {entry.action}
-                      </Heading>
-                      <Text size="sm" tone="muted">
-                        {formatDate(entry.recordedAt)}
-                      </Text>
-                    </Cluster>
-                    <Text size="sm">{entry.reason}</Text>
-                    <Text size="sm" tone="muted">
-                      {entry.actor}
-                      {entry.before && entry.after
-                        ? ` · ${String((entry.before as { status?: string }).status ?? "")} → ${String((entry.after as { status?: string }).status ?? "")}`
-                        : ""}
-                    </Text>
-                  </Stack>
-                </Card>
-              ))}
-            </Stack>
-          ) : (
-            <EmptyState
-              title="Nothing has been recorded yet"
-              description="Consequential actions on this Batch Request will appear here as they are taken."
-            />
-          )}
+          <ActivityTimeline
+            activity={item.activityTimeline}
+            emptyTitle="Nothing has been recorded yet"
+            emptyDescription="Consequential actions on this Batch Request will appear here as they are taken."
+          />
         </Section>
       </Stack>
     </Page>
