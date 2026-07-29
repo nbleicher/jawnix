@@ -550,7 +550,16 @@ def assign_customer(
     reason: str,
     confirmed: bool,
     settings: Settings,
+    precomputed_preview: dict | None = None,
 ) -> dict:
+    """Assign membership and permanently merge no-repeat history.
+
+    The offline User Account migration supplies its already approved,
+    content-addressed impact report through ``precomputed_preview`` so applying
+    eight mappings does not rematerialize millions of distributed Lead IDs.
+    Interactive callers continue to calculate the live preview here.
+    """
+
     reason = reason.strip()
     if not reason:
         raise AgencyAssignmentConflict(
@@ -568,11 +577,15 @@ def assign_customer(
             "A Customer cannot join a deactivated Agency."
         )
 
-    preview = assignment_preview(
-        db,
-        customer=customer,
-        destination=destination,
-        settings=settings,
+    preview = (
+        precomputed_preview
+        if precomputed_preview is not None
+        else assignment_preview(
+            db,
+            customer=customer,
+            destination=destination,
+            settings=settings,
+        )
     )
     previous_agency = customer.agency
     if customer.agency_id == (
@@ -670,11 +683,15 @@ def assign_customer(
         },
     )
     db.flush()
-    result = assignment_preview(
-        db,
-        customer=customer,
-        destination=destination,
-        settings=settings,
+    result = (
+        dict(preview)
+        if precomputed_preview is not None
+        else assignment_preview(
+            db,
+            customer=customer,
+            destination=destination,
+            settings=settings,
+        )
     )
     result["ok"] = True
     return result

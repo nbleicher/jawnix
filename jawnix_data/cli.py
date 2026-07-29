@@ -24,6 +24,12 @@ from .scraper import sync_scraper
 from .restore import validate_or_replay_restored_dataset
 from .configuration import prepare_agent_config
 from .customer_mappings import provision_customer_mappings
+from .user_account_migration import (
+    MigrationRefused,
+    SupabaseMigrationIdentityProvider,
+    apply_user_account_migration,
+    dry_run_user_account_migration,
+)
 
 
 app = typer.Typer(no_args_is_help=True, help="Jawnix data migration and batch operations")
@@ -96,6 +102,64 @@ def provision_mappings(
 ):
     with SessionLocal.begin() as session:
         emit(provision_customer_mappings(session, get_settings(), path, invite_missing=invite_missing))
+
+
+@app.command("user-account-migration-dry-run")
+def user_account_migration_dry_run(
+    path: Path = typer.Argument(...),
+):
+    """Preflight every identity and history mapping without mutation."""
+
+    settings = get_settings()
+    try:
+        with SessionLocal() as session:
+            emit(
+                dry_run_user_account_migration(
+                    session,
+                    SupabaseMigrationIdentityProvider(settings),
+                    path,
+                )
+            )
+    except MigrationRefused as exc:
+        raise typer.BadParameter(str(exc)) from None
+
+
+@app.command("user-account-migration-apply")
+def user_account_migration_apply(
+    path: Path = typer.Argument(...),
+    approved_plan_sha256: str = typer.Option(
+        ...,
+        "--approved-plan-sha256",
+    ),
+    verified_backup: Path = typer.Option(..., "--verified-backup"),
+    artifact_dir: Path = typer.Option(
+        Path("/srv/jawnix/migration/reconciliation"),
+        "--artifact-dir",
+    ),
+    operator: str = typer.Option(..., "--operator"),
+    reason: str = typer.Option(..., "--reason"),
+    confirm: str = typer.Option(..., "--confirm"),
+):
+    """Apply an approved plan behind the verified-backup refusal gate."""
+
+    settings = get_settings()
+    try:
+        emit(
+            apply_user_account_migration(
+                SessionLocal,
+                SupabaseMigrationIdentityProvider(settings),
+                settings,
+                path,
+                approved_plan_checksum=approved_plan_sha256,
+                backup_receipt_path=verified_backup,
+                artifact_dir=artifact_dir,
+                operator=operator,
+                reason=reason,
+                confirmation=confirm,
+            )
+        )
+    except MigrationRefused as exc:
+        raise typer.BadParameter(str(exc)) from None
 
 
 @app.command("import-manifest")

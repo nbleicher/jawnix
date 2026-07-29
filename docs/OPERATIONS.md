@@ -197,6 +197,134 @@ Manifest data wins on phone collisions. Scraper-only rows use their valid source
 
 After import, reconcile table totals, inventory by state, distinct normalized phones, agent and agency histories, quarantine reasons, source provenance, profiles, and pending requests. Run `python -m jawnix_data inventory` and state-specific dry runs before enabling customers.
 
+## One-time User Account migration
+
+This is an offline cutover operation, not an administrator screen. Its input is
+a reviewed UTF-8 CSV with exactly one row for every active, non-deleted durable
+Customer:
+
+```csv
+customer,email,agency
+noah,noah.new@example.com,summit
+```
+
+`customer` and `agency` accept an exact database ID, slug, or name.
+`independent` is the explicit no-Agency destination. Prefer immutable slugs in
+the approved file; duplicate names are reported as ambiguous and block apply.
+The destination email must be fresh: an existing provider identity, local User
+Account, or pending invitation is a conflict.
+
+### 1. Rehearse and approve the dry-run
+
+Restore a current production dump into an isolated copy and point the command at
+a non-production Supabase project that cannot email Customers. Run the schema
+upgrade, then:
+
+```sh
+docker compose run --rm \
+  -v /srv/jawnix/user-account-migration:/migration:ro \
+  api python -m jawnix_data user-account-migration-dry-run \
+  /migration/user-account-mappings.csv \
+  > /srv/jawnix/user-account-migration/dry-run.json
+```
+
+Dry-run performs database reads and provider identity listing only. It never
+flushes or commits, never invites an identity, and reports
+`"mutationPerformed": false`. Review every row and require
+`summary.valid == true`. The report includes missing and ambiguous Customers,
+coverage gaps, duplicate emails, account and invitation conflicts, Agency
+status, membership impact, and permanent-history counts. Record the exact
+`planChecksum`; apply refuses if the current preflight no longer matches it.
+
+In the isolated copy, run apply with a rehearsal backup receipt, accept sample
+invitations, and verify the old account changes only at acceptance. Confirm
+Customer IDs and Distribution Event IDs and snapshots are unchanged. Complete
+the rollback rehearsal by discarding the mutated copy, restoring the backup
+again, and confirming that it contains no
+`user_account_migration_runs`, mappings, artifacts, or new User Accounts.
+Record this rehearsal in the production backup receipt.
+
+### 2. Create and verify the production backup gate
+
+Pause Customer and administrative writes. Create a fresh custom-format
+PostgreSQL dump, store it in the encrypted Restic repository, run
+`restic check`, restore the dump into an isolated database, and run the
+readiness and reconciliation checks against that restore. Compute the dump's
+SHA-256. Only then create a root-readable receipt outside the repository:
+
+```json
+{
+  "databaseSnapshot": "restic:production-YYYYMMDDTHHMMSSZ",
+  "databaseDumpSha256": "64-lowercase-hex-characters",
+  "resticCheckCompletedAt": "2026-07-29T12:00:00Z",
+  "restoreRehearsalReference": "CHANGE-OR-INCIDENT-REFERENCE",
+  "verifiedAt": "2026-07-29T12:30:00Z",
+  "verifiedBy": "Named verifier"
+}
+```
+
+Apply refuses malformed receipts, blank evidence, invalid dump digests, naive
+timestamps, future timestamps, or verification/Restic checks older than 24
+hours. A resume may use the original receipt while it remains current. If work
+crosses the 24-hour boundary, take and verify a new backup of the partially
+migrated state and pass its new receipt; the journal appends that evidence and
+the final artifact retains every receipt. Never edit an existing receipt to
+make it look current. A receipt is an attestation of completed backup and
+restore work; creating it before those checks defeats the gate and is
+prohibited.
+
+### 3. Apply, resume, and reconcile
+
+From the same deployed revision used for dry-run:
+
+```sh
+plan_sha256="$(jq -r .planChecksum \
+  /srv/jawnix/user-account-migration/dry-run.json)"
+
+docker compose run --rm \
+  -v /srv/jawnix/user-account-migration:/migration \
+  api python -m jawnix_data user-account-migration-apply \
+  /migration/user-account-mappings.csv \
+  --approved-plan-sha256 "$plan_sha256" \
+  --verified-backup /migration/verified-backup.json \
+  --artifact-dir /migration/reconciliation \
+  --operator "Named migration operator" \
+  --reason "Approved one-time User Account cutover" \
+  --confirm APPLY-USER-ACCOUNT-MIGRATION
+```
+
+The command commits an interruption journal before each provider call. Each
+provider identity receives the migration run and mapping IDs as metadata. If
+the provider accepts an invitation and the command times out, rerun the exact
+command: it recovers that identity by metadata instead of sending another
+invitation. Never edit the CSV, plan hash, or backup receipt while resuming.
+If a fresh backup becomes necessary, create a new receipt file and change only
+the `--verified-backup` path.
+
+Existing User Accounts remain active while replacement invitations are
+pending. Invitation acceptance performs the atomic swap through the normal
+User Account seam. Apply may update current Agency membership through the
+normal confirmed assignment seam; it preserves Customer IDs, Distribution
+Event IDs and snapshots, and permanent no-repeat history.
+
+Successful apply writes one read-only,
+`user-account-migration-<run>-<sha256>.json` reconciliation artifact and stores
+the same content and digest in `user_account_migration_artifacts`. Verify the
+file's `artifactSha256` against its canonical `artifact` value and retain it
+with the change record. It records every mapping, invitation state,
+deactivation result or deferral, Agency result, history counts, backup receipt
+digest, and identifier-preservation assertion. A completed rerun verifies and
+returns the same artifact rather than creating a second migration.
+
+After reconciliation, resume writes and monitor invitation delivery and
+acceptance. An interrupted apply is normally recovered by rerun, not database
+rollback. If a full rollback is authorized, first preserve the migration
+journal, artifact, provider identity list, and logs; restore the verified
+database; then reconcile and revoke only provider identities tagged with the
+recorded migration run ID. Do not guess from email addresses, and do not
+deactivate former accounts before the restored database and provider state
+agree.
+
 The accepted staging import produced 6,564,999 valid manifest inventory rows
 and 92,591 manifest quarantines. Scraper deduplication produced 2,305,025
 valid distinct phones: 290,668 manifest overlaps and 2,014,357 new inventory
