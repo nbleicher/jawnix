@@ -16,6 +16,11 @@ import {
   pausedPipelineResult,
 } from "./scraper-monitoring-fixtures";
 import type { RegionKey } from "./scraper-monitoring-fixtures";
+import {
+  KEYWORD_GENERATION,
+  KEYWORD_PREVIEW,
+  KEYWORD_WORKSPACE,
+} from "./scraper-keywords-fixtures";
 
 export interface MockFactor {
   id: string;
@@ -244,6 +249,7 @@ export async function mockAdminMFA(
 
   await page.route(/\/api\/admin\/scraper(?:\/.*)?$/, async (route) => {
     const path = new URL(route.request().url()).pathname;
+    const method = route.request().method();
     if (path.endsWith("/entry")) {
       return json(route, {
         factors: state.factors.map(({ id, name, type }) => ({
@@ -284,6 +290,36 @@ export async function mockAdminMFA(
     }
     if (path.endsWith("/pipeline")) {
       return json(route, pausedPipelineResult());
+    }
+    if (path.endsWith("/keywords") && method === "GET") {
+      return json(route, KEYWORD_WORKSPACE);
+    }
+    if (path.endsWith("/keywords/preview")) {
+      return json(route, KEYWORD_PREVIEW);
+    }
+    if (path.endsWith("/keywords/save")) {
+      return json(route, {
+        saved: true,
+        enqueued: false,
+        current: KEYWORD_PREVIEW.proposed,
+        version:
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        diff: KEYWORD_PREVIEW,
+      });
+    }
+    if (path.endsWith("/keywords/generate")) {
+      return json(route, KEYWORD_GENERATION);
+    }
+    if (path.endsWith("/keywords/rollover")) {
+      return json(route, {
+        ...KEYWORD_WORKSPACE.rollover,
+        enabled: true,
+        state: "working",
+        label: "Current batch active",
+        detail: "12 of 20 coverage jobs enqueued",
+        posted_jobs: 12,
+        expected_jobs: 20,
+      });
     }
     if (path.endsWith("/step-up")) {
       return json(route, {

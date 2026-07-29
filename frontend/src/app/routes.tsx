@@ -74,6 +74,8 @@ import {
 } from "./routes/ScraperWorkspace";
 import { ScraperOverviewRoute } from "./routes/ScraperOverview";
 import { scraperOverviewLoader } from "./routes/scraperMonitoring";
+import { ScraperKeywordsRoute } from "./routes/ScraperKeywords";
+import { scraperKeywordsLoader } from "./routes/scraperKeywordApi";
 import {
   ScraperStateCoverageRoute,
   ScraperStateDetailRoute,
@@ -250,6 +252,11 @@ export const router = createBrowserRouter(
               // cadences, and the audited pipeline controls.
               loader: scraperOverviewLoader,
               element: <ScraperOverviewRoute />,
+            },
+            {
+              path: "acquisition/scraper/workspace/keywords",
+              loader: scraperKeywordsLoader,
+              element: <ScraperKeywordsRoute />,
             },
             {
               path: "acquisition/scraper/workspace/states",
