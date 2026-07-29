@@ -14,7 +14,6 @@ import { Field, Input, Select } from "../../design-system/primitives/form";
 import { Cluster, Page, Stack } from "../../design-system/primitives/layout";
 import { StatusBadge } from "../../design-system/primitives/status";
 import { TerminalWorkspace } from "../../design-system/primitives/terminal";
-import type { TerminalDestination } from "../../design-system/primitives/terminal";
 import { Text, VisuallyHidden } from "../../design-system/primitives/typography";
 import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
@@ -38,21 +37,12 @@ import type {
 import { PrivilegedSessionExpired } from "./scraperMonitoring";
 import { useOperatorPresence } from "./scraperPresence";
 
+import { WORKSPACE_ROOT, workspaceRail } from "./scraperWorkspaceNav";
 import "./ScraperCoverage.css";
 
 const OVERVIEW_PATH = "/app/admin/acquisition/scraper/workspace";
 const STATES_PATH = `${OVERVIEW_PATH}/states`;
 
-const STATE_RAIL: TerminalDestination[] = [
-  { label: "Overview", href: OVERVIEW_PATH },
-  { label: "States", href: STATES_PATH, current: true },
-  { label: "Database", href: `${OVERVIEW_PATH}/database` },
-  {
-    label: "Configuration",
-    href: "/app/admin/acquisition#scraper-configuration-versions",
-  },
-  { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
-];
 
 const STATUS_LABELS: Record<CoverageStatus, string> = {
   covered: "Covered",
@@ -255,7 +245,7 @@ export function ScraperStateCoverageRoute() {
       <TerminalWorkspace
         status={offline ? "OFFLINE / LAST STATE UNAVAILABLE" : "ONLINE / COVERAGE"}
         tone={offline ? "offline" : states.live ? "online" : "warning"}
-        destinations={STATE_RAIL}
+        destinations={workspaceRail(`${WORKSPACE_ROOT}/states`)}
       >
         <Stack gap={4}>
           <IdleNotice watching={watching} onResume={resume} />
@@ -615,18 +605,6 @@ export function ScraperStateDetailRoute() {
     expire,
   );
   const unavailable = !keywords.feed.data && !cells.feed.data;
-  const rail: TerminalDestination[] = [
-    { label: "Overview", href: OVERVIEW_PATH },
-    { label: "States", href: STATES_PATH },
-    { label: "Database", href: `${OVERVIEW_PATH}/database` },
-    { label: "Keywords", href: "#state-keywords" },
-    { label: "Grid cells", href: "#state-grid" },
-    {
-      label: "Configuration",
-      href: "/app/admin/acquisition#scraper-configuration-versions",
-    },
-    { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
-  ];
 
   return (
     <Page
@@ -656,7 +634,7 @@ export function ScraperStateDetailRoute() {
               ? "warning"
               : "online"
         }
-        destinations={rail}
+        destinations={workspaceRail(`${WORKSPACE_ROOT}/states`)}
       >
         <Stack gap={6}>
           <IdleNotice watching={watching} onResume={resume} />

@@ -24,40 +24,9 @@ import type {
 } from "./scraperMonitoring";
 import { useOperatorPresence } from "./scraperPresence";
 
+import { workspaceRail } from "./scraperWorkspaceNav";
 import "./ScraperOverview.css";
 
-const RAIL = [
-  {
-    label: "Overview",
-    href: "/app/admin/acquisition/scraper/workspace",
-    current: true,
-  },
-  {
-    label: "States",
-    href: "/app/admin/acquisition/scraper/workspace/states",
-  },
-  { label: "Status", href: "#scraper-status" },
-  { label: "Pipeline", href: "#scraper-pipeline" },
-  { label: "Throughput", href: "#scraper-throughput" },
-  { label: "Fleet", href: "#scraper-fleet" },
-  {
-    label: "Keywords",
-    href: "/app/admin/acquisition/scraper/workspace/keywords",
-  },
-  {
-    label: "Database",
-    href: "/app/admin/acquisition/scraper/workspace/database",
-  },
-  {
-    label: "Campaign history",
-    href: "/app/admin/acquisition/scraper/workspace/history",
-  },
-  {
-    label: "Runtime configuration",
-    href: "/app/admin/acquisition/scraper/workspace/runtime",
-  },
-  { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
-];
 
 function count(value: number | null | undefined): string {
   return typeof value === "number" ? value.toLocaleString() : "—";
@@ -394,7 +363,7 @@ export function ScraperOverviewRoute() {
       title="Scraper Operations"
       description="Live acquisition monitoring and pipeline control, mediated and audited by Jawnix."
     >
-      <TerminalWorkspace status={status} tone={tone} destinations={RAIL}>
+      <TerminalWorkspace status={status} tone={tone} destinations={workspaceRail("/app/admin/acquisition/scraper/workspace", { sectionsOn: true })}>
         {offline ? (
           <Stack gap={4}>
             <ErrorState

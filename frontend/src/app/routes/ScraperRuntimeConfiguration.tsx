@@ -32,17 +32,9 @@ import type {
   StateOverride,
 } from "./scraperRuntimeApi";
 
+import { WORKSPACE_ROOT, workspaceRail } from "./scraperWorkspaceNav";
 import "./ScraperRuntimeConfiguration.css";
 
-const ROOT = "/app/admin/acquisition/scraper/workspace";
-const RAIL = [
-  { label: "Overview", href: ROOT },
-  { label: "States", href: `${ROOT}/states` },
-  { label: "Keywords", href: `${ROOT}/keywords` },
-  { label: "Campaign history", href: `${ROOT}/history` },
-  { label: "Runtime configuration", href: `${ROOT}/runtime`, current: true },
-  { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
-];
 
 const RUNTIME_FIELDS: Array<{
   key: Exclude<keyof RuntimeSettings, "lang" | "fast_mode">;
@@ -429,7 +421,7 @@ export function ScraperRuntimeConfigurationRoute() {
       <TerminalWorkspace
         status={busy ? "RUNTIME / WORKING" : "RUNTIME / PRIVILEGED"}
         tone={failure ? "warning" : "online"}
-        destinations={RAIL}
+        destinations={workspaceRail(`${WORKSPACE_ROOT}/runtime`)}
       >
         <Stack gap={5}>
           <div className="runtime-boundary" role="note">
