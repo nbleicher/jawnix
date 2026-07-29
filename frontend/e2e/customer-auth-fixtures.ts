@@ -2,13 +2,16 @@ import type { Page, Route } from "@playwright/test";
 
 import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
 import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
+import { LICENSED_STATE_ACCOUNT } from "./customer-account-fixtures";
 
 export interface CustomerAuthMockOptions {
   signInAccepted?: boolean;
   passwordUpdateAccepted?: boolean;
   sessionExchangeStatus?: number;
   overviewStatus?: number;
-  overview?: unknown;
+  overview?: unknown | (() => unknown);
+  batchRequests?: unknown | (() => unknown);
+  licensedStates?: unknown | (() => unknown);
 }
 
 export interface CustomerAuthMockState {
@@ -81,8 +84,12 @@ export async function mockCustomerAuth(
     sessionExchangeStatus: 200,
     overviewStatus: 200,
     overview: CUSTOMER_OVERVIEW,
+    batchRequests: BATCH_REQUEST_WORKSPACE,
+    licensedStates: LICENSED_STATE_ACCOUNT,
     ...options,
   };
+  const current = (value: unknown | (() => unknown)) =>
+    typeof value === "function" ? value() : value;
 
   await page.addInitScript(() => {
     (window as Window & {
@@ -170,13 +177,17 @@ export async function mockCustomerAuth(
         settings.overviewStatus,
       );
     }
-    return json(route, settings.overview);
+    return json(route, current(settings.overview));
   });
 
   // Enough for a customer journey to arrive at /app/requests. Specs that
   // exercise the guided flow itself layer mockBatchRequests over this.
   await page.route(/\/api\/me\/batch-requests$/, (route) =>
-    json(route, BATCH_REQUEST_WORKSPACE),
+    json(route, current(settings.batchRequests)),
+  );
+
+  await page.route(/\/api\/me\/licensed-states$/, (route) =>
+    json(route, current(settings.licensedStates)),
   );
 
   await page.route(/\/api\/auth\/logout$/, (route) => {

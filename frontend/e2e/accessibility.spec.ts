@@ -4,6 +4,7 @@ import type { Page } from "@playwright/test";
 
 import { mockAcquisition } from "./acquisition-fixtures";
 import { mockFeedback } from "./customer-feedback-fixtures";
+import { mockCustomerAuth } from "./customer-auth-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import {
   CONFLICT_ID,
@@ -52,6 +53,7 @@ test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
   await mockAcquisition(page);
   await mockFeedback(page);
+  await mockCustomerAuth(page);
   await mockAdminCustomers(page, { pendingInvitation: true });
   await mockFulfillment(page);
   await mockLeadReports(page);

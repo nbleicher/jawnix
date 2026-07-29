@@ -347,7 +347,7 @@ def test_request_mapping_state_validation_cancel_and_billing_404(session):
         app.dependency_overrides.clear()
 
 
-def test_customer_state_removal_narrows_unallocated_requests_without_expanding_them(session):
+def test_general_profile_patch_refuses_to_bypass_licensed_state_impact_review(session):
     user_id = uuid.uuid4()
     customer = Agent(slug="licensed-customer", name="Licensed Customer")
     profile = CustomerProfile(
@@ -413,17 +413,22 @@ def test_customer_state_removal_narrows_unallocated_requests_without_expanding_t
                 "licensed_states": ["FL", "CA"],
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 409
+        assert response.json() == {
+            "detail": (
+                "Licensed State changes require an impact review. "
+                "Use Account to review and confirm them."
+            )
+        }
 
         session.refresh(narrowed)
         session.refresh(canceled)
         session.refresh(committed)
-        assert narrowed.states_snapshot == ["FL"]
+        assert narrowed.states_snapshot == ["TX", "FL"]
         assert narrowed.status == "approved"
         assert narrowed.approved_at is not None
-        assert "TX" in narrowed.status_message
-        assert canceled.states_snapshot == []
-        assert canceled.status == "canceled"
+        assert canceled.states_snapshot == ["TX"]
+        assert canceled.status == "waiting_inventory"
         assert committed.states_snapshot == ["TX", "FL"]
 
         updates = list(
@@ -433,16 +438,7 @@ def test_customer_state_removal_narrows_unallocated_requests_without_expanding_t
                 .order_by(Job.id)
             )
         )
-        assert len(updates) == 2
-        assert updates[0].request_id == narrowed.id
-        assert updates[0].payload == {
-            "added": ["CA"],
-            "removed": ["TX"],
-            "requestAction": "narrowed",
-            "states": ["FL"],
-        }
-        assert updates[1].request_id == canceled.id
-        assert updates[1].payload["requestAction"] == "canceled"
+        assert updates == []
     finally:
         app.dependency_overrides.clear()
 
