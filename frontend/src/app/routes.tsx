@@ -74,6 +74,14 @@ import {
 } from "./routes/ScraperWorkspace";
 import { ScraperOverviewRoute } from "./routes/ScraperOverview";
 import { scraperOverviewLoader } from "./routes/scraperMonitoring";
+import {
+  ScraperStateCoverageRoute,
+  ScraperStateDetailRoute,
+} from "./routes/ScraperCoverage";
+import {
+  stateCoverageDetailLoader,
+  stateCoverageLoader,
+} from "./routes/scraperCoverageData";
 import { CustomerOverviewRoute } from "./routes/CustomerOverview";
 import { CustomerAccountRoute } from "./routes/CustomerAccount";
 import {
@@ -242,6 +250,16 @@ export const router = createBrowserRouter(
               // cadences, and the audited pipeline controls.
               loader: scraperOverviewLoader,
               element: <ScraperOverviewRoute />,
+            },
+            {
+              path: "acquisition/scraper/workspace/states",
+              loader: stateCoverageLoader,
+              element: <ScraperStateCoverageRoute />,
+            },
+            {
+              path: "acquisition/scraper/workspace/states/:state",
+              loader: stateCoverageDetailLoader,
+              element: <ScraperStateDetailRoute />,
             },
             {
               path: "customers",
