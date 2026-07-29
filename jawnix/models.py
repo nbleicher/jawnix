@@ -1525,6 +1525,137 @@ class MigrationAudit(Base):
     __table_args__ = (UniqueConstraint("source_path", "checksum", name="uq_migration_source_checksum"),)
 
 
+class UserAccountMigrationRun(Base):
+    """Durable resume point for the one-time external identity migration."""
+
+    __tablename__ = "user_account_migration_runs"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    input_checksum: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        nullable=False,
+    )
+    plan_checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24),
+        default="in_progress",
+        nullable=False,
+    )
+    operator: Mapped[str] = mapped_column(String(160), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    backup_receipt_checksum: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    backup_snapshot: Mapped[str] = mapped_column(String(160), nullable=False)
+    backup_receipts: Mapped[list[dict]] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('in_progress', 'completed')",
+            name="ck_user_account_migration_runs_status",
+        ),
+    )
+
+
+class UserAccountMigrationMapping(Base):
+    """Mutable interruption journal; the final artifact is separate."""
+
+    __tablename__ = "user_account_migration_mappings"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account_migration_runs.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    row_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    customer_slug: Mapped[str] = mapped_column(String(80), nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    agency_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agencies.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    agency_slug: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    prior_auth_user_id: Mapped[uuid.UUID | None] = mapped_column()
+    invited_auth_user_id: Mapped[uuid.UUID | None] = mapped_column()
+    invitation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("user_account_invitations.id", ondelete="RESTRICT")
+    )
+    state: Mapped[str] = mapped_column(
+        String(32),
+        default="planned",
+        index=True,
+        nullable=False,
+    )
+    deactivation_state: Mapped[str] = mapped_column(
+        String(40),
+        default="not_started",
+        nullable=False,
+    )
+    agency_before_id: Mapped[int | None] = mapped_column()
+    agency_result: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    history_counts: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "row_number",
+            name="uq_user_account_migration_run_row",
+        ),
+        CheckConstraint(
+            (
+                "state IN ('planned', 'dispatching', 'failed', "
+                "'invited_pending', 'active')"
+            ),
+            name="ck_user_account_migration_mappings_state",
+        ),
+    )
+
+
+class UserAccountMigrationArtifact(Base):
+    """Append-only reconciliation proof for one completed migration run."""
+
+    __tablename__ = "user_account_migration_artifacts"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_account_migration_runs.id", ondelete="RESTRICT"),
+        unique=True,
+        nullable=False,
+    )
+    checksum: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    contents: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
 class QuarantinedRow(Base):
     __tablename__ = "quarantined_rows"
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
