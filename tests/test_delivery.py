@@ -55,6 +55,12 @@ def test_delivery_retry_reuses_artifact_and_resend_idempotency(session, settings
 
     assert message_id == "email-123"
     assert captured["headers"]["Idempotency-Key"] == f"jawnix-batch/{request.id}"
+    assert str(request.id) in captured["json"]["subject"]
+    assert f"Batch Request: {request.id}" in captured["json"]["text"]
+    assert (
+        f"http://localhost:8080/app/requests?request={request.id}"
+        in captured["json"]["text"]
+    )
     assert request.status == RequestStatus.delivered.value
     assert artifact.sha256 == original_checksum
     assert session.scalar(select(func.count(DistributionEvent.id)).where(DistributionEvent.request_id == request.id)) == 1

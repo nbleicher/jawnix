@@ -12,6 +12,11 @@ from .config import get_settings
 from .database import SessionLocal
 from .delivery import deliver_request, mark_delivery_failed
 from .jobs import claim_next_job, enqueue_job
+from .milestone_emails import (
+    MILESTONE_EMAIL_JOB,
+    enqueue_milestone_email,
+    send_milestone_email,
+)
 from .models import (
     Job,
     JobStatus,
@@ -361,6 +366,21 @@ def process_job(job_id: int) -> None:
                     )
             elif job.kind == "deliver_request":
                 deliver_request(session, uuid.UUID(str(job.request_id)), settings)
+            elif job.kind == MILESTONE_EMAIL_JOB:
+                if request is None:
+                    raise LookupError("Request was not found.")
+                if job.status == JobStatus.complete.value:
+                    return
+                milestone = str(job.payload.get("milestone") or "")
+                message_id = send_milestone_email(
+                    request,
+                    milestone,
+                    settings,
+                )
+                job.payload = {
+                    **job.payload,
+                    "message_id": message_id,
+                }
             else:
                 raise ValueError(f"Unknown job kind: {job.kind}")
             job.status = JobStatus.complete.value
@@ -388,6 +408,7 @@ def process_job(job_id: int) -> None:
                 if job.kind == "deliver_request":
                     mark_delivery_failed(session, request.id, str(exc))
                 else:
+                    enqueue_milestone_email(session, request)
                     enqueue_job(session, "update_notification", request.id)
 
 

@@ -7,7 +7,9 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
+from jawnix.config import Settings
 from jawnix.database import Base
+from jawnix.milestone_emails import MILESTONE_EMAIL_JOB
 from jawnix.models import (
     Agent,
     AuditEntry,
@@ -18,6 +20,19 @@ from jawnix.models import (
     ScraperRun,
 )
 from jawnix.worker import process_job
+
+
+class EmailResponse:
+    def __init__(
+        self,
+        status_code: int,
+        payload: dict | None = None,
+    ):
+        self.status_code = status_code
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
 
 
 def test_telegram_request_decision_uses_shared_activity_record(
@@ -75,6 +90,124 @@ def test_telegram_request_decision_uses_shared_activity_record(
             "before": {"status": "pending"},
             "after": {"status": "approved"},
         }
+    engine.dispose()
+
+
+def test_milestone_job_sends_once_when_processing_is_repeated(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(f"sqlite:///{tmp_path / 'milestone-worker.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    with factory.begin() as session:
+        customer = Agent(
+            slug="milestone-worker",
+            name="Milestone Worker Customer",
+        )
+        request = LeadRequest(
+            user_id=uuid.uuid4(),
+            agent=customer,
+            lead_count=25,
+            state_mode="selected",
+            states_snapshot=["TX"],
+            delivery_email="milestone@example.com",
+            status="approved",
+        )
+        session.add_all([customer, request])
+        session.flush()
+        job = Job(
+            kind=MILESTONE_EMAIL_JOB,
+            request_id=request.id,
+            payload={"milestone": "approval"},
+            status=JobStatus.running.value,
+        )
+        session.add(job)
+        session.flush()
+        job_id = job.id
+
+    settings = Settings(
+        RESEND_API_KEY="milestone-key",
+        JAWNIX_PUBLIC_BASE_URL="https://app.jawnix.example",
+    )
+    sends = 0
+
+    def send(*_args, **_kwargs):
+        nonlocal sends
+        sends += 1
+        return EmailResponse(200, {"id": "milestone-message"})
+
+    monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
+    monkeypatch.setattr("jawnix.worker.get_settings", lambda: settings)
+    monkeypatch.setattr("jawnix.milestone_emails.httpx.post", send)
+
+    process_job(job_id)
+    process_job(job_id)
+
+    with factory() as session:
+        job = session.get(Job, job_id)
+        request = session.get(LeadRequest, job.request_id)
+        assert sends == 1
+        assert job.status == JobStatus.complete.value
+        assert job.payload == {
+            "milestone": "approval",
+            "message_id": "milestone-message",
+        }
+        assert request.status == "approved"
+    engine.dispose()
+
+
+def test_milestone_provider_failure_fails_only_the_job(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(f"sqlite:///{tmp_path / 'milestone-failure.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    with factory.begin() as session:
+        customer = Agent(
+            slug="milestone-failure",
+            name="Milestone Failure Customer",
+        )
+        request = LeadRequest(
+            user_id=uuid.uuid4(),
+            agent=customer,
+            lead_count=25,
+            state_mode="selected",
+            states_snapshot=["TX"],
+            delivery_email="milestone@example.com",
+            status="approved",
+        )
+        session.add_all([customer, request])
+        session.flush()
+        job = Job(
+            kind=MILESTONE_EMAIL_JOB,
+            request_id=request.id,
+            payload={"milestone": "approval"},
+            status=JobStatus.running.value,
+        )
+        session.add(job)
+        session.flush()
+        job_id = job.id
+        request_id = request.id
+
+    settings = Settings(RESEND_API_KEY="milestone-key")
+    monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
+    monkeypatch.setattr("jawnix.worker.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "jawnix.milestone_emails.httpx.post",
+        lambda *_args, **_kwargs: EmailResponse(503),
+    )
+
+    process_job(job_id)
+
+    with factory() as session:
+        job = session.get(Job, job_id)
+        request = session.get(LeadRequest, request_id)
+        assert job.status == JobStatus.failed.value
+        assert "HTTP 503" in job.last_error
+        assert request.status == "approved"
+        assert request.status_message == ""
     engine.dispose()
 
 

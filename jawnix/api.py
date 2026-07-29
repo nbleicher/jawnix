@@ -56,6 +56,7 @@ from .eligibility import (
 from .feedback import apply_disposition_controls
 from .frontend import register_frontend_shell
 from .jobs import enqueue_job
+from .milestone_emails import enqueue_milestone_email
 from .recommendations import (
     RecommendationDecisionError,
     decide_recommendation,
@@ -3958,6 +3959,7 @@ async def resend_webhook(request: Request, db: Session = Depends(get_db), settin
                 item.status = RequestStatus.failed.value
                 item.status_message = f"Email provider reported {event_type.replace('email.', '')}."
                 item.closed_at = utcnow()
+                enqueue_milestone_email(db, item)
                 enqueue_job(db, "update_notification", item.id)
     db.commit()
     return {"ok": True}

@@ -11,6 +11,10 @@ from sqlalchemy.orm import Session
 
 from .config import Settings
 from .jobs import enqueue_job
+from .milestone_emails import (
+    enqueue_milestone_email,
+    request_timeline_url,
+)
 from .models import BatchArtifact, LeadRequest, RequestStatus, utcnow
 
 
@@ -21,6 +25,7 @@ def mark_delivery_failed(session: Session, request_id: uuid.UUID, error: str) ->
         request.status = RequestStatus.failed.value
         request.status_message = "Email delivery failed. The existing batch is preserved for retry."
         request.closed_at = utcnow()
+        enqueue_milestone_email(session, request)
         enqueue_job(session, "update_notification", request.id)
     if artifact is not None:
         artifact.delivery_status = "failed"
@@ -44,12 +49,17 @@ def deliver_request(session: Session, request_id: uuid.UUID, settings: Settings)
     payload = {
         "from": settings.batch_from_email,
         "to": [request.delivery_email],
-        "subject": f"Your Jawnix batch — {artifact.row_count:,} rows",
+        "subject": (
+            f"Your Jawnix Batch Request {request.id} — "
+            f"{artifact.row_count:,} rows"
+        ),
         "text": (
             f"Your requested Jawnix batch is attached.\n\n"
+            f"Batch Request: {request.id}\n"
             f"Rows: {artifact.row_count:,}\n"
             f"States: {', '.join(request.states_snapshot)}\n"
-            f"Request: {request.id}\n"
+            "\nView the current timeline after signing in:\n"
+            f"{request_timeline_url(settings, request.id)}\n"
         ),
         "attachments": [{"filename": artifact.filename, "content": base64.b64encode(path.read_bytes()).decode("ascii")}],
     }
