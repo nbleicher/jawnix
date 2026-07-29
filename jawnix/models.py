@@ -42,6 +42,12 @@ class Agency(Base):
     slug: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    permanent_history_key: Mapped[str] = mapped_column(
+        String(64),
+        default=lambda: str(uuid.uuid4()),
+        index=True,
+        nullable=False,
+    )
     last_fulfilled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         index=True,
@@ -61,6 +67,12 @@ class Agent(Base):
     )
     agency_id: Mapped[int | None] = mapped_column(ForeignKey("agencies.id", ondelete="SET NULL"), index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    permanent_history_key: Mapped[str] = mapped_column(
+        String(64),
+        default=lambda: str(uuid.uuid4()),
+        index=True,
+        nullable=False,
+    )
     last_fulfilled_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         index=True,
@@ -72,6 +84,54 @@ class Agent(Base):
 # Canonical domain type. The legacy class/table name remains only as an
 # expand/contract persistence compatibility detail.
 Customer = Agent
+
+
+class AgencyMembershipHistory(Base):
+    """One period of current membership, retained after every reassignment.
+
+    The permanent history key on both parties is the allocation-time closure:
+    keys merge and never split. These rows separately retain the human-readable
+    sequence of assignments without making mutable current membership stand in
+    for history.
+    """
+
+    __tablename__ = "agency_membership_history"
+    id: Mapped[int] = mapped_column(
+        ID_TYPE,
+        primary_key=True,
+        autoincrement=True,
+    )
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    agency_id: Mapped[int] = mapped_column(
+        ForeignKey("agencies.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+    )
+    assigned_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "uq_current_agency_membership_per_customer",
+            "customer_id",
+            unique=True,
+            postgresql_where=text("ended_at IS NULL"),
+            sqlite_where=text("ended_at IS NULL"),
+        ),
+    )
 
 
 class UserAccount(Base):

@@ -39,6 +39,8 @@ const ROUTES = [
   "./admin/acquisition/scraper/workspace",
   "./admin/customers",
   "./admin/customers/7",
+  "./admin/agencies",
+  "./admin/agencies/4",
   "./admin/security",
   "./admin/mfa/enroll",
   "./admin/mfa/challenge",

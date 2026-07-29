@@ -1311,11 +1311,29 @@ def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
         assert second_agency.name == "Renamed Agency"
         assert second_agency.active is True
 
-        agent_update = client.patch(
+        bypassed_assignment = client.patch(
             f"/api/admin/agents/{agent.id}",
             json={"name": "Renamed Agent", "agency_id": second_agency.id, "active": True},
         )
+        assert bypassed_assignment.status_code == 409
+        agent_update = client.patch(
+            f"/api/admin/agents/{agent.id}",
+            json={
+                "name": "Renamed Agent",
+                "agency_id": first_agency.id,
+                "active": True,
+            },
+        )
         assert agent_update.status_code == 200
+        assignment = client.post(
+            f"/api/admin/customers/{agent.id}/agency-assignment",
+            json={
+                "agency_id": second_agency.id,
+                "reason": "Moved through the permanent-history workflow.",
+                "confirmed": True,
+            },
+        )
+        assert assignment.status_code == 200
         session.refresh(agent)
         assert agent.name == "Renamed Agent"
         assert agent.agency_id == second_agency.id
@@ -1324,7 +1342,7 @@ def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
         assert client.patch(
             f"/api/admin/agents/{agent.id}",
             json={"name": "Agent", "agency_id": 999_999, "active": True},
-        ).status_code == 404
+        ).status_code == 409
         assert client.patch(
             f"/api/admin/agencies/{first_agency.id}",
             json={"name": " ", "active": True},

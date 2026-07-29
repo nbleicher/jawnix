@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from .customer_accounts import active_user_account, pending_invitation
 from .models import (
     Agency,
+    AgencyMembershipHistory,
     AuditEntry,
     Customer,
     CustomerProfile,
@@ -93,6 +94,7 @@ _PENDING_INVITATION = CustomerAdminStatus(
 _ACTIVITY_LABELS: dict[str, str] = {
     "customer_created": "Customer created",
     "customer_updated": "Customer updated",
+    "customer_agency_assignment_changed": "Agency assignment changed",
     "customer_deleted": "Customer removed from active use",
     "customer_hard_deleted": "Customer permanently deleted",
     "customer_hard_delete_refused": "Permanent deletion refused",
@@ -138,6 +140,9 @@ def customer_dependency_counts(db: Session, customer_id: int) -> dict[str, int]:
         "invitations": select(func.count(UserAccountInvitation.id)).where(
             UserAccountInvitation.customer_id == customer_id
         ),
+        "agencyMemberships": select(
+            func.count(AgencyMembershipHistory.id)
+        ).where(AgencyMembershipHistory.customer_id == customer_id),
     }
     return {key: int(db.scalar(query) or 0) for key, query in counts.items()}
 
@@ -463,5 +468,4 @@ def _activity(
         )
         for entry in entries
     ]
-
 

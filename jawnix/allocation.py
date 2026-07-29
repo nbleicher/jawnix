@@ -44,8 +44,23 @@ class AllocationResult:
 
 
 def _same_recipient_clause(request: LeadRequest):
+    permanent_customers = select(Customer.id).where(
+        Customer.permanent_history_key
+        == request.customer.permanent_history_key
+    )
+    permanent_agencies = select(Agency.id).where(
+        Agency.permanent_history_key
+        == request.customer.permanent_history_key
+    )
+    permanent_history = or_(
+        DistributionEvent.agent_id.in_(permanent_customers),
+        DistributionEvent.agency_id.in_(permanent_agencies),
+    )
     if request.customer.agency_id is None:
-        return DistributionEvent.agent_id == request.customer_id
+        return or_(
+            DistributionEvent.agent_id == request.customer_id,
+            permanent_history,
+        )
     same_agency_customers = select(Customer.id).where(
         Customer.agency_id == request.customer.agency_id
     )
@@ -56,6 +71,7 @@ def _same_recipient_clause(request: LeadRequest):
             DistributionEvent.agency_id.is_(None),
             DistributionEvent.agent_id.in_(same_agency_customers),
         ),
+        permanent_history,
     )
 
 

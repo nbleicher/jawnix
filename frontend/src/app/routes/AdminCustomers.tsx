@@ -4,7 +4,7 @@ import type { LoaderFunctionArgs } from "react-router";
 
 import { api } from "../auth/adminMFA";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
-import { Button } from "../../design-system/primitives/Button";
+import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { Dialog } from "../../design-system/primitives/Dialog";
 import { EmptyState } from "../../design-system/primitives/feedback";
 import { Field, Input, Select } from "../../design-system/primitives/form";
@@ -321,9 +321,12 @@ export function AdminCustomersRoute() {
       title="Customers"
       description="A Customer is the durable party that owns Licensed States, Agency membership, and permanent distribution history. Its User Account is only replaceable access."
       actions={
-        <Button variant="primary" onClick={() => setCreateOpen(true)}>
-          Create Customer
-        </Button>
+        <Cluster gap={3}>
+          <ActionLink href="/app/admin/agencies">View Agencies</ActionLink>
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+            Create Customer
+          </Button>
+        </Cluster>
       }
     >
       <Section
