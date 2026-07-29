@@ -265,6 +265,29 @@ class TelegramClient:
             timeout=5,
         )
 
+    def post_action_failure(self, text: str) -> str:
+        """Tell the operator an asynchronously queued action did not run.
+
+        The webhook answers the callback immediately so Telegram stops showing
+        a spinner, but the durable command runs later in a worker. A real
+        command failure therefore needs its own message; otherwise Telegram
+        says only "Queued" while Jawnix records a failed job.
+
+        ``text`` is deliberately normalized by the worker rather than built
+        from the raw exception, so private paths and backend details never
+        cross the integration boundary.
+        """
+        if not self.settings.telegram_chat_id:
+            raise RuntimeError("TELEGRAM_CHAT_ID is not configured.")
+        data = self._call(
+            "sendMessage",
+            {
+                "chat_id": self.settings.telegram_chat_id,
+                "text": text[:4000],
+            },
+        )
+        return str(data["result"]["message_id"])
+
     def _nightly_review_message(
         self,
         review: NightlyReview,

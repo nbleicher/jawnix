@@ -855,6 +855,39 @@ def run_scrape(
         }
 
 
+def _enqueue_scrape_anomaly_notification_refresh(
+    session: Session,
+    anomaly: ScrapeAnomaly,
+    *,
+    nightly_review: NightlyReview | None = None,
+) -> None:
+    """Make Telegram project the Scrape Anomaly's current durable state.
+
+    Successful decisions already use this refresh path. Duplicates and
+    cross-channel races must use it too, or a callback that safely does
+    nothing in the database can leave an old inline keyboard looking live.
+    """
+    if nightly_review is None:
+        nightly_review = session.scalar(
+            select(NightlyReview).where(
+                NightlyReview.scraper_run_id
+                == anomaly.scraper_run_id
+            )
+        )
+    if nightly_review is not None:
+        enqueue_job(
+            session,
+            "update_nightly_review_notification",
+            payload={"review_id": str(nightly_review.id)},
+        )
+        return
+    enqueue_job(
+        session,
+        "update_scrape_anomaly_notification",
+        payload={"anomaly_id": str(anomaly.id)},
+    )
+
+
 def decide_scrape_anomaly(
     session: Session,
     settings: Settings,
@@ -874,6 +907,7 @@ def decide_scrape_anomaly(
     if anomaly is None:
         raise LookupError("Scrape Anomaly was not found.")
     if anomaly.status != "pending":
+        _enqueue_scrape_anomaly_notification_refresh(session, anomaly)
         return {
             "status": anomaly.status,
             "duplicate": True,
@@ -970,17 +1004,11 @@ def decide_scrape_anomaly(
                     "anomalyStatus": anomaly.status,
                 },
             }
-            enqueue_job(
-                session,
-                "update_nightly_review_notification",
-                payload={"review_id": str(nightly_review.id)},
-            )
-        else:
-            enqueue_job(
-                session,
-                "update_scrape_anomaly_notification",
-                payload={"anomaly_id": str(anomaly.id)},
-            )
+        _enqueue_scrape_anomaly_notification_refresh(
+            session,
+            anomaly,
+            nightly_review=nightly_review,
+        )
         session.flush()
         return {
             "status": anomaly.status,
@@ -1069,17 +1097,11 @@ def decide_scrape_anomaly(
                 ),
             },
         }
-        enqueue_job(
-            session,
-            "update_nightly_review_notification",
-            payload={"review_id": str(nightly_review.id)},
-        )
-    else:
-        enqueue_job(
-            session,
-            "update_scrape_anomaly_notification",
-            payload={"anomaly_id": str(anomaly.id)},
-        )
+    _enqueue_scrape_anomaly_notification_refresh(
+        session,
+        anomaly,
+        nightly_review=nightly_review,
+    )
     session.flush()
     return result
 

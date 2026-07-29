@@ -37,6 +37,58 @@ from .transitions import TransitionError, transition_request
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("jawnix.worker")
 
+TELEGRAM_DECISION_JOB_KINDS = frozenset(
+    {
+        "telegram_action",
+        "telegram_anomaly_action",
+        "telegram_inventory_conflict_action",
+        "telegram_recommendation_action",
+    }
+)
+
+
+def _telegram_action_label(job: Job) -> str:
+    target = {
+        "telegram_action": "Batch Request",
+        "telegram_anomaly_action": "Scrape Anomaly",
+        "telegram_inventory_conflict_action": "Inventory Conflict",
+        "telegram_recommendation_action": "Source Recommendation",
+    }.get(job.kind, "Jawnix")
+    action = str(job.payload.get("action") or "requested").replace("_", " ")
+    return f"{target} {action}"
+
+
+def _enqueue_telegram_action_failure(session, job: Job) -> None:
+    """Durably report a failed Telegram decision without leaking its exception.
+
+    This is transport recovery only. It does not decide, retry, or mutate the
+    target record; the same domain command remains the sole decision path.
+    Stale and duplicate actions are successful no-ops and never reach here.
+    """
+    if job.kind not in TELEGRAM_DECISION_JOB_KINDS:
+        return
+    if job.payload.get("failure_notification_job_id"):
+        return
+    notification = enqueue_job(
+        session,
+        "notify_telegram_action_failure",
+        payload={
+            "failed_job_id": job.id,
+            "message": (
+                f"Jawnix could not complete the Telegram "
+                f"{_telegram_action_label(job)} action. "
+                "The record was not changed. Open Jawnix to review its "
+                "current state before trying again."
+            ),
+        },
+    )
+    # A manually retried failed job must not fan out another failure message.
+    # Assign a new dict so SQLAlchemy's JSON column sees the mutation.
+    job.payload = {
+        **job.payload,
+        "failure_notification_job_id": notification.id,
+    }
+
 
 def _update_notification(session, request: LeadRequest, telegram: TelegramClient) -> None:
     notification = session.scalar(select(Notification).where(Notification.request_id == request.id))
@@ -146,6 +198,66 @@ def _process_initial_nightly_review_notification(
         job.last_error = ""
 
 
+def _process_telegram_action_failure_notification(
+    job_id: int,
+    settings,
+) -> None:
+    """Send one failure notice without retrying an unknown Telegram outcome."""
+    with SessionLocal.begin() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            return
+        state = str(job.payload.get("delivery_state") or "pending")
+        if state == "sent" or job.payload.get("message_id"):
+            job.status = JobStatus.complete.value
+            job.last_error = ""
+            return
+        if state in {"sending", "unknown"}:
+            job.payload = {
+                **job.payload,
+                "delivery_state": "unknown",
+            }
+            job.status = JobStatus.failed.value
+            job.last_error = (
+                "Telegram failure-notification delivery outcome is unknown; "
+                "it was not sent again."
+            )
+            return
+        job.payload = {
+            **job.payload,
+            "delivery_state": "sending",
+        }
+        message = str(job.payload["message"])
+
+    try:
+        message_id = TelegramClient(settings).post_action_failure(message)
+    except Exception as exc:
+        log.exception("Telegram action-failure notification failed")
+        with SessionLocal.begin() as session:
+            job = session.get(Job, job_id)
+            if job is None:
+                return
+            job.payload = {
+                **job.payload,
+                "delivery_state": "failed",
+            }
+            job.status = JobStatus.failed.value
+            job.last_error = str(exc)[:4000]
+        return
+
+    with SessionLocal.begin() as session:
+        job = session.get(Job, job_id)
+        if job is None:
+            return
+        job.payload = {
+            **job.payload,
+            "delivery_state": "sent",
+            "message_id": message_id,
+        }
+        job.status = JobStatus.complete.value
+        job.last_error = ""
+
+
 def process_job(job_id: int) -> None:
     settings = get_settings()
     with SessionLocal() as session:
@@ -154,6 +266,12 @@ def process_job(job_id: int) -> None:
         )
     if job_kind == "notify_nightly_review":
         _process_initial_nightly_review_notification(
+            job_id,
+            settings,
+        )
+        return
+    if job_kind == "notify_telegram_action_failure":
+        _process_telegram_action_failure_notification(
             job_id,
             settings,
         )
@@ -189,6 +307,11 @@ def process_job(job_id: int) -> None:
                     )
                 except TransitionError as exc:
                     log.info("Telegram action for request %s was ignored: %s", request.id, exc.detail)
+                    # A Jawnix action may have won the row lock before this
+                    # callback. Refresh from the durable state even when the
+                    # clicked action is now stale, so the old keyboard cannot
+                    # remain an apparently live, divergent action surface.
+                    enqueue_job(session, "update_notification", request.id)
             elif job.kind == "allocate_request":
                 allocate_request(session, uuid.UUID(str(job.request_id)), settings)
             elif job.kind == "fulfill_round_robin":
@@ -396,6 +519,7 @@ def process_job(job_id: int) -> None:
                 return
             job.status = JobStatus.failed.value
             job.last_error = str(exc)[:4000]
+            _enqueue_telegram_action_failure(session, job)
             request = session.get(LeadRequest, job.request_id) if job.request_id else None
             if request is not None and job.kind in {"allocate_request", "deliver_request"}:
                 request.status = RequestStatus.failed.value
