@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from .activity import record_activity
 from .fulfillment import RequestActionContext, available_action_names
 from .jobs import enqueue_job
+from .milestone_emails import enqueue_milestone_email
 from .models import (
     BatchArtifact,
     DistributionEvent,
@@ -62,6 +63,7 @@ def transition_request(
         item.status = RequestStatus.approved.value
         item.approved_at = utcnow()
         item.status_message = "Approved; allocation is queued."
+        enqueue_milestone_email(db, item)
         enqueue_job(db, "update_notification", item.id)
         enqueue_job(db, "fulfill_round_robin")
     elif action == "retry":
@@ -69,6 +71,7 @@ def transition_request(
         item.status_message = "Retry approved; allocation is queued."
         # The request is moving again, so it no longer has a stopping point.
         item.closed_at = None
+        enqueue_milestone_email(db, item)
         enqueue_job(db, "update_notification", item.id)
         enqueue_job(db, "fulfill_round_robin")
     elif action == "retry_delivery":
@@ -81,6 +84,7 @@ def transition_request(
         item.status = RequestStatus.rejected.value
         item.status_message = "Rejected by admin."
         item.closed_at = utcnow()
+        enqueue_milestone_email(db, item)
         enqueue_job(db, "update_notification", item.id)
     elif action == "cancel":
         # A Canceled Request is withdrawn before any Distribution Event

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from .activity import record_activity
 from .config import Settings
 from .jobs import enqueue_job
+from .milestone_emails import enqueue_milestone_email
 from .models import (
     Agency,
     Customer,
@@ -322,6 +323,7 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
         request.status = RequestStatus.waiting_inventory.value
         request.available_count = available
         request.status_message = f"Inventory shortage: requested {request.lead_count:,}; available {available:,}. No rows were allocated."
+        enqueue_milestone_email(session, request)
         enqueue_job(session, "update_notification", request.id)
         return AllocationResult(request.status, 0, available)
 
@@ -462,6 +464,7 @@ def _inventory_conflict_blocks(
             "Waiting for an Inventory Conflict decision before shared "
             "inventory can bypass an older request."
         )
+        enqueue_milestone_email(session, request)
         enqueue_job(session, "update_notification", request.id)
         return True
     return False
