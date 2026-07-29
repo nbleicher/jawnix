@@ -45,6 +45,8 @@ const ROUTES = [
   `./admin/acquisition/runs/${SCRAPE_RUN_ID}`,
   "./admin/acquisition/scraper",
   "./admin/acquisition/scraper/workspace",
+  "./admin/acquisition/scraper/workspace/states",
+  "./admin/acquisition/scraper/workspace/states/PA",
   "./admin/customers",
   "./admin/activity",
   "./admin/customers/7",

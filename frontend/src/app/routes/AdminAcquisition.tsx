@@ -624,6 +624,7 @@ export function AdminAcquisitionRoute() {
             </Section>
 
             <Section
+              id="scraper-configuration-versions"
               title="Scraper Configuration versions"
               description="Versions are immutable. Creating, scheduling, running, and rolling back all select a version; none rewrites one."
             >

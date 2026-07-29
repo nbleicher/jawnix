@@ -3,6 +3,13 @@ import type { Page, Route } from "@playwright/test";
 import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
 import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
 import {
+  coverageFeed,
+  coverageGrid,
+  coverageKeywords,
+  stateCoverageDetail,
+  stateCoverageSnapshot,
+} from "./scraper-coverage-fixtures";
+import {
   monitoringRegion,
   monitoringSnapshot,
   pausedPipelineResult,
@@ -252,6 +259,18 @@ export async function mockAdminMFA(
         lastSuccessfulAt: "2026-07-28T12:00:00Z",
         idleExpiresIn: 900,
       });
+    }
+    if (path.endsWith("/coverage")) {
+      return json(route, stateCoverageSnapshot());
+    }
+    if (path.endsWith("/keywords") && path.includes("/coverage/")) {
+      return json(route, coverageFeed(coverageKeywords, 10));
+    }
+    if (path.endsWith("/cells") && path.includes("/coverage/")) {
+      return json(route, coverageFeed(coverageGrid, 15));
+    }
+    if (/\/coverage\/[A-Z]{2}$/.test(path)) {
+      return json(route, stateCoverageDetail());
     }
     if (path.endsWith("/monitoring")) {
       return json(route, monitoringSnapshot());

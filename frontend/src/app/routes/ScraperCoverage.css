@@ -1,0 +1,531 @@
+/* State coverage keeps the GMS/OPS hierarchy: cards, dense keyword activity,
+   then today's cell matrix. On narrow screens the same semantic rows and
+   buttons expand into drill-down controls; nothing is removed or replaced by
+   a colour-only summary. */
+
+.coverage-idle,
+.coverage-stale {
+  padding: var(--jx-space-3) var(--jx-space-4);
+  border: 1px solid var(--jx-color-warning);
+  background: var(--jx-color-warning-soft);
+}
+
+.coverage-idle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jx-space-3);
+}
+
+.coverage-stale {
+  border-width: 0 0 0 3px;
+  font-size: var(--jx-text-sm);
+  color: var(--jx-color-text-strong);
+}
+
+.coverage-section {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+}
+
+.coverage-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--jx-space-3);
+  padding-bottom: var(--jx-space-2);
+  border-bottom: 1px solid var(--jx-color-border-strong);
+}
+
+.coverage-section-head h2 {
+  margin-top: var(--jx-space-1);
+  color: var(--jx-color-text-strong);
+  font-size: var(--jx-text-xl);
+  font-weight: var(--jx-weight-semibold);
+}
+
+.coverage-eyebrow,
+.coverage-cadence {
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jx-color-text-muted);
+}
+
+/* State cards ------------------------------------------------------------- */
+
+.coverage-state-grid {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(13rem, 100%), 1fr)
+  );
+  gap: var(--jx-space-3);
+}
+
+.coverage-state-card {
+  display: flex;
+  min-height: 12rem;
+  min-width: 0;
+  flex-direction: column;
+  padding: var(--jx-space-4);
+  border: 1px solid var(--jx-color-border-strong);
+  background: var(--jx-color-surface);
+  color: var(--jx-color-text);
+  text-decoration: none;
+}
+
+.coverage-state-card:hover {
+  border-color: var(--jx-color-accent-strong);
+  background: var(--jx-color-accent-soft);
+}
+
+.coverage-state-card:focus-visible {
+  outline: 2px solid var(--jx-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.coverage-state-card__head,
+.coverage-state-card__coverage,
+.coverage-state-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jx-space-2);
+}
+
+.coverage-state-card__code {
+  display: inline-grid;
+  min-width: var(--jx-touch-target);
+  min-height: var(--jx-touch-target);
+  place-items: center;
+  border: 1px solid var(--jx-color-accent-strong);
+  color: var(--jx-color-accent-strong);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-bold);
+}
+
+.coverage-state-card__businesses {
+  margin-top: var(--jx-space-4);
+  color: var(--jx-color-text-strong);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-2xl);
+  line-height: var(--jx-leading-tight);
+  overflow-wrap: anywhere;
+}
+
+.coverage-state-card__caption,
+.coverage-state-card__coverage,
+.coverage-state-card__foot {
+  color: var(--jx-color-text-muted);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+}
+
+.coverage-state-card__caption {
+  text-transform: uppercase;
+}
+
+.coverage-state-card__coverage {
+  margin-top: auto;
+  padding-top: var(--jx-space-4);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.coverage-state-card__coverage b {
+  color: var(--jx-color-text-strong);
+}
+
+.coverage-progress,
+.coverage-table-progress {
+  overflow: hidden;
+  border: 1px solid var(--jx-color-border-strong);
+  background: var(--jx-color-surface-recessed);
+}
+
+.coverage-progress {
+  height: 0.6rem;
+  margin-block: var(--jx-space-2) var(--jx-space-3);
+}
+
+.coverage-progress > span,
+.coverage-table-progress > span {
+  display: block;
+  height: 100%;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--jx-color-accent) 0 5px,
+    transparent 5px 8px
+  );
+}
+
+/* Keyword activity -------------------------------------------------------- */
+
+.coverage-filter,
+.coverage-grid-filter {
+  max-width: 26rem;
+}
+
+.coverage-keywords {
+  max-height: min(52rem, 72vh);
+  overflow: auto;
+  border-block: 1px solid var(--jx-color-border-strong);
+}
+
+.coverage-keywords table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.coverage-keywords th,
+.coverage-keywords td {
+  padding: var(--jx-space-3);
+  border-bottom: 1px solid var(--jx-color-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.coverage-keywords thead th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--jx-color-surface);
+  color: var(--jx-color-text-muted);
+  font-size: var(--jx-text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.coverage-keywords tbody th {
+  max-width: 26rem;
+  color: var(--jx-color-text-strong);
+  font-weight: var(--jx-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.coverage-keywords td {
+  color: var(--jx-color-text);
+  white-space: nowrap;
+}
+
+.coverage-keywords td[data-label="Coverage"] {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-2);
+}
+
+.coverage-table-progress {
+  display: inline-block;
+  width: 4.5rem;
+  height: 0.45rem;
+}
+
+.coverage-empty-rate {
+  color: var(--jx-color-success);
+  font-weight: var(--jx-weight-bold);
+}
+
+.coverage-empty-rate--bad {
+  color: var(--jx-color-danger);
+}
+
+/* Grid drill-down --------------------------------------------------------- */
+
+.coverage-legend {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(9rem, 100%), 1fr)
+  );
+  gap: var(--jx-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.coverage-legend li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--jx-space-2);
+  min-height: var(--jx-touch-target);
+  padding-inline: var(--jx-space-3);
+  border: 1px solid var(--jx-color-border);
+  background: var(--jx-color-surface);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+}
+
+.coverage-legend__swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 1px solid var(--jx-color-border-strong);
+  background: var(--jx-color-surface-recessed);
+}
+
+.coverage-legend__swatch--posted {
+  border-color: var(--jx-color-success);
+  background: var(--jx-color-success);
+}
+
+.coverage-legend__swatch--reserved {
+  border-color: var(--jx-color-warning);
+  background: var(--jx-color-warning);
+}
+
+.coverage-legend__swatch--failed {
+  border-color: var(--jx-color-danger);
+  background: var(--jx-color-danger);
+}
+
+.coverage-grid-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(14rem, 18rem);
+  align-items: start;
+  gap: var(--jx-space-4);
+}
+
+.coverage-cell-detail {
+  display: flex;
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+  padding: var(--jx-space-4);
+  border: 1px solid var(--jx-color-border-strong);
+  background: var(--jx-color-surface);
+}
+
+.coverage-cell-detail code {
+  color: var(--jx-color-text-strong);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.coverage-cell-grid {
+  display: grid;
+  grid-column: 1;
+  grid-row: 1;
+  grid-template-columns: repeat(auto-fill, minmax(1.5rem, 1fr));
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.coverage-cell {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  padding: 0;
+  border: 1px solid var(--jx-color-border-strong);
+  background: var(--jx-color-surface-recessed);
+  color: var(--jx-color-text-strong);
+  cursor: pointer;
+}
+
+.coverage-cell--posted {
+  border-color: var(--jx-color-success);
+  background: var(--jx-color-success);
+}
+
+.coverage-cell--reserved {
+  border-color: var(--jx-color-warning);
+  background: var(--jx-color-warning);
+}
+
+.coverage-cell--failed {
+  border-color: var(--jx-color-danger);
+  background: var(--jx-color-danger);
+}
+
+.coverage-cell[aria-pressed="true"] {
+  outline: 2px solid var(--jx-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.coverage-cell:focus-visible {
+  z-index: 1;
+  outline: 2px solid var(--jx-color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Desktop keeps the familiar dense matrix. The labels remain in the
+   accessibility tree and become visible in the narrow-screen drill-down. */
+.coverage-cell__index,
+.coverage-cell__coordinate,
+.coverage-cell__status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 48rem) {
+  .coverage-state-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* The header remains available to assistive technology while each value
+     gains its visible label inside the mobile row. */
+  .coverage-keywords thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .coverage-keywords,
+  .coverage-keywords table,
+  .coverage-keywords tbody,
+  .coverage-keywords tr {
+    display: block;
+    width: 100%;
+  }
+
+  .coverage-keywords {
+    max-height: none;
+    overflow: visible;
+    border: 0;
+  }
+
+  .coverage-keywords tr {
+    margin-bottom: var(--jx-space-3);
+    padding: var(--jx-space-2);
+    border: 1px solid var(--jx-color-border-strong);
+    background: var(--jx-color-surface);
+  }
+
+  .coverage-keywords tbody th,
+  .coverage-keywords td,
+  .coverage-keywords td[data-label="Coverage"] {
+    display: grid;
+    grid-template-columns: minmax(7rem, 40%) minmax(0, 1fr);
+    align-items: center;
+    gap: var(--jx-space-3);
+    max-width: none;
+    padding: var(--jx-space-2);
+    border: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .coverage-keywords tbody th::before,
+  .coverage-keywords td::before {
+    content: attr(data-label);
+    color: var(--jx-color-text-muted);
+    font-size: var(--jx-text-xs);
+    font-weight: var(--jx-weight-bold);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .coverage-keywords td[data-label="Coverage"] {
+    grid-template-columns: minmax(7rem, 40%) 4.5rem auto;
+  }
+
+  .coverage-grid-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .coverage-cell-detail,
+  .coverage-cell-grid {
+    grid-column: 1;
+  }
+
+  .coverage-cell-detail {
+    grid-row: 1;
+  }
+
+  /* Each former colour square is now a full labeled drill-down row. The same
+     button remains keyboard-operable; no mobile-only control is removed. */
+  .coverage-cell-grid {
+    grid-row: 2;
+    grid-template-columns: repeat(
+      auto-fit,
+      minmax(min(13rem, 100%), 1fr)
+    );
+  }
+
+  .coverage-cell {
+    display: grid;
+    min-height: var(--jx-touch-target);
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--jx-space-2);
+    padding: var(--jx-space-2) var(--jx-space-3);
+    border-inline-start-width: 4px;
+    background: var(--jx-color-surface);
+    text-align: left;
+  }
+
+  .coverage-cell--posted {
+    border-inline-start-color: var(--jx-color-success);
+  }
+
+  .coverage-cell--reserved {
+    border-inline-start-color: var(--jx-color-warning);
+  }
+
+  .coverage-cell--failed {
+    border-inline-start-color: var(--jx-color-danger);
+  }
+
+  .coverage-cell--uncovered {
+    border-inline-start-color: var(--jx-color-border-strong);
+  }
+
+  .coverage-cell__index,
+  .coverage-cell__coordinate,
+  .coverage-cell__status {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+    border: 0;
+  }
+
+  .coverage-cell__index,
+  .coverage-cell__status {
+    color: var(--jx-color-text-muted);
+    font-family: var(--jx-font-mono);
+    font-size: var(--jx-text-xs);
+    font-weight: var(--jx-weight-bold);
+  }
+
+  .coverage-cell__coordinate {
+    font-family: var(--jx-font-mono);
+    font-size: var(--jx-text-xs);
+    overflow-wrap: anywhere;
+  }
+}
