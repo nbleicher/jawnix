@@ -9,6 +9,8 @@ import type { Page, Route } from "@playwright/test";
 
 export const ANOMALY_ID = "11111111-1111-4111-8111-111111111111";
 export const RECOMMENDATION_ID = "33333333-3333-4333-8333-333333333333";
+export const CONFIGURATION_ID = "44444444-4444-4444-8444-444444444444";
+export const SCRAPE_RUN_ID = 42;
 export const EVIDENCE_CHECKSUM = "e".repeat(64);
 
 export interface RecordedCall {
@@ -29,7 +31,7 @@ export function acquisitionPayload(overrides: Record<string, unknown> = {}) {
     nightlyReviews: [
       {
         id: "66666666-6666-4666-8666-666666666666",
-        scraperRunId: 42,
+        scraperRunId: SCRAPE_RUN_ID,
         reviewDate: "2026-07-28",
         status: "attention",
         summary: {},
@@ -44,7 +46,7 @@ export function acquisitionPayload(overrides: Record<string, unknown> = {}) {
       {
         id: ANOMALY_ID,
         status: "pending",
-        scraperRunId: 42,
+        scraperRunId: SCRAPE_RUN_ID,
         configurationId: "22222222-2222-4222-8222-222222222222",
         datasetChecksum: "a".repeat(64),
         decisionBy: "",
@@ -94,7 +96,7 @@ export function acquisitionPayload(overrides: Record<string, unknown> = {}) {
     ],
     scraperConfigurations: [
       {
-        id: "44444444-4444-4444-8444-444444444444",
+        id: CONFIGURATION_ID,
         version: 5,
         checksum: "c".repeat(64),
         status: "scheduled",
@@ -132,6 +134,67 @@ export async function mockAcquisition(
 
   await page.route(/\/api\/admin\/acquisition$/, (route) =>
     json(route, acquisitionPayload(overrides)),
+  );
+
+  await page.route(
+    new RegExp(`/api/admin/scraper-configurations/${CONFIGURATION_ID}$`),
+    (route) =>
+      json(route, {
+        id: CONFIGURATION_ID,
+        version: 5,
+        checksum: "c".repeat(64),
+        status: "scheduled",
+        createdBy: "admin@example.com",
+        reason: "Reduce underperforming segment",
+        anomalyThresholds: { downFraction: 0.5 },
+        createdAt: "2026-07-27T08:00:00Z",
+        scheduledAt: "2026-07-29T08:00:00Z",
+        activatedAt: null,
+        basedOnConfigurationId: null,
+        segments: [
+          {
+            key: "roofing-austin-tx",
+            niche: "Roofing",
+            query: "roofing contractor",
+            geography: "Austin, TX",
+            parameters: {},
+          },
+        ],
+      }),
+  );
+
+  await page.route(
+    new RegExp(`/api/admin/scrape-runs/${SCRAPE_RUN_ID}$`),
+    (route) =>
+      json(route, {
+        id: SCRAPE_RUN_ID,
+        source: "google_maps",
+        sourceVersion: "2026.07",
+        configurationId: CONFIGURATION_ID,
+        datasetVersion: null,
+        manual: false,
+        checksum: "a".repeat(64),
+        status: "held_anomaly",
+        rowsSeen: 120,
+        rowsImported: 80,
+        details: {},
+        startedAt: "2026-07-28T02:00:00Z",
+        finishedAt: "2026-07-28T02:08:00Z",
+        segments: [
+          {
+            key: "roofing-austin-tx",
+            niche: "Roofing",
+            geography: "Austin, TX",
+            observed: 120,
+            valid: 80,
+            new: 50,
+            duplicates: 25,
+            quarantined: 15,
+            anomalous: true,
+            anomalyReasons: ["more_than_50_percent_down"],
+          },
+        ],
+      }),
   );
 
   for (const pattern of [

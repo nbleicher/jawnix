@@ -30,6 +30,11 @@ import {
 } from "../../design-system/primitives/typography";
 import type { CustomerAdminStatus } from "./AdminCustomers";
 import { errorMessage, formatAdminDate } from "./AdminCustomers";
+import {
+  ActivityTimeline,
+  loadEntityActivity,
+} from "./AdminActivity";
+import type { ActivityPage } from "./AdminActivity";
 
 import "./AdminAgencies.css";
 
@@ -62,6 +67,7 @@ export interface AgencyDirectoryData {
 }
 
 export interface AgencyDetailsData {
+  activityTimeline: ActivityPage;
   agency: {
     id: number;
     slug: string;
@@ -124,9 +130,13 @@ export async function adminAgencyDirectoryLoader({
 export async function adminAgencyDetailsLoader({
   params,
 }: LoaderFunctionArgs): Promise<AgencyDetailsData> {
-  return api<AgencyDetailsData>(
-    `/api/admin/agencies/${params.agencyId}/details`,
-  );
+  const [details, activityTimeline] = await Promise.all([
+    api<Omit<AgencyDetailsData, "activityTimeline">>(
+      `/api/admin/agencies/${params.agencyId}/details`,
+    ),
+    loadEntityActivity("agency", params.agencyId),
+  ]);
+  return { ...details, activityTimeline };
 }
 
 function AgencyCard({ row }: { row: AgencyDirectoryRow }) {
@@ -540,33 +550,10 @@ export function AdminAgencyDetailsRoute() {
       </Section>
 
       <Section title="Activity" description="Consequential Agency changes and assignments.">
-        {data.activity.length ? (
-          <Stack as="ul" gap={3} className="admin-agencies__list">
-            {data.activity.map((entry) => (
-              <li key={entry.id}>
-                <Card>
-                  <Stack gap={2}>
-                    <Cluster justify="space-between" align="flex-start">
-                      <Text weight="semibold">{entry.label}</Text>
-                      <Text size="sm" tone="muted">
-                        {formatAdminDate(entry.createdAt)}
-                      </Text>
-                    </Cluster>
-                    <Text size="sm">{entry.reason}</Text>
-                    <Text size="xs" tone="muted">
-                      {entry.actor}
-                    </Text>
-                  </Stack>
-                </Card>
-              </li>
-            ))}
-          </Stack>
-        ) : (
-          <EmptyState
-            title="No activity recorded"
-            description="No administrator has changed this Agency yet."
-          />
-        )}
+        <ActivityTimeline
+          activity={data.activityTimeline}
+          emptyDescription="No administrator has changed this Agency yet."
+        />
       </Section>
 
       <Section

@@ -69,6 +69,13 @@ function detail(overrides: Partial<RequestDetail> = {}): RequestDetail {
     distribution: { committed: 0, expected: 250, complete: false },
     telegram: { decisionPending: false },
     history: [],
+    activityTimeline: {
+      entries: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      pages: 1,
+    },
     ...overrides,
   };
 }
@@ -472,21 +479,34 @@ describe("the Batch Request detail", () => {
     renderRoute(
       <AdminFulfillmentRequestRoute />,
       detail({
-        history: [
-          {
+        activityTimeline: {
+          entries: [{
+            id: "activity-1",
             action: "batch_request_approve",
             actor: "admin-1",
             reason: "Inventory verified.",
+            entityType: "batch_request",
+            entityId: "11111111-1111-4111-8111-111111111111",
+            entityHref:
+              "/app/admin/fulfillment/requests/11111111-1111-4111-8111-111111111111",
             recordedAt: "2026-07-02T12:00:00Z",
-            before: { status: "pending" },
-            after: { status: "approved" },
-          },
-        ],
+            details: {
+              before: { status: "pending" },
+              after: { status: "approved" },
+            },
+          }],
+          page: 1,
+          pageSize: 25,
+          total: 1,
+          pages: 1,
+        },
       }),
     );
 
     expect(screen.getByText("Inventory verified.")).toBeVisible();
-    expect(screen.getByText(/admin-1 · pending → approved/)).toBeVisible();
+    expect(screen.getByText("admin-1")).toBeVisible();
+    expect(screen.getByText("pending")).toBeVisible();
+    expect(screen.getByText("approved")).toBeVisible();
   });
 });
 

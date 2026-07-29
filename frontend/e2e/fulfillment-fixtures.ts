@@ -343,5 +343,42 @@ export async function mockFulfillment(page: Page): Promise<RecordedCall[]> {
     },
   );
 
+  await page.route(/\/api\/admin\/activity(?:\?.*)?$/, (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("entityType") !== "batch_request") {
+      return route.fallback();
+    }
+    const id = url.searchParams.get("entityId") ?? "";
+    const detail = DETAILS[id];
+    const history = (detail?.history ?? []) as {
+      action: string;
+      actor: string;
+      reason: string;
+      recordedAt: string;
+      before: Record<string, unknown> | null;
+      after: Record<string, unknown> | null;
+    }[];
+    return json(route, {
+      entries: history.map((entry, index) => ({
+        id: `activity-${id}-${index}`,
+        action: entry.action,
+        entityType: "batch_request",
+        entityId: id,
+        entityHref: `/app/admin/fulfillment/requests/${id}`,
+        actor: entry.actor,
+        reason: entry.reason,
+        details: {
+          before: entry.before,
+          after: entry.after,
+        },
+        recordedAt: entry.recordedAt,
+      })),
+      page: 1,
+      pageSize: 25,
+      total: history.length,
+      pages: 1,
+    });
+  });
+
   return calls;
 }

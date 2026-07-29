@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLoaderData, useRevalidator } from "react-router";
+import { Link, useLoaderData, useRevalidator } from "react-router";
 
 import { Button } from "../../design-system/primitives/Button";
 import { ConfirmDialog } from "../../design-system/primitives/Dialog";
@@ -428,7 +428,9 @@ function AnomalyCard({ item }: { item: ScrapeAnomalyRow }) {
       <Stack gap={3}>
         <Cluster gap={2} justify="space-between">
           <Heading level={3} size="sm">
-            Scrape Run {item.scraperRunId}
+            <Link to={`/admin/acquisition/runs/${item.scraperRunId}`}>
+              Scrape Run {item.scraperRunId}
+            </Link>
           </Heading>
           <StatusBadge tone={ANOMALY_TONES[item.status] ?? "neutral"}>
             {item.status}
@@ -632,7 +634,11 @@ export function AdminAcquisitionRoute() {
                       <Stack gap={2}>
                         <Cluster gap={2} justify="space-between">
                           <Heading level={3} size="sm">
-                            Version {item.version}
+                            <Link
+                              to={`/admin/acquisition/configurations/${item.id}`}
+                            >
+                              Version {item.version}
+                            </Link>
                           </Heading>
                           <StatusBadge
                             tone={
@@ -676,7 +682,15 @@ export function AdminAcquisitionRoute() {
                       <Stack gap={2}>
                         <Cluster gap={2} justify="space-between">
                           <Heading level={3} size="sm">
-                            {item.reviewDate ?? formatDate(item.createdAt)}
+                            {item.scraperRunId !== null ? (
+                              <Link
+                                to={`/admin/acquisition/runs/${item.scraperRunId}`}
+                              >
+                                {item.reviewDate ?? formatDate(item.createdAt)}
+                              </Link>
+                            ) : (
+                              item.reviewDate ?? formatDate(item.createdAt)
+                            )}
                           </Heading>
                           <StatusBadge
                             tone={REVIEW_TONES[item.status] ?? "neutral"}

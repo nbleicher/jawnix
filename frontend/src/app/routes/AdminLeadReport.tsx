@@ -33,6 +33,11 @@ import type {
   LeadEvidence,
   LeadReportDetail,
 } from "./AdminFulfillment";
+import {
+  ActivityTimeline,
+  loadEntityActivity,
+} from "./AdminActivity";
+import type { ActivityPage } from "./AdminActivity";
 
 /**
  * One Lead Report and the eligibility controls beside it (#58).
@@ -46,8 +51,12 @@ import type {
 
 export async function adminLeadReportLoader({
   params,
-}: LoaderFunctionArgs): Promise<LeadReportDetail> {
-  return api<LeadReportDetail>(`/api/admin/lead-reports/${params.reportId}`);
+}: LoaderFunctionArgs): Promise<LeadReportDetail & { activityTimeline: ActivityPage }> {
+  const [report, activityTimeline] = await Promise.all([
+    api<LeadReportDetail>(`/api/admin/lead-reports/${params.reportId}`),
+    loadEntityActivity("lead_report", params.reportId),
+  ]);
+  return { ...report, activityTimeline };
 }
 
 /** Listing provenance arrives keyed by its storage names; this makes them
@@ -231,7 +240,9 @@ function CorrectionPanel({
 }
 
 export function AdminLeadReportRoute() {
-  const report = useLoaderData<LeadReportDetail>();
+  const report = useLoaderData<
+    LeadReportDetail & { activityTimeline: ActivityPage }
+  >();
   useDocumentTitle(`Lead Report · ${report.reasonLabel}`);
 
   const { controls, evidence, distributionEvent, lead } = report;
@@ -548,6 +559,16 @@ export function AdminLeadReportRoute() {
             </Card>
           </Section>
         ) : null}
+
+        <Section
+          title="Activity"
+          description="Consequential decisions on this Lead Report, most recent first."
+        >
+          <ActivityTimeline
+            activity={report.activityTimeline}
+            emptyDescription="No administrator has decided this Lead Report yet."
+          />
+        </Section>
       </Stack>
     </Page>
   );

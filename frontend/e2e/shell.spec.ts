@@ -65,12 +65,12 @@ test.describe("Customer shell", () => {
 });
 
 test.describe("Administration shell", () => {
-  test("keeps primary navigation to the four domain-work destinations", async ({ page }) => {
+  test("keeps primary navigation to the domain-work destinations", async ({ page }) => {
     await page.goto("./admin/overview");
 
     const nav = page.getByRole("navigation", { name: "Administration" });
-    await expect(nav.getByRole("link")).toHaveCount(4);
-    for (const destination of ["Overview", "Fulfillment", "Acquisition", "Customers"]) {
+    await expect(nav.getByRole("link")).toHaveCount(5);
+    for (const destination of ["Overview", "Fulfillment", "Acquisition", "Customers", "Activity"]) {
       await expect(nav.getByRole("link", { name: destination })).toBeVisible();
     }
     await expect(nav.getByRole("link", { name: "Security" })).toHaveCount(0);
