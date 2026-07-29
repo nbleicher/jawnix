@@ -65,6 +65,9 @@ _ENTITY_DESTINATIONS = {
     "scraper_keyword_rollover": (
         "/app/admin/acquisition/scraper/workspace/keywords"
     ),
+    "scraper_runtime_configuration": (
+        "/app/admin/acquisition/scraper/workspace/runtime"
+    ),
     "source_recommendation": "/app/admin/acquisition",
     "source_segment": "/app/admin/acquisition",
     "user_account": "/app/admin/customers",
