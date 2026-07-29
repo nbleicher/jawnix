@@ -136,6 +136,22 @@ class AgencyUpdate(BaseModel):
     )
 
 
+class AgencyCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=160)
+    slug: str | None = Field(default=None, min_length=1, max_length=80)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class AgencyAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agency_id: int | None = None
+    reason: str = Field(min_length=1, max_length=2000)
+    confirmed: bool
+
+
 class CustomerUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

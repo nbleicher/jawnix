@@ -18,6 +18,13 @@ from sqlalchemy.orm import Session
 from svix.webhooks import Webhook, WebhookVerificationError
 
 from .activity import record_activity
+from .agency_management import (
+    AgencyAssignmentConflict,
+    agency_details,
+    agency_directory,
+    assign_customer,
+    assignment_preview,
+)
 from .auth import Principal, clear_session, issue_session, require_admin, require_principal, verify_supabase_token
 from .admin_mfa_api import router as admin_mfa_router
 from .config import Settings, get_settings
@@ -62,6 +69,7 @@ from .recommendations import (
 )
 from .models import (
     Agency,
+    AgencyMembershipHistory,
     AdminMFAState,
     Customer,
     BatchArtifact,
@@ -95,6 +103,8 @@ from .models import (
 )
 from .mfa_provider import MFAProviderError, get_mfa_provider
 from .schemas import (
+    AgencyAssignment,
+    AgencyCreate,
     AgencyUpdate,
     ActionReason,
     LeadCorrectionApply,
@@ -1855,6 +1865,150 @@ def admin_customer_directory(
     )
 
 
+@app.get("/api/admin/agencies/directory")
+def admin_agency_directory(
+    q: str = "",
+    status: str = "all",
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return agency_directory(db, query=q, status=status)
+
+
+@app.post("/api/admin/agencies", status_code=201)
+def create_agency(
+    payload: AgencyCreate,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Agency name is required.")
+    reason = payload.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="Reason is required.")
+    base = re.sub(
+        r"[^a-z0-9]+",
+        "-",
+        (payload.slug or name).lower(),
+    ).strip("-")
+    base = base[:70] or "agency"
+    slug = base
+    suffix = 2
+    while db.scalar(select(Agency.id).where(Agency.slug == slug)):
+        slug = f"{base}-{suffix}"
+        suffix += 1
+    agency = Agency(slug=slug, name=name, active=True)
+    db.add(agency)
+    db.flush()
+    record_activity(
+        db,
+        action="agency_created",
+        target_type="agency",
+        target_id=agency.id,
+        actor_id=principal.user_id,
+        reason=reason,
+        details={
+            "before": None,
+            "after": {
+                "slug": agency.slug,
+                "name": agency.name,
+                "active": True,
+            },
+        },
+    )
+    db.commit()
+    return {
+        "ok": True,
+        "agencyId": agency.id,
+        "slug": agency.slug,
+    }
+
+
+@app.get("/api/admin/agencies/{agency_id}/details")
+def admin_agency_details(
+    agency_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    agency = db.get(Agency, agency_id)
+    if agency is None or agency.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Agency was not found.")
+    return agency_details(db, agency=agency)
+
+
+@app.get(
+    "/api/admin/customers/{customer_id}/agency-assignment-preview"
+)
+def admin_customer_agency_assignment_preview(
+    customer_id: int,
+    agency_id: int | None = None,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    customer = db.get(Customer, customer_id)
+    if customer is None or customer.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Customer was not found.")
+    destination = (
+        db.get(Agency, agency_id) if agency_id is not None else None
+    )
+    if agency_id is not None and (
+        destination is None or destination.deleted_at is not None
+    ):
+        raise HTTPException(status_code=404, detail="Agency was not found.")
+    return assignment_preview(
+        db,
+        customer=customer,
+        destination=destination,
+        settings=settings,
+    )
+
+
+@app.post("/api/admin/customers/{customer_id}/agency-assignment")
+def admin_customer_agency_assignment(
+    customer_id: int,
+    payload: AgencyAssignment,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    customer = db.scalar(
+        select(Customer)
+        .where(Customer.id == customer_id)
+        .with_for_update()
+    )
+    if customer is None or customer.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Customer was not found.")
+    destination = (
+        db.scalar(
+            select(Agency)
+            .where(Agency.id == payload.agency_id)
+            .with_for_update()
+        )
+        if payload.agency_id is not None
+        else None
+    )
+    if payload.agency_id is not None and (
+        destination is None or destination.deleted_at is not None
+    ):
+        raise HTTPException(status_code=404, detail="Agency was not found.")
+    try:
+        result = assign_customer(
+            db,
+            customer=customer,
+            destination=destination,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+            confirmed=payload.confirmed,
+            settings=settings,
+        )
+    except AgencyAssignmentConflict as conflict:
+        raise HTTPException(status_code=409, detail=str(conflict)) from None
+    db.commit()
+    return result
+
+
 @app.get(
     "/api/admin/customers/{customer_id}/details",
     response_model=CustomerDetailsOut,
@@ -2893,6 +3047,9 @@ def update_agency(
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Agency name is required.")
+    reason = payload.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="Reason is required.")
     previous = {
         "name": agency.name,
         "active": agency.active,
@@ -2910,7 +3067,7 @@ def update_agency(
             target_type="agency",
             target_id=agency.id,
             actor_id=principal.user_id,
-            reason=payload.reason,
+            reason=reason,
             details={
                 "before": previous,
                 "after": after,
@@ -2931,9 +3088,14 @@ def update_customer(
     customer = db.get(Customer, customer_id)
     if customer is None or customer.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Customer was not found.")
-    agency = db.get(Agency, payload.agency_id) if payload.agency_id is not None else None
-    if payload.agency_id is not None and (agency is None or agency.deleted_at is not None):
-        raise HTTPException(status_code=404, detail="Agency was not found.")
+    if payload.agency_id != customer.agency_id:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Agency membership changes require a consequence preview "
+                "and explicit confirmation."
+            ),
+        )
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Customer name is required.")
@@ -2943,7 +3105,6 @@ def update_customer(
         "agencyId": customer.agency_id,
     }
     customer.name = name
-    customer.agency_id = agency.id if agency else None
     customer.active = payload.active
     after = {
         "name": customer.name,
@@ -3292,6 +3453,14 @@ def delete_agency(
         dependencies = {
             "customers": len(customers),
             "distributions": distribution_count,
+            "membershipHistory": int(
+                db.scalar(
+                    select(func.count(AgencyMembershipHistory.id)).where(
+                        AgencyMembershipHistory.agency_id == agency.id
+                    )
+                )
+                or 0
+            ),
         }
         if any(dependencies.values()):
             refused_agency_id = agency.id
@@ -3537,16 +3706,14 @@ async def create_customer(
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Customer name is required.")
-    agency = None
     if payload.agency_id is not None:
-        agency = db.get(Agency, payload.agency_id)
-        if agency is None or agency.deleted_at is not None:
-            raise HTTPException(status_code=404, detail="Agency was not found.")
-        if not agency.active:
-            raise HTTPException(
-                status_code=409,
-                detail="A Customer cannot join a deactivated Agency.",
-            )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Create the Customer first, then preview and confirm its "
+                "Agency assignment."
+            ),
+        )
     slug = _customer_slug(db, name, payload.slug)
     auth_user_id = await _dispatch_invitation(settings, payload)
 
@@ -3554,7 +3721,7 @@ async def create_customer(
         slug=slug,
         name=name,
         licensed_states=payload.licensed_states,
-        agency_id=agency.id if agency else None,
+        agency_id=None,
         active=True,
     )
     db.add(customer)

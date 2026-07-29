@@ -23,6 +23,10 @@
   background: var(--jx-color-accent-soft);
 }
 
+.admin-customer-details__assignment-preview {
+  border-color: var(--jx-color-warning);
+}
+
 .admin-customer-details__list {
   list-style: none;
 }

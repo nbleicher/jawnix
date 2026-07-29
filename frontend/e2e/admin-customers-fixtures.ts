@@ -10,12 +10,118 @@ export interface AdminCustomersMockState {
   directoryRequests: string[];
   detailsRequests: string[];
   invitationRequests: unknown[];
+  assignmentRequests: unknown[];
 }
 
 const AGENCIES = [
   { id: 4, name: "Gulf Coast Agency", active: true },
   { id: 9, name: "Lakeside Agency", active: true },
 ];
+
+const AGENCY_DIRECTORY = {
+  filters: { query: "", status: "all" },
+  total: 2,
+  matched: 2,
+  agencies: [
+    {
+      id: 4,
+      slug: "gulf-coast",
+      name: "Gulf Coast Agency",
+      active: true,
+      status: {
+        label: "Active",
+        description: "Customers may be assigned to this Agency.",
+        tone: "success",
+      },
+      currentMembers: 3,
+      sharedHistory: {
+        customers: 4,
+        agencies: 1,
+        distributedLeads: 240,
+      },
+      lastActivityAt: "2026-07-20T12:00:00Z",
+      href: "/app/admin/agencies/4",
+    },
+    {
+      id: 9,
+      slug: "lakeside",
+      name: "Lakeside Agency",
+      active: true,
+      status: {
+        label: "Active",
+        description: "Customers may be assigned to this Agency.",
+        tone: "success",
+      },
+      currentMembers: 2,
+      sharedHistory: {
+        customers: 2,
+        agencies: 1,
+        distributedLeads: 110,
+      },
+      lastActivityAt: "2026-07-18T12:00:00Z",
+      href: "/app/admin/agencies/9",
+    },
+  ],
+};
+
+const AGENCY_DETAILS = {
+  agency: {
+    id: 4,
+    slug: "gulf-coast",
+    name: "Gulf Coast Agency",
+    active: true,
+    status: {
+      label: "Active",
+      description: "Customers may be assigned to this Agency.",
+      tone: "success",
+    },
+  },
+  members: [
+    {
+      id: 7,
+      slug: "harbor-insurance",
+      name: "Harbor Insurance",
+      active: true,
+      licensedStates: ["FL", "TX"],
+      href: "/app/admin/customers/7",
+    },
+  ],
+  sharedHistory: {
+    customers: 4,
+    agencies: 2,
+    distributedLeads: 240,
+  },
+  membershipHistory: [
+    {
+      id: 1,
+      customerId: 7,
+      customer: "Harbor Insurance",
+      startedAt: "2026-01-20T12:00:00Z",
+      endedAt: null,
+      assignedBy: "admin@jawnix.example",
+      reason: "Initial servicing assignment",
+    },
+  ],
+  activity: [
+    {
+      id: "membership-1",
+      action: "customer_assigned",
+      label: "Harbor Insurance assigned",
+      actor: "admin@jawnix.example",
+      reason: "Initial servicing assignment",
+      createdAt: "2026-01-20T12:00:00Z",
+    },
+  ],
+  deletion: {
+    dependencies: {
+      customers: 1,
+      distributions: 240,
+      membershipHistory: 1,
+    },
+    requiresDeactivation: true,
+    canHardDelete: false,
+  },
+};
 
 const STATES = ["FL", "GA", "NY", "TX"];
 
@@ -161,6 +267,7 @@ export async function mockAdminCustomers(
     directoryRequests: [],
     detailsRequests: [],
     invitationRequests: [],
+    assignmentRequests: [],
   };
 
   await page.addInitScript(() => {
@@ -205,6 +312,68 @@ export async function mockAdminCustomers(
       invitation: options.pendingInvitation ? PENDING_INVITATION : null,
     });
   });
+
+  await page.route(/\/api\/admin\/agencies\/directory(?:\?.*)?$/, (route) => {
+    const url = new URL(route.request().url());
+    const term = (url.searchParams.get("q") ?? "").toLowerCase();
+    const rows = AGENCY_DIRECTORY.agencies.filter(
+      (agency) =>
+        !term ||
+        agency.name.toLowerCase().includes(term) ||
+        agency.slug.includes(term),
+    );
+    return json(route, {
+      ...AGENCY_DIRECTORY,
+      filters: {
+        query: url.searchParams.get("q") ?? "",
+        status: url.searchParams.get("status") ?? "all",
+      },
+      matched: rows.length,
+      agencies: rows,
+    });
+  });
+
+  await page.route(/\/api\/admin\/agencies\/4\/details$/, (route) =>
+    json(route, AGENCY_DETAILS),
+  );
+
+  await page.route(
+    /\/api\/admin\/customers\/\d+\/agency-assignment-preview(?:\?.*)?$/,
+    (route) =>
+      json(route, {
+        customer: {
+          id: 7,
+          name: "Harbor Insurance",
+          agencyId: 4,
+          agency: "Gulf Coast Agency",
+        },
+        destination: {
+          id: 9,
+          name: "Lakeside Agency",
+          active: true,
+          currentMembers: 2,
+        },
+        inventory: { eligibleBefore: 460, eligibleAfter: 350 },
+        sharedHistory: {
+          customersAfter: 6,
+          agenciesAfter: 2,
+          distributedLeadsAfter: 350,
+        },
+        consequences: {
+          customerHistoryBlockedForDestination: 240,
+          destinationHistoryBlockedForCustomer: 110,
+          historyMergeIsPermanent: true,
+        },
+      }),
+  );
+
+  await page.route(
+    /\/api\/admin\/customers\/\d+\/agency-assignment$/,
+    (route) => {
+      state.assignmentRequests.push(route.request().postDataJSON());
+      return json(route, { ok: true });
+    },
+  );
 
   await page.route(
     /\/api\/admin\/customers\/\d+\/user-account-invitation$/,

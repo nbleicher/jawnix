@@ -7,7 +7,7 @@ import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { ConfirmDialog, Dialog } from "../../design-system/primitives/Dialog";
 import { EmptyState } from "../../design-system/primitives/feedback";
-import { Field, Input } from "../../design-system/primitives/form";
+import { Field, Input, Select } from "../../design-system/primitives/form";
 import {
   Card,
   Cluster,
@@ -80,10 +80,50 @@ export interface CustomerDetailsData {
     can_hard_delete: boolean;
     tombstoned: boolean;
   };
+  agencies: {
+    id: number;
+    name: string;
+    active: boolean;
+  }[];
 }
 
-type DialogName = "account" | "cancel" | "lifecycle" | "delete" | "erase";
-type FailureScope = "account" | "invitation" | "lifecycle";
+interface AgencyAssignmentPreview {
+  customer: {
+    id: number;
+    name: string;
+    agencyId: number | null;
+    agency: string;
+  };
+  destination: {
+    id: number;
+    name: string;
+    active: boolean;
+    currentMembers: number;
+  } | null;
+  inventory: {
+    eligibleBefore: number;
+    eligibleAfter: number;
+  };
+  sharedHistory: {
+    customersAfter: number;
+    agenciesAfter: number;
+    distributedLeadsAfter: number;
+  };
+  consequences: {
+    customerHistoryBlockedForDestination: number;
+    destinationHistoryBlockedForCustomer: number;
+    historyMergeIsPermanent: boolean;
+  };
+}
+
+type DialogName =
+  | "account"
+  | "assignment"
+  | "cancel"
+  | "lifecycle"
+  | "delete"
+  | "erase";
+type FailureScope = "account" | "assignment" | "invitation" | "lifecycle";
 
 interface Failure {
   scope: FailureScope;
@@ -102,6 +142,7 @@ const DEPENDENCY_LABELS: Record<string, string> = {
   profiles: "Profiles",
   userAccounts: "User Accounts",
   invitations: "Invitations",
+  agencyMemberships: "Agency memberships",
 };
 
 function dependencyLabel(key: string): string {
@@ -119,9 +160,22 @@ function blockingDependencies(error: unknown): Record<string, number> | null {
 export async function adminCustomerDetailsLoader({
   params,
 }: LoaderFunctionArgs): Promise<CustomerDetailsData> {
-  return api<CustomerDetailsData>(
-    `/api/admin/customers/${params.customerId}/details`,
-  );
+  const [details, directory] = await Promise.all([
+    api<Omit<CustomerDetailsData, "agencies">>(
+      `/api/admin/customers/${params.customerId}/details`,
+    ),
+    api<{
+      agencies: { id: number; name: string; active: boolean }[];
+    }>("/api/admin/agencies/directory"),
+  ]);
+  return {
+    ...details,
+    agencies: directory.agencies.map(({ id, name, active }) => ({
+      id,
+      name,
+      active,
+    })),
+  };
 }
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
@@ -180,6 +234,10 @@ export function AdminCustomerDetailsRoute() {
   const [reason, setReason] = useState("");
   const [confirmSlug, setConfirmSlug] = useState("");
   const [hardDelete, setHardDelete] = useState(false);
+  const [assignmentDestination, setAssignmentDestination] = useState("");
+  const [assignmentPreview, setAssignmentPreview] =
+    useState<AgencyAssignmentPreview | null>(null);
+  const [assignmentConfirmed, setAssignmentConfirmed] = useState(false);
   useDocumentTitle(data.customer.name);
 
   const { customer, history, deletion } = data;
@@ -188,6 +246,13 @@ export function AdminCustomerDetailsRoute() {
     setReason("");
     setConfirmSlug("");
     setHardDelete(false);
+    setAssignmentDestination(
+      data.customer.agency_id === null
+        ? ""
+        : String(data.customer.agency_id),
+    );
+    setAssignmentPreview(null);
+    setAssignmentConfirmed(false);
     setFailure(null);
     setDialog(name);
   }
@@ -234,6 +299,46 @@ export function AdminCustomerDetailsRoute() {
       await api(`/api/admin/customers/${customer.id}/user-account-invitation`, {
         method: "DELETE",
         body: JSON.stringify({ reason }),
+      });
+      await revalidator.revalidate();
+    });
+  }
+
+  function previewAssignment() {
+    setBusy(true);
+    setFailure(null);
+    void (async () => {
+      try {
+      const query = assignmentDestination
+        ? `?agency_id=${encodeURIComponent(assignmentDestination)}`
+        : "";
+      const preview = await api<AgencyAssignmentPreview>(
+        `/api/admin/customers/${customer.id}/agency-assignment-preview${query}`,
+      );
+      setAssignmentPreview(preview);
+      } catch (caught) {
+        setFailure({
+          scope: "assignment",
+          message: errorMessage(caught),
+          dependencies: null,
+        });
+      } finally {
+        setBusy(false);
+      }
+    })();
+  }
+
+  function assignAgency() {
+    void run("assignment", async () => {
+      await api(`/api/admin/customers/${customer.id}/agency-assignment`, {
+        method: "POST",
+        body: JSON.stringify({
+          agency_id: assignmentDestination
+            ? Number(assignmentDestination)
+            : null,
+          reason,
+          confirmed: assignmentConfirmed,
+        }),
       });
       await revalidator.revalidate();
     });
@@ -322,6 +427,33 @@ export function AdminCustomerDetailsRoute() {
                 {formatAdminDate(customer.last_activity_at)}
               </Fact>
             </dl>
+          </Stack>
+        </Card>
+      </Section>
+
+      <Section
+        title="Agency assignment"
+        description="Current membership can change. Every no-repeat history joined by an assignment remains merged permanently."
+      >
+        <Card>
+          <Stack gap={4} align="flex-start">
+            <Text>
+              Current Agency:{" "}
+              <strong>
+                {customer.agency_id === null || !customer.agency
+                  ? "No Agency"
+                  : customer.agency}
+              </strong>
+            </Text>
+            <Text size="sm" tone="muted">
+              Previewing shows the inventory and no-repeat consequence in both
+              directions before anything changes.
+            </Text>
+            <Button variant="primary" onClick={() => open("assignment")}>
+              {customer.agency_id === null
+                ? "Assign to Agency"
+                : "Change Agency assignment"}
+            </Button>
           </Stack>
         </Card>
       </Section>
@@ -556,6 +688,123 @@ export function AdminCustomerDetailsRoute() {
           </Stack>
         </Card>
       </Section>
+
+      <Dialog
+        open={dialog === "assignment"}
+        onClose={() => setDialog(null)}
+        title="Change Agency assignment"
+        description="Preview the permanent inventory consequence, then provide an audit reason and confirm the merge explicitly."
+        dismissOnBackdrop={false}
+      >
+        <Stack gap={4}>
+          {failure?.scope === "assignment" ? (
+            <Text role="alert" tone="danger" size="sm">
+              {failure.message}
+            </Text>
+          ) : null}
+          <Field label="Destination Agency">
+            <Select
+              value={assignmentDestination}
+              onChange={(event) => {
+                setAssignmentDestination(event.target.value);
+                setAssignmentPreview(null);
+                setAssignmentConfirmed(false);
+              }}
+            >
+              <option value="">No Agency</option>
+              {data.agencies.map((agency) => (
+                <option
+                  key={agency.id}
+                  value={String(agency.id)}
+                  disabled={!agency.active}
+                >
+                  {agency.active ? agency.name : `${agency.name} (deactivated)`}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <div>
+            <Button onClick={previewAssignment} busy={busy}>
+              Preview consequences
+            </Button>
+          </div>
+          {assignmentPreview ? (
+            <Card className="admin-customer-details__assignment-preview">
+              <Stack gap={4}>
+                <Heading level={3} size="sm">
+                  Permanent consequence
+                </Heading>
+                <Text weight="semibold">
+                  {assignmentPreview.destination
+                    ? `Moving to ${assignmentPreview.destination.name}`
+                    : "Removing current membership"}
+                </Text>
+                <dl className="admin-customer-details__facts">
+                  <Fact label="Eligible inventory before">
+                    {assignmentPreview.inventory.eligibleBefore.toLocaleString()}
+                  </Fact>
+                  <Fact label="Eligible inventory after">
+                    {assignmentPreview.inventory.eligibleAfter.toLocaleString()}
+                  </Fact>
+                  <Fact label="Customer history newly blocked for destination">
+                    {assignmentPreview.consequences.customerHistoryBlockedForDestination.toLocaleString()}
+                  </Fact>
+                  <Fact label="Destination history newly blocked for Customer">
+                    {assignmentPreview.consequences.destinationHistoryBlockedForCustomer.toLocaleString()}
+                  </Fact>
+                  <Fact label="Customers in merged history">
+                    {assignmentPreview.sharedHistory.customersAfter.toLocaleString()}
+                  </Fact>
+                  <Fact label="Agencies in merged history">
+                    {assignmentPreview.sharedHistory.agenciesAfter.toLocaleString()}
+                  </Fact>
+                </dl>
+                {assignmentPreview.consequences.historyMergeIsPermanent ? (
+                  <Text tone="warning" weight="semibold">
+                    This history merge is permanent. Moving the Customer again
+                    will not split it.
+                  </Text>
+                ) : (
+                  <Text size="sm" tone="muted">
+                    Removing current membership does not split history that was
+                    already merged.
+                  </Text>
+                )}
+                <Field label="Reason" required>
+                  <Input
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value)}
+                    autoComplete="off"
+                  />
+                </Field>
+                <label className="admin-customer-details__toggle">
+                  <input
+                    type="checkbox"
+                    checked={assignmentConfirmed}
+                    onChange={(event) =>
+                      setAssignmentConfirmed(event.target.checked)
+                    }
+                  />
+                  <span>
+                    I understand that shared no-repeat history never splits.
+                  </span>
+                </label>
+                <Cluster gap={3}>
+                  <Button
+                    variant="primary"
+                    onClick={assignAgency}
+                    busy={busy}
+                    disabled={!assignmentConfirmed || !reason.trim()}
+                  >
+                    Confirm assignment
+                  </Button>
+                  <Button onClick={() => setDialog(null)}>Cancel</Button>
+                </Cluster>
+              </Stack>
+            </Card>
+          ) : null}
+        </Stack>
+      </Dialog>
 
       <Dialog
         open={dialog === "account"}

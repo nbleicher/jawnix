@@ -52,6 +52,10 @@ function details(
       can_hard_delete: false,
       tombstoned: false,
     },
+    agencies: [
+      { id: 4, name: "Gulf Coast Agency", active: true },
+      { id: 9, name: "Lakeside Agency", active: true },
+    ],
     ...overrides,
   };
 }

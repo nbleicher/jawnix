@@ -1,0 +1,36 @@
+.admin-agencies__name {
+  color: var(--jx-color-text-strong);
+}
+
+.admin-agencies__facts {
+  display: grid;
+  gap: var(--jx-space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+}
+
+.admin-agencies__facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+}
+
+.admin-agencies__facts dd {
+  color: var(--jx-color-text-strong);
+  font-weight: var(--jx-weight-semibold);
+}
+
+.admin-agencies__list {
+  list-style: none;
+}
+
+.admin-agencies__dependencies {
+  padding-inline-start: var(--jx-space-4);
+  list-style: disc;
+}
+
+.admin-agencies__toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-2);
+  min-height: var(--jx-touch-target);
+}

@@ -29,6 +29,12 @@ import {
   adminCustomerDetailsLoader,
 } from "./routes/AdminCustomerDetails";
 import {
+  AdminAgenciesRoute,
+  AdminAgencyDetailsRoute,
+  adminAgencyDetailsLoader,
+  adminAgencyDirectoryLoader,
+} from "./routes/AdminAgencies";
+import {
   AdminFulfillmentConflictRoute,
   AdminFulfillmentRequestRoute,
   AdminFulfillmentRoute,
@@ -225,6 +231,16 @@ export const router = createBrowserRouter(
               path: "customers/:customerId",
               loader: adminCustomerDetailsLoader,
               element: <AdminCustomerDetailsRoute />,
+            },
+            {
+              path: "agencies",
+              loader: adminAgencyDirectoryLoader,
+              element: <AdminAgenciesRoute />,
+            },
+            {
+              path: "agencies/:agencyId",
+              loader: adminAgencyDetailsLoader,
+              element: <AdminAgencyDetailsRoute />,
             },
             {
               path: "security",
