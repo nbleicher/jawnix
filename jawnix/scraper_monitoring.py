@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 #: Region key -> upstream refresh cadence, in seconds. These are the intervals
@@ -139,8 +139,24 @@ class PipelineState(BaseModel):
 class PauseInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    #: Upstream sends ``null`` when the pipeline is not paused, and the field is
+    #: *present*, so a plain default never applies — pydantic rejects the None
+    #: before reaching it. The fixture used "" for the same state, so this only
+    #: failed against the real dashboard, and it failed the whole screen: the
+    #: activity region is part of the initial load, so one null took out all
+    #: nine regions behind the shell's error boundary.
     mode: str = ""
     cancelled_jobs: int = 0
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _null_mode_means_not_paused(cls, value: object) -> object:
+        return "" if value is None else value
+
+    @field_validator("cancelled_jobs", mode="before")
+    @classmethod
+    def _null_count_means_none_cancelled(cls, value: object) -> object:
+        return 0 if value is None else value
 
 
 class PipelineActivity(BaseModel):

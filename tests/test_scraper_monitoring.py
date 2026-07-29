@@ -393,3 +393,32 @@ def test_an_unreachable_scraper_records_no_pipeline_audit(
         ).all()
         == []
     )
+
+
+def test_null_pause_mode_is_accepted_like_the_real_dashboard():
+    """The live dashboard sends ``"pause_info": {"mode": null}`` when nothing is
+    paused. The fixture used ``""`` for that state, so every test passed while
+    the real payload raised ValidationError and took the whole screen down —
+    activity is part of the initial load, so one null broke all nine regions.
+
+    Present-but-null is not the same as absent: the field default never applies.
+    """
+    from jawnix.scraper_monitoring import PauseInfo
+
+    assert PauseInfo.model_validate({"mode": None, "cancelled_jobs": 0}).mode == ""
+    assert PauseInfo.model_validate({"mode": None, "cancelled_jobs": None}).cancelled_jobs == 0
+    # A real mode must still survive.
+    assert PauseInfo.model_validate({"mode": "drain"}).mode == "drain"
+
+
+def test_region_data_survives_a_null_pause_mode():
+    """Guards the whole path, not just the model: this is the shape that 500'd."""
+    from jawnix.scraper_monitoring import region_data
+
+    payload = {
+        "activity": {},
+        "pipeline_state": {"key": "running", "label": "Running", "detail": ""},
+        "pause_info": {"mode": None, "cancelled_jobs": 0},
+    }
+
+    assert region_data("activity", payload).pause_info.mode == ""
