@@ -65,6 +65,9 @@ _ENTITY_DESTINATIONS = {
     "scraper_keyword_rollover": (
         "/app/admin/acquisition/scraper/workspace/keywords"
     ),
+    "scraper_export": (
+        "/app/admin/acquisition/scraper/workspace/database"
+    ),
     "scraper_runtime_configuration": (
         "/app/admin/acquisition/scraper/workspace/runtime"
     ),

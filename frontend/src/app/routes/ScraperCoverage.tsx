@@ -46,6 +46,7 @@ const STATES_PATH = `${OVERVIEW_PATH}/states`;
 const STATE_RAIL: TerminalDestination[] = [
   { label: "Overview", href: OVERVIEW_PATH },
   { label: "States", href: STATES_PATH, current: true },
+  { label: "Database", href: `${OVERVIEW_PATH}/database` },
   {
     label: "Configuration",
     href: "/app/admin/acquisition#scraper-configuration-versions",
@@ -617,6 +618,7 @@ export function ScraperStateDetailRoute() {
   const rail: TerminalDestination[] = [
     { label: "Overview", href: OVERVIEW_PATH },
     { label: "States", href: STATES_PATH },
+    { label: "Database", href: `${OVERVIEW_PATH}/database` },
     { label: "Keywords", href: "#state-keywords" },
     { label: "Grid cells", href: "#state-grid" },
     {

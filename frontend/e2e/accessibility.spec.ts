@@ -50,6 +50,8 @@ const ROUTES = [
   "./admin/acquisition/scraper/workspace/runtime",
   "./admin/acquisition/scraper/workspace/states",
   "./admin/acquisition/scraper/workspace/states/PA",
+  "./admin/acquisition/scraper/workspace/database",
+  "./admin/acquisition/scraper/workspace/database/states/OH",
   "./admin/customers",
   "./admin/activity",
   "./admin/customers/7",

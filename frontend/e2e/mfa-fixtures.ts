@@ -22,6 +22,10 @@ import {
   KEYWORD_WORKSPACE,
 } from "./scraper-keywords-fixtures";
 import {
+  DATABASE_STATE,
+  DATABASE_WORKSPACE,
+} from "./scraper-database-fixtures";
+import {
   CAMPAIGN_HISTORY,
   RUNTIME_PREVIEW,
   RUNTIME_WORKSPACE,
@@ -283,6 +287,18 @@ export async function mockAdminMFA(
     }
     if (/\/coverage\/[A-Z]{2}$/.test(path)) {
       return json(route, stateCoverageDetail());
+    }
+    if (path === "/api/admin/scraper/database") {
+      return json(route, DATABASE_WORKSPACE);
+    }
+    if (/\/database\/states\/[A-Z]{2}$/.test(path)) {
+      return json(route, DATABASE_STATE);
+    }
+    if (/\/database\/exports\/[A-Z]{2}\/regenerate$/.test(path)) {
+      return json(route, {
+        generated: "OH.csv",
+        stored_exports: DATABASE_WORKSPACE.stored_exports,
+      });
     }
     if (path.endsWith("/monitoring")) {
       return json(route, monitoringSnapshot());

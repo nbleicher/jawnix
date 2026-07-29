@@ -83,6 +83,14 @@ import {
   scraperRuntimeLoader,
 } from "./routes/scraperRuntimeApi";
 import {
+  scraperDatabaseLoader,
+  scraperDatabaseStateLoader,
+} from "./routes/scraperDatabaseData";
+import {
+  ScraperDatabaseRoute,
+  ScraperDatabaseStateRoute,
+} from "./routes/ScraperDatabase";
+import {
   ScraperStateCoverageRoute,
   ScraperStateDetailRoute,
 } from "./routes/ScraperCoverage";
@@ -283,6 +291,16 @@ export const router = createBrowserRouter(
               path: "acquisition/scraper/workspace/states/:state",
               loader: stateCoverageDetailLoader,
               element: <ScraperStateDetailRoute />,
+            },
+            {
+              path: "acquisition/scraper/workspace/database",
+              loader: scraperDatabaseLoader,
+              element: <ScraperDatabaseRoute />,
+            },
+            {
+              path: "acquisition/scraper/workspace/database/states/:state",
+              loader: scraperDatabaseStateLoader,
+              element: <ScraperDatabaseStateRoute />,
             },
             {
               path: "customers",
