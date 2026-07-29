@@ -1,0 +1,105 @@
+.licensed-state-page__message {
+  padding: var(--jx-space-3) var(--jx-space-4);
+  border: 1px solid;
+  border-radius: var(--jx-radius-md);
+  font-weight: var(--jx-weight-medium);
+}
+
+.licensed-state-page__message--error {
+  border-color: var(--jx-color-danger);
+  background: var(--jx-color-danger-soft);
+  color: var(--jx-color-danger);
+}
+
+.licensed-state-page__message--success {
+  border-color: var(--jx-color-success);
+  background: var(--jx-color-success-soft);
+  color: var(--jx-color-text-strong);
+}
+
+.licensed-state-selector {
+  display: grid;
+  gap: var(--jx-space-2);
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(14rem, 100%), 1fr)
+  );
+}
+
+.licensed-state-selector__choice {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-3);
+  min-height: var(--jx-touch-target);
+  padding: var(--jx-space-2) var(--jx-space-3);
+  border: 1px solid var(--jx-color-border);
+  border-radius: var(--jx-radius-md);
+  background: var(--jx-color-surface);
+  cursor: pointer;
+}
+
+.licensed-state-selector__choice:has(input:checked) {
+  border-color: var(--jx-color-accent);
+  background: var(--jx-color-accent-soft);
+}
+
+.licensed-state-selector__choice:has(input:focus-visible) {
+  outline: 3px solid var(--jx-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.licensed-state-selector__choice > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--jx-space-3);
+  width: 100%;
+}
+
+.licensed-state-selector__code {
+  color: var(--jx-color-text-muted);
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-semibold);
+}
+
+.licensed-state-page__future-note {
+  border-color: var(--jx-color-info);
+  background: var(--jx-color-info-soft);
+}
+
+.licensed-state-review__summary,
+.licensed-state-review__scope {
+  display: grid;
+  gap: var(--jx-space-3);
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(10rem, 100%), 1fr)
+  );
+}
+
+.licensed-state-review__summary > div,
+.licensed-state-review__scope > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+}
+
+.licensed-state-review__summary dd,
+.licensed-state-review__scope dd {
+  color: var(--jx-color-text-strong);
+  font-weight: var(--jx-weight-semibold);
+}
+
+.licensed-state-review__impacts {
+  list-style: none;
+}
+
+.licensed-state-review__impact {
+  border-inline-start: 4px solid var(--jx-color-warning);
+}
+
+@media (max-width: 32rem) {
+  .licensed-state-selector {
+    grid-template-columns: 1fr;
+  }
+}

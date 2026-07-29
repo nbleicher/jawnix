@@ -5,6 +5,7 @@ import { mockFeedback } from "./customer-feedback-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockFulfillment } from "./fulfillment-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
+import { mockCustomerAuth } from "./customer-auth-fixtures";
 
 /**
  * Shell journeys against the compiled application.
@@ -23,6 +24,7 @@ test.beforeEach(async ({ page }) => {
   await mockFulfillment(page);
   // Feedback reads a real contract since #53.
   await mockFeedback(page);
+  await mockCustomerAuth(page);
 });
 
 test.describe("Customer shell", () => {

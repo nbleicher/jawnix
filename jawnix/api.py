@@ -63,6 +63,18 @@ from .eligibility import (
 from .feedback import apply_disposition_controls
 from .frontend import register_frontend_shell
 from .jobs import enqueue_job
+from .licensed_states import (
+    LicensedStateApplyResult,
+    LicensedStateConflict,
+    LicensedStateConfirmation,
+    LicensedStateReview,
+    LicensedStateReviewError,
+    LicensedStateSelection,
+    LicensedStateWorkspace,
+    apply_review as apply_licensed_state_review,
+    preview as preview_licensed_states,
+    workspace as licensed_state_workspace,
+)
 from .milestone_emails import enqueue_milestone_email
 from .recommendations import (
     RecommendationDecisionError,
@@ -572,6 +584,65 @@ def get_profile(principal: Principal = Depends(require_principal), db: Session =
     return _current_customer_profile(db, principal)
 
 
+@app.get("/api/me/licensed-states", response_model=LicensedStateWorkspace)
+def get_licensed_state_workspace(
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    return licensed_state_workspace(_current_customer_profile(db, principal))
+
+
+@app.post(
+    "/api/me/licensed-states/preview",
+    response_model=LicensedStateReview,
+)
+def preview_licensed_state_changes(
+    payload: LicensedStateSelection,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    try:
+        return preview_licensed_states(
+            db,
+            user_id=principal.user_id,
+            profile=_current_customer_profile(db, principal),
+            selection=payload,
+            settings=settings,
+        )
+    except LicensedStateConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except LicensedStateReviewError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
+@app.post(
+    "/api/me/licensed-states/apply",
+    response_model=LicensedStateApplyResult,
+)
+def apply_licensed_state_changes(
+    payload: LicensedStateConfirmation,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    # Refuse replaced accounts before validating even a signed review.
+    _current_customer_profile(db, principal)
+    try:
+        return apply_licensed_state_review(
+            db,
+            user_id=principal.user_id,
+            confirmation=payload,
+            settings=settings,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    except LicensedStateConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    except LicensedStateReviewError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+
 @app.get("/api/me/overview", response_model=CustomerOverviewOut)
 def get_customer_overview(
     principal: Principal = Depends(require_principal),
@@ -676,66 +747,18 @@ def update_profile(
         raise HTTPException(status_code=404, detail="Profile was not found.")
     previous_states = normalize_states(profile.licensed_states)
     next_states = normalize_states(payload.licensed_states)
-    removed_states = sorted(set(previous_states) - set(next_states))
-    added_states = sorted(set(next_states) - set(previous_states))
-
-    if removed_states:
-        unallocated_statuses = {
-            RequestStatus.pending.value,
-            RequestStatus.approved.value,
-            RequestStatus.waiting_inventory.value,
-        }
-        requests = list(
-            db.scalars(
-                select(LeadRequest)
-                .where(
-                    LeadRequest.user_id == principal.user_id,
-                    LeadRequest.status.in_(unallocated_statuses),
-                )
-                .order_by(LeadRequest.created_at, LeadRequest.id)
-                .with_for_update()
-            )
+    if next_states != previous_states:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Licensed State changes require an impact review. "
+                "Use Account to review and confirm them."
+            ),
         )
-        for item in requests:
-            narrowed_states = [
-                state for state in item.states_snapshot if state in next_states
-            ]
-            if narrowed_states == item.states_snapshot:
-                continue
-            item.states_snapshot = narrowed_states
-            if narrowed_states:
-                action = "narrowed"
-                item.status_message = (
-                    "Licensed States changed. Removed "
-                    f"{', '.join(removed_states)}; request now covers "
-                    f"{', '.join(narrowed_states)}. Existing approval remains valid."
-                )
-            else:
-                action = "canceled"
-                item.status = RequestStatus.canceled.value
-                item.status_message = (
-                    "Canceled because no requested states remain in the "
-                    "Customer's Licensed States."
-                )
-                item.closed_at = utcnow()
-            enqueue_job(
-                db,
-                "licensed_states_changed",
-                item.id,
-                {
-                    "added": added_states,
-                    "removed": removed_states,
-                    "requestAction": action,
-                    "states": narrowed_states,
-                },
-            )
 
     profile.first_name = payload.first_name.strip()
     profile.last_name = payload.last_name.strip()
     profile.phone = payload.phone.strip()
-    profile.licensed_states = next_states
-    if profile.customer is not None:
-        profile.customer.licensed_states = next_states
     profile.updated_at = utcnow()
     db.commit()
     db.refresh(profile)

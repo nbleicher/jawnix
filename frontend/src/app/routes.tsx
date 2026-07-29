@@ -5,7 +5,6 @@ import { MFAShell } from "./shells/MFAShell";
 import { CustomerShell } from "./shells/CustomerShell";
 import { RouteError } from "./routes/RouteError";
 import { DesignSystemRoute } from "./routes/DesignSystem";
-import { PlaceholderRoute, placeholderLoader } from "./routes/Placeholder";
 import {
   AdminMFAChallengeRoute,
   AdminMFAEnrollmentRoute,
@@ -66,12 +65,14 @@ import {
 import { ScraperOverviewRoute } from "./routes/ScraperOverview";
 import { scraperOverviewLoader } from "./routes/scraperMonitoring";
 import { CustomerOverviewRoute } from "./routes/CustomerOverview";
+import { CustomerAccountRoute } from "./routes/CustomerAccount";
 import {
   CustomerFeedbackRoute,
   feedbackLoader,
 } from "./routes/CustomerFeedback";
 import { CustomerRequestsRoute } from "./routes/CustomerRequests";
 import { batchRequestsLoader } from "./routes/batchRequests";
+import { licensedStatesLoader } from "./routes/licensedStates";
 
 /**
  * Route table for the redesigned application.
@@ -129,8 +130,8 @@ export const router = createBrowserRouter(
             },
             {
               path: "account",
-              loader: placeholderLoader({ title: "Account", slice: "#54 — Licensed State management" }),
-              element: <PlaceholderRoute />,
+              loader: licensedStatesLoader,
+              element: <CustomerAccountRoute />,
             },
           ],
         },
