@@ -26,7 +26,6 @@ import {
 } from "../../design-system/primitives/layout";
 import { StatusBadge } from "../../design-system/primitives/status";
 import { TerminalWorkspace } from "../../design-system/primitives/terminal";
-import type { TerminalDestination } from "../../design-system/primitives/terminal";
 import { Text } from "../../design-system/primitives/typography";
 import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
@@ -47,20 +46,12 @@ import type {
   StoredExport,
 } from "./scraperDatabaseData";
 
+import { WORKSPACE_ROOT, workspaceRail } from "./scraperWorkspaceNav";
 import "./ScraperDatabase.css";
 
 const WORKSPACE = "/app/admin/acquisition/scraper/workspace";
 const DATABASE = `${WORKSPACE}/database`;
 
-const RAIL: TerminalDestination[] = [
-  { label: "Overview", href: WORKSPACE },
-  { label: "States", href: `${WORKSPACE}/states` },
-  { label: "Database", href: DATABASE, current: true },
-  { label: "State exports", href: "#database-states" },
-  { label: "Browse records", href: "#database-browse" },
-  { label: "Stored exports", href: "#stored-exports" },
-  { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
-];
 
 function count(value: number): string {
   return value.toLocaleString();
@@ -302,7 +293,7 @@ export function ScraperDatabaseRoute() {
         <TerminalWorkspace
           status="OFFLINE / DATABASE UNAVAILABLE"
           tone="offline"
-          destinations={RAIL}
+          destinations={workspaceRail(`${WORKSPACE_ROOT}/database`)}
         >
           <ErrorState
             title="Scraper database unavailable"
@@ -323,7 +314,7 @@ export function ScraperDatabaseRoute() {
     >
       <TerminalWorkspace
         status="ONLINE / DATABASE"
-        destinations={RAIL}
+        destinations={workspaceRail(`${WORKSPACE_ROOT}/database`)}
       >
         <Stack gap={6}>
           <Grid minColumnWidth="13rem" gap={3}>
@@ -535,13 +526,6 @@ export function ScraperDatabaseStateRoute() {
   useRouteTheme("terminal", "jawnix");
   useDocumentTitle(`${data.state} Scraper Database`);
 
-  const rail: TerminalDestination[] = [
-    { label: "Overview", href: WORKSPACE },
-    { label: "Database", href: DATABASE },
-    { label: `${data.state} database`, href: "#state-database", current: true },
-    { label: "Niches", href: "#state-niches" },
-    { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
-  ];
 
   if (data.service_state === "unavailable" || !data.totals) {
     return (
@@ -549,7 +533,7 @@ export function ScraperDatabaseStateRoute() {
         <TerminalWorkspace
           status="OFFLINE / STATE DATABASE UNAVAILABLE"
           tone="offline"
-          destinations={rail}
+          destinations={workspaceRail(`${WORKSPACE_ROOT}/database`)}
         >
           <ErrorState
             title={`${data.state} database unavailable`}
@@ -579,7 +563,7 @@ export function ScraperDatabaseStateRoute() {
     >
       <TerminalWorkspace
         status={`ONLINE / ${data.state} DATABASE`}
-        destinations={rail}
+        destinations={workspaceRail(`${WORKSPACE_ROOT}/database`)}
       >
         <Stack gap={6}>
           <Grid id="state-database" minColumnWidth="13rem" gap={3}>

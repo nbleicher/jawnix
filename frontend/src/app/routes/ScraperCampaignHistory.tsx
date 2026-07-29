@@ -24,17 +24,9 @@ import type {
   SortDirection,
 } from "./scraperRuntimeApi";
 
+import { WORKSPACE_ROOT, workspaceRail } from "./scraperWorkspaceNav";
 import "./ScraperCampaignHistory.css";
 
-const ROOT = "/app/admin/acquisition/scraper/workspace";
-const RAIL = [
-  { label: "Overview", href: ROOT },
-  { label: "States", href: `${ROOT}/states` },
-  { label: "Keywords", href: `${ROOT}/keywords` },
-  { label: "Campaign history", href: `${ROOT}/history`, current: true },
-  { label: "Runtime configuration", href: `${ROOT}/runtime` },
-  { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
-];
 
 const SORT_LABELS: Array<[HistorySort, string]> = [
   ["last_enqueued", "Campaign date"],
@@ -121,7 +113,7 @@ export function ScraperCampaignHistoryRoute() {
       <TerminalWorkspace
         status={busy ? "HISTORY / QUERYING" : "HISTORY / PRIVILEGED"}
         tone={failure ? "warning" : "online"}
-        destinations={RAIL}
+        destinations={workspaceRail(`${WORKSPACE_ROOT}/history`)}
       >
         <Stack gap={4}>
           <form

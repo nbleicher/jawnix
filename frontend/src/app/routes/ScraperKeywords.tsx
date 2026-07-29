@@ -34,32 +34,11 @@ import type {
   KeywordWorkspace,
 } from "./scraperKeywordApi";
 
+import { WORKSPACE_ROOT, workspaceRail } from "./scraperWorkspaceNav";
 import "./ScraperKeywords.css";
 
 const MAX_IMPORT_BYTES = 1_000_000;
 
-const RAIL = [
-  {
-    label: "Status",
-    href: "/app/admin/acquisition/scraper/workspace",
-  },
-  { label: "Keyword editor", href: "#keyword-editor", current: true },
-  { label: "Automatic rollover", href: "#keyword-rollover" },
-  { label: "Winner rankings", href: "#keyword-winners" },
-  {
-    label: "Database",
-    href: "/app/admin/acquisition/scraper/workspace/database",
-  },
-  {
-    label: "Campaign history",
-    href: "/app/admin/acquisition/scraper/workspace/history",
-  },
-  {
-    label: "Runtime configuration",
-    href: "/app/admin/acquisition/scraper/workspace/runtime",
-  },
-  { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
-];
 
 function message(error: unknown): string {
   return error instanceof Error
@@ -391,7 +370,7 @@ export function ScraperKeywordsRoute() {
     >
       <TerminalWorkspace
         status="KEYWORDS / PRIVILEGED"
-        destinations={RAIL}
+        destinations={workspaceRail(`${WORKSPACE_ROOT}/keywords`)}
       >
         <Stack gap={5}>
           {failure ? (
