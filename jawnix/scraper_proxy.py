@@ -68,6 +68,21 @@ from .scraper_keywords import (
     parse_rollover,
     parse_winners,
 )
+from .scraper_coverage import (
+    STATE_CARDS_REFRESH_SECONDS,
+    STATE_CELLS_REFRESH_SECONDS,
+    STATE_KEYWORDS_REFRESH_SECONDS,
+    CoverageContractError,
+    CoverageFeed,
+    StateCoverageDetail,
+    StateCoverageSnapshot,
+    StateGridCoverage,
+    StateKeywordActivity,
+    parse_state_cards,
+    parse_state_cells,
+    parse_state_keywords,
+)
+from .states import US_STATES
 
 
 MOUNT_PREFIX = "/admin/scraper"
@@ -509,6 +524,190 @@ async def _native_json(
     except ValueError:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+async def _coverage_fragment(
+    request: Request,
+    settings: Settings,
+    *,
+    path: str,
+    parser,
+):
+    """Parse one reviewed GMS/OPS fragment without exposing its markup."""
+
+    upstream = await _native_upstream(
+        request,
+        settings,
+        method="GET",
+        path=path,
+    )
+    if upstream is None:
+        return None
+    try:
+        return parser(upstream.text)
+    except (CoverageContractError, UnicodeError):
+        return None
+
+
+def _coverage_state(state: str) -> str:
+    normalized = state.strip().upper()
+    if normalized not in US_STATES:
+        raise HTTPException(status_code=404, detail="Unknown state.")
+    return normalized
+
+
+def _coverage_feed(data, *, refresh_seconds: int, request: Request):
+    return CoverageFeed(
+        state="ok" if data is not None else "unavailable",
+        refresh_seconds=refresh_seconds,
+        fetched_at=_workspace_now(request) if data is not None else None,
+        data=data,
+    )
+
+
+@native_router.get(
+    "/coverage",
+    response_model=StateCoverageSnapshot,
+)
+async def scraper_state_coverage(
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Active-state counts and coverage at the legacy twenty-second cadence."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    cards = await _coverage_fragment(
+        request,
+        settings,
+        path="/frag/states/cards",
+        parser=parse_state_cards,
+    )
+    state = _state(request, settings)
+    return StateCoverageSnapshot(
+        service_state=(
+            "connected" if cards is not None else "unavailable"
+        ),
+        last_successful_at=state.last_success,
+        idle_expires_in=SCRAPER_IDLE_SECONDS,
+        states=_coverage_feed(
+            cards,
+            refresh_seconds=STATE_CARDS_REFRESH_SECONDS,
+            request=request,
+        ),
+    )
+
+
+@native_router.get(
+    "/coverage/{state}",
+    response_model=StateCoverageDetail,
+)
+async def scraper_state_coverage_detail(
+    state: str,
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """One state's independently refreshable keyword and grid regions."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    state = _coverage_state(state)
+    state_path = state.lower()
+    keywords = await _coverage_fragment(
+        request,
+        settings,
+        path=f"/frag/states/{state_path}/keywords",
+        parser=parse_state_keywords,
+    )
+    cells = await _coverage_fragment(
+        request,
+        settings,
+        path=f"/frag/states/{state_path}/cells",
+        parser=parse_state_cells,
+    )
+    available = int(keywords is not None) + int(cells is not None)
+    service_state = (
+        "connected"
+        if available == 2
+        else "degraded"
+        if available == 1
+        else "unavailable"
+    )
+    proxy_state = _state(request, settings)
+    return StateCoverageDetail(
+        state=state,
+        service_state=service_state,
+        last_successful_at=proxy_state.last_success,
+        idle_expires_in=SCRAPER_IDLE_SECONDS,
+        keywords=_coverage_feed(
+            keywords,
+            refresh_seconds=STATE_KEYWORDS_REFRESH_SECONDS,
+            request=request,
+        ),
+        cells=_coverage_feed(
+            cells,
+            refresh_seconds=STATE_CELLS_REFRESH_SECONDS,
+            request=request,
+        ),
+    )
+
+
+@native_router.get(
+    "/coverage/{state}/keywords",
+    response_model=CoverageFeed[list[StateKeywordActivity]],
+)
+async def scraper_state_keyword_coverage(
+    state: str,
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Keyword activity for one state, isolated from grid-cell failures."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    state = _coverage_state(state)
+    keywords = await _coverage_fragment(
+        request,
+        settings,
+        path=f"/frag/states/{state.lower()}/keywords",
+        parser=parse_state_keywords,
+    )
+    return _coverage_feed(
+        keywords,
+        refresh_seconds=STATE_KEYWORDS_REFRESH_SECONDS,
+        request=request,
+    )
+
+
+@native_router.get(
+    "/coverage/{state}/cells",
+    response_model=CoverageFeed[StateGridCoverage],
+)
+async def scraper_state_grid_coverage(
+    state: str,
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Today's Posted, Reserved, Failed, and Uncovered grid cells."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    state = _coverage_state(state)
+    cells = await _coverage_fragment(
+        request,
+        settings,
+        path=f"/frag/states/{state.lower()}/cells",
+        parser=parse_state_cells,
+    )
+    return _coverage_feed(
+        cells,
+        refresh_seconds=STATE_CELLS_REFRESH_SECONDS,
+        request=request,
+    )
 
 
 def _unavailable_region(region: str) -> MonitoringRegion:

@@ -116,6 +116,7 @@ from .models import (
     WebhookReceipt,
     utcnow,
 )
+from .operations_overview import OperationsOverview, operations_overview
 from .mfa_provider import MFAProviderError, get_mfa_provider
 from .schemas import (
     AgencyAssignment,
@@ -213,6 +214,18 @@ async def redact_sensitive_validation_error(
 # The redesigned shell at /app, behind JAWNIX_ENABLE_NEW_UI. Off by default, so
 # the current static UI is the only surface until the cutover in #71.
 register_frontend_shell(app)
+
+
+@app.get(
+    "/api/admin/operations-overview",
+    response_model=OperationsOverview,
+)
+def admin_operations_overview(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """One resilient aggregate for the administrator Operations overview."""
+    return operations_overview(db)
 
 
 @app.get("/api/admin/activity")

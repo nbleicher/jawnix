@@ -76,6 +76,14 @@ import { ScraperOverviewRoute } from "./routes/ScraperOverview";
 import { scraperOverviewLoader } from "./routes/scraperMonitoring";
 import { ScraperKeywordsRoute } from "./routes/ScraperKeywords";
 import { scraperKeywordsLoader } from "./routes/scraperKeywordApi";
+import {
+  ScraperStateCoverageRoute,
+  ScraperStateDetailRoute,
+} from "./routes/ScraperCoverage";
+import {
+  stateCoverageDetailLoader,
+  stateCoverageLoader,
+} from "./routes/scraperCoverageData";
 import { CustomerOverviewRoute } from "./routes/CustomerOverview";
 import { CustomerAccountRoute } from "./routes/CustomerAccount";
 import {
@@ -249,6 +257,16 @@ export const router = createBrowserRouter(
               path: "acquisition/scraper/workspace/keywords",
               loader: scraperKeywordsLoader,
               element: <ScraperKeywordsRoute />,
+            },
+            {
+              path: "acquisition/scraper/workspace/states",
+              loader: stateCoverageLoader,
+              element: <ScraperStateCoverageRoute />,
+            },
+            {
+              path: "acquisition/scraper/workspace/states/:state",
+              loader: stateCoverageDetailLoader,
+              element: <ScraperStateDetailRoute />,
             },
             {
               path: "customers",

@@ -260,6 +260,81 @@ REGION_PAYLOADS: dict[str, dict] = {
     "top-states": {"top_states": TOP_STATES},
 }
 
+STATE_CARDS_FRAGMENT = """
+<div class="state-grid">
+  <a href="/states/pa" class="state-card">
+    <div class="state-card-head">
+      <span class="state-code">PA</span>
+    </div>
+    <strong>161,863</strong><small>businesses</small>
+    <div class="progress-meta"><span>Coverage</span><b>50%</b></div>
+    <div class="progress"><span style="width:50%"></span></div>
+    <div class="state-card-foot">
+      <span>110/220 cells</span><span>25 keywords</span>
+    </div>
+  </a>
+  <a href="/states/oh" class="state-card">
+    <div class="state-card-head">
+      <span class="state-code">OH</span>
+    </div>
+    <strong>136,150</strong><small>businesses</small>
+    <div class="progress-meta"><span>Coverage</span><b>100%</b></div>
+    <div class="progress"><span style="width:100%"></span></div>
+    <div class="state-card-foot">
+      <span>240/240 cells</span><span>25 keywords</span>
+    </div>
+  </a>
+</div>
+"""
+
+STATE_KEYWORDS_FRAGMENT = """
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Keyword</th><th>Businesses</th><th>Cells</th>
+        <th>Coverage</th><th>Empty rate</th><th>Last enqueue</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>24 Hour Pharmacy</strong></td>
+        <td>124</td><td>110/220</td>
+        <td>
+          <div class="inline-progress"><span style="width:50%"></span></div>
+          <small>50%</small>
+        </td>
+        <td><span class="rate">12.5%</span></td>
+        <td>Jul 28, 11:59</td>
+      </tr>
+      <tr>
+        <td><strong>Abatement Service</strong></td>
+        <td>38</td><td>0/220</td>
+        <td>
+          <div class="inline-progress"><span style="width:0%"></span></div>
+          <small>0%</small>
+        </td>
+        <td><span class="rate bad">75.0%</span></td>
+        <td>—</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+"""
+
+STATE_CELLS_FRAGMENT = """
+<div class="cell-grid">
+  <span class="cell cell-posted"
+        title="40.000000,-80.000000 · posted"></span>
+  <span class="cell cell-reserved"
+        title="40.000000,-79.750000 · reserved"></span>
+  <span class="cell cell-failed"
+        title="40.000000,-79.500000 · failed"></span>
+  <span class="cell cell-uncovered"
+        title="40.000000,-79.250000 · uncovered"></span>
+</div>
+"""
+
 
 def aggregate_payload() -> dict:
     """What ``GET /api/dashboard`` returns: every region merged."""
@@ -303,6 +378,7 @@ class ScraperFake:
         self,
         *,
         failing: set[str] | None = None,
+        coverage_failing: set[str] | None = None,
         offline: bool = False,
         activity_after_write: dict | None = None,
         keywords: list[str] | None = None,
@@ -310,6 +386,7 @@ class ScraperFake:
         generation_error: str | None = None,
     ) -> None:
         self.failing = failing or set()
+        self.coverage_failing = coverage_failing or set()
         self.offline = offline
         self.activity_after_write = activity_after_write
         self.keywords = list(keywords or KEYWORDS)
@@ -402,6 +479,12 @@ class ScraperFake:
             if payload is None:
                 return httpx.Response(404, text="unknown region")
             return self._json(payload)
+        if path == "/frag/states/cards":
+            return self._fragment("cards", STATE_CARDS_FRAGMENT)
+        if path.startswith("/frag/states/") and path.endswith("/keywords"):
+            return self._fragment("keywords", STATE_KEYWORDS_FRAGMENT)
+        if path.startswith("/frag/states/") and path.endswith("/cells"):
+            return self._fragment("cells", STATE_CELLS_FRAGMENT)
         return httpx.Response(
             200,
             headers={"Content-Type": "text/html"},
@@ -516,4 +599,13 @@ class ScraperFake:
             200,
             headers={"Content-Type": "application/json"},
             content=json.dumps(payload).encode(),
+        )
+
+    def _fragment(self, key: str, content: str) -> httpx.Response:
+        if key in self.coverage_failing:
+            return httpx.Response(503, text=f"{key} unavailable")
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "text/html; charset=utf-8"},
+            text=content,
         )

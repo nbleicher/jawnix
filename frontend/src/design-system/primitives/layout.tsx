@@ -132,6 +132,7 @@ export function Page({ title, description, actions, children }: PageProps) {
 }
 
 export interface SectionProps {
+  id?: string;
   title: string;
   description?: string;
   children?: ReactNode;
@@ -139,9 +140,13 @@ export interface SectionProps {
 
 /** A titled region inside a Page. Renders a real <section> with an accessible
  *  name so screen-reader users can navigate by region. */
-export function Section({ title, description, children }: SectionProps) {
+export function Section({ id, title, description, children }: SectionProps) {
   return (
-    <section className="jx-section" aria-label={title}>
+    <section
+      className="jx-section"
+      aria-label={title}
+      {...(id ? { id } : {})}
+    >
       <div className="jx-section__header">
         <h2 className="jx-section__title">{title}</h2>
         {description ? <p className="jx-section__description">{description}</p> : null}

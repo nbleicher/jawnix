@@ -1,7 +1,15 @@
 import type { Page, Route } from "@playwright/test";
 
 import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
+import { OPERATIONS_OVERVIEW } from "./operations-overview-fixtures";
 import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
+import {
+  coverageFeed,
+  coverageGrid,
+  coverageKeywords,
+  stateCoverageDetail,
+  stateCoverageSnapshot,
+} from "./scraper-coverage-fixtures";
 import {
   monitoringRegion,
   monitoringSnapshot,
@@ -259,6 +267,18 @@ export async function mockAdminMFA(
         idleExpiresIn: 900,
       });
     }
+    if (path.endsWith("/coverage")) {
+      return json(route, stateCoverageSnapshot());
+    }
+    if (path.endsWith("/keywords") && path.includes("/coverage/")) {
+      return json(route, coverageFeed(coverageKeywords, 10));
+    }
+    if (path.endsWith("/cells") && path.includes("/coverage/")) {
+      return json(route, coverageFeed(coverageGrid, 15));
+    }
+    if (/\/coverage\/[A-Z]{2}$/.test(path)) {
+      return json(route, stateCoverageDetail());
+    }
     if (path.endsWith("/monitoring")) {
       return json(route, monitoringSnapshot());
     }
@@ -317,6 +337,10 @@ export async function mockAdminMFA(
 
   await page.route(/\/api\/me\/overview$/, (route) =>
     json(route, CUSTOMER_OVERVIEW),
+  );
+
+  await page.route(/\/api\/admin\/operations-overview$/, (route) =>
+    json(route, OPERATIONS_OVERVIEW),
   );
 
   await page.route(/\/api\/me\/batch-requests$/, (route) =>

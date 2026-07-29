@@ -22,10 +22,20 @@ import type {
   MonitoringSnapshot,
   RegionData,
 } from "./scraperMonitoring";
+import { useOperatorPresence } from "./scraperPresence";
 
 import "./ScraperOverview.css";
 
 const RAIL = [
+  {
+    label: "Overview",
+    href: "/app/admin/acquisition/scraper/workspace",
+    current: true,
+  },
+  {
+    label: "States",
+    href: "/app/admin/acquisition/scraper/workspace/states",
+  },
   { label: "Status", href: "#scraper-status" },
   { label: "Pipeline", href: "#scraper-pipeline" },
   { label: "Throughput", href: "#scraper-throughput" },
@@ -69,51 +79,6 @@ function seedFeeds(regions: MonitoringRegion[]): Feeds {
       { region, live: region.state === "ok" },
     ]),
   );
-}
-
-/**
- * Whether an operator is actually watching.
- *
- * Polling is not operator activity. Left unchecked it would roll the
- * privileged session forever and quietly defeat the fifteen-minute idle
- * expiry the step-up gate exists to enforce, so monitoring stops when the tab
- * is hidden and when the operator has gone away.
- */
-function useOperatorPresence(idleMs: number): {
-  watching: boolean;
-  resume: () => void;
-} {
-  const [idle, setIdle] = useState(false);
-  const [hidden, setHidden] = useState(
-    typeof document === "undefined" ? false : document.hidden,
-  );
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    function mark() {
-      setIdle(false);
-      clearTimeout(timer);
-      timer = setTimeout(() => setIdle(true), idleMs);
-    }
-    function visibility() {
-      setHidden(document.hidden);
-      if (!document.hidden) mark();
-    }
-    mark();
-    const events = ["pointerdown", "keydown"] as const;
-    events.forEach((event) => window.addEventListener(event, mark));
-    document.addEventListener("visibilitychange", visibility);
-    return () => {
-      clearTimeout(timer);
-      events.forEach((event) => window.removeEventListener(event, mark));
-      document.removeEventListener("visibilitychange", visibility);
-    };
-  }, [idleMs]);
-
-  return {
-    watching: !idle && !hidden,
-    resume: useCallback(() => setIdle(false), []),
-  };
 }
 
 /**

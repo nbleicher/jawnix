@@ -145,6 +145,36 @@ def _review_dict(review: NightlyReview) -> dict[str, object]:
     }
 
 
+def nightly_reviews_needing_attention(
+    db: Session,
+) -> list[dict[str, object]]:
+    """Every Nightly Review with a real operator recovery step.
+
+    The Acquisition workspace limits history for scanning, but the Operations
+    count cannot silently cap pending work at that history limit.
+    """
+    reviews = db.scalars(
+        select(NightlyReview).order_by(
+            NightlyReview.created_at.desc(),
+            NightlyReview.id,
+        )
+    )
+    attention = []
+    for review in reviews:
+        failures = (
+            review.summary.get("failures")
+            if isinstance(review.summary, dict)
+            else None
+        )
+        if (
+            review.status != "complete"
+            or review.telegram_delivery_state == "unknown"
+            or (isinstance(failures, list) and failures)
+        ):
+            attention.append(_review_dict(review))
+    return attention
+
+
 def workspace(db: Session) -> dict[str, object]:
     """Everything the Acquisition workspace opens on."""
     anomalies = []
