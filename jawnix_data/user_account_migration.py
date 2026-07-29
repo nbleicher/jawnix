@@ -205,6 +205,13 @@ def _normalized_email(value: str) -> str:
         raise ValueError(str(exc)) from None
 
 
+#: Values in an optional ``migrate`` column that mean "include this row".
+#: Anything else — "no", blank, a typo — excludes it. Opt-in rather than
+#: opt-out: a row is only migrated when someone positively said so, so a
+#: mistyped value skips a Customer rather than silently migrating one.
+MIGRATE_YES = {"yes", "y", "true", "1"}
+
+
 def _read_rows(path: Path) -> list[dict[str, object]]:
     with path.open(newline="", encoding="utf-8") as source:
         reader = csv.DictReader(source)
@@ -214,8 +221,15 @@ def _read_rows(path: Path) -> list[dict[str, object]]:
             raise MigrationRefused(
                 "Mapping CSV must contain customer, email, and agency columns."
             )
+        # Present only if the draft generator wrote it, or someone added it.
+        # Absent means every row migrates, preserving the original contract.
+        gated = "migrate" in set(reader.fieldnames)
         rows: list[dict[str, object]] = []
+        skipped = 0
         for row_number, raw in enumerate(reader, start=2):
+            if gated and str(raw.get("migrate") or "").strip().casefold() not in MIGRATE_YES:
+                skipped += 1
+                continue
             rows.append(
                 {
                     "rowNumber": row_number,
@@ -225,7 +239,11 @@ def _read_rows(path: Path) -> list[dict[str, object]]:
                 }
             )
     if not rows:
-        raise MigrationRefused("Mapping CSV must contain at least one row.")
+        raise MigrationRefused(
+            "Mapping CSV must contain at least one row marked migrate=yes."
+            if skipped
+            else "Mapping CSV must contain at least one row."
+        )
     return rows
 
 
@@ -1306,3 +1324,78 @@ def apply_user_account_migration(
             "artifactSha256": artifact_checksum,
             "mappings": len(mappings),
         }
+
+
+
+def draft_mapping_rows(session: Session) -> list[dict[str, str]]:
+    """Every active Customer, with its current Agency already filled in.
+
+    Authoring the mapping from scratch means hand-transcribing selectors that
+    have to match `_matches_customer` and `_matches_agency` exactly — a slug
+    typo becomes "No active Customer matches ...", discovered at dry-run.
+    Reading the pairs out of the database instead leaves exactly one column to
+    fill in by hand, and guarantees the selectors resolve.
+
+    `migrate` is written empty on purpose. Rows are opt-in, so an untouched
+    draft migrates nobody; deciding is a positive act rather than the default.
+    """
+
+    customers = list(
+        session.scalars(
+            select(Customer)
+            .where(Customer.deleted_at.is_(None), Customer.active.is_(True))
+            .order_by(Customer.id)
+        )
+    )
+    agencies = {
+        agency.id: agency
+        for agency in session.scalars(
+            select(Agency).where(Agency.deleted_at.is_(None))
+        )
+    }
+
+    rows: list[dict[str, str]] = []
+    for customer in customers:
+        agency = agencies.get(customer.agency_id) if customer.agency_id else None
+        rows.append(
+            {
+                "customer": customer.slug or str(customer.id),
+                "email": "",
+                # "independent" is the selector `_matches_agency` reads as
+                # "no Agency", so an unaffiliated Customer round-trips.
+                "agency": (agency.slug or str(agency.id)) if agency else "independent",
+                "migrate": "",
+                "customer_name": customer.name or "",
+                "current_agency_name": agency.name if agency else "(independent)",
+            }
+        )
+    return rows
+
+
+def write_mapping_draft(session: Session, path: Path) -> dict[str, object]:
+    """Write the draft CSV and report what it contains."""
+
+    rows = draft_mapping_rows(session)
+    if not rows:
+        raise MigrationRefused("No active Customers to draft.")
+    # customer_name and current_agency_name are for the human filling this in;
+    # the loader ignores unknown columns.
+    fieldnames = [
+        "customer",
+        "email",
+        "agency",
+        "migrate",
+        "customer_name",
+        "current_agency_name",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as sink:
+        writer = csv.DictWriter(sink, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    return {
+        "path": str(path),
+        "customers": len(rows),
+        "independent": sum(1 for row in rows if row["agency"] == "independent"),
+        "note": "Fill in email, then set migrate=yes on the rows to migrate. "
+        "Rows left blank are skipped.",
+    }

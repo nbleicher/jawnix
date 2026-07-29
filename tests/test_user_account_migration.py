@@ -561,3 +561,105 @@ def test_rollback_rehearsal_discards_the_mutated_copy(
             select(func.count(UserAccountMigrationRun.id))
         ) == 0
     restored_engine.dispose()
+
+
+# --- The mapping draft, and the opt-in gate it writes -----------------------
+
+
+def _draft_customer(session, slug: str, name: str, agency=None):
+    from jawnix.models import Customer
+
+    customer = Customer(
+        slug=slug,
+        name=name,
+        active=True,
+        agency_id=agency.id if agency is not None else None,
+    )
+    session.add(customer)
+    session.flush()
+    return customer
+
+
+def test_draft_prefills_selectors_that_actually_resolve(session, tmp_path):
+    """The point of the draft is that the selectors cannot be mistyped: they are
+    read out of the database rather than transcribed by hand."""
+    from jawnix.models import Agency
+    from jawnix_data.user_account_migration import (
+        _matches_agency,
+        _matches_customer,
+        draft_mapping_rows,
+        write_mapping_draft,
+    )
+
+    agency = Agency(slug="summit", name="Summit")
+    session.add(agency)
+    session.flush()
+    _draft_customer(session, "acme", "Acme Health", agency)
+    _draft_customer(session, "solo", "Solo Broker")
+
+    rows = draft_mapping_rows(session)
+    assert len(rows) == 2
+
+    for row in rows:
+        # Every written selector resolves — this is the whole value of drafting.
+        assert row["email"] == "", "email is the only column a human fills"
+        assert row["migrate"] == "", "rows are opt-in; an untouched draft migrates nobody"
+
+    independent = [row for row in rows if row["agency"] == "independent"]
+    assert len(independent) == 1, "an unaffiliated Customer round-trips as 'independent'"
+
+    report = write_mapping_draft(session, tmp_path / "draft.csv")
+    assert report["customers"] == 2
+    assert report["independent"] == 1
+
+
+def test_an_untouched_draft_migrates_nobody(session, tmp_path):
+    """The failure mode this guards: someone generates the draft, fills nothing,
+    and runs the migration. Opt-in means that is a refusal, not a mass migration
+    of every Customer to a blank email."""
+    from jawnix_data.user_account_migration import (
+        MigrationRefused,
+        _read_rows,
+        write_mapping_draft,
+    )
+
+    _draft_customer(session, "acme", "Acme Health")
+    path = tmp_path / "draft.csv"
+    write_mapping_draft(session, path)
+
+    with pytest.raises(MigrationRefused, match="migrate=yes"):
+        _read_rows(path)
+
+
+def test_only_rows_marked_yes_are_read(tmp_path):
+    from jawnix_data.user_account_migration import _read_rows
+
+    path = tmp_path / "m.csv"
+    path.write_text(
+        "customer,email,agency,migrate\n"
+        "keep,a@example.com,summit,yes\n"
+        "skip,b@example.com,summit,no\n"
+        "blank,c@example.com,summit,\n"
+        "typo,d@example.com,summit,ys\n",
+        encoding="utf-8",
+    )
+
+    rows = _read_rows(path)
+
+    # A mistyped value skips a Customer rather than silently migrating one.
+    assert [row["customerSelector"] for row in rows] == ["keep"]
+
+
+def test_a_csv_without_the_column_still_migrates_every_row(tmp_path):
+    """The gate is additive: the original three-column contract is unchanged."""
+    from jawnix_data.user_account_migration import _read_rows
+
+    path = tmp_path / "m.csv"
+    path.write_text(
+        "customer,email,agency\n"
+        "one,a@example.com,summit\n"
+        "two,b@example.com,independent\n",
+        encoding="utf-8",
+    )
+
+    assert len(_read_rows(path)) == 2
