@@ -216,6 +216,10 @@ test.describe("Scraper state coverage", () => {
     await expect(page).toHaveScreenshot("scraper-state-overview.png", {
       fullPage: true,
       animations: "disabled",
+      // GitHub's Ubuntu image carries additional system fonts beyond the
+      // Playwright container used to produce the Linux baselines. Keep the
+      // comparison strict while allowing sub-pixel glyph rasterization noise.
+      maxDiffPixelRatio: 0.002,
     });
   });
 
@@ -226,6 +230,7 @@ test.describe("Scraper state coverage", () => {
     await expect(page).toHaveScreenshot("scraper-state-detail.png", {
       fullPage: true,
       animations: "disabled",
+      maxDiffPixelRatio: 0.002,
     });
   });
 });
