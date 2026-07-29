@@ -25,6 +25,11 @@ import {
   DATABASE_STATE,
   DATABASE_WORKSPACE,
 } from "./scraper-database-fixtures";
+import {
+  CAMPAIGN_HISTORY,
+  RUNTIME_PREVIEW,
+  RUNTIME_WORKSPACE,
+} from "./scraper-runtime-fixtures";
 
 export interface MockFactor {
   id: string;
@@ -335,6 +340,24 @@ export async function mockAdminMFA(
         detail: "12 of 20 coverage jobs enqueued",
         posted_jobs: 12,
         expected_jobs: 20,
+      });
+    }
+    if (path.endsWith("/history")) {
+      return json(route, CAMPAIGN_HISTORY);
+    }
+    if (path.endsWith("/runtime") && method === "GET") {
+      return json(route, RUNTIME_WORKSPACE);
+    }
+    if (path.endsWith("/runtime/preview")) {
+      return json(route, RUNTIME_PREVIEW);
+    }
+    if (path.endsWith("/runtime/save")) {
+      return json(route, {
+        revision_id: "33333333-3333-4333-8333-333333333333",
+        version: RUNTIME_PREVIEW.proposed_version,
+        configuration: RUNTIME_PREVIEW.configuration,
+        effects: RUNTIME_PREVIEW.effects,
+        enqueued: false,
       });
     }
     if (path.endsWith("/step-up")) {

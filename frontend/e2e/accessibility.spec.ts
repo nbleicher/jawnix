@@ -46,6 +46,8 @@ const ROUTES = [
   "./admin/acquisition/scraper",
   "./admin/acquisition/scraper/workspace",
   "./admin/acquisition/scraper/workspace/keywords",
+  "./admin/acquisition/scraper/workspace/history",
+  "./admin/acquisition/scraper/workspace/runtime",
   "./admin/acquisition/scraper/workspace/states",
   "./admin/acquisition/scraper/workspace/states/PA",
   "./admin/acquisition/scraper/workspace/database",

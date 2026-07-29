@@ -40,6 +40,7 @@ from .auth import Principal, require_admin
 from .config import Settings, get_settings
 from .database import get_db
 from .mfa_provider import MFAProviderError, get_mfa_provider
+from .models import ScraperRuntimeConfigurationRevision
 from .schemas import AdminMFAChallenge
 from .scraper_monitoring import (
     REGION_INTERVALS,
@@ -94,6 +95,24 @@ from .scraper_database import (
     parse_database_workspace,
     parse_export_regeneration,
 )
+from .scraper_runtime import (
+    CampaignHistory,
+    HistorySort,
+    RuntimeConfiguration,
+    RuntimePreview,
+    RuntimePreviewRequest,
+    RuntimeSaveRequest,
+    RuntimeSaveResult,
+    RuntimeWorkspace,
+    SortDirection,
+    calculate_effects,
+    parse_campaign_history,
+    parse_cell_effects,
+    parse_runtime_workspace,
+    runtime_form,
+    runtime_summary,
+    runtime_version,
+)
 from .states import US_STATES
 
 
@@ -103,6 +122,7 @@ HANDOFF_MAX_AGE_SECONDS = 60
 SCRAPER_GRANT_COOKIE = "jawnix_scraper_grant"
 SCRAPER_IDLE_SECONDS = 15 * 60
 KEYWORD_WRITE_LOCK = asyncio.Lock()
+RUNTIME_CONFIGURATION_WRITE_LOCK = asyncio.Lock()
 FORWARDED_REQUEST_HEADERS = {
     "accept",
     "accept-encoding",
@@ -196,6 +216,13 @@ def _keyword_review_serializer(settings: Settings) -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(
         settings.session_secret,
         salt="jawnix-scraper-keyword-review-v1",
+    )
+
+
+def _runtime_review_serializer(settings: Settings) -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(
+        settings.session_secret,
+        salt="jawnix-scraper-runtime-review-v1",
     )
 
 
@@ -312,7 +339,7 @@ async def _raw_native_upstream(
     *,
     method: str,
     path: str,
-    form: dict[str, str] | None = None,
+    form: dict[str, object] | None = None,
 ) -> httpx.Response | None:
     if (
         not settings.scraper_ops_url
@@ -344,7 +371,7 @@ async def _native_upstream(
     *,
     method: str,
     path: str,
-    form: dict[str, str] | None = None,
+    form: dict[str, object] | None = None,
 ) -> httpx.Response | None:
     upstream = await _raw_native_upstream(
         request,
@@ -1919,6 +1946,409 @@ async def control_scraper_keyword_rollover(
     )
     db.commit()
     return rollover
+
+
+def _runtime_failed(upstream: httpx.Response | None) -> bool:
+    return upstream is None or not 200 <= upstream.status_code < 300
+
+
+def _mark_runtime_success(request: Request, settings: Settings) -> None:
+    _state(request, settings).last_success = _workspace_now(request)
+
+
+async def _runtime_current(
+    request: Request,
+    settings: Settings,
+) -> tuple[
+    RuntimeConfiguration,
+    list[str],
+    list,
+] | None:
+    upstream = await _raw_native_upstream(
+        request,
+        settings,
+        method="GET",
+        path="/configure",
+    )
+    if _runtime_failed(upstream):
+        return None
+    try:
+        parsed = parse_runtime_workspace(upstream.text)
+    except (TypeError, ValueError):
+        return None
+    _mark_runtime_success(request, settings)
+    return parsed
+
+
+def _audit_runtime_failure(
+    db: Session,
+    *,
+    principal: Principal,
+    action: str,
+    reason: str,
+    details: dict,
+) -> None:
+    record_activity(
+        db,
+        action=action,
+        target_type="scraper_runtime_configuration",
+        target_id="primary",
+        actor_id=principal.user_id,
+        reason=reason,
+        details=details,
+    )
+    db.commit()
+
+
+@native_router.get("/history", response_model=CampaignHistory)
+async def scraper_campaign_history(
+    request: Request,
+    response: Response,
+    search: str = Query(default="", max_length=200),
+    state: str = Query(default="", max_length=2),
+    sort: HistorySort = "last_enqueued",
+    direction: SortDirection = "desc",
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Read the Scale campaign ledger through its existing filter contract."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    normalized_state = state.strip().upper()
+    if normalized_state and normalized_state not in US_STATES:
+        raise HTTPException(status_code=422, detail="Unknown state.")
+    query = urlencode(
+        {
+            "search": search.strip(),
+            "state": normalized_state.lower(),
+            "sort": sort,
+            "direction": direction,
+        }
+    )
+    upstream = await _raw_native_upstream(
+        request,
+        settings,
+        method="GET",
+        path=f"/frag/history/table?{query}",
+    )
+    proxy_state = _state(request, settings)
+    if _runtime_failed(upstream):
+        return _native_unavailable(proxy_state)
+    try:
+        rows = parse_campaign_history(upstream.text)
+    except (TypeError, ValueError):
+        return _native_unavailable(proxy_state)
+    _mark_runtime_success(request, settings)
+    return CampaignHistory(
+        service_state="connected",
+        last_successful_at=_safe_last_success(proxy_state),
+        idle_expires_in=SCRAPER_IDLE_SECONDS,
+        search=search.strip(),
+        state=normalized_state,
+        sort=sort,
+        direction=direction,
+        all_states=sorted(US_STATES),
+        rows=rows,
+    )
+
+
+@native_router.get("/runtime", response_model=RuntimeWorkspace)
+async def scraper_runtime_configuration(
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Project Scale's mutable runtime controls without touching Jawnix config."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    parsed = await _runtime_current(request, settings)
+    proxy_state = _state(request, settings)
+    if parsed is None:
+        return _native_unavailable(proxy_state)
+    current, all_states, cells = parsed
+    return RuntimeWorkspace(
+        service_state="connected",
+        last_successful_at=_safe_last_success(proxy_state),
+        idle_expires_in=SCRAPER_IDLE_SECONDS,
+        current=current,
+        version=runtime_version(current),
+        all_states=all_states,
+        cells=cells,
+        total_cells=sum(row.cells for row in cells),
+    )
+
+
+@native_router.post("/runtime/preview", response_model=RuntimePreview)
+async def preview_scraper_runtime_configuration(
+    payload: RuntimePreviewRequest,
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Calculate live grid effects and issue a receipt for this exact review."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    parsed = await _runtime_current(request, settings)
+    if parsed is None:
+        return _native_unavailable(_state(request, settings))
+    current, _, current_cells = parsed
+    form = runtime_form(payload.configuration)
+    upstream = await _raw_native_upstream(
+        request,
+        settings,
+        method="POST",
+        path="/configure/preview",
+        form=form,
+    )
+    if _runtime_failed(upstream):
+        return _native_unavailable(_state(request, settings))
+    try:
+        proposed_cells = parse_cell_effects(upstream.text)
+    except (TypeError, ValueError):
+        return _native_unavailable(_state(request, settings))
+    if (
+        len(proposed_cells) != len(payload.configuration.states)
+        or {row.state for row in proposed_cells}
+        != set(payload.configuration.states)
+    ):
+        return _native_unavailable(_state(request, settings))
+    _mark_runtime_success(request, settings)
+    expected_version = runtime_version(current)
+    proposed_version = runtime_version(payload.configuration)
+    review_token = _runtime_review_serializer(settings).dumps(
+        {
+            "sub": str(principal.user_id),
+            "expected_version": expected_version,
+            "proposed_version": proposed_version,
+        }
+    )
+    return RuntimePreview(
+        configuration=payload.configuration,
+        expected_version=expected_version,
+        proposed_version=proposed_version,
+        review_token=review_token,
+        effects=calculate_effects(
+            current,
+            payload.configuration,
+            current_cells,
+            proposed_cells,
+        ),
+    )
+
+
+@native_router.post("/runtime/save", response_model=RuntimeSaveResult)
+async def save_scraper_runtime_configuration(
+    payload: RuntimeSaveRequest,
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    """Save reviewed Scale runtime controls and journal them separately."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    proposed_version = runtime_version(payload.configuration)
+    try:
+        review = _runtime_review_serializer(settings).loads(
+            payload.review_token,
+            max_age=SCRAPER_IDLE_SECONDS,
+        )
+        reviewed_by = uuid.UUID(str(review["sub"]))
+        reviewed_current = str(review["expected_version"])
+        reviewed_proposal = str(review["proposed_version"])
+    except (
+        BadSignature,
+        SignatureExpired,
+        KeyError,
+        TypeError,
+        ValueError,
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Preview these runtime changes again before saving.",
+        ) from None
+    if (
+        reviewed_by != principal.user_id
+        or reviewed_current != payload.expected_version
+        or reviewed_proposal != proposed_version
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Preview these runtime changes again before saving.",
+        )
+
+    async with RUNTIME_CONFIGURATION_WRITE_LOCK:
+        parsed = await _runtime_current(request, settings)
+        if parsed is None:
+            _audit_runtime_failure(
+                db,
+                principal=principal,
+                action="scraper_runtime_configuration_save_failed",
+                reason="Scale runtime configuration could not be read before save",
+                details={
+                    "expectedVersion": payload.expected_version,
+                    "proposedVersion": proposed_version,
+                    "enqueueRequested": payload.enqueue,
+                },
+            )
+            return _native_unavailable(_state(request, settings))
+        current, _, current_cells = parsed
+        current_version = runtime_version(current)
+        if current_version != payload.expected_version:
+            _audit_runtime_failure(
+                db,
+                principal=principal,
+                action="scraper_runtime_configuration_save_refused",
+                reason="Scale runtime configuration changed after preview",
+                details={
+                    "expectedVersion": payload.expected_version,
+                    "currentVersion": current_version,
+                    "proposedVersion": proposed_version,
+                },
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Runtime configuration changed after this preview. "
+                    "Reload the current settings and preview again."
+                ),
+            )
+
+        form = runtime_form(payload.configuration)
+        effects_upstream = await _raw_native_upstream(
+            request,
+            settings,
+            method="POST",
+            path="/configure/preview",
+            form=form,
+        )
+        if _runtime_failed(effects_upstream):
+            _audit_runtime_failure(
+                db,
+                principal=principal,
+                action="scraper_runtime_configuration_save_failed",
+                reason="Scale runtime effects could not be recalculated before save",
+                details={
+                    "expectedVersion": payload.expected_version,
+                    "proposedVersion": proposed_version,
+                    "enqueueRequested": payload.enqueue,
+                },
+            )
+            return _native_unavailable(_state(request, settings))
+        try:
+            proposed_cells = parse_cell_effects(effects_upstream.text)
+        except (TypeError, ValueError):
+            proposed_cells = []
+        if (
+            len(proposed_cells) != len(payload.configuration.states)
+            or {row.state for row in proposed_cells}
+            != set(payload.configuration.states)
+        ):
+            _audit_runtime_failure(
+                db,
+                principal=principal,
+                action="scraper_runtime_configuration_save_failed",
+                reason="Scale runtime effects were invalid before save",
+                details={
+                    "expectedVersion": payload.expected_version,
+                    "proposedVersion": proposed_version,
+                    "enqueueRequested": payload.enqueue,
+                },
+            )
+            return _native_unavailable(_state(request, settings))
+
+        form["enqueue"] = "true" if payload.enqueue else "false"
+        upstream = await _raw_native_upstream(
+            request,
+            settings,
+            method="POST",
+            path="/configure/save",
+            form=form,
+        )
+        if _runtime_failed(upstream):
+            _audit_runtime_failure(
+                db,
+                principal=principal,
+                action="scraper_runtime_configuration_save_failed",
+                reason="Scale runtime configuration save was refused upstream",
+                details={
+                    "expectedVersion": payload.expected_version,
+                    "proposedVersion": proposed_version,
+                    "enqueueRequested": payload.enqueue,
+                    "upstreamStatus": (
+                        upstream.status_code if upstream is not None else None
+                    ),
+                },
+            )
+            return _native_unavailable(_state(request, settings))
+
+        _mark_runtime_success(request, settings)
+        effects = calculate_effects(
+            current,
+            payload.configuration,
+            current_cells,
+            proposed_cells,
+        )
+        revision = ScraperRuntimeConfigurationRevision(
+            before_checksum=current_version,
+            after_checksum=proposed_version,
+            configuration=runtime_summary(payload.configuration),
+            effects=effects.model_dump(mode="json"),
+            enqueue_requested=payload.enqueue,
+            actor_user_id=principal.user_id,
+        )
+        db.add(revision)
+        db.flush()
+        record_activity(
+            db,
+            action="scraper_runtime_configuration_saved",
+            target_type="scraper_runtime_configuration",
+            target_id=revision.id,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+            details={
+                "before": {
+                    "version": current_version,
+                    "activeStates": current.states,
+                    "totalCells": effects.current_total_cells,
+                    "runtime": current.settings.model_dump(mode="json"),
+                    "queue": current.queue.model_dump(mode="json"),
+                    "overrideStates": sorted(current.overrides),
+                },
+                "after": {
+                    "version": proposed_version,
+                    "activeStates": payload.configuration.states,
+                    "totalCells": effects.proposed_total_cells,
+                    "runtime": payload.configuration.settings.model_dump(
+                        mode="json"
+                    ),
+                    "queue": payload.configuration.queue.model_dump(
+                        mode="json"
+                    ),
+                    "overrideStates": sorted(
+                        payload.configuration.overrides
+                    ),
+                },
+                "statesAdded": effects.states_added,
+                "statesRemoved": effects.states_removed,
+                "runtimeChanges": effects.runtime_changes,
+                "queueChanges": effects.queue_changes,
+                "overrideChanges": effects.override_changes,
+                "enqueueRequested": payload.enqueue,
+                "jawnixConfigurationChanged": False,
+            },
+        )
+        db.commit()
+        return RuntimeSaveResult(
+            revision_id=str(revision.id),
+            version=proposed_version,
+            configuration=payload.configuration,
+            effects=effects,
+            enqueued=payload.enqueue,
+        )
 
 
 def request_is_scraper_origin(
