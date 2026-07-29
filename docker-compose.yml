@@ -81,6 +81,10 @@ services:
     environment:
       JAWNIX_DOMAIN: ${JAWNIX_DOMAIN:-jawnix.com}
       JAWNIX_SCRAPER_OPS_DOMAIN: ${JAWNIX_SCRAPER_OPS_DOMAIN:-scraper.jawnix.com}
+      # Rendered into /config.js by the Caddyfile. Both are public by design.
+      JAWNIX_SUPABASE_URL: ${JAWNIX_SUPABASE_URL:?set JAWNIX_SUPABASE_URL}
+      JAWNIX_SUPABASE_ANON_KEY: ${JAWNIX_SUPABASE_ANON_KEY:?set JAWNIX_SUPABASE_ANON_KEY}
+      JAWNIX_ENABLE_BILLING: ${JAWNIX_ENABLE_BILLING:-false}
     ports:
       - "80:80"
       - "443:443"
@@ -92,7 +96,6 @@ services:
       - ./portal.html:/srv/static/portal.html:ro
       - ./portal-accept.html:/srv/static/portal-accept.html:ro
       - ./theme.css:/srv/static/theme.css:ro
-      - ./config.js:/srv/static/config.js:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
