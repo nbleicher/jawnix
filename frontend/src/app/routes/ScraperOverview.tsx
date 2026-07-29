@@ -44,6 +44,14 @@ const RAIL = [
     label: "Keywords",
     href: "/app/admin/acquisition/scraper/workspace/keywords",
   },
+  {
+    label: "Campaign history",
+    href: "/app/admin/acquisition/scraper/workspace/history",
+  },
+  {
+    label: "Runtime configuration",
+    href: "/app/admin/acquisition/scraper/workspace/runtime",
+  },
   { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
 ];
 

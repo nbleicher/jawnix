@@ -975,6 +975,44 @@ class ScraperConfiguration(Base):
     )
 
 
+class ScraperRuntimeConfigurationRevision(Base):
+    """Append-only evidence for a successful Scale runtime configuration save.
+
+    This is intentionally not a ScraperConfiguration relationship. Scale's
+    mutable worker/queue controls and Jawnix's immutable acquisition versions
+    are separate authorities.
+    """
+
+    __tablename__ = "scraper_runtime_configuration_revisions"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    before_checksum: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    after_checksum: Mapped[str] = mapped_column(
+        String(64),
+        index=True,
+        nullable=False,
+    )
+    configuration: Mapped[dict] = mapped_column(JSON, nullable=False)
+    effects: Mapped[dict] = mapped_column(JSON, nullable=False)
+    enqueue_requested: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+    actor_user_id: Mapped[uuid.UUID] = mapped_column(
+        index=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+
+
 class SourceSegment(Base):
     __tablename__ = "source_segments"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

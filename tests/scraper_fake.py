@@ -14,6 +14,8 @@ from urllib.parse import parse_qs
 
 import httpx
 
+from jawnix.states import US_STATES
+
 
 CAPTURED_AT = "2026-07-28T11:59:30+00:00"
 
@@ -240,6 +242,65 @@ WINNERS = [
     },
 ]
 
+CAMPAIGN_HISTORY = [
+    {
+        "keyword": "Acoustic Guitar Lessons",
+        "state": "OH",
+        "cells_posted": 240,
+        "first_enqueued": "Jul 27, 13:41",
+        "latest_enqueued": "Jul 29, 00:00",
+        "campaign_date": "Jul 29, 2026",
+    },
+    {
+        "keyword": "Farm Equipment Dealer",
+        "state": "KY",
+        "cells_posted": 324,
+        "first_enqueued": "Jul 28, 01:49",
+        "latest_enqueued": "Jul 29, 00:03",
+        "campaign_date": "Jul 29, 2026",
+    },
+    {
+        "keyword": "Plumbers",
+        "state": "PA",
+        "cells_posted": 110,
+        "first_enqueued": "Jul 20, 09:00",
+        "latest_enqueued": "Jul 28, 17:30",
+        "campaign_date": "Jul 28, 2026",
+    },
+]
+
+RUNTIME_CONFIGURATION = {
+    "states": ["KY", "OH"],
+    "settings": {
+        "zoom": 15,
+        "radius": 10_000.0,
+        "depth": 3,
+        "lang": "en",
+        "fast_mode": True,
+        "timeout": 300,
+    },
+    "queue": {
+        "target_depth": 50,
+        "target_per_worker": 25,
+        "min_target_depth": 25,
+        "max_target_depth": 500,
+        "batch_size": 100,
+        "poll_secs": 5,
+        "skip_recent_days": 0,
+    },
+    "overrides": {},
+}
+
+STATE_CELL_COUNTS = {
+    "AK": 180,
+    "AZ": 99,
+    "KY": 324,
+    "MO": 143,
+    "OH": 240,
+    "PA": 220,
+    "TX": 500,
+}
+
 REGION_PAYLOADS: dict[str, dict] = {
     "overall": {"stack_status": STACK_STATUS},
     "stack": {
@@ -384,6 +445,7 @@ class ScraperFake:
         keywords: list[str] | None = None,
         ai_enabled: bool = True,
         generation_error: str | None = None,
+        runtime_failing: set[str] | None = None,
     ) -> None:
         self.failing = failing or set()
         self.coverage_failing = coverage_failing or set()
@@ -392,11 +454,14 @@ class ScraperFake:
         self.keywords = list(keywords or KEYWORDS)
         self.ai_enabled = ai_enabled
         self.generation_error = generation_error
+        self.runtime_failing = runtime_failing or set()
         self.rollover_enabled = False
         self.drafts: dict[str, list[str]] = {}
         self.calls: list[httpx.Request] = []
         self.writes: list[bytes] = []
         self.keyword_writes: list[dict[str, str]] = []
+        self.runtime = json.loads(json.dumps(RUNTIME_CONFIGURATION))
+        self.runtime_writes: list[dict[str, list[str]]] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.calls.append(request)
@@ -411,6 +476,26 @@ class ScraperFake:
                 headers={"Content-Type": "text/html"},
                 text="<section>ok</section>",
             )
+        if path == "/frag/history/table":
+            if "history" in self.runtime_failing:
+                return httpx.Response(503, text="history unavailable")
+            return self._html(self._history_table(request))
+        if path == "/configure" and request.method == "GET":
+            if "configure" in self.runtime_failing:
+                return httpx.Response(503, text="configure unavailable")
+            return self._html(self._configure_page())
+        if path == "/configure/preview":
+            if "preview" in self.runtime_failing:
+                return httpx.Response(503, text="preview unavailable")
+            proposed = self._runtime_from_form(request)
+            return self._html(self._runtime_preview(proposed))
+        if path == "/configure/save":
+            if "save" in self.runtime_failing:
+                return httpx.Response(503, text="save unavailable")
+            proposed = self._runtime_from_form(request)
+            self.runtime = proposed
+            self.runtime_writes.append(self._multi_form(request))
+            return self._html(self._runtime_preview(proposed, saved=True))
         if path == "/keywords/winners":
             return self._html(self._winners_page())
         if path == "/keywords" and request.method == "GET":
@@ -497,6 +582,10 @@ class ScraperFake:
             key: values[-1]
             for key, values in parse_qs(request.content.decode()).items()
         }
+
+    @staticmethod
+    def _multi_form(request: httpx.Request) -> dict[str, list[str]]:
+        return parse_qs(request.content.decode(), keep_blank_values=True)
 
     @staticmethod
     def _html(document: str) -> httpx.Response:
@@ -592,6 +681,202 @@ class ScraperFake:
             + "".join(rows)
             + "</tbody></table></div>"
         )
+
+    def _history_table(self, request: httpx.Request) -> str:
+        search = request.url.params.get("search", "").casefold()
+        state = request.url.params.get("state", "").upper()
+        sort = request.url.params.get("sort", "last_enqueued")
+        reverse = request.url.params.get("direction", "desc") != "asc"
+        rows = [
+            row
+            for row in CAMPAIGN_HISTORY
+            if (not search or search in row["keyword"].casefold())
+            and (not state or state == row["state"])
+        ]
+        sort_key = {
+            "keyword": "keyword",
+            "state": "state",
+            "cells_posted": "cells_posted",
+            "latest_enqueued": "latest_enqueued",
+            "last_enqueued": "campaign_date",
+        }.get(sort, "campaign_date")
+        rows.sort(key=lambda item: item[sort_key], reverse=reverse)
+        body = "".join(
+            f"""
+            <tr>
+              <td><strong>{row["keyword"]}</strong></td>
+              <td><span class="state-code small">{row["state"]}</span></td>
+              <td>{row["cells_posted"]}</td>
+              <td>{row["first_enqueued"]}</td>
+              <td>{row["latest_enqueued"]}</td>
+              <td>{row["campaign_date"]}</td>
+            </tr>
+            """
+            for row in rows
+        )
+        if not body:
+            body = (
+                '<tr><td colspan="6" class="table-empty">'
+                "No campaign history</td></tr>"
+            )
+        return f"""
+        <div class="table-wrap"><table>
+          <thead><tr>
+            <th>Keyword</th><th>State</th><th>Cells posted</th>
+            <th>First enqueue</th><th>Latest enqueue</th>
+            <th>Campaign date</th>
+          </tr></thead>
+          <tbody>{body}</tbody>
+        </table></div>
+        """
+
+    def _runtime_cells(self, configuration: dict) -> list[tuple[str, int]]:
+        rows = []
+        for state in configuration["states"]:
+            base = STATE_CELL_COUNTS.get(state, 100)
+            cell_size = (
+                configuration["overrides"]
+                .get(state, {})
+                .get("cell_size_km")
+            )
+            cells = (
+                max(1, round(base * 15 / float(cell_size)))
+                if cell_size
+                else base
+            )
+            rows.append((state, cells))
+        return rows
+
+    def _runtime_preview(
+        self,
+        configuration: dict,
+        *,
+        saved: bool = False,
+    ) -> str:
+        notice = (
+            '<div class="notice success"><span>Configuration saved</span></div>'
+            if saved
+            else ""
+        )
+        rows = "".join(
+            (
+                '<div><span class="state-code small">'
+                f"{state}</span><strong>{cells:,}</strong></div>"
+            )
+            for state, cells in self._runtime_cells(configuration)
+        )
+        return f"""
+        {notice}
+        <div class="section-head"><div>
+          <p class="eyebrow">Computed</p><h2>Cell count</h2>
+        </div></div>
+        <div class="preview-list">{rows}</div>
+        """
+
+    def _configure_page(self) -> str:
+        state_inputs = "".join(
+            (
+                '<label><input type="checkbox" name="states" '
+                f'value="{state.lower()}"'
+                f'{" checked" if state in self.runtime["states"] else ""}>'
+                f"<span>{state}</span></label>"
+            )
+            for state in sorted(US_STATES)
+        )
+        settings = self.runtime["settings"]
+        queue = self.runtime["queue"]
+        overrides = "".join(
+            f"""
+            <div class="override-row"><strong>{state}</strong>
+              <label>Cell size (km)<input type="number"
+                name="cell_size_km_{state.lower()}"
+                value="{self.runtime["overrides"].get(state, {}).get("cell_size_km", "")}">
+              </label>
+              <label>Zoom<input type="number"
+                name="zoom_{state.lower()}"
+                value="{self.runtime["overrides"].get(state, {}).get("zoom", "")}">
+              </label>
+            </div>
+            """
+            for state in self.runtime["states"]
+        )
+        return f"""
+        <html><body>
+          <form>
+            <div class="state-picker">{state_inputs}</div>
+            <input name="zoom" value="{settings["zoom"]}">
+            <input name="radius" value="{settings["radius"]}">
+            <input name="depth" value="{settings["depth"]}">
+            <input name="lang" value="{settings["lang"]}">
+            <input name="fast_mode" type="checkbox"
+              {"checked" if settings["fast_mode"] else ""}>
+            <input name="timeout" value="{settings["timeout"]}">
+            <input name="target_depth" value="{queue["target_depth"]}">
+            <input name="target_per_worker"
+              value="{queue["target_per_worker"]}">
+            <input name="min_target_depth"
+              value="{queue["min_target_depth"]}">
+            <input name="max_target_depth"
+              value="{queue["max_target_depth"]}">
+            <input name="batch_size" value="{queue["batch_size"]}">
+            <input name="poll_secs" value="{queue["poll_secs"]}">
+            <input name="skip_recent_days"
+              value="{queue["skip_recent_days"]}">
+            <div class="override-grid">{overrides}</div>
+            {self._runtime_preview(self.runtime)}
+          </form>
+        </body></html>
+        """
+
+    def _runtime_from_form(self, request: httpx.Request) -> dict:
+        form = self._multi_form(request)
+
+        def one(name: str, default: object) -> str:
+            values = form.get(name)
+            return values[-1] if values else str(default)
+
+        states = [value.upper() for value in form.get("states", [])]
+        overrides = {}
+        for state in states:
+            code = state.lower()
+            values = {}
+            cell_size = one(f"cell_size_km_{code}", "").strip()
+            zoom = one(f"zoom_{code}", "").strip()
+            if cell_size:
+                values["cell_size_km"] = float(cell_size)
+            if zoom:
+                values["zoom"] = int(float(zoom))
+            if values:
+                overrides[state] = values
+        return {
+            "states": states,
+            "settings": {
+                "zoom": int(float(one("zoom", 15))),
+                "radius": float(one("radius", 10_000)),
+                "depth": int(float(one("depth", 3))),
+                "lang": one("lang", "en"),
+                "fast_mode": one("fast_mode", "") == "on",
+                "timeout": int(float(one("timeout", 300))),
+            },
+            "queue": {
+                "target_depth": int(float(one("target_depth", 50))),
+                "target_per_worker": int(
+                    float(one("target_per_worker", 25))
+                ),
+                "min_target_depth": int(
+                    float(one("min_target_depth", 25))
+                ),
+                "max_target_depth": int(
+                    float(one("max_target_depth", 500))
+                ),
+                "batch_size": int(float(one("batch_size", 100))),
+                "poll_secs": int(float(one("poll_secs", 5))),
+                "skip_recent_days": int(
+                    float(one("skip_recent_days", 0))
+                ),
+            },
+            "overrides": overrides,
+        }
 
     @staticmethod
     def _json(payload: dict) -> httpx.Response:

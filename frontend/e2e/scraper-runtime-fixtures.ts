@@ -1,0 +1,115 @@
+export const CAMPAIGN_HISTORY = {
+  service_state: "connected",
+  last_successful_at: "2026-07-29T12:00:00Z",
+  idle_expires_in: 900,
+  search: "",
+  state: "",
+  sort: "last_enqueued",
+  direction: "desc",
+  all_states: ["AZ", "KY", "MO", "OH", "PA", "TX"],
+  rows: [
+    {
+      keyword: "Acoustic Guitar Lessons",
+      state: "OH",
+      cells_posted: 240,
+      first_enqueued: "Jul 27, 13:41",
+      latest_enqueued: "Jul 29, 00:00",
+      campaign_date: "Jul 29, 2026",
+    },
+    {
+      keyword: "Farm Equipment Dealer",
+      state: "KY",
+      cells_posted: 324,
+      first_enqueued: "Jul 28, 01:49",
+      latest_enqueued: "Jul 29, 00:03",
+      campaign_date: "Jul 29, 2026",
+    },
+  ],
+};
+
+export const RUNTIME_WORKSPACE = {
+  service_state: "connected",
+  last_successful_at: "2026-07-29T12:00:00Z",
+  idle_expires_in: 900,
+  version: "a".repeat(64),
+  all_states: ["AZ", "KY", "MO", "OH", "PA", "TX"],
+  current: {
+    states: ["AZ", "KY", "MO", "OH"],
+    settings: {
+      zoom: 15,
+      radius: 10000,
+      depth: 3,
+      lang: "en",
+      fast_mode: true,
+      timeout: 300,
+    },
+    queue: {
+      target_depth: 50,
+      target_per_worker: 25,
+      min_target_depth: 25,
+      max_target_depth: 500,
+      batch_size: 100,
+      poll_secs: 5,
+      skip_recent_days: 0,
+    },
+    overrides: {},
+  },
+  cells: [
+    { state: "AZ", cells: 99 },
+    { state: "KY", cells: 324 },
+    { state: "MO", cells: 143 },
+    { state: "OH", cells: 240 },
+  ],
+  total_cells: 806,
+  bounds: {
+    runtime: {
+      zoom: { minimum: 1, maximum: 21, step: 1 },
+      radius: { minimum: 100, maximum: 100000, step: 1 },
+      depth: { minimum: 1, maximum: 100, step: 1 },
+      timeout: { minimum: 1, maximum: 300, step: 1 },
+    },
+    queue: {
+      target_depth: { minimum: 1, maximum: 10000, step: 1 },
+      target_per_worker: { minimum: 1, maximum: 100, step: 1 },
+      min_target_depth: { minimum: 1, maximum: 10000, step: 1 },
+      max_target_depth: { minimum: 1, maximum: 100000, step: 1 },
+      batch_size: { minimum: 1, maximum: 10000, step: 1 },
+      poll_secs: { minimum: 5, maximum: 3600, step: 1 },
+      skip_recent_days: { minimum: 0, maximum: 365, step: 1 },
+    },
+    override: {
+      cell_size_km: { minimum: 1, maximum: 500, step: 0.5 },
+      zoom: { minimum: 1, maximum: 21, step: 1 },
+    },
+    language_max_length: 10,
+  },
+};
+
+export const RUNTIME_PREVIEW = {
+  configuration: {
+    ...RUNTIME_WORKSPACE.current,
+    states: ["AZ", "KY", "OH", "PA"],
+    settings: { ...RUNTIME_WORKSPACE.current.settings, depth: 5 },
+    queue: { ...RUNTIME_WORKSPACE.current.queue, target_depth: 80 },
+    overrides: { OH: { cell_size_km: 30, zoom: 16 } },
+  },
+  expected_version: RUNTIME_WORKSPACE.version,
+  proposed_version: "b".repeat(64),
+  review_token: "signed-runtime-review",
+  effects: {
+    cells: [
+      { state: "AZ", cells: 99 },
+      { state: "KY", cells: 324 },
+      { state: "OH", cells: 120 },
+      { state: "PA", cells: 220 },
+    ],
+    current_total_cells: 806,
+    proposed_total_cells: 763,
+    total_cell_delta: -43,
+    states_added: ["PA"],
+    states_removed: ["MO"],
+    runtime_changes: ["depth"],
+    queue_changes: ["target_depth"],
+    override_changes: ["OH"],
+  },
+};
