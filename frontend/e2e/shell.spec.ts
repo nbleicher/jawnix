@@ -76,20 +76,26 @@ test.describe("Administration shell", () => {
     await expect(nav.getByRole("link", { name: "Security" })).toHaveCount(0);
   });
 
-  test("Overview is a task-first wayfinder at both form factors", async ({ page }) => {
+  test("Overview is the cross-domain work queue at both form factors", async ({ page }) => {
     await page.goto("./admin/overview");
 
     await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
     await expect(page.getByText("Not built yet")).toHaveCount(0);
 
-    for (const workspace of ["Fulfillment", "Acquisition", "Customers"]) {
-      await page.goto("./admin/overview");
-      await expect(page.getByRole("heading", { level: 3, name: workspace })).toBeVisible();
-      const action = page.getByRole("link", { name: `Open ${workspace}` });
-      await expect(action).toBeVisible();
-      await action.click();
-      await expect(page.getByRole("heading", { level: 1, name: workspace })).toBeVisible();
+    for (const queue of [
+      "Pending Batch Requests",
+      "Inventory Conflicts",
+      "Lead Reports",
+      "Eligibility Holds",
+      "Delivery failures",
+      "Failed jobs",
+      "Scrape Anomalies",
+      "Nightly Reviews",
+    ]) {
+      await expect(page.getByRole("region", { name: queue })).toBeVisible();
     }
+    await expect(page.getByRole("link", { name: "Open Fulfillment" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Open Acquisition" })).toBeVisible();
   });
 
   test("Fulfillment groups its operational work at both form factors", async ({ page }) => {

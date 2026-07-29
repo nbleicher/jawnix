@@ -1,0 +1,8 @@
+.jx-operations-queue {
+  min-width: 0;
+  scroll-margin-top: var(--jx-space-5);
+}
+
+.jx-operations-queue .jx-card {
+  height: 100%;
+}

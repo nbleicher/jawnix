@@ -569,6 +569,7 @@ export function AdminAcquisitionRoute() {
       >
         <div id="acquisition-review">
           <Stack gap={6}>
+            <div id="held-scrape-anomalies" />
             <Section
               title="Held Scrape Anomalies"
               description="Flagged output waits here until an administrator confirms or denies it. Nothing is committed while it waits."
@@ -671,6 +672,7 @@ export function AdminAcquisitionRoute() {
               )}
             </Section>
 
+            <div id="nightly-reviews" />
             <Section
               title="Nightly Reviews"
               description="The durable record of each night's run, its segments, inventory context, failures, and Telegram delivery."
