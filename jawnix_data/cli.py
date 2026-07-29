@@ -29,6 +29,7 @@ from .user_account_migration import (
     SupabaseMigrationIdentityProvider,
     apply_user_account_migration,
     dry_run_user_account_migration,
+    write_mapping_draft,
 )
 
 
@@ -102,6 +103,21 @@ def provision_mappings(
 ):
     with SessionLocal.begin() as session:
         emit(provision_customer_mappings(session, get_settings(), path, invite_missing=invite_missing))
+
+
+@app.command("user-account-migration-draft")
+def user_account_migration_draft(
+    path: Path = typer.Argument(Path("config/user-account-migration.csv")),
+):
+    """Write a mapping draft from live data, with only `email` left to fill.
+
+    Reads every active Customer and its current Agency, so the selectors are
+    guaranteed to resolve. `migrate` is written empty: rows are opt-in, so an
+    untouched draft migrates nobody.
+    """
+
+    with SessionLocal() as session:
+        emit(write_mapping_draft(session, path))
 
 
 @app.command("user-account-migration-dry-run")
