@@ -46,6 +46,10 @@ const RAIL = [
   { label: "Keyword editor", href: "#keyword-editor", current: true },
   { label: "Automatic rollover", href: "#keyword-rollover" },
   { label: "Winner rankings", href: "#keyword-winners" },
+  {
+    label: "Database",
+    href: "/app/admin/acquisition/scraper/workspace/database",
+  },
   { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
 ];
 

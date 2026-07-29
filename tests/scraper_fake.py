@@ -335,6 +335,94 @@ STATE_CELLS_FRAGMENT = """
 </div>
 """
 
+DATABASE_BROWSE = """
+<div id="database-browse">
+  <div class="table-wrap"><table><tbody>
+    <tr>
+      <td><strong>Buckeye Plumbing</strong><a href="https://buckeye.example">https://buckeye.example</a></td>
+      <td>(614) 555-0101</td><td>OH</td><td>plumbers</td><td>Jul 28, 11:59</td>
+    </tr>
+    <tr>
+      <td><strong>Capital Electric</strong></td>
+      <td>614-555-0101</td><td>OH</td><td>electricians</td><td>Jul 28, 11:58</td>
+    </tr>
+  </tbody></table></div>
+  <div class="pagination">
+    <button disabled>Previous</button><span>Page 1</span><button>Next</button>
+  </div>
+</div>
+"""
+
+DATABASE_PAGE = f"""
+<html><body>
+  <div class="lead-totals">
+    <span><b>9,244,326</b> businesses</span>
+    <span><b>2,305,025</b> exportable phones</span>
+  </div>
+  <section>
+    <div class="state-grid database-state-grid">
+      <div class="state-card-wrap">
+        <a href="/database/states/oh" class="state-card database-state-card">
+          <div class="state-card-head"><span class="state-code">OH</span></div>
+          <strong>136,150</strong><small>total businesses</small>
+          <div class="database-card-stats">
+            <span><b>71,204</b> unique phones</span>
+            <span><b>25</b> niches</span>
+          </div>
+        </a>
+      </div>
+      <div class="state-card-wrap">
+        <a href="/database/states/PA" class="state-card database-state-card">
+          <div class="state-card-head"><span class="state-code">PA</span></div>
+          <strong>161,863</strong><small>total businesses</small>
+          <div class="database-card-stats">
+            <span><b>84,110</b> unique phones</span>
+            <span><b>24</b> niches</span>
+          </div>
+        </a>
+      </div>
+    </div>
+  </section>
+  <section class="section-block">
+    <div class="section-head"><div><h2>Browse records</h2></div><span class="count-pill">51</span></div>
+    {DATABASE_BROWSE}
+  </section>
+</body></html>
+"""
+
+DATABASE_STATE_PAGE = """
+<html><body>
+  <h1>OH database</h1>
+  <div class="database-summary">
+    <div><span>Total businesses</span><strong>136,150</strong></div>
+    <div><span>Unique phones</span><strong>71,204</strong></div>
+    <div><span>Niches</span><strong>2</strong></div>
+  </div>
+  <table><tbody>
+    <tr>
+      <td><input class="niche-checkbox" name="keyword" value="plumbers"></td>
+      <td><strong>plumbers</strong></td><td>80,000</td><td>42,000</td><td></td>
+    </tr>
+    <tr>
+      <td><input class="niche-checkbox" name="keyword" value="__uncategorized__"></td>
+      <td><strong>Uncategorized</strong></td><td>56,150</td><td>29,204</td><td></td>
+    </tr>
+  </tbody></table>
+</body></html>
+"""
+
+EXPORT_FILES_FRAGMENT = """
+<div class="notice success"><span>OH.csv regenerated</span></div>
+<div class="export-grid">
+  <article class="export-card">
+    <div><strong>OH.csv</strong><small>42.5 KB</small></div>
+  </article>
+  <article class="export-card">
+    <div><strong>PA.csv</strong><small>38.0 KB</small></div>
+  </article>
+</div>
+"""
+
 
 def aggregate_payload() -> dict:
     """What ``GET /api/dashboard`` returns: every region merged."""
@@ -485,6 +573,78 @@ class ScraperFake:
             return self._fragment("keywords", STATE_KEYWORDS_FRAGMENT)
         if path.startswith("/frag/states/") and path.endswith("/cells"):
             return self._fragment("cells", STATE_CELLS_FRAGMENT)
+        if path == "/database":
+            return self._html(DATABASE_PAGE)
+        if path == "/database/states/oh" and request.method == "GET":
+            return self._html(DATABASE_STATE_PAGE)
+        if path == "/database/export/oh" and request.method == "POST":
+            return self._html(EXPORT_FILES_FRAGMENT)
+        if path == "/database/states/oh/download":
+            scope = request.url.params.get("scope", "all")
+            keywords = request.url.params.get_list("keyword")
+            if scope == "selected" and not keywords:
+                return httpx.Response(422, text="Select at least one niche")
+            label = (
+                "all"
+                if scope == "all"
+                else keywords[0]
+                if len(keywords) == 1
+                else f"{len(keywords)}-niches"
+            )
+            return httpx.Response(
+                200,
+                headers={
+                    "Content-Type": "text/csv",
+                    "Content-Disposition": (
+                        f'attachment; filename="OH-{label}-phone-leads-2026-07-29.csv"'
+                    ),
+                },
+                text=(
+                    "business_name,phone_number,state\n"
+                    "Buckeye Plumbing,6145550101,OH\n"
+                ),
+            )
+        if path == "/database/bulk-download":
+            states = [
+                value.upper()
+                for value in request.url.params.get_list("state")
+            ]
+            label = (
+                "-".join(states)
+                if len(states) <= 4
+                else f"{len(states)}-states"
+            )
+            return httpx.Response(
+                200,
+                headers={
+                    "Content-Type": "text/csv",
+                    "Content-Disposition": (
+                        f'attachment; filename="{label}-phone-leads-2026-07-29.csv"'
+                    ),
+                },
+                text=(
+                    "business_name,phone_number,state\n"
+                    + "".join(
+                        f"{state} Business,5550000000,{state}\n"
+                        for state in states
+                    )
+                ),
+            )
+        if path in {
+            "/database/download/OH.csv",
+            "/database/download/PA.csv",
+        }:
+            filename = path.rsplit("/", 1)[-1]
+            return httpx.Response(
+                200,
+                headers={
+                    "Content-Type": "text/csv",
+                    "Content-Disposition": (
+                        f'attachment; filename="{filename}"'
+                    ),
+                },
+                text="phone,title\n6145550101,Buckeye Plumbing\n",
+            )
         return httpx.Response(
             200,
             headers={"Content-Type": "text/html"},

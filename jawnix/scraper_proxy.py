@@ -8,10 +8,10 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
@@ -81,6 +81,18 @@ from .scraper_coverage import (
     parse_state_cards,
     parse_state_cells,
     parse_state_keywords,
+)
+from .scraper_database import (
+    GENERATED_EXPORT_NAME,
+    STORED_EXPORT_NAME,
+    DatabaseContractError,
+    DatabaseStateDetail,
+    DatabaseWorkspace,
+    ExportRegeneration,
+    StoredExport,
+    parse_database_state,
+    parse_database_workspace,
+    parse_export_regeneration,
 )
 from .states import US_STATES
 
@@ -535,18 +547,512 @@ async def _coverage_fragment(
 ):
     """Parse one reviewed GMS/OPS fragment without exposing its markup."""
 
-    upstream = await _native_upstream(
+    upstream = await _raw_native_upstream(
         request,
         settings,
         method="GET",
         path=path,
     )
-    if upstream is None:
+    if upstream is None or not 200 <= upstream.status_code < 300:
         return None
     try:
         return parser(upstream.text)
     except (CoverageContractError, UnicodeError):
         return None
+
+
+async def _database_markup(
+    request: Request,
+    settings: Settings,
+    *,
+    path: str,
+) -> str | None:
+    """One reviewed database page without exposing its private location."""
+
+    upstream = await _raw_native_upstream(
+        request,
+        settings,
+        method="GET",
+        path=path,
+    )
+    if upstream is None or not 200 <= upstream.status_code < 300:
+        return None
+    content_type = upstream.headers.get("content-type", "").lower()
+    if "text/html" not in content_type:
+        return None
+    try:
+        return upstream.text
+    except UnicodeError:
+        return None
+
+
+def _database_state(state: str) -> str:
+    normalized = state.strip().upper()
+    if normalized not in US_STATES:
+        raise HTTPException(status_code=404, detail="Unknown state.")
+    return normalized
+
+
+def _database_unavailable(
+    request: Request,
+    settings: Settings,
+) -> DatabaseWorkspace:
+    state = _state(request, settings)
+    return DatabaseWorkspace(
+        service_state="unavailable",
+        last_successful_at=_safe_last_success(state),
+        idle_expires_in=SCRAPER_IDLE_SECONDS,
+    )
+
+
+@native_router.get(
+    "/database",
+    response_model=DatabaseWorkspace,
+)
+async def scraper_database_workspace(
+    request: Request,
+    response: Response,
+    search: str = Query(default="", max_length=500),
+    state: str = Query(default="", max_length=2),
+    page: int = Query(default=1, ge=1),
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Business browsing, totals, state summaries, and stored exports."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    normalized_state = ""
+    if state.strip():
+        normalized_state = _database_state(state)
+    query = urlencode(
+        {
+            "search": search.strip(),
+            "state": normalized_state.lower(),
+            "page": page,
+        }
+    )
+    markup = await _database_markup(
+        request,
+        settings,
+        path=f"/database?{query}",
+    )
+    if markup is None:
+        return _database_unavailable(request, settings)
+    try:
+        totals, states, browse, embedded_exports = parse_database_workspace(
+            markup,
+            search=search,
+            state=normalized_state,
+            requested_page=page,
+        )
+    except DatabaseContractError:
+        return _database_unavailable(request, settings)
+    probed_exports = await _probe_stored_exports(
+        request,
+        settings,
+        [item.state for item in states],
+    )
+    stored_exports = probed_exports or embedded_exports
+    proxy_state = _state(request, settings)
+    proxy_state.last_success = _workspace_now(request)
+    return DatabaseWorkspace(
+        service_state="connected",
+        last_successful_at=_safe_last_success(proxy_state),
+        idle_expires_in=SCRAPER_IDLE_SECONDS,
+        totals=totals,
+        states=states,
+        browse=browse,
+        stored_exports=stored_exports,
+    )
+
+
+@native_router.get(
+    "/database/states/{state}",
+    response_model=DatabaseStateDetail,
+)
+async def scraper_database_state_detail(
+    state: str,
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Totals and Niche context for one current Scraper database state."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    normalized_state = _database_state(state)
+    markup = await _database_markup(
+        request,
+        settings,
+        path=f"/database/states/{normalized_state.lower()}",
+    )
+    proxy_state = _state(request, settings)
+    if markup is None:
+        return DatabaseStateDetail(
+            service_state="unavailable",
+            last_successful_at=_safe_last_success(proxy_state),
+            idle_expires_in=SCRAPER_IDLE_SECONDS,
+            state=normalized_state,
+        )
+    try:
+        totals, niches = parse_database_state(
+            markup,
+            expected_state=normalized_state,
+        )
+    except DatabaseContractError:
+        return DatabaseStateDetail(
+            service_state="unavailable",
+            last_successful_at=_safe_last_success(proxy_state),
+            idle_expires_in=SCRAPER_IDLE_SECONDS,
+            state=normalized_state,
+        )
+    proxy_state.last_success = _workspace_now(request)
+    return DatabaseStateDetail(
+        service_state="connected",
+        last_successful_at=_safe_last_success(proxy_state),
+        idle_expires_in=SCRAPER_IDLE_SECONDS,
+        state=normalized_state,
+        totals=totals,
+        niches=niches,
+    )
+
+
+def _safe_download_error(status_code: int) -> JSONResponse:
+    if status_code == 404:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "The requested Scraper export was not found."},
+        )
+    if status_code in {400, 422}:
+        return JSONResponse(
+            status_code=status_code,
+            content={"detail": "The requested Scraper export is invalid."},
+        )
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Scraper exports are unavailable."},
+    )
+
+
+def _download_filename(
+    upstream: httpx.Response,
+    *,
+    expected: re.Pattern[str],
+    exact: str | None = None,
+) -> str | None:
+    disposition = upstream.headers.get("content-disposition", "")
+    match = re.search(
+        r'(?:^|;)\s*filename="(?P<filename>[^"\r\n;]+)"(?:;|$)',
+        disposition,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    filename = match.group("filename")
+    if exact is not None and not hmac.compare_digest(filename, exact):
+        return None
+    return filename if expected.fullmatch(filename) else None
+
+
+async def _probe_stored_exports(
+    request: Request,
+    settings: Settings,
+    states: list[str],
+) -> list[StoredExport]:
+    """Read only stored-file headers; never buffer every state CSV to list it."""
+
+    if (
+        not settings.scraper_ops_url
+        or not settings.scraper_ops_user
+        or not settings.scraper_ops_password
+        or not states
+    ):
+        return []
+    transport = getattr(request.app.state, "scraper_proxy_transport", None)
+    async with httpx.AsyncClient(
+        base_url=settings.scraper_ops_url.rstrip("/"),
+        auth=httpx.BasicAuth(
+            settings.scraper_ops_user,
+            settings.scraper_ops_password,
+        ),
+        timeout=settings.scraper_ops_timeout_seconds,
+        follow_redirects=False,
+        transport=transport,
+    ) as client:
+        async def probe(state: str) -> StoredExport | None:
+            filename = f"{state}.csv"
+            try:
+                upstream = await client.send(
+                    client.build_request(
+                        "GET",
+                        f"/database/download/{filename}",
+                        headers={"Accept": "text/csv"},
+                    ),
+                    stream=True,
+                )
+            except httpx.RequestError:
+                return None
+            try:
+                if upstream.status_code != 200:
+                    return None
+                if "text/csv" not in upstream.headers.get(
+                    "content-type",
+                    "",
+                ).lower():
+                    return None
+                safe_name = _download_filename(
+                    upstream,
+                    expected=STORED_EXPORT_NAME,
+                    exact=filename,
+                )
+                raw_size = upstream.headers.get("content-length", "")
+                if safe_name is None or not raw_size.isdigit():
+                    return None
+                return StoredExport(
+                    filename=safe_name,
+                    size_label=f"{int(raw_size) / 1024:.1f} KB",
+                )
+            finally:
+                await upstream.aclose()
+
+        found = await asyncio.gather(*(probe(state) for state in states))
+    return [item for item in found if item is not None]
+
+
+async def _stream_database_export(
+    request: Request,
+    settings: Settings,
+    *,
+    path: str,
+    filename_pattern: re.Pattern[str],
+    exact_filename: str | None = None,
+) -> Response:
+    """Relay CSV bytes while keeping every upstream detail server-side."""
+
+    if (
+        not settings.scraper_ops_url
+        or not settings.scraper_ops_user
+        or not settings.scraper_ops_password
+    ):
+        return _safe_download_error(503)
+    transport = getattr(request.app.state, "scraper_proxy_transport", None)
+    client = httpx.AsyncClient(
+        base_url=settings.scraper_ops_url.rstrip("/"),
+        auth=httpx.BasicAuth(
+            settings.scraper_ops_user,
+            settings.scraper_ops_password,
+        ),
+        timeout=settings.scraper_ops_timeout_seconds,
+        follow_redirects=False,
+        transport=transport,
+    )
+    try:
+        upstream = await client.send(
+            client.build_request(
+                "GET",
+                path,
+                headers={"Accept": "text/csv"},
+            ),
+            stream=True,
+        )
+    except httpx.RequestError:
+        await client.aclose()
+        return _safe_download_error(503)
+    if not 200 <= upstream.status_code < 300:
+        status_code = upstream.status_code
+        await upstream.aclose()
+        await client.aclose()
+        return _safe_download_error(status_code)
+    content_type = upstream.headers.get("content-type", "").lower()
+    filename = _download_filename(
+        upstream,
+        expected=filename_pattern,
+        exact=exact_filename,
+    )
+    if "text/csv" not in content_type or filename is None:
+        await upstream.aclose()
+        await client.aclose()
+        return _safe_download_error(503)
+    _state(request, settings).last_success = _workspace_now(request)
+
+    async def stream_body():
+        try:
+            async for chunk in upstream.aiter_bytes():
+                yield chunk
+        except httpx.RequestError:
+            # Once streaming starts, changing the response status would itself
+            # corrupt the CSV. Closing the response produces a failed download
+            # without appending topology, credentials, or provider text.
+            return
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        stream_body(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@native_router.get("/database/exports/state/{state}")
+async def download_scraper_state_export(
+    state: str,
+    request: Request,
+    response: Response,
+    scope: Literal["all", "selected"] = "all",
+    niche: list[str] | None = Query(default=None),
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Stream one state's current phone export with legacy filename semantics."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    normalized_state = _database_state(state)
+    if scope == "selected" and not niche:
+        raise HTTPException(
+            status_code=422,
+            detail="Select at least one Niche.",
+        )
+    if scope == "all" and niche:
+        raise HTTPException(
+            status_code=400,
+            detail="Niche selection requires selected scope.",
+        )
+    query_items: list[tuple[str, str]] = [("scope", scope)]
+    query_items.extend(("keyword", value) for value in niche or [])
+    result = await _stream_database_export(
+        request,
+        settings,
+        path=(
+            f"/database/states/{normalized_state.lower()}/download?"
+            f"{urlencode(query_items)}"
+        ),
+        filename_pattern=GENERATED_EXPORT_NAME,
+    )
+    _issue_grant(result, request, principal, settings)
+    return result
+
+
+@native_router.get("/database/exports/states")
+async def download_scraper_multi_state_export(
+    request: Request,
+    response: Response,
+    state: list[str] | None = Query(default=None),
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Stream multiple states with one header and the legacy bulk filename."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    normalized_states = list(
+        dict.fromkeys(_database_state(value) for value in state or [])
+    )
+    if not normalized_states:
+        raise HTTPException(
+            status_code=422,
+            detail="Select at least one state.",
+        )
+    result = await _stream_database_export(
+        request,
+        settings,
+        path=(
+            "/database/bulk-download?"
+            + urlencode(
+                [("state", value.lower()) for value in normalized_states]
+            )
+        ),
+        filename_pattern=GENERATED_EXPORT_NAME,
+    )
+    _issue_grant(result, request, principal, settings)
+    return result
+
+
+@native_router.get("/database/exports/stored/{filename}")
+async def download_stored_scraper_export(
+    filename: str,
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Download one validated stored export without accepting a path."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    if not STORED_EXPORT_NAME.fullmatch(filename):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid export filename.",
+        )
+    result = await _stream_database_export(
+        request,
+        settings,
+        path=f"/database/download/{filename}",
+        filename_pattern=STORED_EXPORT_NAME,
+        exact_filename=filename,
+    )
+    _issue_grant(result, request, principal, settings)
+    return result
+
+
+@native_router.post(
+    "/database/exports/{state}/regenerate",
+    response_model=ExportRegeneration,
+)
+async def regenerate_scraper_exports(
+    state: str,
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    """Regenerate the current stored state exports through their existing owner."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    normalized_state = _database_state(state)
+    upstream = await _native_upstream(
+        request,
+        settings,
+        method="POST",
+        path=f"/database/export/{normalized_state.lower()}",
+    )
+    if upstream is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Scraper exports are unavailable.",
+        )
+    try:
+        result = parse_export_regeneration(upstream.text)
+    except (DatabaseContractError, UnicodeError):
+        raise HTTPException(
+            status_code=503,
+            detail="Scraper exports are unavailable.",
+        ) from None
+    record_activity(
+        db,
+        action="scraper_exports_regenerated",
+        target_type="scraper_export",
+        target_id=normalized_state,
+        actor_id=principal.user_id,
+        reason="Regenerated stored Scraper exports from the current pool.",
+        details={
+            "requestedState": normalized_state,
+            "generated": result.generated,
+            "storedExportCount": len(result.stored_exports),
+        },
+        known_secrets=(
+            settings.scraper_ops_url,
+            settings.scraper_ops_user,
+            settings.scraper_ops_password,
+        ),
+    )
+    db.commit()
+    return result
 
 
 def _coverage_state(state: str) -> str:

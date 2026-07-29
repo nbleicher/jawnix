@@ -44,6 +44,10 @@ const RAIL = [
     label: "Keywords",
     href: "/app/admin/acquisition/scraper/workspace/keywords",
   },
+  {
+    label: "Database",
+    href: "/app/admin/acquisition/scraper/workspace/database",
+  },
   { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
 ];
 
