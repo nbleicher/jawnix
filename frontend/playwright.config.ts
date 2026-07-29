@@ -11,7 +11,13 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: process.env.CI ? "github" : "list",
+  // "github" alone writes annotations and no report directory, so the CI step
+  // that uploads frontend/playwright-report had nothing to upload and produced
+  // no artifact — which made every CI visual-regression failure undiagnosable:
+  // the actual and diff images existed only on a runner that had been torn down.
+  reporter: process.env.CI
+    ? [["github"], ["html", { open: "never" }]]
+    : "list",
   use: {
     baseURL: `${BASE_URL}/app/`,
     trace: "on-first-retry",

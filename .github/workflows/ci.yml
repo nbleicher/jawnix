@@ -73,6 +73,18 @@ jobs:
           path: frontend/playwright-report
           retention-days: 7
 
+      # The report embeds diffs, but the raw -actual and -diff images live here.
+      # Without them a visual-regression failure cannot be resolved off-runner:
+      # the Linux baselines have to come from CI's own font stack, not a
+      # developer's machine.
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-results
+          path: frontend/test-results
+          retention-days: 7
+
   backend:
     name: Backend (pytest)
     runs-on: ubuntu-latest
