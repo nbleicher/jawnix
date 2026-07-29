@@ -9,6 +9,29 @@
 		reverse_proxy api:8001
 	}
 
+	# Served from the environment rather than a file on disk.
+	#
+	# This used to be a bind-mounted ./config.js, which is gitignored — so a
+	# fresh checkout had no such file, Docker created the mount point as an
+	# empty *directory*, and file_server answered 404. login.html falls back to
+	# `window.JAWNIX_CONFIG || {}`, so the Supabase client was built with no URL
+	# and no key, and sign-in silently did nothing: page 200, health 200, and no
+	# API request even attempted. Production worked only because someone created
+	# the file by hand at some point, unrecorded (#103).
+	#
+	# Both values are public by design — they are shipped to every browser that
+	# loads the login page.
+	handle /config.js {
+		header Content-Type "application/javascript; charset=utf-8"
+		header Cache-Control "no-store"
+		respond `window.JAWNIX_CONFIG = {
+  supabaseUrl: '{$JAWNIX_SUPABASE_URL}',
+  supabaseAnonKey: '{$JAWNIX_SUPABASE_ANON_KEY}',
+  billingEnabled: {$JAWNIX_ENABLE_BILLING:false},
+};
+` 200
+	}
+
 	# Redesigned React shell. FastAPI owns the whole prefix so it can apply the
 	# feature flag, serve content-hashed assets immutably, and return the shell
 	# document for direct navigation to any application route. While the flag is
