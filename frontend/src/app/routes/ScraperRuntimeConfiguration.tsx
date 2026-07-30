@@ -79,6 +79,10 @@ function message(error: unknown): string {
     : "The runtime configuration request could not be completed.";
 }
 
+function lastSuccess(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : "never";
+}
+
 function rangeError(
   value: number,
   bounds: FieldBounds,
@@ -272,6 +276,27 @@ export function ScraperRuntimeConfigurationRoute() {
     () => workspace.all_states.filter((state) => draft.states.includes(state)),
     [workspace.all_states, draft.states],
   );
+
+  if (workspace.service_state === "unavailable") {
+    return (
+      <Page
+        title="Scraper Runtime Configuration"
+        description="Tune Scale coverage, workers, and queue behavior with calculated review before activation."
+      >
+        <TerminalWorkspace
+          status="OFFLINE / RUNTIME UNAVAILABLE"
+          tone="offline"
+          destinations={workspaceRail(`${WORKSPACE_ROOT}/runtime`)}
+        >
+          <ErrorState
+            title="Runtime configuration unavailable"
+            description={`The private service did not return its current runtime configuration, so review and save controls are unavailable. Last successful connection: ${lastSuccess(workspace.last_successful_at)}.`}
+            onRetry={() => window.location.reload()}
+          />
+        </TerminalWorkspace>
+      </Page>
+    );
+  }
 
   function edit(mutator: (next: RuntimeConfiguration) => void) {
     setDraft((current) => {

@@ -41,6 +41,10 @@ function message(error: unknown): string {
     : "Campaign history could not be loaded.";
 }
 
+function lastSuccess(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : "never";
+}
+
 export function ScraperCampaignHistoryRoute() {
   const initial = useLoaderData<CampaignHistory>();
   const navigate = useNavigate();
@@ -104,6 +108,27 @@ export function ScraperCampaignHistoryRoute() {
     // load is deliberately represented by the serializable filter values.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, state, sort, direction]);
+
+  if (history.service_state === "unavailable") {
+    return (
+      <Page
+        title="Scraper Campaign History"
+        description="Search and inspect the Scale campaign ledger without exposing the private service."
+      >
+        <TerminalWorkspace
+          status="OFFLINE / HISTORY UNAVAILABLE"
+          tone="offline"
+          destinations={workspaceRail(`${WORKSPACE_ROOT}/history`)}
+        >
+          <ErrorState
+            title="Campaign history unavailable"
+            description={`The private service did not return campaign history, so filtering and results are unavailable. Last successful connection: ${lastSuccess(history.last_successful_at)}.`}
+            onRetry={() => window.location.reload()}
+          />
+        </TerminalWorkspace>
+      </Page>
+    );
+  }
 
   return (
     <Page

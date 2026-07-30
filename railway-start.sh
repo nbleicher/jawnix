@@ -22,6 +22,8 @@ set -eu
 
 : "${JAWNIX_SUPABASE_URL:=}"
 : "${JAWNIX_SUPABASE_ANON_KEY:=}"
+: "${JAWNIX_SCRAPER_OPS_ORIGIN:=}"
+: "${JAWNIX_ENABLE_BILLING:=false}"
 
 if [ -z "$JAWNIX_SUPABASE_URL" ] || [ -z "$JAWNIX_SUPABASE_ANON_KEY" ]; then
   echo "Warning: JAWNIX_SUPABASE_URL and JAWNIX_SUPABASE_ANON_KEY are not set; serving app with empty database config." >&2
@@ -38,10 +40,17 @@ js_escape() {
   printf "%s" "$1" | sed "s/\\\\/\\\\\\\\/g; s/'/\\\\'/g"
 }
 
+case "$JAWNIX_ENABLE_BILLING" in
+  true|True|TRUE) billing_enabled=true ;;
+  *) billing_enabled=false ;;
+esac
+
 cat > "$APP_DIR/config.js" <<EOF
 window.JAWNIX_CONFIG = {
   supabaseUrl: '$(js_escape "$JAWNIX_SUPABASE_URL")',
   supabaseAnonKey: '$(js_escape "$JAWNIX_SUPABASE_ANON_KEY")',
+  scraperOpsOrigin: '$(js_escape "$JAWNIX_SCRAPER_OPS_ORIGIN")',
+  billingEnabled: $billing_enabled,
   workspaceId: '$(js_escape "$JAWNIX_WORKSPACE_ID")',
   leadsTable: '$(js_escape "$JAWNIX_LEADS_TABLE")',
   settingsTable: '$(js_escape "$JAWNIX_SETTINGS_TABLE")',

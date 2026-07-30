@@ -1347,16 +1347,22 @@ def draft_mapping_rows(session: Session) -> list[dict[str, str]]:
             .order_by(Customer.id)
         )
     )
-    agencies = {
-        agency.id: agency
-        for agency in session.scalars(
-            select(Agency).where(Agency.deleted_at.is_(None))
-        )
-    }
+    # Soft-deleted agencies are included deliberately. A Customer can still
+    # point at one (soft deletion tombstones the Agency without nulling
+    # `agency_id`), and drafting such a Customer as "independent" would make
+    # the migration silently strip a membership a human never reviewed.
+    # Drafting the real selector instead makes dry-run block the row
+    # (missing/inactive agency), so the decision is forced into the open.
+    agencies = {agency.id: agency for agency in session.scalars(select(Agency))}
 
     rows: list[dict[str, str]] = []
     for customer in customers:
         agency = agencies.get(customer.agency_id) if customer.agency_id else None
+        agency_label = "(independent)"
+        if agency is not None:
+            agency_label = agency.name
+            if agency.deleted_at is not None:
+                agency_label = f"{agency.name} (deleted)"
         rows.append(
             {
                 "customer": customer.slug or str(customer.id),
@@ -1366,15 +1372,29 @@ def draft_mapping_rows(session: Session) -> list[dict[str, str]]:
                 "agency": (agency.slug or str(agency.id)) if agency else "independent",
                 "migrate": "",
                 "customer_name": customer.name or "",
-                "current_agency_name": agency.name if agency else "(independent)",
+                "current_agency_name": agency_label,
             }
         )
     return rows
 
 
-def write_mapping_draft(session: Session, path: Path) -> dict[str, object]:
-    """Write the draft CSV and report what it contains."""
+def write_mapping_draft(
+    session: Session, path: Path, *, force: bool = False
+) -> dict[str, object]:
+    """Write the draft CSV and report what it contains.
 
+    Refuses to overwrite an existing file unless ``force`` is set: the draft's
+    default path is the same file dry-run and apply consume, so by the time it
+    exists again it is probably full of hand-reviewed emails and ``migrate=yes``
+    decisions — the input to the one irreversible operation in the cutover.
+    """
+
+    refusal = (
+        f"{path} already exists and may contain reviewed mappings. "
+        "Pass --force to overwrite it with a fresh draft."
+    )
+    if path.exists() and not force:
+        raise MigrationRefused(refusal)
     rows = draft_mapping_rows(session)
     if not rows:
         raise MigrationRefused("No active Customers to draft.")
@@ -1388,10 +1408,20 @@ def write_mapping_draft(session: Session, path: Path) -> dict[str, object]:
         "customer_name",
         "current_agency_name",
     ]
-    with path.open("w", newline="", encoding="utf-8") as sink:
-        writer = csv.DictWriter(sink, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
+    try:
+        with path.open(
+            "w" if force else "x",
+            newline="",
+            encoding="utf-8",
+        ) as sink:
+            writer = csv.DictWriter(sink, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+    except FileExistsError:
+        # The exclusive mode closes the check/write race: even if another
+        # process creates the reviewed input after the check above, it is never
+        # truncated.
+        raise MigrationRefused(refusal) from None
     return {
         "path": str(path),
         "customers": len(rows),

@@ -600,10 +600,20 @@ def test_draft_prefills_selectors_that_actually_resolve(session, tmp_path):
     rows = draft_mapping_rows(session)
     assert len(rows) == 2
 
+    from jawnix.models import Customer
+
+    customers = list(session.scalars(select(Customer)))
+    agencies = list(session.scalars(select(Agency)))
     for row in rows:
-        # Every written selector resolves — this is the whole value of drafting.
         assert row["email"] == "", "email is the only column a human fills"
         assert row["migrate"] == "", "rows are opt-in; an untouched draft migrates nobody"
+        # Every written selector resolves through the same matchers dry-run and
+        # apply use — this is the whole value of drafting.
+        assert len(_matches_customer(customers, row["customer"])) == 1
+        if row["agency"] == "independent":
+            assert _matches_agency(agencies, row["agency"]) == []
+        else:
+            assert len(_matches_agency(agencies, row["agency"])) == 1
 
     independent = [row for row in rows if row["agency"] == "independent"]
     assert len(independent) == 1, "an unaffiliated Customer round-trips as 'independent'"
@@ -611,6 +621,55 @@ def test_draft_prefills_selectors_that_actually_resolve(session, tmp_path):
     report = write_mapping_draft(session, tmp_path / "draft.csv")
     assert report["customers"] == 2
     assert report["independent"] == 1
+
+
+def test_draft_refuses_to_overwrite_reviewed_work_without_force(session, tmp_path):
+    """The draft's default path is the same file dry-run and apply consume. A
+    re-run must not silently clobber hand-filled emails and migrate=yes
+    decisions — the input to the one irreversible operation in the cutover."""
+    from jawnix_data.user_account_migration import (
+        MigrationRefused,
+        write_mapping_draft,
+    )
+
+    _draft_customer(session, "acme", "Acme Health")
+    path = tmp_path / "draft.csv"
+    write_mapping_draft(session, path)
+
+    reviewed = path.read_text(encoding="utf-8").replace(
+        "acme,,", "acme,acme@example.com,"
+    )
+    path.write_text(reviewed, encoding="utf-8")
+
+    with pytest.raises(MigrationRefused, match="--force"):
+        write_mapping_draft(session, path)
+    assert path.read_text(encoding="utf-8") == reviewed, "refusal must not touch the file"
+
+    write_mapping_draft(session, path, force=True)
+    assert "acme@example.com" not in path.read_text(encoding="utf-8")
+
+
+def test_draft_surfaces_a_soft_deleted_agency_rather_than_dropping_it(session, tmp_path):
+    """Soft deletion tombstones an Agency without nulling its Customers'
+    `agency_id`. Drafting such a Customer as "independent" would strip a real
+    membership without anyone deciding to; drafting the true selector makes
+    dry-run block the row so a human resolves it."""
+    from jawnix.models import Agency
+    from jawnix_data.user_account_migration import draft_mapping_rows
+
+    agency = Agency(
+        slug="summit",
+        name="Summit",
+        deleted_at=datetime.now(timezone.utc),
+    )
+    session.add(agency)
+    session.flush()
+    _draft_customer(session, "acme", "Acme Health", agency)
+
+    (row,) = draft_mapping_rows(session)
+
+    assert row["agency"] == "summit", "the real membership, not 'independent'"
+    assert "(deleted)" in row["current_agency_name"]
 
 
 def test_an_untouched_draft_migrates_nobody(session, tmp_path):

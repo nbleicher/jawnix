@@ -14,6 +14,8 @@ function workspace(
   overrides: Partial<KeywordWorkspace> = {},
 ): KeywordWorkspace {
   return {
+    service_state: "connected",
+    last_successful_at: "2026-07-29T12:00:00Z",
     current: ["plumbers", "electricians"],
     version: VERSION,
     ai_enabled: true,
@@ -118,6 +120,23 @@ function mockRequests(plans: PlannedResponse[]) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("keyword parity", () => {
+  it("keeps the workspace frame available when the private service is offline", () => {
+    renderKeywords(workspace({
+      service_state: "unavailable",
+      last_successful_at: "2026-07-28T11:00:00Z",
+      current: [],
+      winners: [],
+    }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Scraper keywords unavailable",
+    );
+    expect(screen.queryByRole("textbox", { name: /Keyword list/ }))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Keywords" }))
+      .toHaveAttribute("aria-current", "page");
+  });
+
   it("renders the active editor, rollover metrics and every winner metric", () => {
     renderKeywords();
 

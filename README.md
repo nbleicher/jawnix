@@ -47,8 +47,8 @@ uv run pytest
 cd frontend && npm ci && npm run build && npm test && npm run test:e2e && cd ..
 
 cp .env.example .env
-# Replace every placeholder, then:
-./scripts/render-config.sh
+# Replace every placeholder, then (Caddy renders /config.js from the
+# environment — there is no file to generate):
 docker compose config
 docker compose up -d
 curl https://jawnix.com/api/readyz

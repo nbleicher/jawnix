@@ -491,3 +491,33 @@ def test_upstream_failure_is_recoverable_without_leaking_details(
             AuditEntry.action == "scraper_keywords_save_failed"
         )
     ).one()
+
+
+def test_keyword_workspace_degrades_in_place_when_upstream_is_unavailable(
+    workspace_client,
+):
+    client, _, _ = privileged(workspace_client, ScraperFake(offline=True))
+
+    response = client.get("/api/admin/scraper/keywords")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "service_state": "unavailable",
+        "last_successful_at": None,
+        "current": [],
+        "version": keyword_version([]),
+        "ai_enabled": False,
+        "rollover": {
+            "enabled": False,
+            "state": "off",
+            "label": "Unavailable",
+            "detail": "No current rollover status is available.",
+            "percent_complete": 0,
+            "posted_jobs": None,
+            "expected_jobs": None,
+            "last_status": None,
+            "last_event": None,
+        },
+        "winners": [],
+        "idle_expires_in": 900,
+    }

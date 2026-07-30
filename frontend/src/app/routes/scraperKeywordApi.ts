@@ -24,6 +24,8 @@ export interface KeywordWinner {
 }
 
 export interface KeywordWorkspace {
+  service_state: "connected" | "unavailable";
+  last_successful_at: string | null;
   current: string[];
   version: string;
   ai_enabled: boolean;

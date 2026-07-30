@@ -178,6 +178,37 @@ function mockRequests(plans: Plan[]) {
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("offline workspace states", () => {
+  it("renders campaign history in place when Scale is unavailable", () => {
+    renderRoute("history", {
+      ...HISTORY,
+      service_state: "unavailable",
+      rows: [],
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Campaign history unavailable",
+    );
+    expect(screen.queryByRole("form", { name: "Campaign history filters" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("renders runtime configuration in place when Scale is unavailable", () => {
+    renderRoute("runtime", {
+      ...WORKSPACE,
+      service_state: "unavailable",
+      all_states: [],
+      cells: [],
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Runtime configuration unavailable",
+    );
+    expect(screen.queryByRole("button", { name: "Save reviewed configuration" }))
+      .not.toBeInTheDocument();
+  });
+});
+
 describe("campaign history parity", () => {
   it("shows every row detail and retains all filter controls", () => {
     renderRoute("history", HISTORY);

@@ -2,7 +2,13 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { WORKSPACE_ROOT, WORKSPACE_ROUTES, workspaceRail } from "./scraperWorkspaceNav";
+import {
+  WORKSPACE_ROOT,
+  WORKSPACE_ROUTE_PATTERNS,
+  WORKSPACE_ROUTES,
+  WORKSPACE_SECTIONS,
+  workspaceRail,
+} from "./scraperWorkspaceNav";
 
 /**
  * The rail was defined six times, once per Scraper ticket, and the lists
@@ -30,7 +36,7 @@ describe("the Scraper workspace rail", () => {
     // rather than shipping a screen its neighbours cannot reach.
     const offenders = scraperRouteFiles().filter((name) => {
       const source = readFileSync(join(ROUTES_DIR, name), "utf8");
-      return /const\s+\w*RAIL\w*\s*(:\s*TerminalDestination\[\])?\s*=\s*\[/.test(source);
+      return /const\s+\w*rail\w*\s*(:\s*TerminalDestination\[\])?\s*=\s*\[/i.test(source);
     });
 
     expect(offenders, "these files declare their own workspace rail").toEqual([]);
@@ -61,24 +67,50 @@ describe("the Scraper workspace rail", () => {
     }
   });
 
-  it("only offers in-page anchors on the screen that has those sections", () => {
-    // Overview renders #scraper-status and friends. Linking to them elsewhere
-    // would scroll nowhere.
-    const elsewhere = workspaceRail(`${WORKSPACE_ROOT}/states`).map((item) => item.href);
-    expect(elsewhere.some((href) => href.startsWith("#"))).toBe(false);
+  it("offers each screen's working in-page destinations and no others", () => {
+    const keywords = workspaceRail(`${WORKSPACE_ROOT}/keywords`, {
+      sections: WORKSPACE_SECTIONS.keywords,
+    }).filter((item) => item.href.startsWith("#"));
+    expect(keywords.map((item) => item.href)).toEqual([
+      "#keyword-editor",
+      "#keyword-rollover",
+      "#keyword-winners",
+    ]);
 
-    const overview = workspaceRail(WORKSPACE_ROOT, { sectionsOn: true }).map((item) => item.href);
-    expect(overview).toContain("#scraper-status");
+    const states = workspaceRail(`${WORKSPACE_ROOT}/states`);
+    expect(states.some((item) => item.href.startsWith("#"))).toBe(false);
   });
 
-  it("covers every real workspace route", () => {
-    // Guards the constant against the router: a route added to routes.tsx but
-    // not to the rail is unreachable from the workspace.
+  it("marks detail pages themselves current instead of their parent route", () => {
+    const statePath = `${WORKSPACE_ROOT}/states/OH`;
+    const stateRail = workspaceRail(statePath, {
+      pageLabel: "OH coverage",
+      sections: WORKSPACE_SECTIONS.stateCoverage,
+    });
+    expect(stateRail.filter((item) => item.current)).toEqual([
+      { label: "OH coverage", href: statePath, current: true },
+    ]);
+    expect(stateRail.find((item) => item.label === "States")?.current).toBeUndefined();
+
+    const databasePath = `${WORKSPACE_ROOT}/database/states/OH`;
+    const databaseRail = workspaceRail(databasePath, {
+      pageLabel: "OH database",
+      sections: WORKSPACE_SECTIONS.databaseState,
+    });
+    expect(databaseRail.filter((item) => item.current)).toEqual([
+      { label: "OH database", href: databasePath, current: true },
+    ]);
+    expect(databaseRail.map((item) => item.href)).toContain("#state-niches");
+    expect(databaseRail.find((item) => item.label === "Database")?.current)
+      .toBeUndefined();
+  });
+
+  it("covers every real workspace route, including parameterized details", () => {
     const routes = readFileSync(join(ROUTES_DIR, "..", "routes.tsx"), "utf8");
-    const declared = [...routes.matchAll(/"acquisition\/scraper\/workspace([a-z/]*)"/g)].map(
+    const declared = [...routes.matchAll(/"acquisition\/scraper\/workspace([^"]*)"/g)].map(
       ([, tail]) => `${WORKSPACE_ROOT}${tail}`,
     );
 
-    expect(new Set(WORKSPACE_ROUTES)).toEqual(new Set(declared));
+    expect(new Set(WORKSPACE_ROUTE_PATTERNS)).toEqual(new Set(declared));
   });
 });

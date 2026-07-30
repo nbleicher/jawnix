@@ -108,16 +108,25 @@ def provision_mappings(
 @app.command("user-account-migration-draft")
 def user_account_migration_draft(
     path: Path = typer.Argument(Path("config/user-account-migration.csv")),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite an existing mapping file, discarding any reviewed rows.",
+    ),
 ):
     """Write a mapping draft from live data, with only `email` left to fill.
 
     Reads every active Customer and its current Agency, so the selectors are
     guaranteed to resolve. `migrate` is written empty: rows are opt-in, so an
-    untouched draft migrates nobody.
+    untouched draft migrates nobody. Refuses to overwrite an existing file
+    without --force, because the same path is the reviewed input to apply.
     """
 
-    with SessionLocal() as session:
-        emit(write_mapping_draft(session, path))
+    try:
+        with SessionLocal() as session:
+            emit(write_mapping_draft(session, path, force=force))
+    except MigrationRefused as exc:
+        raise typer.BadParameter(str(exc)) from None
 
 
 @app.command("user-account-migration-dry-run")

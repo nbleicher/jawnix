@@ -16,27 +16,24 @@ import type { TerminalDestination } from "../../design-system/primitives/termina
  * 0024: five parallel slices independently inventing something that should exist
  * once.
  *
- * Anchor destinations (`#scraper-status` and friends) only resolve on the Overview
- * page, which is where those sections live. `sectionsOn` keeps them out of the
- * rail elsewhere rather than offering links that scroll nowhere.
+ * Routed destinations are shared. In-page destinations are deliberately supplied
+ * by the screen that owns their target, so Keywords keeps its editor/rollover/
+ * winners shortcuts, Database keeps its browse/export shortcuts, and state detail
+ * screens keep their page-local shortcuts without leaking dead anchors elsewhere.
  */
 
 export const WORKSPACE_ROOT = "/app/admin/acquisition/scraper/workspace";
 
-interface WorkspaceDestination {
-  label: string;
-  href: string;
-  /** True for in-page anchors, which only exist on the Overview screen. */
-  anchor?: boolean;
+interface WorkspaceRailOptions {
+  /** Add an exact routed item for a detail page beneath a shared parent route. */
+  pageLabel?: string;
+  /** In-page destinations whose targets are rendered by this screen. */
+  sections?: readonly TerminalDestination[];
 }
 
-const DESTINATIONS: WorkspaceDestination[] = [
+const DESTINATIONS: TerminalDestination[] = [
   { label: "Overview", href: WORKSPACE_ROOT },
   { label: "States", href: `${WORKSPACE_ROOT}/states` },
-  { label: "Status", href: "#scraper-status", anchor: true },
-  { label: "Pipeline", href: "#scraper-pipeline", anchor: true },
-  { label: "Throughput", href: "#scraper-throughput", anchor: true },
-  { label: "Fleet", href: "#scraper-fleet", anchor: true },
   { label: "Keywords", href: `${WORKSPACE_ROOT}/keywords` },
   { label: "Database", href: `${WORKSPACE_ROOT}/database` },
   { label: "Campaign history", href: `${WORKSPACE_ROOT}/history` },
@@ -44,18 +41,64 @@ const DESTINATIONS: WorkspaceDestination[] = [
   { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
 ];
 
+export const WORKSPACE_SECTIONS = {
+  overview: [
+    { label: "Status", href: "#scraper-status" },
+    { label: "Pipeline", href: "#scraper-pipeline" },
+    { label: "Throughput", href: "#scraper-throughput" },
+    { label: "Fleet", href: "#scraper-fleet" },
+  ],
+  keywords: [
+    { label: "Keyword editor", href: "#keyword-editor" },
+    { label: "Automatic rollover", href: "#keyword-rollover" },
+    { label: "Winner rankings", href: "#keyword-winners" },
+  ],
+  database: [
+    { label: "State exports", href: "#database-states" },
+    { label: "Browse records", href: "#database-browse" },
+    { label: "Stored exports", href: "#stored-exports" },
+  ],
+  databaseState: [
+    { label: "Niches", href: "#state-niches" },
+  ],
+  stateCoverage: [
+    { label: "State keywords", href: "#state-keywords" },
+    { label: "Grid cells", href: "#state-grid" },
+  ],
+} as const;
+
 /**
  * The rail for one workspace screen.
  *
- * @param currentHref  The screen's own path, marked `current` in the rail.
- * @param sectionsOn   Include the in-page anchors. Only the Overview screen
- *                     renders those sections, so only it should link to them.
+ * Local items are inserted after the routed destination that owns the current
+ * path. Detail pages receive an exact item of their own, which prevents their
+ * parent ("States" or "Database") from being announced as the current page.
  */
 export function workspaceRail(
   currentHref: string,
-  { sectionsOn = false }: { sectionsOn?: boolean } = {},
+  {
+    pageLabel,
+    sections = [],
+  }: WorkspaceRailOptions = {},
 ): TerminalDestination[] {
-  return DESTINATIONS.filter((item) => sectionsOn || !item.anchor).map((item) => ({
+  const exit = DESTINATIONS.at(-1);
+  const routes = DESTINATIONS.slice(0, -1);
+  const ownerIndex = routes.reduce(
+    (found, item, index) =>
+      currentHref === item.href || currentHref.startsWith(`${item.href}/`)
+        ? index
+        : found,
+    -1,
+  );
+  const local: TerminalDestination[] = [
+    ...(pageLabel ? [{ label: pageLabel, href: currentHref }] : []),
+    ...sections,
+  ];
+  const items = [...routes];
+  items.splice(ownerIndex + 1, 0, ...local);
+  if (exit) items.push(exit);
+
+  return items.map((item) => ({
     label: item.label,
     href: item.href,
     ...(item.href === currentHref ? { current: true } : {}),
@@ -64,5 +107,12 @@ export function workspaceRail(
 
 /** Every routed destination, for tests that assert reachability. */
 export const WORKSPACE_ROUTES: string[] = DESTINATIONS.filter(
-  (item) => !item.anchor && item.href.startsWith(WORKSPACE_ROOT),
+  (item) => item.href.startsWith(WORKSPACE_ROOT),
 ).map((item) => item.href);
+
+/** Router templates include detail pages whose concrete state is only known at runtime. */
+export const WORKSPACE_ROUTE_PATTERNS = [
+  ...WORKSPACE_ROUTES,
+  `${WORKSPACE_ROOT}/states/:state`,
+  `${WORKSPACE_ROOT}/database/states/:state`,
+];

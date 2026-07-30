@@ -135,7 +135,10 @@ PIPELINE_STATE = {
     "detail": "Workers are processing the queue",
 }
 
-PAUSE_INFO = {"mode": "", "cancelled_jobs": 0}
+# The live dashboard sends null for both fields when nothing is paused — a ""
+# here once hid a Pydantic rejection that took out the whole monitoring screen
+# in production (the null-pause-mode defect fixed alongside issue #70's smoke).
+PAUSE_INFO = {"mode": None, "cancelled_jobs": None}
 
 PIPELINE_EVENTS = [
     {
