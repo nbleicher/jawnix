@@ -27,7 +27,23 @@ Do not stop Railway or delete old Supabase application tables during provisionin
 
 The `buzz-prod` stack that previously shared this VPS was retired on 2026-07-27, so Jawnix is now the only application on the host and host ports 80/443 are free.
 
-`docker-compose.staging.yml` existed only to work around that shared edge: it reset the Jawnix Caddy's published ports and joined buzz-prod's external network so buzz-prod's Caddy could terminate TLS. With buzz-prod gone the override could no longer start at all — Compose fails when a network declared `external: true` is missing — so it was deleted on 2026-07-28.
+`docker-compose.edge.yml` is that shared edge's adapter, and it is **required in
+production**. buzz-prod is **not** gone: `buzz-prod-caddy-1` still owns
+`0.0.0.0:80` and `:443` on this box and routes `jawnix.com` to
+`reverse_proxy jawnix-caddy:8080`. The adapter names the container `jawnix-caddy`,
+serves plain HTTP on `:8080`/`:8081`, releases 80/443, and joins
+`buzz-prod_buzz-net` so the edge can reach it.
+
+An earlier version of this paragraph said buzz-prod was gone and the override had
+been deleted on 2026-07-28. **That was wrong**, and acting on it took jawnix.com
+down for ~25 minutes on 2026-07-30 the moment containers were recreated from a
+compose file that no longer produced `jawnix-caddy`. The file was restored and
+renamed from `docker-compose.staging.yml`, because calling a production
+requirement "staging" is what made it look disposable.
+
+Production sets `COMPOSE_FILE=docker-compose.yml:docker-compose.edge.yml`, so a
+bare `docker compose` command loads both. Never run compose here without the
+adapter.
 
 Staging now runs the base stack directly, owning ports 80/443 and terminating its own TLS:
 
