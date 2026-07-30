@@ -215,11 +215,9 @@ function CustomerCard({ row }: { row: CustomerDirectoryRow }) {
 function CreateCustomerDialog({
   open,
   onClose,
-  states,
 }: {
   open: boolean;
   onClose: () => void;
-  states: string[];
 }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -239,8 +237,6 @@ function CreateCustomerDialog({
           email: text("email"),
           first_name: text("first_name") || undefined,
           last_name: text("last_name") || undefined,
-          licensed_states: fields.getAll("licensed_states").map(String),
-          reason: text("reason") || undefined,
         }),
       });
       await navigate(`/admin/customers/${created.customerId}`);
@@ -257,7 +253,7 @@ function CreateCustomerDialog({
       open={open}
       onClose={onClose}
       title="Create Customer"
-      description="This creates the durable Customer and emails an invitation to the first User Account. Administrators never set or see a password."
+      description="This creates the durable Customer and emails an invitation to the first User Account. The Customer sets Licensed States from Account after accepting; administrators never set or see a password."
     >
       <form onSubmit={(event) => void submit(event)}>
         <Stack gap={4}>
@@ -284,21 +280,6 @@ function CreateCustomerDialog({
               <Input name="last_name" autoComplete="off" />
             </Field>
           </Grid>
-          <Field
-            label="Licensed States"
-            description="Select every state this Customer is licensed in. This can be changed later."
-          >
-            <Select name="licensed_states" multiple size={6}>
-              {states.map((state) => (
-                <option key={state} value={state}>
-                  {state}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Reason" description="Recorded on the Customer's activity trail.">
-            <Input name="reason" autoComplete="off" />
-          </Field>
           <Cluster gap={3}>
             <Button type="submit" variant="primary" busy={busy} busyLabel="Creating…">
               Create Customer and send invitation
@@ -426,7 +407,6 @@ export function AdminCustomersRoute() {
       <CreateCustomerDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
-        states={data.states}
       />
     </Page>
   );

@@ -1943,8 +1943,6 @@ def test_creating_a_customer_invites_access_and_never_takes_a_password(
                 "email": "new-user@example.com",
                 "first_name": "New",
                 "last_name": "User",
-                "licensed_states": ["tx"],
-                "reason": "Onboarded an independent Customer.",
             },
         )
         assert created.status_code == 201
@@ -1956,8 +1954,11 @@ def test_creating_a_customer_invites_access_and_never_takes_a_password(
 
         customer = session.get(Agent, body["customerId"])
         assert customer is not None
-        assert customer.licensed_states == ["TX"]
+        assert customer.licensed_states == []
         assert customer.agency_id is None
+        profile = session.get(CustomerProfile, invited_user_id)
+        assert profile is not None
+        assert profile.licensed_states == []
         account = session.get(UserAccount, invited_user_id)
         assert account is not None
         assert account.active is True
@@ -1983,6 +1984,64 @@ def test_creating_a_customer_invites_access_and_never_takes_a_password(
         }
         assert "customer_created" in actions
         assert "customer_user_account_provisioned" in actions
+        assert {
+            entry.reason
+            for entry in session.scalars(select(AuditEntry))
+        } == {"Created a Customer and invited its User Account"}
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize(
+    ("extra_field", "extra_value"),
+    [
+        ("licensed_states", ["TX"]),
+        ("reason", "Administrator selected Customer-owned data."),
+    ],
+)
+def test_admin_cannot_assign_states_or_reason_during_customer_invitation(
+    session,
+    settings,
+    monkeypatch,
+    extra_field,
+    extra_value,
+):
+    provider_called = False
+
+    async def fake_admin(*_args):
+        nonlocal provider_called
+        provider_called = True
+        return {"id": str(uuid.uuid4())}
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
+    try:
+        response = TestClient(app).post(
+            "/api/admin/customers",
+            json={
+                "name": "Admin-Controlled Customer",
+                "email": "new-user@example.com",
+                extra_field: extra_value,
+            },
+        )
+
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": "The Customer invitation request was invalid."
+        }
+        assert provider_called is False
+        assert session.scalar(select(func.count(AuditEntry.id))) == 0
+        assert session.scalar(select(func.count(Agent.id))) == 0
     finally:
         app.dependency_overrides.clear()
 

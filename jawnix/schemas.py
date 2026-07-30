@@ -197,19 +197,8 @@ class CustomerCreate(BaseModel):
     email: EmailStr
     slug: str | None = Field(default=None, min_length=1, max_length=80)
     agency_id: int | None = None
-    licensed_states: list[str] = Field(default_factory=list)
     first_name: str = Field(default="", max_length=120)
     last_name: str = Field(default="", max_length=120)
-    reason: str = Field(
-        default="Created a Customer and invited its User Account",
-        min_length=1,
-        max_length=2000,
-    )
-
-    @field_validator("licensed_states")
-    @classmethod
-    def valid_states(cls, value: list[str]) -> list[str]:
-        return normalize_states(value)
 
 
 class UserAccountInvite(BaseModel):
