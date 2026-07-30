@@ -115,9 +115,11 @@ test.describe("Customer administration", () => {
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAccessibleName("Create Customer");
-    await expect(
-      dialog.getByText(/Administrators never set or see a password/),
-    ).toBeVisible();
+    await expect(dialog).toHaveAccessibleDescription(
+      /Customer sets Licensed States from Account after accepting; administrators never set or see a password/i,
+    );
+    await expect(dialog.getByLabel("Licensed States")).toHaveCount(0);
+    await expect(dialog.getByLabel("Reason")).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
 
