@@ -175,34 +175,40 @@ def test_registering_the_shell_adds_no_route_outside_the_app_prefix():
     assert all(path.startswith("/app") for path in added), added
 
 
-def test_config_js_field_list_matches_render_config_script():
-    """`/config.js` is rendered twice: by scripts/render-config.sh (the documented
-    deploy step) and by the Caddyfile (for compose). Two renderings of one
-    contract drift, and the first drift already shipped — the Caddy block dropped
-    `scraperOpsOrigin`, which admin.html reads on sign-out to terminate the
-    Scraper session, so signing out silently stopped revoking privileged access.
-
-    Compares the field names each produces.
+def test_config_js_renderers_cover_the_browser_contract():
+    """Compose and the legacy Railway entrypoint must cover the checked-in
+    browser contract. The deploy-only render script was removed because nothing
+    served its output; keeping a dead third renderer was the source of drift, not
+    protection against it.
     """
     import re
     from pathlib import Path
 
     root = Path(__file__).resolve().parent.parent
-
-    script = (root / "scripts" / "render-config.sh").read_text()
-    script_fields = set(re.findall(r'echo "  ([a-zA-Z]+):', script))
+    example = (root / "config.example.js").read_text()
+    contract_fields = set(re.findall(r"^  ([a-zA-Z]+):", example, re.M))
 
     caddyfile = (root / "Caddyfile").read_text()
     block = caddyfile[caddyfile.index("handle /config.js") :]
     block = block[: block.index("` 200")]
     caddy_fields = set(re.findall(r"^  ([a-zA-Z]+):", block, re.M))
 
-    assert script_fields, "no fields parsed from render-config.sh"
-    assert script_fields == caddy_fields, (
-        "config.js renderings disagree — "
-        f"only in script: {script_fields - caddy_fields}, "
-        f"only in Caddyfile: {caddy_fields - script_fields}"
+    railway = (root / "railway-start.sh").read_text()
+    railway_block = railway[railway.index("window.JAWNIX_CONFIG = {") :]
+    railway_block = railway_block[: railway_block.index("};")]
+    railway_fields = set(re.findall(r"^  ([a-zA-Z]+):", railway_block, re.M))
+
+    assert contract_fields
+    assert caddy_fields == contract_fields, (
+        "Caddy's served config.js disagrees with config.example.js: "
+        f"missing {contract_fields - caddy_fields}, extra {caddy_fields - contract_fields}"
     )
+    assert contract_fields <= railway_fields, (
+        "the legacy Railway renderer is missing browser fields: "
+        f"{contract_fields - railway_fields}"
+    )
+    assert "billingEnabled: '{$JAWNIX_ENABLE_BILLING:false}' === 'true'" in block
+    assert "billingEnabled: $billing_enabled" in railway_block
 
 
 def test_the_production_edge_adapter_exists_and_names_the_upstream():
@@ -220,35 +226,68 @@ def test_the_production_edge_adapter_exists_and_names_the_upstream():
     """
     from pathlib import Path
 
+    import yaml
+
     adapter = Path(__file__).resolve().parent.parent / "docker-compose.edge.yml"
     assert adapter.is_file(), (
         "docker-compose.edge.yml is missing — buzz-prod's Caddy proxies to the "
         "container it names, so removing it takes jawnix.com down on the next "
         "container recreation"
     )
-    text = adapter.read_text()
+    class ComposeLoader(yaml.SafeLoader):
+        pass
+
+    ComposeLoader.add_constructor(
+        "!reset",
+        lambda loader, node: loader.construct_sequence(node),
+    )
+    compose = yaml.load(adapter.read_text(), Loader=ComposeLoader)
+    assert set(compose["services"]) == {"caddy"}, (
+        "only Caddy may join the edge network; attaching API or Postgres makes "
+        "the ambiguous `postgres` hostname reachable again"
+    )
+    caddy = compose["services"]["caddy"]
 
     # The upstream hostname buzz-prod's Caddyfile dials.
-    assert "container_name: jawnix-caddy" in text
+    assert caddy["container_name"] == "jawnix-caddy"
     # Plain HTTP behind the edge; this Caddy must not try to terminate TLS.
-    assert 'JAWNIX_DOMAIN: ":8080"' in text
+    assert caddy["environment"] == {
+        "JAWNIX_DOMAIN": ":8080",
+        "JAWNIX_SCRAPER_OPS_DOMAIN": ":8081",
+    }
     # 80/443 belong to buzz-prod's Caddy; binding them here fails to start.
-    assert "ports: !reset []" in text
-    # Reachability from the edge network.
-    assert "buzz-prod_buzz-net" in text
+    assert caddy["ports"] == []
+    # Reachability from the edge network, without exposing other services to
+    # the ambiguous `postgres` hostname on that network.
+    assert caddy["networks"] == ["private", "edge"]
+    assert compose["networks"]["edge"] == {
+        "external": True,
+        "name": "buzz-prod_buzz-net",
+    }
 
 
-def test_env_example_pins_both_compose_files():
-    """Production must never run compose without the edge adapter. COMPOSE_FILE
-    makes that impossible rather than merely documented — a bare
-    `docker compose up -d` would otherwise reproduce the 2026-07-30 outage.
+def test_env_example_documents_the_production_compose_file_pin():
+    """Production's `.env` must pin COMPOSE_FILE so a bare `docker compose up -d`
+    cannot omit the edge adapter and reproduce the 2026-07-30 outage. But the
+    pin is production-host-only: the adapter joins the external buzz-prod
+    network, so an *uncommented* COMPOSE_FILE in the template breaks staging,
+    local dev, and CI outright (`network buzz-prod_buzz-net declared as
+    external, but could not be found`). The template therefore carries the
+    exact line, commented, next to instructions saying where to uncomment it.
     """
     from pathlib import Path
 
-    env = (Path(__file__).resolve().parent.parent / ".env.example").read_text()
-
-    line = next(
-        (l for l in env.splitlines() if l.startswith("COMPOSE_FILE=")), None
+    lines = (
+        (Path(__file__).resolve().parent.parent / ".env.example")
+        .read_text()
+        .splitlines()
     )
-    assert line, ".env.example must set COMPOSE_FILE"
-    assert "docker-compose.yml" in line and "docker-compose.edge.yml" in line, line
+
+    pin = "COMPOSE_FILE=docker-compose.yml:docker-compose.edge.yml"
+    assert f"#{pin}" in lines, (
+        ".env.example must carry the production COMPOSE_FILE pin (commented)"
+    )
+    assert pin not in lines, (
+        "an uncommented COMPOSE_FILE in the template breaks every host that "
+        "lacks the buzz-prod edge network — production uncomments it in .env"
+    )

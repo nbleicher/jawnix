@@ -47,6 +47,10 @@ class KeywordWinner(BaseModel):
 
 
 class KeywordWorkspace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    service_state: Literal["connected", "unavailable"]
+    last_successful_at: str | None = None
     current: list[str]
     version: str
     ai_enabled: bool

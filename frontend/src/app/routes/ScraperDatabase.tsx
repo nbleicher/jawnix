@@ -46,7 +46,11 @@ import type {
   StoredExport,
 } from "./scraperDatabaseData";
 
-import { WORKSPACE_ROOT, workspaceRail } from "./scraperWorkspaceNav";
+import {
+  WORKSPACE_ROOT,
+  WORKSPACE_SECTIONS,
+  workspaceRail,
+} from "./scraperWorkspaceNav";
 import "./ScraperDatabase.css";
 
 const WORKSPACE = "/app/admin/acquisition/scraper/workspace";
@@ -314,7 +318,9 @@ export function ScraperDatabaseRoute() {
     >
       <TerminalWorkspace
         status="ONLINE / DATABASE"
-        destinations={workspaceRail(`${WORKSPACE_ROOT}/database`)}
+        destinations={workspaceRail(`${WORKSPACE_ROOT}/database`, {
+          sections: WORKSPACE_SECTIONS.database,
+        })}
       >
         <Stack gap={6}>
           <Grid minColumnWidth="13rem" gap={3}>
@@ -525,7 +531,13 @@ export function ScraperDatabaseStateRoute() {
   const [selected, setSelected] = useState<string[]>([]);
   useRouteTheme("terminal", "jawnix");
   useDocumentTitle(`${data.state} Scraper Database`);
-
+  const detailPath = `${WORKSPACE_ROOT}/database/states/${data.state}`;
+  const destinations = workspaceRail(detailPath, {
+    pageLabel: `${data.state} database`,
+    ...(data.service_state === "connected" && data.totals
+      ? { sections: WORKSPACE_SECTIONS.databaseState }
+      : {}),
+  });
 
   if (data.service_state === "unavailable" || !data.totals) {
     return (
@@ -533,7 +545,7 @@ export function ScraperDatabaseStateRoute() {
         <TerminalWorkspace
           status="OFFLINE / STATE DATABASE UNAVAILABLE"
           tone="offline"
-          destinations={workspaceRail(`${WORKSPACE_ROOT}/database`)}
+          destinations={destinations}
         >
           <ErrorState
             title={`${data.state} database unavailable`}
@@ -563,7 +575,7 @@ export function ScraperDatabaseStateRoute() {
     >
       <TerminalWorkspace
         status={`ONLINE / ${data.state} DATABASE`}
-        destinations={workspaceRail(`${WORKSPACE_ROOT}/database`)}
+        destinations={destinations}
       >
         <Stack gap={6}>
           <Grid id="state-database" minColumnWidth="13rem" gap={3}>

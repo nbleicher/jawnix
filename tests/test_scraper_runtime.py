@@ -394,8 +394,12 @@ def test_history_and_runtime_failures_are_recoverable_and_safe(
 
     history = client.get("/api/admin/scraper/history")
     runtime = client.get("/api/admin/scraper/runtime")
-    assert history.status_code == 503
-    assert runtime.status_code == 503
+    assert history.status_code == 200
+    assert runtime.status_code == 200
+    assert history.json()["service_state"] == "unavailable"
+    assert history.json()["rows"] == []
+    assert runtime.json()["service_state"] == "unavailable"
+    assert runtime.json()["cells"] == []
     assert "10.77.0.2" not in history.text + runtime.text
 
     fake = arm(ScraperFake())

@@ -34,7 +34,11 @@ import type {
   KeywordWorkspace,
 } from "./scraperKeywordApi";
 
-import { WORKSPACE_ROOT, workspaceRail } from "./scraperWorkspaceNav";
+import {
+  WORKSPACE_ROOT,
+  WORKSPACE_SECTIONS,
+  workspaceRail,
+} from "./scraperWorkspaceNav";
 import "./ScraperKeywords.css";
 
 const MAX_IMPORT_BYTES = 1_000_000;
@@ -44,6 +48,10 @@ function message(error: unknown): string {
   return error instanceof Error
     ? error.message
     : "The keyword request could not be completed.";
+}
+
+function lastSuccess(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : "never";
 }
 
 function integer(value: number): string {
@@ -196,6 +204,27 @@ export function ScraperKeywordsRoute() {
 
   useRouteTheme("terminal", "jawnix");
   useDocumentTitle("Scraper Keywords");
+
+  if (workspace.service_state === "unavailable") {
+    return (
+      <Page
+        title="Scraper Keywords"
+        description="Edit campaign inputs, review generated drafts, compare winners, and control automatic rollover."
+      >
+        <TerminalWorkspace
+          status="OFFLINE / KEYWORDS UNAVAILABLE"
+          tone="offline"
+          destinations={workspaceRail(`${WORKSPACE_ROOT}/keywords`)}
+        >
+          <ErrorState
+            title="Scraper keywords unavailable"
+            description={`The private service did not return the current keyword workspace, so editing and rollover controls are unavailable. Last successful connection: ${lastSuccess(workspace.last_successful_at)}.`}
+            onRetry={() => window.location.reload()}
+          />
+        </TerminalWorkspace>
+      </Page>
+    );
+  }
 
   const previewIsCurrent = preview !== null && previewText === text;
 
@@ -370,7 +399,9 @@ export function ScraperKeywordsRoute() {
     >
       <TerminalWorkspace
         status="KEYWORDS / PRIVILEGED"
-        destinations={workspaceRail(`${WORKSPACE_ROOT}/keywords`)}
+        destinations={workspaceRail(`${WORKSPACE_ROOT}/keywords`, {
+          sections: WORKSPACE_SECTIONS.keywords,
+        })}
       >
         <Stack gap={5}>
           {failure ? (

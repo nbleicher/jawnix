@@ -1484,6 +1484,30 @@ async def _keyword_editor(
     return parsed
 
 
+def _keyword_workspace_unavailable(
+    request: Request,
+    settings: Settings,
+) -> KeywordWorkspace:
+    state = _state(request, settings)
+    current: list[str] = []
+    return KeywordWorkspace(
+        service_state="unavailable",
+        last_successful_at=_safe_last_success(state),
+        current=current,
+        version=keyword_version(current),
+        ai_enabled=False,
+        rollover=KeywordRollover(
+            enabled=False,
+            state="off",
+            label="Unavailable",
+            detail="No current rollover status is available.",
+            percent_complete=0,
+        ),
+        winners=[],
+        idle_expires_in=SCRAPER_IDLE_SECONDS,
+    )
+
+
 @native_router.get("/keywords", response_model=KeywordWorkspace)
 async def scraper_keyword_workspace(
     request: Request,
@@ -1512,14 +1536,17 @@ async def scraper_keyword_workspace(
         _keyword_upstream_failed(editor_upstream)
         or _keyword_upstream_failed(winners_upstream)
     ):
-        return _native_unavailable(_state(request, settings))
+        return _keyword_workspace_unavailable(request, settings)
     try:
         current, ai_enabled, rollover = parse_editor(editor_upstream.text)
         winners = parse_winners(winners_upstream.text)
     except ValueError:
-        return _native_unavailable(_state(request, settings))
+        return _keyword_workspace_unavailable(request, settings)
     _mark_keyword_success(request, settings)
+    proxy_state = _state(request, settings)
     return KeywordWorkspace(
+        service_state="connected",
+        last_successful_at=_safe_last_success(proxy_state),
         current=current,
         version=keyword_version(current),
         ai_enabled=ai_enabled,
@@ -2000,6 +2027,29 @@ def _audit_runtime_failure(
     db.commit()
 
 
+def _campaign_history_unavailable(
+    request: Request,
+    settings: Settings,
+    *,
+    search: str,
+    state: str,
+    sort: HistorySort,
+    direction: SortDirection,
+) -> CampaignHistory:
+    proxy_state = _state(request, settings)
+    return CampaignHistory(
+        service_state="unavailable",
+        last_successful_at=_safe_last_success(proxy_state),
+        idle_expires_in=SCRAPER_IDLE_SECONDS,
+        search=search,
+        state=state,
+        sort=sort,
+        direction=direction,
+        all_states=sorted(US_STATES),
+        rows=[],
+    )
+
+
 @native_router.get("/history", response_model=CampaignHistory)
 async def scraper_campaign_history(
     request: Request,
@@ -2033,11 +2083,25 @@ async def scraper_campaign_history(
     )
     proxy_state = _state(request, settings)
     if _runtime_failed(upstream):
-        return _native_unavailable(proxy_state)
+        return _campaign_history_unavailable(
+            request,
+            settings,
+            search=search.strip(),
+            state=normalized_state,
+            sort=sort,
+            direction=direction,
+        )
     try:
         rows = parse_campaign_history(upstream.text)
     except (TypeError, ValueError):
-        return _native_unavailable(proxy_state)
+        return _campaign_history_unavailable(
+            request,
+            settings,
+            search=search.strip(),
+            state=normalized_state,
+            sort=sort,
+            direction=direction,
+        )
     _mark_runtime_success(request, settings)
     return CampaignHistory(
         service_state="connected",
@@ -2049,6 +2113,24 @@ async def scraper_campaign_history(
         direction=direction,
         all_states=sorted(US_STATES),
         rows=rows,
+    )
+
+
+def _runtime_workspace_unavailable(
+    request: Request,
+    settings: Settings,
+) -> RuntimeWorkspace:
+    proxy_state = _state(request, settings)
+    current = RuntimeConfiguration()
+    return RuntimeWorkspace(
+        service_state="unavailable",
+        last_successful_at=_safe_last_success(proxy_state),
+        idle_expires_in=SCRAPER_IDLE_SECONDS,
+        current=current,
+        version=runtime_version(current),
+        all_states=[],
+        cells=[],
+        total_cells=0,
     )
 
 
@@ -2065,7 +2147,7 @@ async def scraper_runtime_configuration(
     parsed = await _runtime_current(request, settings)
     proxy_state = _state(request, settings)
     if parsed is None:
-        return _native_unavailable(proxy_state)
+        return _runtime_workspace_unavailable(request, settings)
     current, all_states, cells = parsed
     return RuntimeWorkspace(
         service_state="connected",

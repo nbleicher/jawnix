@@ -16,12 +16,13 @@
 # ⚠️ Running compose WITHOUT this file recreates caddy under compose's default
 # name, `jawnix-caddy` ceases to exist, and every request to jawnix.com becomes
 # 502 with `dial tcp: lookup jawnix-caddy: no such host`. That happened on
-# 2026-07-30 and took the site down for ~25 minutes — see for-noah-review.md
-# §0.11.
+# 2026-07-30 and took the site down for ~25 minutes — see PR #113 and
+# docs/OPERATIONS.md ("VPS provisioning").
 #
 # It was previously called docker-compose.staging.yml, which is why it was
-# mistaken for disposable and deleted. Production sets
-# COMPOSE_FILE=docker-compose.yml:docker-compose.edge.yml so it cannot be omitted.
+# mistaken for disposable and deleted. Production's .env sets
+# COMPOSE_FILE=docker-compose.yml:docker-compose.edge.yml so it cannot be
+# omitted there; other hosts leave that unset and run the base stack.
 #
 # ⚠️ Do not attach other jawnix services to the edge network. Both networks
 # contain a container answering to `postgres`; a service on both resolves the

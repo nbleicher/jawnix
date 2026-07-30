@@ -17,18 +17,16 @@ Do not stop Railway or delete old Supabase application tables during provisionin
 ## VPS provisioning
 
 1. Provision a Linux VPS with Docker Engine, the Compose plugin, SSH-key access, and a firewall allowing only TCP 22/80/443 and UDP 443.
-2. Clone this branch, copy `.env.example` to `.env`, and replace every placeholder. Generate independent database, session, and Restic passwords.
+2. Clone this branch, copy `.env.example` to `.env`, and replace every placeholder. Generate independent database, session, and Restic passwords. On the shared production VPS only, also uncomment the `COMPOSE_FILE` line so compose can never omit the edge adapter (see below).
 3. Configure the Telegram webhook at `https://jawnix.com/api/integrations/telegram/webhook` with the bot token, random webhook secret, destination chat ID, and comma-separated authorized Telegram user IDs. Register it with Telegram's `setWebhook` API using the same `secret_token`.
 4. Verify `jawnix.com` in Resend, configure `Jawnix <hai@jawnix.com>`, and set the webhook to `https://jawnix.com/api/integrations/resend/webhook` for delivered, bounced, complained, and failed events.
 5. Configure a private encrypted Restic repository and credentials. Do not reuse the database or session secret as its password. The backup service creates separate database/base and WAL snapshots so a large WAL archive cannot block the daily logical dump. It creates a physical base backup on the configured UTC weekday and expires VPS material after 14 days. Install `ops/com.jawnix.external-backup.plist` on the Mac so `ops/macos-backup-pull.sh` creates the second encrypted copy under `/Volumes/Peely SSD/Jawnix Backups`.
-6. Run `./scripts/render-config.sh`, then `docker compose config` and `docker compose build`.
+6. Run `docker compose config` and `docker compose build`. (`/config.js` is rendered by Caddy from the environment — there is no file to generate.)
 7. Run `docker compose up -d postgres`, `docker compose run --rm migrate`, then `docker compose up -d`.
 8. Confirm `/api/healthz`, `/api/readyz`, container health/logs, PostgreSQL `archive_mode`, and a Restic snapshot before importing production data. Force one initial physical base backup with `docker compose run --rm -e JAWNIX_FORCE_BASEBACKUP=true backup /app/ops/backup.sh`.
 
-The `buzz-prod` stack that previously shared this VPS was retired on 2026-07-27, so Jawnix is now the only application on the host and host ports 80/443 are free.
-
-`docker-compose.edge.yml` is that shared edge's adapter, and it is **required in
-production**. buzz-prod is **not** gone: `buzz-prod-caddy-1` still owns
+`docker-compose.edge.yml` is the shared edge's adapter, and it is **required in
+production**. buzz-prod still shares the VPS: `buzz-prod-caddy-1` owns
 `0.0.0.0:80` and `:443` on this box and routes `jawnix.com` to
 `reverse_proxy jawnix-caddy:8080`. The adapter names the container `jawnix-caddy`,
 serves plain HTTP on `:8080`/`:8081`, releases 80/443, and joins
@@ -45,7 +43,11 @@ Production sets `COMPOSE_FILE=docker-compose.yml:docker-compose.edge.yml`, so a
 bare `docker compose` command loads both. Never run compose here without the
 adapter.
 
-Staging now runs the base stack directly, owning ports 80/443 and terminating its own TLS:
+`staging.jawnix.com` resolves to the same box and is served by the same stack
+behind the same edge — buzz-prod's Caddy routes it to `jawnix-caddy:8080`
+alongside production. A separate staging host (one without the shared edge)
+runs the base stack directly, owning ports 80/443 and terminating its own TLS,
+with `COMPOSE_FILE` left commented in `.env`:
 
 ```sh
 JAWNIX_DOMAIN=staging.jawnix.com docker compose up -d
@@ -53,7 +55,10 @@ JAWNIX_DOMAIN=staging.jawnix.com docker compose up -d
 
 Set `JAWNIX_SCRAPER_OPS_DOMAIN` to the staging Scraper hostname in the same way. Nothing else differs from production.
 
-`config.js` contains only the Supabase browser URL and publishable/anon key. Service-role, Telegram, Resend, PostgreSQL, and Restic secrets remain server-side.
+`/config.js` is rendered by Caddy from the environment and contains only
+browser-public values: the Supabase URL and publishable/anon key, the Scraper
+Operations origin, and the billing flag. Service-role, Telegram, Resend,
+PostgreSQL, and Restic secrets remain server-side.
 
 ## Administrator MFA break-glass recovery
 
@@ -134,9 +139,10 @@ by Jawnix issue #29.
    WireGuard address. Reject the same port on the public interface.
 4. Point `scraper.jawnix.com` at the Jawnix edge, set
    `JAWNIX_SCRAPER_OPS_ORIGIN=https://scraper.jawnix.com` and
-   `JAWNIX_SCRAPER_OPS_DOMAIN=scraper.jawnix.com`. On staging, set the same two
-   variables to the staging Scraper hostname; the base Caddy terminates its TLS
-   directly now that the shared edge is gone.
+   `JAWNIX_SCRAPER_OPS_DOMAIN=scraper.jawnix.com`. In production the shared
+   edge routes `scraper.jawnix.com` to `jawnix-caddy:8081`; on a separate
+   staging host, set the same two variables to the staging Scraper hostname and
+   the base Caddy terminates its TLS directly.
 5. On Jawnix, set `JAWNIX_SCRAPER_OPS_URL=http://10.77.0.2:8090` plus
    `JAWNIX_SCRAPER_OPS_USER` and `JAWNIX_SCRAPER_OPS_PASSWORD`, then recreate
    the API and Caddy services.

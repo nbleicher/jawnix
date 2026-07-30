@@ -37,7 +37,11 @@ import type {
 import { PrivilegedSessionExpired } from "./scraperMonitoring";
 import { useOperatorPresence } from "./scraperPresence";
 
-import { WORKSPACE_ROOT, workspaceRail } from "./scraperWorkspaceNav";
+import {
+  WORKSPACE_ROOT,
+  WORKSPACE_SECTIONS,
+  workspaceRail,
+} from "./scraperWorkspaceNav";
 import "./ScraperCoverage.css";
 
 const OVERVIEW_PATH = "/app/admin/acquisition/scraper/workspace";
@@ -605,6 +609,7 @@ export function ScraperStateDetailRoute() {
     expire,
   );
   const unavailable = !keywords.feed.data && !cells.feed.data;
+  const detailPath = `${WORKSPACE_ROOT}/states/${snapshot.state}`;
 
   return (
     <Page
@@ -634,7 +639,10 @@ export function ScraperStateDetailRoute() {
               ? "warning"
               : "online"
         }
-        destinations={workspaceRail(`${WORKSPACE_ROOT}/states`)}
+        destinations={workspaceRail(detailPath, {
+          pageLabel: `${snapshot.state} coverage`,
+          sections: WORKSPACE_SECTIONS.stateCoverage,
+        })}
       >
         <Stack gap={6}>
           <IdleNotice watching={watching} onResume={resume} />

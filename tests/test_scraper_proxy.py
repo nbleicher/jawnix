@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import os
 import re
 import uuid
 
@@ -485,50 +484,7 @@ def test_database_download_is_streamed_without_eager_buffering():
         clear_proxy()
 
 
-@pytest.mark.skipif(
-    not os.environ.get("TEST_SCRAPER_OPS_URL"),
-    reason="TEST_SCRAPER_OPS_URL is required for the staging network contract",
-)
-def test_scraper_staging_network_contract():
-    settings = Settings(
-        JAWNIX_COOKIE_SECURE=False,
-        JAWNIX_SESSION_SECRET="staging-proxy-test-secret",
-        JAWNIX_SCRAPER_OPS_URL=os.environ["TEST_SCRAPER_OPS_URL"],
-        JAWNIX_SCRAPER_OPS_ORIGIN="https://scraper.jawnix.test",
-        JAWNIX_SCRAPER_OPS_USER=os.environ.get(
-            "TEST_SCRAPER_OPS_USER",
-            "operator",
-        ),
-        JAWNIX_SCRAPER_OPS_PASSWORD=os.environ[
-            "TEST_SCRAPER_OPS_PASSWORD"
-        ],
-    )
-    app.dependency_overrides[get_settings] = lambda: settings
-    if hasattr(app.state, "scraper_proxy_state"):
-        delattr(app.state, "scraper_proxy_state")
-    client, _ = isolated_session_client(settings)
-    try:
-        dashboard = client.get("/admin/scraper/")
-        assert dashboard.status_code == 200
-        assert "/admin/scraper/static/app.css" in dashboard.text
-        assert "/admin/scraper/frag/dashboard/stats" in dashboard.text
-
-        stylesheet = client.get("/admin/scraper/static/app.css")
-        assert stylesheet.status_code == 200
-        assert "/admin/scraper/static/fonts/" in stylesheet.text
-
-        fragment = client.get(
-            "/admin/scraper/frag/dashboard/stats",
-            headers={"HX-Request": "true"},
-        )
-        assert fragment.status_code == 200
-        assert "businesses" in fragment.text.lower()
-    finally:
-        client.close()
-        clear_proxy()
-
-
-def test_scraper_ops_timeout_default_exceeds_the_slowest_known_page():
+def test_scraper_ops_timeout_default_exceeds_the_slowest_known_page(monkeypatch):
     """The Scraper database page measured 11.3s against production on
     2026-07-29 — several live aggregates over ~772k rows. The default was 10,
     so httpx raised ReadTimeout, `_raw_native_upstream` swallowed it as a
@@ -536,10 +492,13 @@ def test_scraper_ops_timeout_default_exceeds_the_slowest_known_page():
     request that was merely slow.
 
     Ceilings below a known-good response time are worse than no ceiling: they
-    fail correctly-working systems and blame the wrong component.
+    fail correctly-working systems and blame the wrong component. 30 keeps
+    ~2.5x headroom over the slowest measured page; a regression to, say, 15
+    would sit 3.7s above a measurement that already varies by more than that.
     """
     from jawnix.config import Settings
 
+    monkeypatch.delenv("JAWNIX_SCRAPER_OPS_TIMEOUT_SECONDS", raising=False)
     settings = Settings(JAWNIX_SESSION_SECRET="test-secret-at-least-long-enough")
 
-    assert settings.scraper_ops_timeout_seconds >= 15
+    assert settings.scraper_ops_timeout_seconds >= 30

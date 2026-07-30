@@ -19,12 +19,17 @@
 	# API request even attempted. Production worked only because someone created
 	# the file by hand at some point, unrecorded (#103).
 	#
-	# The field list must match scripts/render-config.sh, the documented way this
-	# file is produced (OPERATIONS.md step 6). When this block first replaced the
-	# bind mount it dropped scraperOpsOrigin, which admin.html reads on sign-out
-	# to terminate the Scraper session — so signing out of the legacy admin
-	# silently stopped revoking privileged Scraper access. tests/test_frontend_shell.py
-	# now compares the two field lists.
+	# This block is the only config renderer in the Compose/VPS deployment. The
+	# field list must cover the checked-in browser contract
+	# — when it first replaced the bind mount it dropped scraperOpsOrigin, which
+	# admin.html reads on sign-out to terminate the Scraper session, so signing
+	# out of the legacy admin silently stopped revoking privileged Scraper
+	# access. tests/test_frontend_shell.py now checks this block against the
+	# contract and the legacy Railway renderer.
+	#
+	# billingEnabled is rendered as a string comparison so any env value yields
+	# valid JavaScript — a bare `{$VAR}` would inject `True` or `yes` as a raw
+	# token and break every page that loads config.js.
 	#
 	# Every value here is public by design: shipped to every browser that loads
 	# the login page.
@@ -35,7 +40,7 @@
   supabaseUrl: '{$JAWNIX_SUPABASE_URL}',
   supabaseAnonKey: '{$JAWNIX_SUPABASE_ANON_KEY}',
   scraperOpsOrigin: '{$JAWNIX_SCRAPER_OPS_ORIGIN:}',
-  billingEnabled: {$JAWNIX_ENABLE_BILLING:false},
+  billingEnabled: '{$JAWNIX_ENABLE_BILLING:false}' === 'true',
 };
 ` 200
 	}

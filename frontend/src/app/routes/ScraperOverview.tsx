@@ -24,7 +24,10 @@ import type {
 } from "./scraperMonitoring";
 import { useOperatorPresence } from "./scraperPresence";
 
-import { workspaceRail } from "./scraperWorkspaceNav";
+import {
+  WORKSPACE_SECTIONS,
+  workspaceRail,
+} from "./scraperWorkspaceNav";
 import "./ScraperOverview.css";
 
 
@@ -363,7 +366,14 @@ export function ScraperOverviewRoute() {
       title="Scraper Operations"
       description="Live acquisition monitoring and pipeline control, mediated and audited by Jawnix."
     >
-      <TerminalWorkspace status={status} tone={tone} destinations={workspaceRail("/app/admin/acquisition/scraper/workspace", { sectionsOn: true })}>
+      <TerminalWorkspace
+        status={status}
+        tone={tone}
+        destinations={workspaceRail(
+          "/app/admin/acquisition/scraper/workspace",
+          { sections: WORKSPACE_SECTIONS.overview },
+        )}
+      >
         {offline ? (
           <Stack gap={4}>
             <ErrorState

@@ -1,3 +1,6 @@
+# Generated at runtime by railway-start.sh (legacy platform); on the VPS,
+# Caddy renders /config.js from the environment and no file exists on disk.
+config.js
 .env
 invoices/
 batches/
