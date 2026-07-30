@@ -135,11 +135,16 @@ describe("administrator Customer directory", () => {
 
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveAccessibleDescription(
-      /Administrators never set or see a password/,
+      /administrators never set or see a password/i,
     );
     expect(within(dialog).getByLabelText(/Email/)).toHaveAttribute(
       "type",
       "email",
+    );
+    expect(within(dialog).queryByLabelText("Licensed States")).toBeNull();
+    expect(within(dialog).queryByLabelText("Reason")).toBeNull();
+    expect(dialog).toHaveAccessibleDescription(
+      /Customer sets Licensed States from Account after accepting/,
     );
     expect(document.querySelector('input[type="password"]')).toBeNull();
   });

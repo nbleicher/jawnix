@@ -3863,11 +3863,12 @@ async def create_customer(
         )
     slug = _customer_slug(db, name, payload.slug)
     auth_user_id = await _dispatch_invitation(settings, payload)
+    creation_reason = "Created a Customer and invited its User Account"
 
     customer = Customer(
         slug=slug,
         name=name,
-        licensed_states=payload.licensed_states,
+        licensed_states=[],
         agency_id=None,
         active=True,
     )
@@ -3880,7 +3881,7 @@ async def create_customer(
             email=str(payload.email).lower(),
             first_name=payload.first_name.strip(),
             last_name=payload.last_name.strip(),
-            licensed_states=payload.licensed_states,
+            licensed_states=[],
         )
         db.add(profile)
     else:
@@ -3893,7 +3894,7 @@ async def create_customer(
         target_type="customer",
         target_id=customer.id,
         actor_id=principal.user_id,
-        reason=payload.reason,
+        reason=creation_reason,
         details={
             "before": None,
             "after": {
@@ -3912,7 +3913,7 @@ async def create_customer(
             auth_user_id=auth_user_id,
             email=str(payload.email),
             actor_id=principal.user_id,
-            reason=payload.reason,
+            reason=creation_reason,
         )
     except UserAccountConflict as conflict:
         raise HTTPException(
