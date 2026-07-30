@@ -173,3 +173,33 @@ def test_registering_the_shell_adds_no_route_outside_the_app_prefix():
 
     assert added, "expected the shell to register routes"
     assert all(path.startswith("/app") for path in added), added
+
+
+def test_config_js_field_list_matches_render_config_script():
+    """`/config.js` is rendered twice: by scripts/render-config.sh (the documented
+    deploy step) and by the Caddyfile (for compose). Two renderings of one
+    contract drift, and the first drift already shipped — the Caddy block dropped
+    `scraperOpsOrigin`, which admin.html reads on sign-out to terminate the
+    Scraper session, so signing out silently stopped revoking privileged access.
+
+    Compares the field names each produces.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+
+    script = (root / "scripts" / "render-config.sh").read_text()
+    script_fields = set(re.findall(r'echo "  ([a-zA-Z]+):', script))
+
+    caddyfile = (root / "Caddyfile").read_text()
+    block = caddyfile[caddyfile.index("handle /config.js") :]
+    block = block[: block.index("` 200")]
+    caddy_fields = set(re.findall(r"^  ([a-zA-Z]+):", block, re.M))
+
+    assert script_fields, "no fields parsed from render-config.sh"
+    assert script_fields == caddy_fields, (
+        "config.js renderings disagree — "
+        f"only in script: {script_fields - caddy_fields}, "
+        f"only in Caddyfile: {caddy_fields - script_fields}"
+    )

@@ -84,6 +84,8 @@ services:
       # Rendered into /config.js by the Caddyfile. Both are public by design.
       JAWNIX_SUPABASE_URL: ${JAWNIX_SUPABASE_URL:?set JAWNIX_SUPABASE_URL}
       JAWNIX_SUPABASE_ANON_KEY: ${JAWNIX_SUPABASE_ANON_KEY:?set JAWNIX_SUPABASE_ANON_KEY}
+      # admin.html reads this on sign-out to terminate the Scraper session.
+      JAWNIX_SCRAPER_OPS_ORIGIN: ${JAWNIX_SCRAPER_OPS_ORIGIN:-}
       JAWNIX_ENABLE_BILLING: ${JAWNIX_ENABLE_BILLING:-false}
     ports:
       - "80:80"
