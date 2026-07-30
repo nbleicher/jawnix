@@ -1,0 +1,44 @@
+# Production edge adapter. NOT optional, NOT staging-only.
+#
+# jawnix.com TLS does not terminate here. It terminates in buzz-prod-caddy-1, a
+# container belonging to a different product on the same box, which owns
+# 0.0.0.0:80 and :443. Its Caddyfile routes by host:
+#
+#   staging.jawnix.com, jawnix.com, www.jawnix.com  ->  reverse_proxy jawnix-caddy:8080
+#   scraper.jawnix.com                              ->  reverse_proxy jawnix-caddy:8081
+#
+# This file is what makes those upstreams exist: it names the container
+# `jawnix-caddy`, serves plain HTTP on :8080/:8081 instead of terminating TLS,
+# releases 80/443 with `ports: !reset []`, and joins buzz-prod's network so the
+# edge can reach it. Jawnix's own Caddyfile is still the path router behind that
+# proxy — /api/*, /app*, /admin/scraper* and the static pages all resolve here.
+#
+# ⚠️ Running compose WITHOUT this file recreates caddy under compose's default
+# name, `jawnix-caddy` ceases to exist, and every request to jawnix.com becomes
+# 502 with `dial tcp: lookup jawnix-caddy: no such host`. That happened on
+# 2026-07-30 and took the site down for ~25 minutes — see for-noah-review.md
+# §0.11.
+#
+# It was previously called docker-compose.staging.yml, which is why it was
+# mistaken for disposable and deleted. Production sets
+# COMPOSE_FILE=docker-compose.yml:docker-compose.edge.yml so it cannot be omitted.
+#
+# ⚠️ Do not attach other jawnix services to the edge network. Both networks
+# contain a container answering to `postgres`; a service on both resolves the
+# wrong one. Only caddy belongs on it, and only to be reachable.
+
+services:
+  caddy:
+    container_name: jawnix-caddy
+    environment:
+      JAWNIX_DOMAIN: ":8080"
+      JAWNIX_SCRAPER_OPS_DOMAIN: ":8081"
+    ports: !reset []
+    networks:
+      - private
+      - edge
+
+networks:
+  edge:
+    external: true
+    name: buzz-prod_buzz-net

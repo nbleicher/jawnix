@@ -203,3 +203,52 @@ def test_config_js_field_list_matches_render_config_script():
         f"only in script: {script_fields - caddy_fields}, "
         f"only in Caddyfile: {caddy_fields - script_fields}"
     )
+
+
+def test_the_production_edge_adapter_exists_and_names_the_upstream():
+    """jawnix.com TLS terminates in another product's Caddy (buzz-prod-caddy-1),
+    which proxies to a container named `jawnix-caddy` on :8080.
+    docker-compose.edge.yml is what creates that container.
+
+    Deleting it does nothing until something recreates the caddy container, at
+    which point every request to jawnix.com becomes 502 with
+    `dial tcp: lookup jawnix-caddy: no such host`. That is a two-day-latent
+    outage, and it happened on 2026-07-30.
+
+    This asserts the three properties the edge depends on, so the file cannot be
+    removed or quietly reshaped without a test failing.
+    """
+    from pathlib import Path
+
+    adapter = Path(__file__).resolve().parent.parent / "docker-compose.edge.yml"
+    assert adapter.is_file(), (
+        "docker-compose.edge.yml is missing — buzz-prod's Caddy proxies to the "
+        "container it names, so removing it takes jawnix.com down on the next "
+        "container recreation"
+    )
+    text = adapter.read_text()
+
+    # The upstream hostname buzz-prod's Caddyfile dials.
+    assert "container_name: jawnix-caddy" in text
+    # Plain HTTP behind the edge; this Caddy must not try to terminate TLS.
+    assert 'JAWNIX_DOMAIN: ":8080"' in text
+    # 80/443 belong to buzz-prod's Caddy; binding them here fails to start.
+    assert "ports: !reset []" in text
+    # Reachability from the edge network.
+    assert "buzz-prod_buzz-net" in text
+
+
+def test_env_example_pins_both_compose_files():
+    """Production must never run compose without the edge adapter. COMPOSE_FILE
+    makes that impossible rather than merely documented — a bare
+    `docker compose up -d` would otherwise reproduce the 2026-07-30 outage.
+    """
+    from pathlib import Path
+
+    env = (Path(__file__).resolve().parent.parent / ".env.example").read_text()
+
+    line = next(
+        (l for l in env.splitlines() if l.startswith("COMPOSE_FILE=")), None
+    )
+    assert line, ".env.example must set COMPOSE_FILE"
+    assert "docker-compose.yml" in line and "docker-compose.edge.yml" in line, line
