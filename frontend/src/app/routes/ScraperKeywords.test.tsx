@@ -388,4 +388,41 @@ describe("keyword parity", () => {
     expect(editor).toHaveValue("Plumbers\nroofers");
     expect(screen.getByRole("button", { name: "Save reviewed list" })).toBeDisabled();
   });
+
+  it("keeps the editor draft mounted when reloading an unavailable workspace", async () => {
+    const user = userEvent.setup();
+    mockRequests([
+      {
+        path: "/api/admin/scraper/keywords/preview",
+        status: 503,
+        body: { detail: "Scraper Operations is unavailable." },
+      },
+      {
+        path: "/api/admin/scraper/keywords",
+        body: workspace({
+          service_state: "unavailable",
+          current: [],
+          winners: [],
+        }),
+      },
+    ]);
+    renderKeywords();
+    const editor = screen.getByRole("textbox", { name: /Keyword list/ });
+    await user.clear(editor);
+    await user.type(editor, "Plumbers\nroofers");
+    await user.click(screen.getByRole("button", { name: "Preview changes" }));
+
+    await user.click(
+      await screen.findByRole("button", { name: "Reload current keywords" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Current keywords are still unavailable",
+      ),
+    );
+    expect(screen.queryByText(/Current active keywords reloaded/))
+      .not.toBeInTheDocument();
+    expect(editor).toHaveValue("Plumbers\nroofers");
+  });
 });

@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import html
 import hmac
+import logging
 import re
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -116,6 +118,8 @@ from .scraper_runtime import (
 from .states import US_STATES
 
 
+logger = logging.getLogger(__name__)
+
 MOUNT_PREFIX = "/admin/scraper"
 SCRAPER_SESSION_COOKIE = "jawnix_scraper_session"
 HANDOFF_MAX_AGE_SECONDS = 60
@@ -151,6 +155,11 @@ PATH_ATTRIBUTE = re.compile(
 class ScraperProxyState:
     settings_key: tuple[str, str, float]
     last_success: datetime | None = None
+
+
+@dataclass
+class ScraperUpstreamDiagnostics:
+    transport_error: str | None = None
 
 
 class PipelineControl(BaseModel):
@@ -340,6 +349,8 @@ async def _raw_native_upstream(
     method: str,
     path: str,
     form: dict[str, object] | None = None,
+    timeout: float | None = None,
+    diagnostics: ScraperUpstreamDiagnostics | None = None,
 ) -> httpx.Response | None:
     if (
         not settings.scraper_ops_url
@@ -348,6 +359,7 @@ async def _raw_native_upstream(
     ):
         return None
     transport = getattr(request.app.state, "scraper_proxy_transport", None)
+    started_at = time.perf_counter()
     try:
         async with httpx.AsyncClient(
             base_url=settings.scraper_ops_url.rstrip("/"),
@@ -355,12 +367,27 @@ async def _raw_native_upstream(
                 settings.scraper_ops_user,
                 settings.scraper_ops_password,
             ),
-            timeout=settings.scraper_ops_timeout_seconds,
+            timeout=(
+                settings.scraper_ops_timeout_seconds
+                if timeout is None
+                else timeout
+            ),
             follow_redirects=False,
             transport=transport,
         ) as client:
             upstream = await client.request(method, path, data=form)
-    except httpx.RequestError:
+    except httpx.RequestError as error:
+        transport_error = type(error).__name__
+        if diagnostics is not None:
+            diagnostics.transport_error = transport_error
+        logger.warning(
+            "Scraper upstream request failed: transport_error=%s "
+            "method=%s path=%s elapsed_seconds=%.3f",
+            transport_error,
+            method,
+            path,
+            time.perf_counter() - started_at,
+        )
         return None
     return upstream
 
@@ -372,6 +399,7 @@ async def _native_upstream(
     method: str,
     path: str,
     form: dict[str, object] | None = None,
+    timeout: float | None = None,
 ) -> httpx.Response | None:
     upstream = await _raw_native_upstream(
         request,
@@ -379,6 +407,7 @@ async def _native_upstream(
         method=method,
         path=path,
         form=form,
+        timeout=timeout,
     )
     if upstream is None:
         return None
@@ -1563,12 +1592,20 @@ async def preview_scraper_keywords(
     response: Response,
     principal: Principal = Depends(require_admin),
     settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
 ):
     """Preview is a fresh read, so its version can safely gate the later save."""
 
     _require_scraper_grant(request, response, principal, settings)
     editor = await _keyword_editor(request, settings)
     if editor is None:
+        _audit_keyword_failure(
+            db,
+            principal=principal,
+            action="scraper_keywords_preview_failed",
+            reason="Scraper keyword preview could not reach the owning service",
+            details={"outcome": "upstream_unavailable"},
+        )
         return _native_unavailable(_state(request, settings))
     current, _, _ = editor
     diff = diff_keywords(current, payload.text)
@@ -1761,6 +1798,7 @@ async def generate_scraper_keywords(
     """Ask the existing generator for a review-only draft."""
 
     _require_scraper_grant(request, response, principal, settings)
+    diagnostics = ScraperUpstreamDiagnostics()
     upstream = await _raw_native_upstream(
         request,
         settings,
@@ -1770,6 +1808,8 @@ async def generate_scraper_keywords(
             "mode": payload.mode,
             "seed_keyword": payload.seed_keyword or "",
         },
+        timeout=settings.scraper_ops_generation_timeout_seconds,
+        diagnostics=diagnostics,
     )
     if upstream is None:
         _audit_keyword_failure(
@@ -1781,6 +1821,7 @@ async def generate_scraper_keywords(
                 "mode": payload.mode,
                 "seedKeyword": payload.seed_keyword,
                 "outcome": "upstream_unavailable",
+                "transportError": diagnostics.transport_error,
             },
         )
         return _native_unavailable(_state(request, settings))

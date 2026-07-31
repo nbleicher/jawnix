@@ -344,11 +344,18 @@ export function ScraperKeywordsRoute() {
   async function reloadCurrent() {
     setBusy("reload");
     setFailure("");
+    setOutcome("");
     try {
       const current = await fetchKeywordWorkspace();
-      setWorkspace(current);
       setPreview(null);
       setPreviewText("");
+      if (current.service_state === "unavailable") {
+        setFailure(
+          "Current keywords are still unavailable. Your draft remains in the editor; try again when Scraper Operations is reachable.",
+        );
+        return;
+      }
+      setWorkspace(current);
       setOutcome(
         "Current active keywords reloaded. Your draft is still in the editor; preview it again.",
       );

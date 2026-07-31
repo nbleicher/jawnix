@@ -87,6 +87,14 @@ class Settings(BaseSettings):
         default=30,
         alias="JAWNIX_SCRAPER_OPS_TIMEOUT_SECONDS",
     )
+    #: Generating 25 keywords waits on substantially more LLM output than a
+    #: normal Scraper page request. The nightly adjacent-keyword path already
+    #: reserves at least 60s for only three suggestions, so the interactive
+    #: generator gets its own budget without weakening every proxy deadline.
+    scraper_ops_generation_timeout_seconds: float = Field(
+        default=180,
+        alias="JAWNIX_SCRAPER_OPS_GENERATION_TIMEOUT_SECONDS",
+    )
     scraper_publication_hour_utc: int = Field(
         default=8,
         alias="JAWNIX_SCRAPER_PUBLICATION_HOUR_UTC",
