@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from sqlalchemy import select
 
 from jawnix.api import app
-from jawnix.models import AuditEntry
+from jawnix.models import AuditEntry, KeywordHistory
 from jawnix.scraper_keywords import keyword_version
 from scraper_fake import KEYWORDS, ScraperFake
 from test_scraper_workspace import (  # noqa: F401 — shared fixtures
@@ -36,6 +38,7 @@ def post(client, csrf, path, body):
 
 def test_keyword_workspace_projects_editor_rankings_and_rollover(
     workspace_client,
+    session,
 ):
     client, _, fake = privileged(workspace_client)
 
@@ -68,6 +71,40 @@ def test_keyword_workspace_projects_editor_rankings_and_rollover(
         "last_used": "Jul 28",
     }
     assert sorted(fake.keyword_calls) == ["list", "winners"]
+    assert set(
+        session.execute(
+            select(KeywordHistory.term, KeywordHistory.origin)
+        ).all()
+    ) == {
+        ("electricians", "active_list"),
+        ("plumbers", "active_list"),
+        ("plumbers", "winner"),
+        ("roof repair", "winner"),
+    }
+    now = workspace_client[3]
+    now[0] += timedelta(minutes=10)
+    assert client.get("/api/admin/scraper/keywords").status_code == 200
+    active = session.scalars(
+        select(KeywordHistory).where(
+            KeywordHistory.term == "electricians",
+            KeywordHistory.origin == "active_list",
+        )
+    ).one()
+    assert active.first_seen_at.replace(tzinfo=timezone.utc) == datetime(
+        2026,
+        7,
+        28,
+        12,
+        tzinfo=timezone.utc,
+    )
+    assert active.last_seen_at.replace(tzinfo=timezone.utc) == datetime(
+        2026,
+        7,
+        28,
+        12,
+        10,
+        tzinfo=timezone.utc,
+    )
 
 
 def test_preview_uses_the_supported_text_format_and_changes_nothing(
@@ -185,6 +222,13 @@ def test_reviewed_save_preserves_enqueue_and_is_audited(
     assert entry.details["addedCount"] == 1
     assert entry.details["removedCount"] == 1
     assert entry.details["enqueueRequested"] is True
+    assert set(
+        session.scalars(
+            select(KeywordHistory.term).where(
+                KeywordHistory.origin == "accepted_save"
+            )
+        )
+    ) == {"plumbers", "roofers"}
 
 
 def test_concurrent_change_is_refused_and_can_be_previewed_again(

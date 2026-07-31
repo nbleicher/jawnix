@@ -1013,6 +1013,70 @@ class ScraperRuntimeConfigurationRevision(Base):
     )
 
 
+class KeywordHistory(Base):
+    """One normalized keyword observed through one provenance path."""
+
+    __tablename__ = "keyword_history"
+    id: Mapped[int] = mapped_column(
+        ID_TYPE,
+        primary_key=True,
+        autoincrement=True,
+    )
+    term: Mapped[str] = mapped_column(String(320), index=True, nullable=False)
+    origin: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+        nullable=False,
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "term",
+            "origin",
+            name="uq_keyword_history_term_origin",
+        ),
+        CheckConstraint(
+            "origin IN ('legacy_enqueue_log', 'legacy_keyword_history', "
+            "'legacy_businesses', 'active_list', 'winner', "
+            "'accepted_save')",
+            name="ck_keyword_history_origin",
+        ),
+        CheckConstraint(
+            "first_seen_at <= last_seen_at",
+            name="ck_keyword_history_seen_range",
+        ),
+    )
+
+
+class KeywordHistoryImport(Base):
+    """Durable proof that one exact legacy snapshot was imported."""
+
+    __tablename__ = "keyword_history_imports"
+    id: Mapped[int] = mapped_column(
+        ID_TYPE,
+        primary_key=True,
+        autoincrement=True,
+    )
+    source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    checksum: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        nullable=False,
+    )
+    report: Mapped[dict] = mapped_column(JSON, nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
 class SourceSegment(Base):
     __tablename__ = "source_segments"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
