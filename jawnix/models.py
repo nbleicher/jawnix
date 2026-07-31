@@ -1077,6 +1077,70 @@ class KeywordHistoryImport(Base):
     )
 
 
+class KeywordGenerationDraftRecord(Base):
+    """A Jawnix-owned, review-only keyword generation draft."""
+
+    __tablename__ = "keyword_generation_drafts"
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    administrator_id: Mapped[uuid.UUID] = mapped_column(
+        index=True,
+        nullable=False,
+    )
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    seed_keyword: Mapped[str | None] = mapped_column(String(200))
+    model: Mapped[str] = mapped_column(String(200), nullable=False)
+    terms: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    exclusion_metrics: Mapped[dict] = mapped_column(JSON, nullable=False)
+    candidate_metrics: Mapped[dict] = mapped_column(JSON, nullable=False)
+    excluded_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    acceptance_status: Mapped[str] = mapped_column(
+        String(16),
+        default="pending",
+        index=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+        nullable=False,
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "mode IN ('broad', 'adjacent')",
+            name="ck_keyword_generation_drafts_mode",
+        ),
+        CheckConstraint(
+            "acceptance_status IN ('pending', 'accepted')",
+            name="ck_keyword_generation_drafts_acceptance_status",
+        ),
+        CheckConstraint(
+            "excluded_count >= 0",
+            name="ck_keyword_generation_drafts_excluded_count",
+        ),
+        CheckConstraint(
+            "created_at < expires_at",
+            name="ck_keyword_generation_drafts_expiry",
+        ),
+    )
+
+
 class SourceSegment(Base):
     __tablename__ = "source_segments"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

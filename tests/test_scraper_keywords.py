@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
 
 from jawnix.api import app
-from jawnix.models import AuditEntry, KeywordHistory
+from jawnix.keyword_generation import (
+    GenerationErrorCode,
+    KeywordGenerationResult,
+    generation_error,
+)
+from jawnix.models import (
+    AuditEntry,
+    KeywordGenerationDraftRecord,
+    KeywordHistory,
+)
 from jawnix.scraper_keywords import keyword_version
-from scraper_fake import KEYWORDS, ScraperFake
+from scraper_fake import GenerationFake, KEYWORDS, ScraperFake
 from test_scraper_workspace import (  # noqa: F401 — shared fixtures
     enter_and_verify,
     workspace_client,
@@ -18,6 +28,14 @@ from test_scraper_workspace import (  # noqa: F401 — shared fixtures
 
 def arm(fake: ScraperFake) -> ScraperFake:
     app.state.scraper_operations = fake
+    app.state.keyword_generation_provider = GenerationFake(
+        available=fake.ai_enabled
+    )
+    return fake
+
+
+def arm_generation(fake: GenerationFake) -> GenerationFake:
+    app.state.keyword_generation_provider = fake
     return fake
 
 
@@ -310,6 +328,22 @@ def test_ai_generation_creates_only_a_review_draft(
         )
     ).one()
     assert entry.details["activeConfigurationChanged"] is False
+    stored = session.get(
+        KeywordGenerationDraftRecord,
+        uuid.UUID(body["generation_id"]),
+    )
+    assert stored.administrator_id is not None
+    assert stored.model == "test/generation-model"
+    assert stored.terms == body["keywords"]
+    assert stored.acceptance_status == "pending"
+    assert stored.expires_at - stored.created_at == timedelta(hours=24)
+    assert stored.exclusion_metrics == {
+        "activeCount": 2,
+        "winnerCount": 2,
+        "historyCount": 0,
+        "uniqueCount": 3,
+    }
+    assert stored.candidate_metrics["attemptCount"] == 2
 
 
 def test_generated_draft_is_accepted_only_by_a_later_reviewed_save(
@@ -345,13 +379,113 @@ def test_generated_draft_is_accepted_only_by_a_later_reviewed_save(
 
     assert saved.status_code == 200
     assert len(fake.keywords) == 24
-    assert fake.keyword_writes[0]["generation_id"] == generated["generation_id"]
+    assert "generation_id" not in fake.keyword_writes[0]
+    stored = session.get(
+        KeywordGenerationDraftRecord,
+        uuid.UUID(generated["generation_id"]),
+    )
+    assert stored.acceptance_status == "accepted"
+    assert stored.accepted_at is not None
     entry = session.scalars(
         select(AuditEntry).where(
             AuditEntry.action == "scraper_keywords_saved"
         )
     ).one()
     assert entry.details["generationAccepted"] is True
+
+
+def test_generation_draft_stays_pending_when_the_final_save_fails(
+    workspace_client,
+    session,
+):
+    client, csrf, _ = privileged(workspace_client)
+    generated = post(
+        client,
+        csrf,
+        "/api/admin/scraper/keywords/generate",
+        {"mode": "broad"},
+    ).json()
+    text = "\n".join(generated["keywords"])
+    preview = post(
+        client,
+        csrf,
+        "/api/admin/scraper/keywords/preview",
+        {"text": text},
+    ).json()
+    arm(ScraperFake(offline=True))
+
+    failed = post(
+        client,
+        csrf,
+        "/api/admin/scraper/keywords/save",
+        {
+            "text": text,
+            "expected_version": preview["expected_version"],
+            "review_token": preview["review_token"],
+            "generation_id": generated["generation_id"],
+        },
+    )
+
+    assert failed.status_code == 503
+    stored = session.get(
+        KeywordGenerationDraftRecord,
+        uuid.UUID(generated["generation_id"]),
+    )
+    assert stored.acceptance_status == "pending"
+    assert stored.accepted_at is None
+
+
+def test_generation_lock_conflict_keeps_the_existing_retryable_409(
+    workspace_client,
+    monkeypatch,
+):
+    client, csrf, _ = privileged(workspace_client)
+    generator = arm_generation(GenerationFake())
+    monkeypatch.setattr(
+        "jawnix.scraper_proxy.try_generation_lock",
+        lambda _session: False,
+    )
+
+    response = post(
+        client,
+        csrf,
+        "/api/admin/scraper/keywords/generate",
+        {"mode": "broad"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Another keyword generation is already running"
+    )
+    assert generator.calls == []
+
+
+def test_generation_endpoint_never_returns_a_partial_provider_result(
+    workspace_client,
+):
+    client, csrf, _ = privileged(workspace_client)
+
+    class PartialGenerationFake(GenerationFake):
+        def generate_keywords(self, **_kwargs):
+            return KeywordGenerationResult(
+                terms=[f"Partial Trade {index}" for index in range(24)],
+                excluded_count=0,
+                candidate_metrics={"attemptCount": 3},
+            )
+
+    arm_generation(PartialGenerationFake())
+
+    response = post(
+        client,
+        csrf,
+        "/api/admin/scraper/keywords/generate",
+        {"mode": "broad"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "AI could not produce 25 sufficiently distinct keywords; try again"
+    )
 
 
 def test_ai_unavailable_and_provider_failure_are_recoverable_and_audited(
@@ -372,9 +506,9 @@ def test_ai_unavailable_and_provider_failure_are_recoverable_and_audited(
     assert unavailable.status_code == 422
     assert unavailable.json()["detail"] == "AI generation is not configured"
 
-    failing = arm(
-        ScraperFake(
-            generation_error="DeepSeek is temporarily unavailable; try again"
+    failing = arm_generation(
+        GenerationFake(
+            error=generation_error(GenerationErrorCode.PROVIDER_UNAVAILABLE)
         )
     )
     failed = post(
@@ -385,7 +519,7 @@ def test_ai_unavailable_and_provider_failure_are_recoverable_and_audited(
     )
     assert failed.status_code == 503
     assert "temporarily unavailable" in failed.json()["detail"]
-    assert failing.keywords == KEYWORDS
+    assert len(failing.calls) == 1
     assert len(
         session.scalars(
             select(AuditEntry).where(
@@ -399,9 +533,9 @@ def test_generation_timeout_is_diagnosable_and_audited(
     workspace_client,
     session,
 ):
-    client, csrf, fake = privileged(
-        workspace_client,
-        ScraperFake(generation_timeout=True),
+    client, csrf, _ = privileged(workspace_client)
+    arm_generation(
+        GenerationFake(error=generation_error(GenerationErrorCode.TIMEOUT))
     )
 
     response = post(
@@ -413,16 +547,14 @@ def test_generation_timeout_is_diagnosable_and_audited(
 
     assert response.status_code == 503
     assert response.json() == {
-        "detail": "Scraper Operations is unavailable.",
-        "lastSuccessfulAt": None,
+        "detail": "The AI provider timed out; try again"
     }
     entry = session.scalars(
         select(AuditEntry).where(
             AuditEntry.action == "scraper_keyword_generation_failed"
         )
     ).one()
-    assert entry.details["outcome"] == "upstream_unavailable"
-    assert entry.details["transportError"] == "ReadTimeout"
+    assert entry.details["outcome"] == "provider_timeout"
 
 
 def test_preview_transport_failure_is_audited(workspace_client, session):

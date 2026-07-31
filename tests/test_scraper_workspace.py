@@ -89,6 +89,7 @@ def workspace_settings(settings) -> Settings:
             "test-scraper-control-token-0000000000000000"
         ),
         JAWNIX_SCRAPER_OPS_TIMEOUT_SECONDS=1,
+        OPENROUTER_API_KEY="test-openrouter-key",
     )
 
 
@@ -149,6 +150,8 @@ def workspace_client(
             "scraper_proxy_transport",
             "scraper_proxy_state",
             "scraper_operations",
+            "keyword_generation_provider",
+            "keyword_generation_transport",
         ):
             if hasattr(app.state, attribute):
                 delattr(app.state, attribute)
