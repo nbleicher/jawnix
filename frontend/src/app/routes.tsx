@@ -106,7 +106,7 @@ import {
 } from "./routes/CustomerFeedback";
 import { CustomerRequestsRoute } from "./routes/CustomerRequests";
 import { batchRequestsLoader } from "./routes/batchRequests";
-import { licensedStatesLoader } from "./routes/licensedStates";
+import { customerAccountLoader } from "./routes/licensedStates";
 
 /**
  * Route table for the redesigned application.
@@ -164,7 +164,7 @@ export const router = createBrowserRouter(
             },
             {
               path: "account",
-              loader: licensedStatesLoader,
+              loader: customerAccountLoader,
               element: <CustomerAccountRoute />,
             },
           ],

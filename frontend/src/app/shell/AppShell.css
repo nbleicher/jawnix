@@ -70,6 +70,10 @@
   gap: var(--jx-space-2);
 }
 
+.jx-shell__header-actions .jx-button {
+  white-space: nowrap;
+}
+
 .jx-shell__progress {
   height: 2px;
   background: transparent;
@@ -127,5 +131,19 @@
 @media (min-width: 64rem) {
   .jx-shell__main {
     padding: var(--jx-space-6);
+  }
+}
+
+@media (max-width: 32rem) {
+  .jx-shell__banner {
+    gap: var(--jx-space-2);
+  }
+
+  .jx-shell__header-actions {
+    gap: 0;
+  }
+
+  .jx-shell__header-actions .jx-button {
+    padding-inline: var(--jx-space-3);
   }
 }
