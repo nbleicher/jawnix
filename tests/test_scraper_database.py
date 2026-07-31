@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import httpx
 from sqlalchemy import select
 
 from jawnix.api import app
 from jawnix.models import AuditEntry
+from jawnix.scraper_database import DatabaseExport
 from scraper_fake import ScraperFake
 from test_scraper_workspace import (  # noqa: F401 — shared fixtures
     enter_and_verify,
@@ -16,7 +16,7 @@ from test_scraper_workspace import (  # noqa: F401 — shared fixtures
 def privileged(workspace_client, fake: ScraperFake | None = None):
     client, csrf, _, _ = workspace_client
     fake = fake or ScraperFake()
-    app.state.scraper_proxy_transport = httpx.MockTransport(fake)
+    app.state.scraper_operations = fake
     enter_and_verify(client, csrf)
     return client, csrf, fake
 
@@ -75,14 +75,11 @@ def test_database_browse_preserves_totals_filters_paging_and_fields(
     assert [
         item["filename"] for item in body["stored_exports"]
     ] == ["OH.csv", "PA.csv"]
-    browse_call = next(
-        call for call in fake.calls if call.url.path == "/database"
-    )
-    assert dict(browse_call.url.params) == {
+    assert fake.database_calls[0] == ("workspace", {
         "search": "plumbing",
         "state": "oh",
-        "page": "1",
-    }
+        "page": 1,
+    })
 
 
 def test_state_detail_preserves_niche_context_and_totals(workspace_client):
@@ -111,7 +108,7 @@ def test_state_detail_preserves_niche_context_and_totals(workspace_client):
             "unique_phones": 29_204,
         },
     ]
-    assert fake.calls[-1].url.path == "/database/states/oh"
+    assert fake.database_calls[-1] == ("state", "oh")
 
 
 def test_single_niche_and_multi_state_csv_keep_data_and_filename_semantics(
@@ -146,8 +143,10 @@ def test_single_niche_and_multi_state_csv_keep_data_and_filename_semantics(
         "OH Business,5550000000,OH",
         "PA Business,5550000000,PA",
     ]
-    assert fake.calls[-2].url.params.get_list("keyword") == ["plumbers"]
-    assert fake.calls[-1].url.params.get_list("state") == ["oh", "pa"]
+    _, (_, state_payload) = fake.database_calls[-2]
+    _, bulk_payload = fake.database_calls[-1]
+    assert state_payload.niches == ["plumbers"]
+    assert bulk_payload.states == ["oh", "pa"]
 
 
 def test_regeneration_is_audited_and_stored_exports_remain_downloadable(
@@ -193,7 +192,7 @@ def test_regeneration_is_audited_and_stored_exports_remain_downloadable(
 
 def test_invalid_export_inputs_are_rejected_before_upstream(workspace_client):
     client, _, fake = privileged(workspace_client)
-    calls_before = len(fake.calls)
+    calls_before = len(fake.database_calls)
 
     missing_state = client.get(
         "/api/admin/scraper/database/exports/states"
@@ -209,7 +208,7 @@ def test_invalid_export_inputs_are_rejected_before_upstream(workspace_client):
     assert missing_state.status_code == 422
     assert missing_niche.status_code == 422
     assert invalid_filename.status_code == 400
-    assert len(fake.calls) == calls_before
+    assert len(fake.database_calls) == calls_before
 
 
 def test_authorization_and_privileged_session_guard_every_database_action(
@@ -251,18 +250,14 @@ def test_service_failures_and_bad_headers_never_leak_private_details(
         assert value not in browse.text
         assert value not in download.text
 
-    app.state.scraper_proxy_transport = httpx.MockTransport(
-        lambda _request: httpx.Response(
-            200,
-            headers={
-                "Content-Type": "text/csv",
-                "Content-Disposition": (
-                    'attachment; filename="OH.csv\r\nX-Internal: 10.77.0.2"'
-                ),
-            },
-            text="private-host=10.77.0.2",
-        )
-    )
+    class PoisonedExportFake(ScraperFake):
+        async def export_database_state(self, state, payload):
+            return DatabaseExport(
+                filename="OH.csv\r\nX-Internal.csv",
+                content="private-host=10.77.0.2",
+            )
+
+    app.state.scraper_operations = PoisonedExportFake()
     poisoned = client.get(
         "/api/admin/scraper/database/exports/state/OH"
     )
@@ -272,33 +267,29 @@ def test_service_failures_and_bad_headers_never_leak_private_details(
     assert "X-Internal" not in poisoned.text
 
 
-class FailingCSVStream(httpx.AsyncByteStream):
-    async def __aiter__(self):
-        yield b"business_name,phone_number,state\n"
-        raise httpx.ReadTimeout("10.77.0.2 read timed out")
-
-
-def test_midstream_timeout_ends_download_without_appending_error_details(
+def test_declared_download_errors_keep_the_existing_public_messages(
     workspace_client,
 ):
-    client, _, _ = privileged(workspace_client)
-    app.state.scraper_proxy_transport = httpx.MockTransport(
-        lambda _request: httpx.Response(
-            200,
-            headers={
-                "Content-Type": "text/csv",
-                "Content-Disposition": (
-                    'attachment; filename="OH-all-phone-leads-2026-07-29.csv"'
-                ),
-            },
-            stream=FailingCSVStream(),
-        )
+    class MissingExportFake(ScraperFake):
+        async def stored_database_export(self, filename):
+            from jawnix.scraper_operations import ScraperOperationsError
+
+            raise ScraperOperationsError(
+                status_code=404,
+                detail="private storage location is gone",
+            )
+
+    client, _, _ = privileged(
+        workspace_client,
+        MissingExportFake(),
     )
 
     response = client.get(
-        "/api/admin/scraper/database/exports/state/OH"
+        "/api/admin/scraper/database/exports/stored/OH.csv"
     )
 
-    assert response.status_code == 200
-    assert response.content == b"business_name,phone_number,state\n"
-    assert b"10.77.0.2" not in response.content
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "The requested Scraper export was not found."
+    }
+    assert "private storage location" not in response.text
