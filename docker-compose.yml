@@ -87,6 +87,9 @@ services:
       # admin.html reads this on sign-out to terminate the Scraper session.
       JAWNIX_SCRAPER_OPS_ORIGIN: ${JAWNIX_SCRAPER_OPS_ORIGIN:-}
       JAWNIX_ENABLE_BILLING: ${JAWNIX_ENABLE_BILLING:-false}
+      # UI cutover (#71): when true, Caddy 302s the legacy page URLs to /app.
+      # The api container reads the same flag from .env to serve the shell.
+      JAWNIX_ENABLE_NEW_UI: ${JAWNIX_ENABLE_NEW_UI:-false}
     ports:
       - "80:80"
       - "443:443"
