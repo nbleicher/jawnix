@@ -165,10 +165,7 @@ export async function mockLicensedStates(
     };
     return json(route, {
       account: state.account,
-      overview: {
-        ...CUSTOMER_OVERVIEW,
-        licensed_states: reviewedStates,
-      },
+      overview: CUSTOMER_OVERVIEW,
       requests: state.requestWorkspace,
     });
   });

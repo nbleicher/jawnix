@@ -14,7 +14,6 @@ accepts a message.
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
 
 import httpx
@@ -42,13 +41,10 @@ class MilestoneMessage:
     text: str
 
 
-def request_timeline_url(settings: Settings, request_id: uuid.UUID) -> str:
-    """The authenticated Customer timeline for one Batch Request."""
+def customer_overview_url(settings: Settings) -> str:
+    """The authenticated Customer attention queue used by email links."""
 
-    return (
-        f"{settings.public_base_url.rstrip('/')}"
-        f"/app/requests?request={request_id}"
-    )
+    return f"{settings.public_base_url.rstrip('/')}/app/overview"
 
 
 def _request_summary(request: LeadRequest) -> str:
@@ -67,7 +63,7 @@ def build_milestone_message(
 ) -> MilestoneMessage:
     """Customer-safe copy for one allow-listed milestone."""
 
-    timeline = request_timeline_url(settings, request.id)
+    overview = customer_overview_url(settings)
     summary = _request_summary(request)
     if milestone == "approval":
         subject = f"Batch Request approved — {request.id}"
@@ -105,8 +101,8 @@ def build_milestone_message(
         text=(
             f"{update}\n\n"
             f"{summary}\n\n"
-            "View the current timeline after signing in:\n"
-            f"{timeline}\n"
+            "View anything that needs your attention after signing in:\n"
+            f"{overview}\n"
         ),
     )
 

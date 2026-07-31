@@ -18,7 +18,6 @@ async function openAccount(
   await mockCustomerAuth(page, {
     overview: () => ({
       ...CUSTOMER_OVERVIEW,
-      licensed_states: state.savedStates,
     }),
     batchRequests: () => state.requestWorkspace,
     licensedStates: () => {
