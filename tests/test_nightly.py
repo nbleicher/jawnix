@@ -23,6 +23,7 @@ from jawnix.nightly import run_scheduled_nightly_review
 from jawnix.nightly import activate_scheduled_scraper_configuration
 from jawnix.nightly import propose_niche_mappings
 from jawnix.models import SourceSegment
+from scraper_fake import GenerationFake
 
 
 def test_review_waits_idempotently_for_publication(session):
@@ -171,16 +172,8 @@ def test_review_accepts_same_day_external_scraper_publication(
         get,
     )
     monkeypatch.setattr(
-        "jawnix.nightly.httpx.post",
-        lambda *_args, **_kwargs: Response({
-            "proposals": [
-                {
-                    "id": "OH::roof repair",
-                    "niche": "Roofing",
-                }
-            ],
-            "applied": False,
-        }),
+        "jawnix.nightly.build_generation_provider",
+        lambda _settings: GenerationFake(),
     )
     existing_review = NightlyReview(
         review_date=datetime(2026, 7, 27).date(),
@@ -204,6 +197,7 @@ def test_review_accepts_same_day_external_scraper_publication(
         Settings(
             JAWNIX_SCRAPER_OPS_URL="http://10.77.0.2:8090",
             JAWNIX_SCRAPER_OPS_PASSWORD="secret",
+            OPENROUTER_API_KEY="test-key",
         ),
         as_of=datetime(2026, 7, 27, 9, tzinfo=timezone.utc),
     )
@@ -350,30 +344,16 @@ def test_niche_proposal_repairs_empty_unconfirmed_mapping(
     session.add_all([configuration, mapping])
     session.flush()
 
-    class Response:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {
-                "proposals": [
-                    {
-                        "id": "OH::roof repair",
-                        "niche": "Roofing",
-                    }
-                ],
-                "applied": False,
-            }
-
     monkeypatch.setattr(
-        "jawnix.nightly.httpx.post",
-        lambda *_args, **_kwargs: Response(),
+        "jawnix.nightly.build_generation_provider",
+        lambda _settings: GenerationFake(),
     )
     updated = propose_niche_mappings(
         session,
         Settings(
             JAWNIX_SCRAPER_OPS_URL="http://10.77.0.2:8090",
             JAWNIX_SCRAPER_OPS_PASSWORD="secret",
+            OPENROUTER_API_KEY="test-key",
         ),
     )
     assert updated == 1

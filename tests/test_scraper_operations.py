@@ -10,7 +10,6 @@ import pytest
 
 from jawnix.config import Settings
 from jawnix.scraper_keywords import (
-    KeywordGenerateRequest,
     KeywordRolloverRequest,
     KeywordSaveRequest,
     KeywordTextRequest,
@@ -55,7 +54,6 @@ def operations_settings(settings) -> Settings:
         JAWNIX_SCRAPER_OPS_URL="http://10.77.0.2:8090",
         JAWNIX_SCRAPER_CONTROL_TOKEN=TOKEN,
         JAWNIX_SCRAPER_OPS_TIMEOUT_SECONDS=1,
-        JAWNIX_SCRAPER_OPS_GENERATION_TIMEOUT_SECONDS=9,
     )
 
 
@@ -122,18 +120,6 @@ def test_http_adapter_speaks_the_typed_keyword_contract(settings):
                     },
                 },
             )
-        if path == "/api/keywords/generate":
-            return httpx.Response(
-                200,
-                json={
-                    "generation_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-                    "mode": "broad",
-                    "seed_keyword": None,
-                    "keywords": ["Generated niche"],
-                    "excluded_count": 3,
-                    "notice": "Review below; nothing has been saved or enqueued.",
-                },
-            )
         if path == "/api/keywords/rollover":
             return httpx.Response(
                 200,
@@ -168,13 +154,12 @@ def test_http_adapter_speaks_the_typed_keyword_contract(settings):
                 enqueue=True,
             )
         )
-        generated = await adapter.generate_keywords(KeywordGenerateRequest())
         rollover = await adapter.set_keyword_rollover(
             KeywordRolloverRequest(action="enable")
         )
-        return workspace, winners, preview, saved, generated, rollover
+        return workspace, winners, preview, saved, rollover
 
-    workspace, winners, preview, saved, generated, rollover = asyncio.run(
+    workspace, winners, preview, saved, rollover = asyncio.run(
         exercise()
     )
 
@@ -183,14 +168,12 @@ def test_http_adapter_speaks_the_typed_keyword_contract(settings):
     assert winners[0].keyword == "plumbers"
     assert preview.added == ["roofers"]
     assert saved.enqueued is True
-    assert generated.excluded_count == 3
     assert rollover.enabled is True
     assert [call.url.path for call in calls] == [
         "/api/keywords",
         "/api/keywords/winners",
         "/api/keywords/preview",
         "/api/keywords/save",
-        "/api/keywords/generate",
         "/api/keywords/rollover",
     ]
     assert all(call.headers["authorization"] == f"Bearer {TOKEN}" for call in calls)
@@ -199,10 +182,8 @@ def test_http_adapter_speaks_the_typed_keyword_contract(settings):
         "text": "plumbers\nroofers",
         "expected_version": keyword_version(KEYWORDS),
         "enqueue": True,
-        "generation_id": None,
     }
     assert "review_token" not in save_body
-    assert calls[4].extensions["timeout"]["read"] == 9
     assert calls[2].extensions["timeout"]["read"] == 1
 
 
@@ -612,10 +593,10 @@ def test_http_adapter_preserves_declared_errors_and_redacts_transport(
     assert declared.value.detail == "At least one keyword is required."
 
     with pytest.raises(ScraperOperationsError) as unavailable:
-        asyncio.run(adapter.generate_keywords(KeywordGenerateRequest()))
+        asyncio.run(adapter.list_keywords())
     assert unavailable.value.transport_error == "ReadTimeout"
     assert requests == 2
-    assert "path=/api/keywords/generate" in caplog.text
+    assert "path=/api/keywords" in caplog.text
     assert "transport_error=ReadTimeout" in caplog.text
     assert TOKEN not in caplog.text
     assert "10.77.0.2" not in caplog.text

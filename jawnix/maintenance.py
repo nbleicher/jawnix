@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import Settings
+from .keyword_generation import purge_generation_drafts
 from .models import BatchArtifact
 
 
@@ -26,3 +27,9 @@ def expire_batch_files(session: Session, settings: Settings) -> dict[str, int]:
         else:
             missing += 1
     return {"removed": removed, "alreadyMissing": missing, "outsideBatchDir": skipped}
+
+
+def purge_retained_records(session: Session) -> dict[str, int]:
+    """Purge records whose domain retention window has elapsed."""
+
+    return {"keywordGenerationDrafts": purge_generation_drafts(session)}

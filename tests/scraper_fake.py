@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
-import uuid
 
+from jawnix.keyword_generation import (
+    KeywordGenerationError,
+    KeywordGenerationResult,
+)
 from jawnix.scraper_coverage import (
     ScraperStateCoverageDetail,
     StateCoverageCard,
@@ -29,8 +32,6 @@ from jawnix.scraper_database import (
 )
 from jawnix.scraper_keywords import (
     KeywordDiff,
-    KeywordGenerateRequest,
-    KeywordGenerationDraft,
     KeywordRollover,
     KeywordRolloverRequest,
     KeywordSaveRequest,
@@ -469,6 +470,62 @@ def paused_activity(cancelled_jobs: int = 0, mode: str = "drain") -> dict:
     }
 
 
+class GenerationFake:
+    """In-memory adapter for Jawnix's high-level generation interface."""
+
+    model = "test/generation-model"
+
+    def __init__(
+        self,
+        *,
+        available: bool = True,
+        error: KeywordGenerationError | None = None,
+    ) -> None:
+        self.available = available
+        self.error = error
+        self.calls: list[dict[str, object]] = []
+
+    def generate_keywords(
+        self,
+        *,
+        mode,
+        excluded_keywords,
+        seed_keyword=None,
+        count=25,
+    ) -> KeywordGenerationResult:
+        self.calls.append(
+            {
+                "mode": mode,
+                "excluded_keywords": list(excluded_keywords),
+                "seed_keyword": seed_keyword,
+                "count": count,
+            }
+        )
+        if self.error:
+            raise self.error
+        terms = [f"Unused Trade {index}" for index in range(1, count + 1)]
+        return KeywordGenerationResult(
+            terms=terms,
+            excluded_count=7,
+            candidate_metrics={
+                "attemptCount": 2,
+                "candidateCount": 32,
+                "acceptedCount": count,
+                "rejectedCount": 7,
+                "rejectionReasons": {"duplicate": 7},
+                "attempts": [],
+            },
+        )
+
+    def propose_niches(self, segments):
+        if self.error:
+            raise self.error
+        return [
+            {"id": str(item["id"]), "niche": "Roofing"}
+            for item in segments
+        ]
+
+
 class ScraperFake:
     """Records typed calls and implements every in-memory operation."""
 
@@ -481,8 +538,6 @@ class ScraperFake:
         activity_after_write: dict | None = None,
         keywords: list[str] | None = None,
         ai_enabled: bool = True,
-        generation_error: str | None = None,
-        generation_timeout: bool = False,
         runtime_failing: set[str] | None = None,
     ) -> None:
         self.failing = failing or set()
@@ -491,11 +546,8 @@ class ScraperFake:
         self.activity_after_write = activity_after_write
         self.keywords = list(keywords or KEYWORDS)
         self.ai_enabled = ai_enabled
-        self.generation_error = generation_error
-        self.generation_timeout = generation_timeout
         self.runtime_failing = runtime_failing or set()
         self.rollover_enabled = False
-        self.drafts: dict[str, list[str]] = {}
         self.keyword_calls: list[str] = []
         self.database_calls: list[tuple[str, object]] = []
         self.coverage_calls: list[str] = []
@@ -594,11 +646,6 @@ class ScraperFake:
                 status_code=422,
                 detail="At least one keyword is required.",
             )
-        if payload.generation_id and payload.generation_id not in self.drafts:
-            raise ScraperOperationsError(
-                status_code=422,
-                detail="Invalid keyword generation.",
-            )
         self.keywords = diff.proposed
         self.keyword_writes.append(
             payload.model_dump(exclude={"review_token"}, exclude_none=True)
@@ -608,58 +655,6 @@ class ScraperFake:
             current=self.keywords,
             version=keyword_version(self.keywords),
             diff=diff,
-        )
-
-    async def generate_keywords(
-        self,
-        payload: KeywordGenerateRequest,
-    ) -> KeywordGenerationDraft:
-        self.keyword_calls.append("generate")
-        self._keyword_failure()
-        if self.generation_timeout:
-            raise ScraperOperationsError(transport_error="ReadTimeout")
-        if self.generation_error:
-            status_code = (
-                409
-                if self.generation_error.startswith("Another keyword generation")
-                else 503
-            )
-            raise ScraperOperationsError(
-                status_code=status_code,
-                detail=self.generation_error,
-            )
-        if not self.ai_enabled:
-            raise ScraperOperationsError(
-                status_code=422,
-                detail="AI generation is not configured",
-            )
-        if (
-            payload.mode == "adjacent"
-            and (payload.seed_keyword or "").casefold()
-            not in {item["keyword"].casefold() for item in WINNERS}
-        ):
-            raise ScraperOperationsError(
-                status_code=422,
-                detail="The selected winner is unavailable",
-            )
-        generation_id = str(uuid.uuid4())
-        keywords = [f"Unused Service {index}" for index in range(1, 26)]
-        self.drafts[generation_id] = keywords
-        label = (
-            f"keywords adjacent to {payload.seed_keyword}"
-            if payload.mode == "adjacent"
-            else "broad local-business keywords"
-        )
-        return KeywordGenerationDraft(
-            generation_id=generation_id,
-            mode=payload.mode,
-            seed_keyword=payload.seed_keyword,
-            keywords=keywords,
-            excluded_count=7,
-            notice=(
-                f"Draft ready: 25 {label}. Review below; nothing has been "
-                "saved or enqueued. 7 candidates were filtered."
-            ),
         )
 
     async def set_keyword_rollover(

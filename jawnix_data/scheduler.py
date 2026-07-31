@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from jawnix.config import Settings, get_settings
 from jawnix.database import SessionLocal
-from jawnix.maintenance import expire_batch_files
+from jawnix.maintenance import expire_batch_files, purge_retained_records
 from jawnix.models import NightlyReview
 
 from jawnix.nightly import (
@@ -70,8 +70,13 @@ def run() -> None:
         if cleaned_date != datetime.now(timezone.utc).date():
             try:
                 with SessionLocal.begin() as session:
-                    result = expire_batch_files(session, settings)
-                log.info("Expired batch cleanup: %s", result)
+                    artifacts = expire_batch_files(session, settings)
+                    records = purge_retained_records(session)
+                log.info(
+                    "Daily retention cleanup: artifacts=%s records=%s",
+                    artifacts,
+                    records,
+                )
                 cleaned_date = datetime.now(timezone.utc).date()
             except Exception:
                 log.exception("Expired batch cleanup failed")

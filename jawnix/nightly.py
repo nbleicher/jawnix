@@ -13,6 +13,12 @@ from sqlalchemy.orm import Session
 from .activity import record_activity
 from .config import Settings
 from .jobs import enqueue_job
+from .keyword_generation import (
+    KeywordGenerationError,
+    build_generation_provider,
+    keyword_history_terms,
+    try_generation_lock,
+)
 from .models import (
     DatasetPublication,
     DistributionEvent,
@@ -35,7 +41,6 @@ BASELINE_ACTOR_ID = uuid.uuid5(
     "https://jawnix.com/actors/scraper-baseline",
 )
 SOURCE_SEGMENT_STATUSES = {"active", "reduced", "paused"}
-NICHE_PROPOSAL_BATCH_SIZE = 20
 
 
 def _external_source_segment_contract(payload: dict) -> tuple[int, str, list[dict]]:
@@ -399,7 +404,13 @@ def propose_niche_mappings(
             },
         )
     ai_proposals: dict[str, str] = {}
-    if candidates and settings and settings.scraper_ops_url:
+    provider = build_generation_provider(settings) if settings else None
+    if (
+        candidates
+        and provider
+        and provider.available
+        and try_generation_lock(session)
+    ):
         inputs = []
         for item in candidates.values():
             inputs.append(
@@ -409,34 +420,16 @@ def propose_niche_mappings(
                     "state": item["state"],
                 }
             )
-        for offset in range(0, len(inputs), NICHE_PROPOSAL_BATCH_SIZE):
-            try:
-                response = httpx.post(
-                    settings.scraper_ops_url.rstrip("/")
-                    + "/api/source-segments/niche-proposals",
-                    auth=(
-                        settings.scraper_ops_user,
-                        settings.scraper_ops_password,
-                    ),
-                    json={
-                        "segments": inputs[
-                            offset:offset + NICHE_PROPOSAL_BATCH_SIZE
-                        ]
-                    },
-                    timeout=max(
-                        settings.scraper_ops_timeout_seconds,
-                        60,
-                    ),
-                )
-                response.raise_for_status()
-                ai_proposals.update(
-                    {
-                        str(item["id"]): str(item["niche"]).strip()
-                        for item in response.json()["proposals"]
-                    }
-                )
-            except (httpx.HTTPError, KeyError, TypeError, ValueError):
-                continue
+        try:
+            proposals = provider.propose_niches(inputs)
+            ai_proposals.update(
+                {
+                    str(item["id"]): str(item["niche"]).strip()
+                    for item in proposals
+                }
+            )
+        except (KeywordGenerationError, KeyError, TypeError, ValueError):
+            pass
     proposed = 0
     for item in candidates.values():
         segment_key = item["segment_key"]
@@ -551,40 +544,44 @@ def _attach_adjacent_keyword_evidence(
     recommendations: list[SourceRecommendation],
 ) -> list[dict]:
     failures: list[dict] = []
-    if not settings.scraper_ops_url:
+    provider = build_generation_provider(settings)
+    if not provider.available:
         return failures
+    if not try_generation_lock(session):
+        return [
+            {
+                "kind": "adjacent_keyword_proposal_failed",
+                "segment": recommendation.segment_key,
+                "message": "Another keyword generation is already running",
+            }
+            for recommendation in recommendations
+            if recommendation.action == "expand"
+        ]
     excluded = [
         item.keyword
         for item in session.scalars(select(SourceNicheMapping))
     ]
+    excluded.extend(keyword_history_terms(session))
     for recommendation in recommendations:
         if recommendation.action != "expand":
             continue
         _, _, seed_keyword = recommendation.segment_key.partition("::")
         try:
-            response = httpx.post(
-                settings.scraper_ops_url.rstrip("/")
-                + "/api/source-segments/adjacent-keywords",
-                auth=(
-                    settings.scraper_ops_user,
-                    settings.scraper_ops_password,
-                ),
-                json={
-                    "seed_keyword": seed_keyword,
-                    "excluded_keywords": excluded,
-                    "count": 3,
-                },
-                timeout=max(settings.scraper_ops_timeout_seconds, 60),
+            result = provider.generate_keywords(
+                mode="adjacent",
+                excluded_keywords=excluded,
+                seed_keyword=seed_keyword,
+                count=3,
             )
-            response.raise_for_status()
-            adjacent = [
-                str(item).strip()
-                for item in response.json()["keywords"]
-                if str(item).strip()
-            ]
+            adjacent = result.terms
             if not adjacent:
                 raise ValueError("No adjacent keywords were proposed.")
-        except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+        except (
+            KeywordGenerationError,
+            KeyError,
+            TypeError,
+            ValueError,
+        ) as exc:
             failures.append(
                 {
                     "kind": "adjacent_keyword_proposal_failed",
