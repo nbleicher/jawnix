@@ -339,6 +339,19 @@ export const router = createBrowserRouter(
         // is the fixture the accessibility and visual-regression gates in #70
         // run against.
         { path: "design-system", element: <DesignSystemRoute /> },
+        ...(import.meta.env.DEV
+          ? [
+              {
+                path: "prototype/typeface",
+                lazy: async () => {
+                  const { TypefacePrototypeRoute } = await import(
+                    "./routes/TypefacePrototype"
+                  );
+                  return { Component: TypefacePrototypeRoute };
+                },
+              },
+            ]
+          : []),
       ],
     },
   ],
