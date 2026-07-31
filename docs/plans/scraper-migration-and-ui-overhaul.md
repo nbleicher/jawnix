@@ -14,9 +14,13 @@ epic #46; the Scraper migration ADR lands as 0017 in step S1's wake.
 - Steps marked **[operator]** change production state — run them with a human
   present; their prompts instruct the agent to pause for confirmation before
   every state-changing action.
-- Every code step lands on `main` through a reviewed PR. Both hosts deploy only
-  from tagged `main` revisions, and (after step 0.2) only through
-  `ops/deploy.sh`.
+- Every code step lands on `main` through a reviewed PR. The pattern is always:
+  the agent opens the PR, you review and merge. A **You:** line under each step
+  states exactly that step's operator actions.
+- Merging is not deploying. Both hosts deploy only from tagged `main`
+  revisions, and (after step 0.2) only through `ops/deploy.sh`. Merge a step
+  before starting any step that depends on it, and fill the dependent prompt's
+  `<ref>` with the merged PR number.
 - Playwright visual baselines are Linux/CI-generated: regenerate from CI, never
   locally. Backend tests are hermetic (`tests/conftest.py` clears the settings
   `env_file` at import time — never build clients from settings at module
@@ -75,6 +79,9 @@ recorded as new issues.
 
 ### Step 0.2 — Guarded deploy script with pinned rsync excludes
 
+**You:** review and merge the agent's PR. No deploy — the script ships with the
+next deploy it guards.
+
 Blocking for all later production deploys. The last full-deploy dry-run showed
 rsync `--delete` would destroy the host-owned `batches/` directory (#119); the
 previous deploy was a hand-picked five-file sync, and no deploy script exists.
@@ -98,6 +105,9 @@ Do not run it against production. Open a PR to main.
 sanctioned deploy path.
 
 ### Step 0.3 — Stabilization sign-off **[operator]**
+
+**You:** no PR. Gated on #119 item 11 (48 clean monitoring hours). Run it live
+with the agent; the output is issue comments and closing #71.
 
 ```
 Close out the UI cutover stabilization (issue #71). The 48-hour monitoring window after the
@@ -123,6 +133,9 @@ HTML (~1,900 lines of `HTMLParser` across four modules); `tests/scraper_fake.py`
 control plane while keeping every browser contract byte-identical.
 
 ### Step S1 — Import legacy Scraper control source and vendor the Go worker
+
+**You:** review and merge; the merged PR number is `<S1-ref>` for step S2. No
+production deploys are needed anywhere in Stage A.
 
 ```
 In the Jawnix repo, create the scraper/ subsystem by importing the legacy Scale service as a
@@ -151,6 +164,8 @@ merged and the Go CI job is green.
 
 ### Step S2 — Build the headless `scraper-control` service
 
+**You:** review and merge.
+
 ```
 Build the headless scraper-control process in the scraper/ subsystem imported by the previous
 step (branch/PR: <S1-ref>). It replaces the Scale HTMX dashboard with typed JSON operations
@@ -173,6 +188,8 @@ passing contract test, and the dashboard JSON patch file is gone.
 
 ### Step S3 — `ScraperOperations` interface; migrate keywords off HTML
 
+**You:** review and merge; the merged PR number is `<S3-ref>` for step S4.
+
 ```
 In the Jawnix backend, introduce a ScraperOperations interface: a production HTTP adapter
 speaking the typed scraper-control JSON contract (token from JAWNIX_SCRAPER_CONTROL_TOKEN, base
@@ -194,6 +211,8 @@ to main.
 
 ### Step S4 — Migrate database, exports, and coverage off HTML
 
+**You:** review and merge; the merged PR number is `<S4-ref>` for step S5.
+
 ```
 Continue the Jawnix scraper typed-contract migration (after <S3-ref>). Move the database
 browsing/exports and coverage domains off HTML onto the ScraperOperations interface: the
@@ -208,6 +227,8 @@ tests/test_scraper_coverage.py. Run the full backend and frontend suites. Open a
 ```
 
 ### Step S5 — Migrate runtime, workspace, pipeline, history; delete the last parsers
+
+**You:** review and merge — Stage A is complete; still nothing to deploy.
 
 ```
 Finish Stage A of the Jawnix scraper typed-contract migration (after <S4-ref>). Migrate the
@@ -232,9 +253,15 @@ in-memory, and the frontend is untouched with all suites green.
 Runs in parallel with Stage A after step 0.1 passes. Slices ship live and
 incrementally; the theme lands first so every later slice is built under
 Opaline. Acceptance per slice is defined in #116; all existing axe/WCAG 2.2 AA,
-keyboard, and visual-regression gates keep running throughout.
+keyboard, and visual-regression gates keep running throughout. Slices go live
+by tagging `main` and deploying via `ops/deploy.sh` after you merge — batching
+a few merged slices per deploy is fine.
 
 ### Step P1 — Opaline theme, gallery coverage, display typeface
+
+**You:** first record the Phase 1 green-light and its two open decisions on
+#119 — the display typeface (you pick from the mockups mid-step) and the
+support mailto address. Then review and merge.
 
 ```
 Implement the Opaline visual identity for the Jawnix React shell per issue #116 (visual
@@ -252,6 +279,8 @@ baselines are regenerated from CI, never locally. Open a PR to main.
 
 ### Step P2 — Requests as the single lifecycle screen
 
+**You:** review and merge; the merged PR number is `<P2-ref>` for step P3.
+
 ```
 Rebuild the customer Requests destination in the Jawnix React shell per issue #116: Requests is
 the single request-to-delivery lifecycle screen (there is no separate Batches destination;
@@ -267,6 +296,8 @@ main.
 ```
 
 ### Step P3 — Portal-primary Batch Artifact delivery (ADR 0015)
+
+**You:** review and merge.
 
 ```
 Implement portal-primary Batch Artifact delivery per ADR 0015
@@ -285,6 +316,8 @@ to main.
 
 ### Step P4 — Overview as a strictly actionable attention queue
 
+**You:** review and merge.
+
 ```
 Rebuild the customer Overview in the Jawnix React shell as a strictly actionable attention
 queue per issue #116. Only items that need the customer appear: batch ready / artifact
@@ -298,6 +331,8 @@ gates passing under Opaline with baselines regenerated from CI. Open a PR to mai
 ```
 
 ### Step P5 — Scoped in-batch feedback search; distinguishable fetch errors
+
+**You:** review and merge (independent of P2–P4 — a parallel workspace is fine).
 
 ```
 Extend customer Feedback in the Jawnix React shell per issue #116. Add a scoped search within
@@ -314,6 +349,8 @@ main.
 
 ### Step P6 — Account: identity, Setup Problems, Licensed States
 
+**You:** review and merge (independent of P2–P4 — a parallel workspace is fine).
+
 ```
 Rebuild the customer Account destination in the Jawnix React shell per issue #116: identity,
 setup status, and Licensed States only. Render each Setup Problem by name with what happens
@@ -326,6 +363,8 @@ axe/keyboard/visual gates passing. Open a PR to main.
 ```
 
 ### Step P7 — Opaline Three.js scene on sign-in and accept-invitation
+
+**You:** review and merge (anytime after P1).
 
 ```
 Add the Opaline Three.js scene to the Jawnix React shell per issue #116, on the sign-in and
@@ -352,6 +391,8 @@ Sequential, after S5. History lands first because generation filters against it.
 
 ### Step S6 — Keyword-history storage and the full-history import
 
+**You:** review and merge; the merged PR number is `<S6-ref>` for step S7.
+
 ```
 Add Jawnix-owned keyword-history storage and its import (Stage B of the scraper migration,
 after <S5-ref>). In the Jawnix application database (SQLAlchemy models + Alembic migration
@@ -368,6 +409,9 @@ continuous-update paths. Open a PR to main.
 ```
 
 ### Step S7 — Jawnix-owned generation: OpenRouter module, drafts, lock, error contract
+
+**You:** review and merge. Production keeps running the old path until S9 — no
+deploy yet.
 
 ```
 Move Scraper keyword generation into Jawnix (Stage B, after <S6-ref>). Build a generation
@@ -406,6 +450,9 @@ timeout setting is gone.
 
 ### Step S8 — Cutover rehearsal against a restored backup
 
+**You:** review and merge the runbook PR, then make the go/no-go call on the
+rehearsal report before scheduling the S9 window.
+
 ```
 Rehearse the Scraper cutover (Stage C, after <S7-ref>) without touching production. Restore
 the latest acquisition-database backup into a rehearsal environment per the restore procedure
@@ -425,6 +472,10 @@ reference at cutover). Open a PR with the runbook changes; attach the report.
 the runbook PR is merged.
 
 ### Step S9 — Production cutover window **[operator]**
+
+**You:** no PR. Beforehand: tag `main` and have `ops/deploy.sh` ready. You
+drive the window live, confirming every state-changing step. Completing it
+starts the 7-day rollback clock for S10.
 
 ```
 Execute the Scraper production cutover per the rehearsed runbook in docs/OPERATIONS.md (from
@@ -451,6 +502,9 @@ old Scale services — migrations stayed additive and backward-compatible.
 
 ### Step P8 — Retire the legacy static pages (requires explicit approval on #71)
 
+**You:** first record explicit retirement approval on #71 (requires 0.3 done).
+Then review, merge, tag, and deploy.
+
 ```
 Retire the legacy static UI pages, as the separate explicitly-approved change required by the
 UI cutover runbook (docs/OPERATIONS.md, "UI cutover (#71)") — confirm with me that approval is
@@ -465,6 +519,9 @@ flag-off rollback is now explicitly documented as no longer available. Open a PR
 ```
 
 ### Step S10 — Remove the Scale remnants (after the 7-day rollback window) **[operator]**
+
+**You:** review and merge the repo PR, confirm each host cleanup as the agent
+reaches it, then tag and deploy.
 
 ```
 The Scraper cutover rollback window has closed — remove the legacy Scale remnants from Jawnix.
@@ -484,6 +541,9 @@ tracking issue.
 ## Later — Phase 2 spec (not scheduled here)
 
 ### Step X1 — Write the admin-phase overhaul spec
+
+**You:** no PR — the deliverable is a filed spec issue; answer the interview
+questions.
 
 ```
 Write the spec for the admin phase of the Jawnix UI overhaul, as the successor issue #116
