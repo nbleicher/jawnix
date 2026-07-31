@@ -76,7 +76,7 @@ def transition_request(
         enqueue_job(db, "fulfill_round_robin")
     elif action == "retry_delivery":
         item.status = RequestStatus.generated.value
-        item.status_message = "Delivery retry queued."
+        item.status_message = "Portal notification retry queued."
         item.closed_at = None
         enqueue_job(db, "update_notification", item.id)
         enqueue_job(db, "deliver_request", item.id)

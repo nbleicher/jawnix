@@ -68,9 +68,9 @@ const RETRY = {
 
 const RETRY_DELIVERY = {
   name: "retry_delivery",
-  label: "Retry delivery",
+  label: "Retry notification",
   consequence:
-    "Emails the exact existing Batch Artifact again. Nothing is reallocated and the delivered Leads do not change.",
+    "Emails another portal notification for the exact existing Batch Artifact. Nothing is reallocated and the delivered Leads do not change.",
   requiresReason: true,
   destructive: false,
 };
@@ -183,7 +183,7 @@ const DETAILS: Record<string, Record<string, unknown>> = {
       customerIdentity: "Gulfshore Advisors",
       status: "failed",
       statusMessage:
-        "Email delivery failed. The existing batch is preserved for retry.",
+        "Portal notification failed. The existing Batch Artifact is preserved for retry.",
       actions: [RETRY_DELIVERY],
     }),
     approvedAt: "2026-07-01T11:00:00Z",
@@ -223,7 +223,8 @@ const DETAILS: Record<string, Record<string, unknown>> = {
       id: EXPIRED_ARTIFACT_ID,
       customerIdentity: "Harbor Point",
       status: "delivered",
-      statusMessage: "CSV emailed to dana@example.com.",
+      statusMessage:
+        "Batch available in the portal; notification emailed to dana@example.com.",
       actions: [REGENERATE],
     }),
     approvedAt: "2026-07-01T11:00:00Z",
@@ -248,7 +249,8 @@ const DETAILS: Record<string, Record<string, unknown>> = {
       id: DELIVERED_REQUEST_ID,
       customerIdentity: "Harbor Point",
       status: "delivered",
-      statusMessage: "CSV emailed to dana@example.com.",
+      statusMessage:
+        "Batch available in the portal; notification emailed to dana@example.com.",
       actions: [],
     }),
     approvedAt: "2026-07-01T11:00:00Z",
@@ -289,7 +291,8 @@ export async function mockFulfillment(page: Page): Promise<RecordedCall[]> {
           id: EXPIRED_ARTIFACT_ID,
           customerIdentity: "Harbor Point",
           status: "delivered",
-          statusMessage: "CSV emailed to dana@example.com.",
+          statusMessage:
+            "Batch available in the portal; notification emailed to dana@example.com.",
           actions: [REGENERATE],
         }),
       ],

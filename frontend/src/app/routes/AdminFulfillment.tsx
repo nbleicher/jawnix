@@ -997,7 +997,7 @@ export function AdminFulfillmentRequestRoute() {
                     description: <Mono>{item.artifact.sha256}</Mono>,
                   },
                   {
-                    term: "Delivery status",
+                    term: "Notification status",
                     description: item.artifact.deliveryStatus,
                   },
                   {

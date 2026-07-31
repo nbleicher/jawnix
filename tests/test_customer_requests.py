@@ -15,6 +15,8 @@ from jawnix.database import get_db
 from jawnix.models import (
     Agency,
     Agent,
+    AuditEntry,
+    BatchArtifact,
     CustomerProfile,
     Job,
     LeadRequest,
@@ -109,6 +111,31 @@ def _request(
     session.add(item)
     session.flush()
     return item
+
+
+def _artifact(
+    session,
+    tmp_path,
+    request: LeadRequest,
+    *,
+    expires_at: datetime,
+) -> tuple[BatchArtifact, bytes]:
+    contents = b"phone,title\n2145550100,Portal Lead\n"
+    path = tmp_path / f"{request.id}.csv"
+    path.write_bytes(contents)
+    artifact = BatchArtifact(
+        request_id=request.id,
+        path=str(path),
+        filename="customer_batch.csv",
+        row_count=1,
+        byte_count=len(contents),
+        sha256="a" * 64,
+        delivery_status="sent",
+        expires_at=expires_at,
+    )
+    session.add(artifact)
+    session.flush()
+    return artifact, contents
 
 
 def _states(graph) -> dict[str, str]:
@@ -460,6 +487,187 @@ def test_every_finished_request_offers_a_valid_next_action(
     else:
         assert action["kind"] == action_kind
         assert action["href"]
+
+
+def test_delivered_request_projects_only_customer_safe_artifact_metadata(
+    session,
+    tmp_path,
+):
+    user_id, customer, _ = _customer(session, licensed_states=["TX"])
+    item = _request(
+        session,
+        user_id,
+        customer,
+        status=RequestStatus.delivered.value,
+        delivered_at=SUBMITTED_AT,
+    )
+    _artifact(
+        session,
+        tmp_path,
+        item,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    client = _authenticate(session, user_id)
+
+    body = client.get("/api/me/batch-requests").json()["requests"][0]
+
+    artifact = body["artifact"]
+    assert artifact == {
+        "filename": "customer_batch.csv",
+        "row_count": 1,
+        "expires_at": artifact["expires_at"],
+        "available": True,
+        "download_href": f"/api/me/batch-requests/{item.id}/artifact",
+    }
+    assert artifact["expires_at"] is not None
+    serialized = str(artifact)
+    assert "path" not in serialized
+    assert "sha256" not in serialized
+
+
+# --- Customer Batch Artifact download --------------------------------------
+
+
+def test_customer_downloads_their_live_artifact_and_the_download_is_audited(
+    session,
+    tmp_path,
+):
+    user_id, customer, _ = _customer(session, licensed_states=["TX"])
+    item = _request(
+        session,
+        user_id,
+        customer,
+        status=RequestStatus.delivered.value,
+        delivered_at=SUBMITTED_AT,
+    )
+    artifact, contents = _artifact(
+        session,
+        tmp_path,
+        item,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    client = _authenticate(session, user_id)
+
+    response = client.get(f"/api/me/batch-requests/{item.id}/artifact")
+
+    assert response.status_code == 200
+    assert response.content == contents
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "customer_batch.csv" in response.headers["content-disposition"]
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    audit = session.scalar(
+        select(AuditEntry).where(
+            AuditEntry.action == "batch_artifact_downloaded"
+        )
+    )
+    assert audit is not None
+    assert audit.target_type == "batch_request"
+    assert audit.target_id == str(item.id)
+    assert audit.actor_user_id == str(user_id)
+    assert audit.details["artifactId"] == artifact.id
+    assert audit.details["filename"] == artifact.filename
+
+
+def test_customer_cannot_download_another_customers_artifact(session, tmp_path):
+    owner_id, owner, _ = _customer(session, licensed_states=["TX"])
+    other_id, _, _ = _customer(session, licensed_states=["TX"])
+    item = _request(
+        session,
+        owner_id,
+        owner,
+        status=RequestStatus.delivered.value,
+        delivered_at=SUBMITTED_AT,
+    )
+    _artifact(
+        session,
+        tmp_path,
+        item,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+
+    response = _authenticate(session, other_id).get(
+        f"/api/me/batch-requests/{item.id}/artifact"
+    )
+
+    assert response.status_code == 404
+    assert session.scalar(select(func.count(AuditEntry.id))) == 0
+
+
+def test_expired_artifact_is_gone_and_is_not_audited_as_a_download(
+    session,
+    tmp_path,
+):
+    user_id, customer, _ = _customer(session, licensed_states=["TX"])
+    item = _request(
+        session,
+        user_id,
+        customer,
+        status=RequestStatus.delivered.value,
+        delivered_at=SUBMITTED_AT,
+    )
+    _artifact(
+        session,
+        tmp_path,
+        item,
+        expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+    )
+    client = _authenticate(session, user_id)
+
+    response = client.get(f"/api/me/batch-requests/{item.id}/artifact")
+
+    assert response.status_code == 410
+    assert "expired" in response.json()["detail"]
+    assert session.scalar(select(func.count(AuditEntry.id))) == 0
+
+
+def test_generated_artifact_is_not_downloadable_before_delivery(session, tmp_path):
+    user_id, customer, _ = _customer(session, licensed_states=["TX"])
+    item = _request(
+        session,
+        user_id,
+        customer,
+        status=RequestStatus.generated.value,
+    )
+    _artifact(
+        session,
+        tmp_path,
+        item,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+
+    response = _authenticate(session, user_id).get(
+        f"/api/me/batch-requests/{item.id}/artifact"
+    )
+
+    assert response.status_code == 404
+    assert session.scalar(select(func.count(AuditEntry.id))) == 0
+
+
+def test_artifact_download_requires_authentication():
+    response = TestClient(app).get(
+        "/api/me/batch-requests/11111111-1111-4111-8111-111111111111/artifact"
+    )
+
+    assert response.status_code == 401
+
+
+def test_customer_cannot_use_the_admin_regeneration_action(session):
+    user_id, customer, _ = _customer(session, licensed_states=["TX"])
+    item = _request(
+        session,
+        user_id,
+        customer,
+        status=RequestStatus.delivered.value,
+        delivered_at=SUBMITTED_AT,
+    )
+
+    response = _authenticate(session, user_id).post(
+        f"/api/admin/requests/{item.id}/artifact/regenerate",
+        json={"reason": "Trying to bypass expiry."},
+    )
+
+    assert response.status_code == 403
 
 
 # --- Submission -------------------------------------------------------------

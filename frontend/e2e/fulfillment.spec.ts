@@ -65,7 +65,7 @@ test.describe("Only domain-valid actions are offered", () => {
     await expect(actions.getByRole("button", { name: "Reject" })).toBeVisible();
     await expect(actions.getByRole("button", { name: "Cancel" })).toBeVisible();
     await expect(
-      actions.getByRole("button", { name: "Retry delivery" }),
+      actions.getByRole("button", { name: "Retry notification" }),
     ).toHaveCount(0);
     await expect(
       actions.getByRole("button", { name: "Retry generation" }),
@@ -83,7 +83,7 @@ test.describe("Only domain-valid actions are offered", () => {
         "This Batch Request has reached a state with no valid actions.",
       ),
     ).toBeVisible();
-    for (const label of ["Approve", "Reject", "Cancel", "Retry delivery"]) {
+    for (const label of ["Approve", "Reject", "Cancel", "Retry notification"]) {
       await expect(actions.getByRole("button", { name: label })).toHaveCount(0);
     }
   });
@@ -97,7 +97,7 @@ test.describe("Delivery recovery keeps its two paths apart", () => {
 
     const actions = page.getByRole("region", { name: "Actions" });
     await expect(
-      actions.getByRole("button", { name: "Retry delivery" }),
+      actions.getByRole("button", { name: "Retry notification" }),
     ).toBeVisible();
     // Reallocating would consume more inventory for permanent Distribution
     // Events, so it must not be on offer here.
@@ -105,9 +105,9 @@ test.describe("Delivery recovery keeps its two paths apart", () => {
       actions.getByRole("button", { name: "Retry generation" }),
     ).toHaveCount(0);
 
-    await actions.getByRole("button", { name: "Retry delivery" }).click();
+    await actions.getByRole("button", { name: "Retry notification" }).click();
     await expect(page.getByRole("dialog")).toHaveAccessibleDescription(
-      /Emails the exact existing Batch Artifact again/,
+      /Emails another portal notification for the exact existing Batch Artifact/,
     );
   });
 
@@ -123,7 +123,7 @@ test.describe("Delivery recovery keeps its two paths apart", () => {
       actions.getByRole("button", { name: "Retry generation" }),
     ).toBeVisible();
     await expect(
-      actions.getByRole("button", { name: "Retry delivery" }),
+      actions.getByRole("button", { name: "Retry notification" }),
     ).toHaveCount(0);
 
     await actions.getByRole("button", { name: "Retry generation" }).click();

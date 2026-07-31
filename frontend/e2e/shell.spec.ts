@@ -236,7 +236,7 @@ test.describe("Assets", () => {
     const assetUrls: string[] = [];
     page.on("response", (response) => {
       const url = response.url();
-      if (url.includes("/app/assets/")) assetUrls.push(url);
+      if (/\/app\/assets\/.*\.(?:js|css)$/.test(url)) assetUrls.push(url);
     });
 
     await page.goto("./");

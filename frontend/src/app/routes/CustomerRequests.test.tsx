@@ -7,6 +7,7 @@ import { ThemeProvider } from "../../design-system/theme/ThemeProvider";
 import {
   ACTIVE_REQUEST_REFRESH_MS,
   CustomerRequestsRoute,
+  formatArtifactExpiry,
 } from "./CustomerRequests";
 import type {
   BatchRequest,
@@ -72,6 +73,7 @@ function batchRequest(overrides: Partial<BatchRequest> = {}): BatchRequest {
     can_cancel: true,
     next_action: null,
     receipt_href: `/app/requests?request=${REQUEST_ID}`,
+    artifact: null,
     ...overrides,
   };
 }
@@ -93,6 +95,13 @@ function deliveredRequest(overrides: Partial<BatchRequest> = {}): BatchRequest {
       })),
     }),
     can_cancel: false,
+    artifact: {
+      filename: "requests-customer_batch.csv",
+      row_count: 750,
+      expires_at: "2026-07-27T12:00:00Z",
+      available: true,
+      download_href: `/api/me/batch-requests/${REQUEST_ID}/artifact`,
+    },
     ...overrides,
   });
 }
@@ -596,16 +605,49 @@ describe("a Batch Request detail page", () => {
     expect(document.body).not.toHaveTextContent("status_message");
   });
 
-  it("reserves an artifact-card slot only after delivery", () => {
+  it("shows the live artifact metadata, countdown, and download", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-22T12:00:00Z"));
     renderRoute(workspace({ requests: [deliveredRequest()] }), {
       initialEntry: detailPath,
     });
 
+    const card = screen.getByRole("region", { name: "Batch Artifact" });
+    expect(within(card).getByText("requests-customer_batch.csv")).toBeVisible();
+    expect(within(card).getByText("750")).toBeVisible();
+    expect(within(card).getByText("Expires in 5 days")).toBeVisible();
     expect(
-      screen.getByRole("heading", { name: "Batch Artifact" }),
-    ).toBeVisible();
-    expect(screen.getByText(/self-serve downloads/)).toBeVisible();
-    expect(screen.queryByRole("link", { name: /Download/ })).not.toBeInTheDocument();
+      within(card).getByRole("link", { name: "Download CSV" }),
+    ).toHaveAttribute(
+      "href",
+      `/api/me/batch-requests/${REQUEST_ID}/artifact`,
+    );
+  });
+
+  it("replaces the download with the 30-day expired state", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-28T12:00:00Z"));
+    renderRoute(
+      workspace({
+        requests: [
+          deliveredRequest({
+            artifact: {
+              filename: "requests-customer_batch.csv",
+              row_count: 750,
+              expires_at: "2026-07-27T12:00:00Z",
+              available: false,
+              download_href: null,
+            },
+          }),
+        ],
+      }),
+      { initialEntry: detailPath },
+    );
+
+    const card = screen.getByRole("region", { name: "Batch Artifact" });
+    expect(within(card).getByText("Expired — contact us")).toBeVisible();
+    expect(within(card).getByText(/retained for 30 days/)).toBeVisible();
+    expect(within(card).queryByRole("link", { name: /Download/ })).toBeNull();
   });
 
   it("shows a safe not-found state for an unknown deep link", () => {
@@ -616,6 +658,21 @@ describe("a Batch Request detail page", () => {
     expect(
       screen.getByRole("heading", { name: "Batch Request not found" }),
     ).toBeVisible();
+  });
+});
+
+describe("artifact expiry countdown", () => {
+  it("uses the useful unit as the deadline approaches", () => {
+    const expiry = "2026-07-22T12:00:00Z";
+    expect(
+      formatArtifactExpiry(expiry, Date.parse("2026-07-21T10:00:00Z")),
+    ).toBe("Expires in 2 days");
+    expect(
+      formatArtifactExpiry(expiry, Date.parse("2026-07-22T09:30:00Z")),
+    ).toBe("Expires in 3 hours");
+    expect(
+      formatArtifactExpiry(expiry, Date.parse("2026-07-22T12:00:00Z")),
+    ).toBe("Expired — contact us");
   });
 });
 

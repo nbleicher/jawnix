@@ -181,7 +181,7 @@ export const OPERATIONS_OVERVIEW: OperationsOverviewPayload = {
               "Gulfshore Advisors",
               "Provider returned HTTP 503. 2 delivery attempts.",
               "Delivery failed",
-              "Retry delivery",
+              "Retry notification",
               "Recover Delivery",
               `/app/admin/fulfillment/requests/${FAILED_WITH_ARTIFACT_ID}`,
             ),

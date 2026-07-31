@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,7 +22,10 @@ def mark_delivery_failed(session: Session, request_id: uuid.UUID, error: str) ->
     artifact = session.scalar(select(BatchArtifact).where(BatchArtifact.request_id == request_id))
     if request is not None:
         request.status = RequestStatus.failed.value
-        request.status_message = "Email delivery failed. The existing batch is preserved for retry."
+        request.status_message = (
+            "Portal notification failed. The existing Batch Artifact is "
+            "preserved for retry."
+        )
         request.closed_at = utcnow()
         enqueue_milestone_email(session, request)
         enqueue_job(session, "update_notification", request.id)
@@ -54,14 +56,13 @@ def deliver_request(session: Session, request_id: uuid.UUID, settings: Settings)
             f"{artifact.row_count:,} rows"
         ),
         "text": (
-            f"Your requested Jawnix batch is attached.\n\n"
+            f"Your requested Jawnix Batch is ready in the customer portal.\n\n"
             f"Batch Request: {request.id}\n"
             f"Rows: {artifact.row_count:,}\n"
             f"States: {', '.join(request.states_snapshot)}\n"
-            "\nView the current timeline after signing in:\n"
+            "\nSign in to download it within its 30-day retention period:\n"
             f"{request_timeline_url(settings, request.id)}\n"
         ),
-        "attachments": [{"filename": artifact.filename, "content": base64.b64encode(path.read_bytes()).decode("ascii")}],
     }
     response = httpx.post(
         "https://api.resend.com/emails",
@@ -82,7 +83,10 @@ def deliver_request(session: Session, request_id: uuid.UUID, settings: Settings)
     artifact.sent_at = datetime.now(timezone.utc)
     request.status = RequestStatus.delivered.value
     request.delivered_at = artifact.sent_at
-    request.status_message = f"CSV emailed to {request.delivery_email}."
+    request.status_message = (
+        f"Batch available in the portal; notification emailed to "
+        f"{request.delivery_email}."
+    )
     enqueue_job(session, "update_notification", request.id)
     session.flush()
     return message_id

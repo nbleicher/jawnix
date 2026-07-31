@@ -305,19 +305,53 @@ test.describe("Batch Request detail deep links", () => {
     ).toBeVisible();
   });
 
-  test("a delivered request reserves the artifact-card slot", async ({ page }) => {
-    await openRequestDetail(page, DELIVERED_REQUEST.id, {
+  test("a delivered request downloads its live artifact from the portal", async ({
+    page,
+  }) => {
+    await page.clock.install({ time: new Date("2026-07-31T16:00:00Z") });
+    const state = await openRequestDetail(page, DELIVERED_REQUEST.id, {
       workspace: {
         ...BATCH_REQUEST_WORKSPACE,
         requests: [DELIVERED_REQUEST],
       },
     });
 
-    await expect(
-      page.getByRole("heading", { name: "Batch Artifact" }),
-    ).toBeVisible();
-    await expect(page.getByText(/self-serve downloads/)).toBeVisible();
-    await expect(page.getByRole("link", { name: /Download/ })).toHaveCount(0);
+    const card = page.getByRole("region", { name: "Batch Artifact" });
+    await expect(card.getByText("requests-customer_batch.csv")).toBeVisible();
+    await expect(card.getByText("750")).toBeVisible();
+    await expect(card.getByText("Expires in 26 days")).toBeVisible();
+
+    const downloadPromise = page.waitForEvent("download");
+    await card.getByRole("link", { name: "Download CSV" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("requests-customer_batch.csv");
+    expect(state.artifactDownloads).toEqual([DELIVERED_REQUEST.id]);
+  });
+
+  test("an expired artifact says to contact Jawnix and cannot download", async ({
+    page,
+  }) => {
+    await page.clock.install({ time: new Date("2026-08-27T16:00:00Z") });
+    await openRequestDetail(page, DELIVERED_REQUEST.id, {
+      workspace: {
+        ...BATCH_REQUEST_WORKSPACE,
+        requests: [
+          {
+            ...DELIVERED_REQUEST,
+            artifact: {
+              ...DELIVERED_REQUEST.artifact,
+              available: false,
+              download_href: null,
+            },
+          },
+        ],
+      },
+    });
+
+    const card = page.getByRole("region", { name: "Batch Artifact" });
+    await expect(card.getByText("Expired — contact us")).toBeVisible();
+    await expect(card.getByText(/retained for 30 days/)).toBeVisible();
+    await expect(card.getByRole("link", { name: /Download/ })).toHaveCount(0);
   });
 
   test("matches the Opaline visual baseline", async ({ page }) => {
