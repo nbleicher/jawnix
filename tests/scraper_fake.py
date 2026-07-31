@@ -1,18 +1,9 @@
-"""A controlled Scraper fake that answers the real projection contract.
-
-Every payload here is shaped exactly like the upstream dashboard's own context
-for that region — same keys, same derived fields — so a test passing against
-this fake is evidence about the real contract rather than about the fake. The
-per-region split mirrors ``/api/dashboard/{region}``.
-"""
+"""Pure in-memory fake for the typed ``ScraperOperations`` contract."""
 
 from __future__ import annotations
 
 import json
 import uuid
-from urllib.parse import parse_qs
-
-import httpx
 
 from jawnix.scraper_coverage import (
     ScraperStateCoverageDetail,
@@ -51,6 +42,27 @@ from jawnix.scraper_keywords import (
     keyword_version,
 )
 from jawnix.scraper_operations import ScraperOperationsError
+from jawnix.scraper_operations import ScraperWorkspaceSummary
+from jawnix.scraper_monitoring import (
+    ControlPipelineRequest,
+    ControlPipelineResult,
+    RegionData,
+    RegionKey,
+)
+from jawnix.scraper_runtime import (
+    ControlCampaignHistory,
+    ControlRuntimePreview,
+    ControlRuntimeSaveRequest,
+    ControlRuntimeSaveResult,
+    ControlRuntimeWorkspace,
+    HistorySort,
+    RuntimeConfiguration,
+    RuntimePreviewRequest,
+    SortDirection,
+    StateCellEffect,
+    calculate_effects,
+    runtime_version,
+)
 from jawnix.states import US_STATES
 
 
@@ -287,25 +299,25 @@ CAMPAIGN_HISTORY = [
         "keyword": "Acoustic Guitar Lessons",
         "state": "OH",
         "cells_posted": 240,
-        "first_enqueued": "Jul 27, 13:41",
-        "latest_enqueued": "Jul 29, 00:00",
-        "campaign_date": "Jul 29, 2026",
+        "first_enqueued": "2026-07-27T13:41:00+00:00",
+        "latest_enqueued": "2026-07-29T00:00:00+00:00",
+        "campaign_date": "2026-07-29",
     },
     {
         "keyword": "Farm Equipment Dealer",
         "state": "KY",
         "cells_posted": 324,
-        "first_enqueued": "Jul 28, 01:49",
-        "latest_enqueued": "Jul 29, 00:03",
-        "campaign_date": "Jul 29, 2026",
+        "first_enqueued": "2026-07-28T01:49:00+00:00",
+        "latest_enqueued": "2026-07-29T00:03:00+00:00",
+        "campaign_date": "2026-07-29",
     },
     {
         "keyword": "Plumbers",
         "state": "PA",
         "cells_posted": 110,
-        "first_enqueued": "Jul 20, 09:00",
-        "latest_enqueued": "Jul 28, 17:30",
-        "campaign_date": "Jul 28, 2026",
+        "first_enqueued": "2026-07-20T09:00:00+00:00",
+        "latest_enqueued": "2026-07-28T17:30:00+00:00",
+        "campaign_date": "2026-07-28",
     },
 ]
 
@@ -458,12 +470,7 @@ def paused_activity(cancelled_jobs: int = 0, mode: str = "drain") -> dict:
 
 
 class ScraperFake:
-    """Records every upstream call and answers the projection contract.
-
-    ``failing`` names regions that should behave as if the upstream region is
-    down, which is how the per-region isolation tests make one panel fail
-    without touching the other eight.
-    """
+    """Records typed calls and implements every in-memory operation."""
 
     def __init__(
         self,
@@ -492,11 +499,23 @@ class ScraperFake:
         self.keyword_calls: list[str] = []
         self.database_calls: list[tuple[str, object]] = []
         self.coverage_calls: list[str] = []
-        self.calls: list[httpx.Request] = []
-        self.writes: list[bytes] = []
+        self.operation_calls: list[str] = []
+        self.monitoring_calls: list[str] = []
+        self.pipeline_writes: list[ControlPipelineRequest] = []
         self.keyword_writes: list[dict[str, object]] = []
         self.runtime = json.loads(json.dumps(RUNTIME_CONFIGURATION))
-        self.runtime_writes: list[dict[str, list[str]]] = []
+        self.runtime_writes: list[dict[str, object]] = []
+        self.history_calls: list[dict[str, str]] = []
+
+    async def workspace_summary(self) -> ScraperWorkspaceSummary:
+        self.operation_calls.append("workspace")
+        self._operations_failure("workspace")
+        return ScraperWorkspaceSummary(
+            active_states=list(self.runtime["states"]),
+            keyword_count=len(self.keywords),
+            business_count=STATS["businesses"],
+            pipeline_state="running",
+        )
 
     def _keyword_failure(self) -> None:
         if self.offline:
@@ -843,86 +862,158 @@ class ScraperFake:
         self._operations_failure("cells")
         return STATE_CELLS
 
-    def __call__(self, request: httpx.Request) -> httpx.Response:
-        self.calls.append(request)
-        path = request.url.path
-        if self.offline:
-            raise httpx.ConnectError("scraper unreachable", request=request)
+    async def monitoring_dashboard(self) -> RegionData:
+        self.monitoring_calls.append("dashboard")
+        self._operations_failure("dashboard")
+        return RegionData.model_validate(aggregate_payload())
 
-        if path == "/dashboard/pipeline":
-            self.writes.append(request.content)
-            return httpx.Response(
-                200,
-                headers={"Content-Type": "text/html"},
-                text="<section>ok</section>",
+    async def monitoring_region(self, region: RegionKey) -> RegionData:
+        self.monitoring_calls.append(region)
+        self._operations_failure(region)
+        if region in self.failing:
+            raise ScraperOperationsError(transport_error="ConnectError")
+        if (
+            region == "activity"
+            and self.activity_after_write
+            and self.pipeline_writes
+        ):
+            payload = self.activity_after_write
+        else:
+            payload = REGION_PAYLOADS[region]
+        return RegionData.model_validate(payload)
+
+    async def control_pipeline(
+        self,
+        payload: ControlPipelineRequest,
+    ) -> ControlPipelineResult:
+        self.operation_calls.append("pipeline")
+        self._operations_failure("pipeline")
+        self.pipeline_writes.append(payload)
+        if self.activity_after_write:
+            result = self.activity_after_write
+        elif payload.action == "pause":
+            result = paused_activity(
+                mode="clear" if payload.clear_queue else "drain"
             )
-        if path == "/frag/history/table":
-            if "history" in self.runtime_failing:
-                return httpx.Response(503, text="history unavailable")
-            return self._html(self._history_table(request))
-        if path == "/configure" and request.method == "GET":
-            if "configure" in self.runtime_failing:
-                return httpx.Response(503, text="configure unavailable")
-            return self._html(self._configure_page())
-        if path == "/configure/preview":
-            if "preview" in self.runtime_failing:
-                return httpx.Response(503, text="preview unavailable")
-            proposed = self._runtime_from_form(request)
-            return self._html(self._runtime_preview(proposed))
-        if path == "/configure/save":
-            if "save" in self.runtime_failing:
-                return httpx.Response(503, text="save unavailable")
-            proposed = self._runtime_from_form(request)
-            self.runtime = proposed
-            self.runtime_writes.append(self._multi_form(request))
-            return self._html(self._runtime_preview(proposed, saved=True))
-        if path == "/api/dashboard":
-            return self._json(aggregate_payload())
-        if path.startswith("/api/dashboard/"):
-            region = path.rsplit("/", 1)[-1]
-            if region in self.failing:
-                return httpx.Response(503, text="region unavailable")
-            if region == "activity" and self.activity_after_write and self.writes:
-                return self._json(self.activity_after_write)
-            payload = REGION_PAYLOADS.get(region)
-            if payload is None:
-                return httpx.Response(404, text="unknown region")
-            return self._json(payload)
-        return httpx.Response(
-            200,
-            headers={"Content-Type": "text/html"},
-            text="<html><body>GMS/OPS ready</body></html>",
+        else:
+            result = REGION_PAYLOADS["activity"]
+        return ControlPipelineResult(
+            pipeline_state=result["pipeline_state"],
+            cancelled_jobs=int(
+                result["pause_info"].get("cancelled_jobs") or 0
+            ),
+            activity=result["activity"],
+            pause_info=result["pause_info"],
         )
 
-    @staticmethod
-    def _form(request: httpx.Request) -> dict[str, str]:
-        return {
-            key: values[-1]
-            for key, values in parse_qs(request.content.decode()).items()
-        }
+    def _runtime_cells(
+        self,
+        configuration: RuntimeConfiguration,
+    ) -> list[StateCellEffect]:
+        rows = []
+        for state in configuration.states:
+            base = STATE_CELL_COUNTS.get(state, 100)
+            override = configuration.overrides.get(state)
+            cell_size = override.cell_size_km if override else None
+            cells = (
+                max(1, round(base * 15 / float(cell_size)))
+                if cell_size
+                else base
+            )
+            rows.append(StateCellEffect(state=state, cells=cells))
+        return rows
 
-    @staticmethod
-    def _multi_form(request: httpx.Request) -> dict[str, list[str]]:
-        return parse_qs(request.content.decode(), keep_blank_values=True)
+    def _runtime_failure(self, key: str) -> None:
+        if self.offline or key in self.runtime_failing:
+            raise ScraperOperationsError(transport_error="ConnectError")
 
-    @staticmethod
-    def _html(document: str) -> httpx.Response:
-        return httpx.Response(
-            200,
-            headers={"Content-Type": "text/html"},
-            text=document,
+    async def runtime_workspace(self) -> ControlRuntimeWorkspace:
+        self.operation_calls.append("runtime")
+        self._runtime_failure("configure")
+        current = RuntimeConfiguration.model_validate(self.runtime)
+        cells = self._runtime_cells(current)
+        return ControlRuntimeWorkspace(
+            current=current,
+            version=runtime_version(current),
+            all_states=sorted(US_STATES),
+            cells=cells,
+            total_cells=sum(row.cells for row in cells),
         )
 
-    def _history_table(self, request: httpx.Request) -> str:
-        search = request.url.params.get("search", "").casefold()
-        state = request.url.params.get("state", "").upper()
-        sort = request.url.params.get("sort", "last_enqueued")
-        reverse = request.url.params.get("direction", "desc") != "asc"
+    async def preview_runtime(
+        self,
+        payload: RuntimePreviewRequest,
+    ) -> ControlRuntimePreview:
+        self.operation_calls.append("runtime_preview")
+        self._runtime_failure("preview")
+        current = RuntimeConfiguration.model_validate(self.runtime)
+        proposed = payload.configuration
+        return ControlRuntimePreview(
+            configuration=proposed,
+            expected_version=runtime_version(current),
+            proposed_version=runtime_version(proposed),
+            effects=calculate_effects(
+                current,
+                proposed,
+                self._runtime_cells(current),
+                self._runtime_cells(proposed),
+            ),
+        )
+
+    async def save_runtime(
+        self,
+        payload: ControlRuntimeSaveRequest,
+    ) -> ControlRuntimeSaveResult:
+        self.operation_calls.append("runtime_save")
+        self._runtime_failure("save")
+        current = RuntimeConfiguration.model_validate(self.runtime)
+        if runtime_version(current) != payload.expected_version:
+            raise ScraperOperationsError(
+                status_code=409,
+                detail=(
+                    "Runtime configuration changed after this preview. "
+                    "Reload the current settings and preview again."
+                ),
+            )
+        effects = calculate_effects(
+            current,
+            payload.configuration,
+            self._runtime_cells(current),
+            self._runtime_cells(payload.configuration),
+        )
+        self.runtime = payload.configuration.model_dump(mode="json")
+        self.runtime_writes.append(payload.model_dump(mode="json"))
+        return ControlRuntimeSaveResult(
+            version=runtime_version(payload.configuration),
+            configuration=payload.configuration,
+            effects=effects,
+            enqueued=payload.enqueue,
+        )
+
+    async def campaign_history(
+        self,
+        *,
+        search: str,
+        state: str,
+        sort: HistorySort,
+        direction: SortDirection,
+    ) -> ControlCampaignHistory:
+        self.operation_calls.append("history")
+        self.history_calls.append(
+            {
+                "search": search,
+                "state": state,
+                "sort": sort,
+                "direction": direction,
+            }
+        )
+        self._runtime_failure("history")
+        normalized_state = state.upper()
         rows = [
             row
             for row in CAMPAIGN_HISTORY
-            if (not search or search in row["keyword"].casefold())
-            and (not state or state == row["state"])
+            if (not search or search.casefold() in row["keyword"].casefold())
+            and (not normalized_state or normalized_state == row["state"])
         ]
         sort_key = {
             "keyword": "keyword",
@@ -930,189 +1021,16 @@ class ScraperFake:
             "cells_posted": "cells_posted",
             "latest_enqueued": "latest_enqueued",
             "last_enqueued": "campaign_date",
-        }.get(sort, "campaign_date")
-        rows.sort(key=lambda item: item[sort_key], reverse=reverse)
-        body = "".join(
-            f"""
-            <tr>
-              <td><strong>{row["keyword"]}</strong></td>
-              <td><span class="state-code small">{row["state"]}</span></td>
-              <td>{row["cells_posted"]}</td>
-              <td>{row["first_enqueued"]}</td>
-              <td>{row["latest_enqueued"]}</td>
-              <td>{row["campaign_date"]}</td>
-            </tr>
-            """
-            for row in rows
+        }[sort]
+        rows.sort(
+            key=lambda item: item[sort_key],
+            reverse=direction == "desc",
         )
-        if not body:
-            body = (
-                '<tr><td colspan="6" class="table-empty">'
-                "No campaign history</td></tr>"
-            )
-        return f"""
-        <div class="table-wrap"><table>
-          <thead><tr>
-            <th>Keyword</th><th>State</th><th>Cells posted</th>
-            <th>First enqueue</th><th>Latest enqueue</th>
-            <th>Campaign date</th>
-          </tr></thead>
-          <tbody>{body}</tbody>
-        </table></div>
-        """
-
-    def _runtime_cells(self, configuration: dict) -> list[tuple[str, int]]:
-        rows = []
-        for state in configuration["states"]:
-            base = STATE_CELL_COUNTS.get(state, 100)
-            cell_size = (
-                configuration["overrides"]
-                .get(state, {})
-                .get("cell_size_km")
-            )
-            cells = (
-                max(1, round(base * 15 / float(cell_size)))
-                if cell_size
-                else base
-            )
-            rows.append((state, cells))
-        return rows
-
-    def _runtime_preview(
-        self,
-        configuration: dict,
-        *,
-        saved: bool = False,
-    ) -> str:
-        notice = (
-            '<div class="notice success"><span>Configuration saved</span></div>'
-            if saved
-            else ""
-        )
-        rows = "".join(
-            (
-                '<div><span class="state-code small">'
-                f"{state}</span><strong>{cells:,}</strong></div>"
-            )
-            for state, cells in self._runtime_cells(configuration)
-        )
-        return f"""
-        {notice}
-        <div class="section-head"><div>
-          <p class="eyebrow">Computed</p><h2>Cell count</h2>
-        </div></div>
-        <div class="preview-list">{rows}</div>
-        """
-
-    def _configure_page(self) -> str:
-        state_inputs = "".join(
-            (
-                '<label><input type="checkbox" name="states" '
-                f'value="{state.lower()}"'
-                f'{" checked" if state in self.runtime["states"] else ""}>'
-                f"<span>{state}</span></label>"
-            )
-            for state in sorted(US_STATES)
-        )
-        settings = self.runtime["settings"]
-        queue = self.runtime["queue"]
-        overrides = "".join(
-            f"""
-            <div class="override-row"><strong>{state}</strong>
-              <label>Cell size (km)<input type="number"
-                name="cell_size_km_{state.lower()}"
-                value="{self.runtime["overrides"].get(state, {}).get("cell_size_km", "")}">
-              </label>
-              <label>Zoom<input type="number"
-                name="zoom_{state.lower()}"
-                value="{self.runtime["overrides"].get(state, {}).get("zoom", "")}">
-              </label>
-            </div>
-            """
-            for state in self.runtime["states"]
-        )
-        return f"""
-        <html><body>
-          <form>
-            <div class="state-picker">{state_inputs}</div>
-            <input name="zoom" value="{settings["zoom"]}">
-            <input name="radius" value="{settings["radius"]}">
-            <input name="depth" value="{settings["depth"]}">
-            <input name="lang" value="{settings["lang"]}">
-            <input name="fast_mode" type="checkbox"
-              {"checked" if settings["fast_mode"] else ""}>
-            <input name="timeout" value="{settings["timeout"]}">
-            <input name="target_depth" value="{queue["target_depth"]}">
-            <input name="target_per_worker"
-              value="{queue["target_per_worker"]}">
-            <input name="min_target_depth"
-              value="{queue["min_target_depth"]}">
-            <input name="max_target_depth"
-              value="{queue["max_target_depth"]}">
-            <input name="batch_size" value="{queue["batch_size"]}">
-            <input name="poll_secs" value="{queue["poll_secs"]}">
-            <input name="skip_recent_days"
-              value="{queue["skip_recent_days"]}">
-            <div class="override-grid">{overrides}</div>
-            {self._runtime_preview(self.runtime)}
-          </form>
-        </body></html>
-        """
-
-    def _runtime_from_form(self, request: httpx.Request) -> dict:
-        form = self._multi_form(request)
-
-        def one(name: str, default: object) -> str:
-            values = form.get(name)
-            return values[-1] if values else str(default)
-
-        states = [value.upper() for value in form.get("states", [])]
-        overrides = {}
-        for state in states:
-            code = state.lower()
-            values = {}
-            cell_size = one(f"cell_size_km_{code}", "").strip()
-            zoom = one(f"zoom_{code}", "").strip()
-            if cell_size:
-                values["cell_size_km"] = float(cell_size)
-            if zoom:
-                values["zoom"] = int(float(zoom))
-            if values:
-                overrides[state] = values
-        return {
-            "states": states,
-            "settings": {
-                "zoom": int(float(one("zoom", 15))),
-                "radius": float(one("radius", 10_000)),
-                "depth": int(float(one("depth", 3))),
-                "lang": one("lang", "en"),
-                "fast_mode": one("fast_mode", "") == "on",
-                "timeout": int(float(one("timeout", 300))),
-            },
-            "queue": {
-                "target_depth": int(float(one("target_depth", 50))),
-                "target_per_worker": int(
-                    float(one("target_per_worker", 25))
-                ),
-                "min_target_depth": int(
-                    float(one("min_target_depth", 25))
-                ),
-                "max_target_depth": int(
-                    float(one("max_target_depth", 500))
-                ),
-                "batch_size": int(float(one("batch_size", 100))),
-                "poll_secs": int(float(one("poll_secs", 5))),
-                "skip_recent_days": int(
-                    float(one("skip_recent_days", 0))
-                ),
-            },
-            "overrides": overrides,
-        }
-
-    @staticmethod
-    def _json(payload: dict) -> httpx.Response:
-        return httpx.Response(
-            200,
-            headers={"Content-Type": "application/json"},
-            content=json.dumps(payload).encode(),
+        return ControlCampaignHistory(
+            search=search,
+            state=normalized_state,
+            sort=sort,
+            direction=direction,
+            all_states=sorted(US_STATES),
+            rows=rows,
         )

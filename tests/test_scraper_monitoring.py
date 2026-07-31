@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import httpx
 import pytest
 from sqlalchemy import select
 
@@ -22,7 +21,7 @@ from test_scraper_workspace import (  # noqa: F401 — fixtures
 
 
 def arm(fake: ScraperFake) -> ScraperFake:
-    app.state.scraper_proxy_transport = httpx.MockTransport(fake)
+    app.state.scraper_operations = fake
     return fake
 
 
@@ -81,7 +80,7 @@ def test_every_region_reads_independently(
     assert body["state"] == "ok"
     assert body["fetched_at"] is not None
     assert probe(body["data"][field])
-    assert fake.calls[-1].url.path == f"/api/dashboard/{region}"
+    assert fake.monitoring_calls[-1] == region
 
 
 def test_stack_telemetry_keeps_every_host_number_the_dashboard_shows(
@@ -207,7 +206,7 @@ def test_monitoring_requires_the_scraper_privileged_session(
     response = client.get(path)
 
     assert response.status_code == 401
-    assert fake.calls == []
+    assert fake.monitoring_calls == []
 
 
 def test_monitoring_stops_once_the_privileged_session_goes_idle(
@@ -243,7 +242,9 @@ def test_pause_drains_the_queue_by_default(workspace_client, session):
 
     body = _pause(client, csrf, action="pause").json()
 
-    assert fake.writes == [b"action=pause&clear_queue=no"]
+    assert [write.model_dump() for write in fake.pipeline_writes] == [
+        {"action": "pause", "clear_queue": False}
+    ]
     assert body["pipeline_state"] == "paused"
     assert body["cancelled_jobs"] == 0
     assert body["region"]["data"]["pause_info"]["mode"] == "drain"
@@ -270,7 +271,9 @@ def test_pause_can_clear_the_queue_and_records_what_it_cancelled(
 
     body = _pause(client, csrf, action="pause", clear_queue=True).json()
 
-    assert fake.writes == [b"action=pause&clear_queue=yes"]
+    assert [write.model_dump() for write in fake.pipeline_writes] == [
+        {"action": "pause", "clear_queue": True}
+    ]
     assert body["cancelled_jobs"] == 812
     assert body["region"]["data"]["activity"]["queue_depth"] == 0
     entry = session.scalars(
@@ -312,7 +315,9 @@ def test_resume_restarts_the_pipeline(workspace_client, session):
 
     body = _pause(client, csrf, action="resume").json()
 
-    assert fake.writes == [b"action=resume"]
+    assert [write.model_dump() for write in fake.pipeline_writes] == [
+        {"action": "resume", "clear_queue": False}
+    ]
     assert body["pipeline_state"] == "running"
     assert session.scalars(
         select(AuditEntry).where(
@@ -329,7 +334,7 @@ def test_a_resume_cannot_clear_the_queue(workspace_client):
     response = _pause(client, csrf, action="resume", clear_queue=True)
 
     assert response.status_code == 422
-    assert fake.writes == []
+    assert fake.pipeline_writes == []
 
 
 def test_a_pipeline_write_requires_a_reason(workspace_client):
@@ -344,7 +349,7 @@ def test_a_pipeline_write_requires_a_reason(workspace_client):
     )
 
     assert response.status_code == 422
-    assert fake.writes == []
+    assert fake.pipeline_writes == []
 
 
 def test_a_pipeline_write_requires_the_privileged_session(workspace_client):
@@ -354,7 +359,7 @@ def test_a_pipeline_write_requires_the_privileged_session(workspace_client):
     response = _pause(client, csrf, action="pause")
 
     assert response.status_code == 401
-    assert fake.writes == []
+    assert fake.pipeline_writes == []
 
 
 def test_a_pipeline_write_is_not_attempted_without_jawnix_csrf(
@@ -370,7 +375,7 @@ def test_a_pipeline_write_is_not_attempted_without_jawnix_csrf(
     )
 
     assert response.status_code == 403
-    assert fake.writes == []
+    assert fake.pipeline_writes == []
 
 
 def test_an_unreachable_scraper_records_no_pipeline_audit(

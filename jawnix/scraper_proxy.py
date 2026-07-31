@@ -5,12 +5,11 @@ import html
 import hmac
 import logging
 import re
-import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -45,6 +44,7 @@ from .mfa_provider import MFAProviderError, get_mfa_provider
 from .models import ScraperRuntimeConfigurationRevision
 from .schemas import AdminMFAChallenge
 from .scraper_monitoring import (
+    ControlPipelineRequest,
     REGION_INTERVALS,
     REGIONS,
     MonitoringRegion,
@@ -93,6 +93,9 @@ from .scraper_database import (
 )
 from .scraper_runtime import (
     CampaignHistory,
+    CampaignHistoryRow,
+    ControlRuntimeSaveRequest,
+    ControlRuntimeWorkspace,
     HistorySort,
     RuntimeConfiguration,
     RuntimePreview,
@@ -101,11 +104,6 @@ from .scraper_runtime import (
     RuntimeSaveResult,
     RuntimeWorkspace,
     SortDirection,
-    calculate_effects,
-    parse_campaign_history,
-    parse_cell_effects,
-    parse_runtime_workspace,
-    runtime_form,
     runtime_summary,
     runtime_version,
 )
@@ -331,78 +329,6 @@ def _native_unavailable(state: ScraperProxyState) -> JSONResponse:
     )
 
 
-async def _raw_native_upstream(
-    request: Request,
-    settings: Settings,
-    *,
-    method: str,
-    path: str,
-    form: dict[str, object] | None = None,
-    timeout: float | None = None,
-) -> httpx.Response | None:
-    if (
-        not settings.scraper_ops_url
-        or not settings.scraper_ops_user
-        or not settings.scraper_ops_password
-    ):
-        return None
-    transport = getattr(request.app.state, "scraper_proxy_transport", None)
-    started_at = time.perf_counter()
-    try:
-        async with httpx.AsyncClient(
-            base_url=settings.scraper_ops_url.rstrip("/"),
-            auth=httpx.BasicAuth(
-                settings.scraper_ops_user,
-                settings.scraper_ops_password,
-            ),
-            timeout=(
-                settings.scraper_ops_timeout_seconds
-                if timeout is None
-                else timeout
-            ),
-            follow_redirects=False,
-            transport=transport,
-        ) as client:
-            upstream = await client.request(method, path, data=form)
-    except httpx.RequestError as error:
-        transport_error = type(error).__name__
-        logger.warning(
-            "Scraper upstream request failed: transport_error=%s "
-            "method=%s path=%s elapsed_seconds=%.3f",
-            transport_error,
-            method,
-            path,
-            time.perf_counter() - started_at,
-        )
-        return None
-    return upstream
-
-
-async def _native_upstream(
-    request: Request,
-    settings: Settings,
-    *,
-    method: str,
-    path: str,
-    form: dict[str, object] | None = None,
-    timeout: float | None = None,
-) -> httpx.Response | None:
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method=method,
-        path=path,
-        form=form,
-        timeout=timeout,
-    )
-    if upstream is None:
-        return None
-    if not 200 <= upstream.status_code < 300:
-        return None
-    _state(request, settings).last_success = _workspace_now(request)
-    return upstream
-
-
 @native_router.post("/entry")
 async def begin_scraper_entry(
     request: Request,
@@ -541,43 +467,17 @@ async def scraper_workspace(
         principal,
         settings,
     )
-    upstream = await _native_upstream(
-        request,
-        settings,
-        method="GET",
-        path="/dashboard",
-    )
     state = _state(request, settings)
-    if upstream is None:
+    try:
+        await _scraper_operations(request, settings).workspace_summary()
+    except ScraperOperationsError:
         return _native_unavailable(state)
+    _mark_operations_success(request, settings)
     return {
         "serviceState": "connected",
         "lastSuccessfulAt": _safe_last_success(state),
         "idleExpiresIn": SCRAPER_IDLE_SECONDS,
     }
-
-
-async def _native_json(
-    request: Request,
-    settings: Settings,
-    *,
-    path: str,
-) -> dict | None:
-    """A JSON read from the Scraper projection, or None if it did not answer."""
-
-    upstream = await _native_upstream(
-        request,
-        settings,
-        method="GET",
-        path=path,
-    )
-    if upstream is None:
-        return None
-    try:
-        payload = upstream.json()
-    except ValueError:
-        return None
-    return payload if isinstance(payload, dict) else None
 
 
 def _database_state(state: str) -> str:
@@ -1094,20 +994,28 @@ async def scraper_monitoring(
     """
 
     _require_scraper_grant(request, response, principal, settings)
-    payload = await _native_json(request, settings, path="/api/dashboard")
     state = _state(request, settings)
-    if payload is None:
+    try:
+        payload = await _scraper_operations(
+            request,
+            settings,
+        ).monitoring_dashboard()
+    except ScraperOperationsError:
         return MonitoringSnapshot(
             service_state="unavailable",
             last_successful_at=state.last_success,
             idle_expires_in=SCRAPER_IDLE_SECONDS,
             regions=[_unavailable_region(region) for region in REGIONS],
         )
+    _mark_operations_success(request, settings)
     return MonitoringSnapshot(
         service_state="connected",
         last_successful_at=state.last_success,
         idle_expires_in=SCRAPER_IDLE_SECONDS,
-        regions=snapshot_regions(payload, fetched_at=_workspace_now(request)),
+        regions=snapshot_regions(
+            payload.model_dump(mode="json", exclude_none=True),
+            fetched_at=_workspace_now(request),
+        ),
     )
 
 
@@ -1129,19 +1037,23 @@ async def scraper_monitoring_region(
     """
 
     _require_scraper_grant(request, response, principal, settings)
-    payload = await _native_json(
-        request,
-        settings,
-        path=f"/api/dashboard/{region}",
-    )
-    if payload is None:
+    try:
+        payload = await _scraper_operations(
+            request,
+            settings,
+        ).monitoring_region(region)
+    except ScraperOperationsError:
         return _unavailable_region(region)
+    _mark_operations_success(request, settings)
     return MonitoringRegion(
         region=region,
         state="ok",
         refresh_seconds=REGION_INTERVALS[region],
         fetched_at=_workspace_now(request),
-        data=region_data(region, payload),
+        data=region_data(
+            region,
+            payload.model_dump(mode="json", exclude_none=True),
+        ),
     )
 
 
@@ -1164,49 +1076,38 @@ async def control_scraper_pipeline(
     """
 
     _require_scraper_grant(request, response, principal, settings)
-    form = {"action": payload.action}
-    if payload.action == "pause":
-        form["clear_queue"] = "yes" if payload.clear_queue else "no"
-    upstream = await _native_upstream(
-        request,
-        settings,
-        method="POST",
-        path="/dashboard/pipeline",
-        form=form,
-    )
     state = _state(request, settings)
-    if upstream is None:
-        return _native_unavailable(state)
-
-    # Read the resulting activity back rather than predicting it. The cancelled
-    # job count only exists upstream, and an audit entry that guessed it would
-    # be worse than one that recorded nothing.
-    activity = await _native_json(
-        request,
-        settings,
-        path="/api/dashboard/activity",
-    )
-    region = (
-        MonitoringRegion(
-            region="activity",
-            state="ok",
-            refresh_seconds=REGION_INTERVALS["activity"],
-            fetched_at=_workspace_now(request),
-            data=region_data("activity", activity),
+    try:
+        result = await _scraper_operations(
+            request,
+            settings,
+        ).control_pipeline(
+            ControlPipelineRequest(
+                action=payload.action,
+                clear_queue=payload.clear_queue,
+            )
         )
-        if activity is not None
-        else _unavailable_region("activity")
+    except ScraperOperationsError:
+        return _native_unavailable(state)
+    _mark_operations_success(request, settings)
+    region = MonitoringRegion(
+        region="activity",
+        state="ok",
+        refresh_seconds=REGION_INTERVALS["activity"],
+        fetched_at=_workspace_now(request),
+        data=region_data(
+            "activity",
+            {
+                "activity": result.activity.model_dump(mode="json"),
+                "pipeline_state": result.pipeline_state.model_dump(
+                    mode="json"
+                ),
+                "pause_info": result.pause_info.model_dump(mode="json"),
+            },
+        ),
     )
-    pipeline_state = (
-        region.data.pipeline_state.key
-        if region.data is not None and region.data.pipeline_state is not None
-        else ("paused" if payload.action == "pause" else "running")
-    )
-    cancelled_jobs = (
-        region.data.pause_info.cancelled_jobs
-        if region.data is not None and region.data.pause_info is not None
-        else 0
-    )
+    pipeline_state = result.pipeline_state.key
+    cancelled_jobs = result.cancelled_jobs
 
     if payload.action == "resume":
         action = "scraper_pipeline_resumed"
@@ -1236,7 +1137,7 @@ async def control_scraper_pipeline(
     )
 
 
-def _mark_keyword_success(request: Request, settings: Settings) -> None:
+def _mark_operations_success(request: Request, settings: Settings) -> None:
     _state(request, settings).last_success = _workspace_now(request)
 
 
@@ -1347,7 +1248,7 @@ async def scraper_keyword_workspace(
         )
     except ScraperOperationsError:
         return _keyword_workspace_unavailable(request, settings)
-    _mark_keyword_success(request, settings)
+    _mark_operations_success(request, settings)
     proxy_state = _state(request, settings)
     return KeywordWorkspace(
         service_state="connected",
@@ -1379,7 +1280,7 @@ async def preview_scraper_keywords(
         )
     except ScraperOperationsError as error:
         if error.status_code == 422 and error.detail:
-            _mark_keyword_success(request, settings)
+            _mark_operations_success(request, settings)
             raise HTTPException(status_code=422, detail=error.detail) from None
         _audit_keyword_failure(
             db,
@@ -1389,7 +1290,7 @@ async def preview_scraper_keywords(
             details={"outcome": "upstream_unavailable"},
         )
         return _native_unavailable(_state(request, settings))
-    _mark_keyword_success(request, settings)
+    _mark_operations_success(request, settings)
     diff.review_token = _keyword_review_serializer(settings).dumps(
         {
             "sub": str(principal.user_id),
@@ -1473,7 +1374,7 @@ async def save_scraper_keywords(
                 },
             )
             return _native_unavailable(_state(request, settings))
-        _mark_keyword_success(request, settings)
+        _mark_operations_success(request, settings)
         current = workspace.current
         current_version = keyword_version(current)
         if current_version != payload.expected_version:
@@ -1534,7 +1435,7 @@ async def save_scraper_keywords(
                 ) from None
             return _native_unavailable(_state(request, settings))
 
-        _mark_keyword_success(request, settings)
+        _mark_operations_success(request, settings)
         next_version = keyword_version(diff.proposed)
         record_activity(
             db,
@@ -1629,7 +1530,7 @@ async def generate_scraper_keywords(
         )
         raise HTTPException(status_code=status_code, detail=message) from None
 
-    _mark_keyword_success(request, settings)
+    _mark_operations_success(request, settings)
     record_activity(
         db,
         action="scraper_keyword_generation_created",
@@ -1685,7 +1586,7 @@ async def control_scraper_keyword_rollover(
             )
         return _native_unavailable(_state(request, settings))
     rollover = _public_rollover(rollover)
-    _mark_keyword_success(request, settings)
+    _mark_operations_success(request, settings)
     record_activity(
         db,
         action=(
@@ -1707,36 +1608,19 @@ async def control_scraper_keyword_rollover(
     return rollover
 
 
-def _runtime_failed(upstream: httpx.Response | None) -> bool:
-    return upstream is None or not 200 <= upstream.status_code < 300
-
-
-def _mark_runtime_success(request: Request, settings: Settings) -> None:
-    _state(request, settings).last_success = _workspace_now(request)
-
-
 async def _runtime_current(
     request: Request,
     settings: Settings,
-) -> tuple[
-    RuntimeConfiguration,
-    list[str],
-    list,
-] | None:
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="GET",
-        path="/configure",
-    )
-    if _runtime_failed(upstream):
-        return None
+) -> ControlRuntimeWorkspace | None:
     try:
-        parsed = parse_runtime_workspace(upstream.text)
-    except (TypeError, ValueError):
+        workspace = await _scraper_operations(
+            request,
+            settings,
+        ).runtime_workspace()
+    except ScraperOperationsError:
         return None
-    _mark_runtime_success(request, settings)
-    return parsed
+    _mark_operations_success(request, settings)
+    return workspace
 
 
 def _audit_runtime_failure(
@@ -1799,33 +1683,18 @@ async def scraper_campaign_history(
     normalized_state = state.strip().upper()
     if normalized_state and normalized_state not in US_STATES:
         raise HTTPException(status_code=422, detail="Unknown state.")
-    query = urlencode(
-        {
-            "search": search.strip(),
-            "state": normalized_state.lower(),
-            "sort": sort,
-            "direction": direction,
-        }
-    )
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="GET",
-        path=f"/frag/history/table?{query}",
-    )
     proxy_state = _state(request, settings)
-    if _runtime_failed(upstream):
-        return _campaign_history_unavailable(
-            request,
-            settings,
-            search=search.strip(),
-            state=normalized_state,
-            sort=sort,
-            direction=direction,
-        )
     try:
-        rows = parse_campaign_history(upstream.text)
-    except (TypeError, ValueError):
+        history = await _scraper_operations(
+            request,
+            settings,
+        ).campaign_history(
+            search=search.strip(),
+            state=normalized_state.lower(),
+            sort=sort,
+            direction=direction,
+        )
+    except ScraperOperationsError:
         return _campaign_history_unavailable(
             request,
             settings,
@@ -1834,7 +1703,13 @@ async def scraper_campaign_history(
             sort=sort,
             direction=direction,
         )
-    _mark_runtime_success(request, settings)
+    _mark_operations_success(request, settings)
+
+    def public_time(value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.strftime("%b ") + str(value.day) + value.strftime(", %H:%M")
+
     return CampaignHistory(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
@@ -1844,7 +1719,21 @@ async def scraper_campaign_history(
         sort=sort,
         direction=direction,
         all_states=sorted(US_STATES),
-        rows=rows,
+        rows=[
+            CampaignHistoryRow(
+                keyword=row.keyword,
+                state=row.state,
+                cells_posted=row.cells_posted,
+                first_enqueued=public_time(row.first_enqueued),
+                latest_enqueued=public_time(row.latest_enqueued),
+                campaign_date=(
+                    row.campaign_date.strftime("%b ")
+                    + str(row.campaign_date.day)
+                    + row.campaign_date.strftime(", %Y")
+                ),
+            )
+            for row in history.rows
+        ],
     )
 
 
@@ -1880,16 +1769,15 @@ async def scraper_runtime_configuration(
     proxy_state = _state(request, settings)
     if parsed is None:
         return _runtime_workspace_unavailable(request, settings)
-    current, all_states, cells = parsed
     return RuntimeWorkspace(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
         idle_expires_in=SCRAPER_IDLE_SECONDS,
-        current=current,
-        version=runtime_version(current),
-        all_states=all_states,
-        cells=cells,
-        total_cells=sum(row.cells for row in cells),
+        current=parsed.current,
+        version=parsed.version,
+        all_states=parsed.all_states,
+        cells=parsed.cells,
+        total_cells=parsed.total_cells,
     )
 
 
@@ -1907,30 +1795,16 @@ async def preview_scraper_runtime_configuration(
     parsed = await _runtime_current(request, settings)
     if parsed is None:
         return _native_unavailable(_state(request, settings))
-    current, _, current_cells = parsed
-    form = runtime_form(payload.configuration)
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="POST",
-        path="/configure/preview",
-        form=form,
-    )
-    if _runtime_failed(upstream):
-        return _native_unavailable(_state(request, settings))
     try:
-        proposed_cells = parse_cell_effects(upstream.text)
-    except (TypeError, ValueError):
+        preview = await _scraper_operations(
+            request,
+            settings,
+        ).preview_runtime(payload)
+    except ScraperOperationsError:
         return _native_unavailable(_state(request, settings))
-    if (
-        len(proposed_cells) != len(payload.configuration.states)
-        or {row.state for row in proposed_cells}
-        != set(payload.configuration.states)
-    ):
-        return _native_unavailable(_state(request, settings))
-    _mark_runtime_success(request, settings)
-    expected_version = runtime_version(current)
-    proposed_version = runtime_version(payload.configuration)
+    _mark_operations_success(request, settings)
+    expected_version = preview.expected_version
+    proposed_version = preview.proposed_version
     review_token = _runtime_review_serializer(settings).dumps(
         {
             "sub": str(principal.user_id),
@@ -1943,12 +1817,7 @@ async def preview_scraper_runtime_configuration(
         expected_version=expected_version,
         proposed_version=proposed_version,
         review_token=review_token,
-        effects=calculate_effects(
-            current,
-            payload.configuration,
-            current_cells,
-            proposed_cells,
-        ),
+        effects=preview.effects,
     )
 
 
@@ -2009,8 +1878,8 @@ async def save_scraper_runtime_configuration(
                 },
             )
             return _native_unavailable(_state(request, settings))
-        current, _, current_cells = parsed
-        current_version = runtime_version(current)
+        current = parsed.current
+        current_version = parsed.version
         if current_version != payload.expected_version:
             _audit_runtime_failure(
                 db,
@@ -2031,58 +1900,37 @@ async def save_scraper_runtime_configuration(
                 ),
             )
 
-        form = runtime_form(payload.configuration)
-        effects_upstream = await _raw_native_upstream(
-            request,
-            settings,
-            method="POST",
-            path="/configure/preview",
-            form=form,
-        )
-        if _runtime_failed(effects_upstream):
-            _audit_runtime_failure(
-                db,
-                principal=principal,
-                action="scraper_runtime_configuration_save_failed",
-                reason="Scale runtime effects could not be recalculated before save",
-                details={
-                    "expectedVersion": payload.expected_version,
-                    "proposedVersion": proposed_version,
-                    "enqueueRequested": payload.enqueue,
-                },
-            )
-            return _native_unavailable(_state(request, settings))
         try:
-            proposed_cells = parse_cell_effects(effects_upstream.text)
-        except (TypeError, ValueError):
-            proposed_cells = []
-        if (
-            len(proposed_cells) != len(payload.configuration.states)
-            or {row.state for row in proposed_cells}
-            != set(payload.configuration.states)
-        ):
-            _audit_runtime_failure(
-                db,
-                principal=principal,
-                action="scraper_runtime_configuration_save_failed",
-                reason="Scale runtime effects were invalid before save",
-                details={
-                    "expectedVersion": payload.expected_version,
-                    "proposedVersion": proposed_version,
-                    "enqueueRequested": payload.enqueue,
-                },
+            saved = await _scraper_operations(
+                request,
+                settings,
+            ).save_runtime(
+                ControlRuntimeSaveRequest(
+                    configuration=payload.configuration,
+                    expected_version=payload.expected_version,
+                    enqueue=payload.enqueue,
+                )
             )
-            return _native_unavailable(_state(request, settings))
-
-        form["enqueue"] = "true" if payload.enqueue else "false"
-        upstream = await _raw_native_upstream(
-            request,
-            settings,
-            method="POST",
-            path="/configure/save",
-            form=form,
-        )
-        if _runtime_failed(upstream):
+        except ScraperOperationsError as error:
+            if error.status_code == 409:
+                _audit_runtime_failure(
+                    db,
+                    principal=principal,
+                    action="scraper_runtime_configuration_save_refused",
+                    reason="Scale runtime configuration changed after preview",
+                    details={
+                        "expectedVersion": payload.expected_version,
+                        "currentVersion": None,
+                        "proposedVersion": proposed_version,
+                    },
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Runtime configuration changed after this preview. "
+                        "Reload the current settings and preview again."
+                    ),
+                ) from None
             _audit_runtime_failure(
                 db,
                 principal=principal,
@@ -2092,23 +1940,16 @@ async def save_scraper_runtime_configuration(
                     "expectedVersion": payload.expected_version,
                     "proposedVersion": proposed_version,
                     "enqueueRequested": payload.enqueue,
-                    "upstreamStatus": (
-                        upstream.status_code if upstream is not None else None
-                    ),
+                    "upstreamStatus": error.status_code,
                 },
             )
             return _native_unavailable(_state(request, settings))
 
-        _mark_runtime_success(request, settings)
-        effects = calculate_effects(
-            current,
-            payload.configuration,
-            current_cells,
-            proposed_cells,
-        )
+        _mark_operations_success(request, settings)
+        effects = saved.effects
         revision = ScraperRuntimeConfigurationRevision(
             before_checksum=current_version,
-            after_checksum=proposed_version,
+            after_checksum=saved.version,
             configuration=runtime_summary(payload.configuration),
             effects=effects.model_dump(mode="json"),
             enqueue_requested=payload.enqueue,
@@ -2158,7 +1999,7 @@ async def save_scraper_runtime_configuration(
         db.commit()
         return RuntimeSaveResult(
             revision_id=str(revision.id),
-            version=proposed_version,
+            version=saved.version,
             configuration=payload.configuration,
             effects=effects,
             enqueued=payload.enqueue,
