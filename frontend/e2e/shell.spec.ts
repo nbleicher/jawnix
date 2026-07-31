@@ -28,6 +28,24 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("Customer shell", () => {
+  test("keeps email support in the shell chrome across destinations", async ({
+    page,
+  }) => {
+    await page.goto("./overview");
+
+    const support = page.getByRole("banner").getByRole("link", {
+      name: "Support",
+    });
+    await expect(support).toBeVisible();
+    await expect(support).toHaveAttribute("href", "mailto:hai@jawnix.com");
+
+    await page
+      .getByRole("navigation", { name: "Customer" })
+      .getByRole("link", { name: "Account" })
+      .click();
+    await expect(support).toBeVisible();
+  });
+
   test("lands on Overview and reaches every primary destination", async ({ page }) => {
     await page.goto("./");
 

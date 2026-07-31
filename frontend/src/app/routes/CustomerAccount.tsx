@@ -7,6 +7,7 @@ import { Field, Fieldset, Input } from "../../design-system/primitives/form";
 import {
   Card,
   Cluster,
+  Grid,
   Page,
   Section,
   Stack,
@@ -24,9 +25,10 @@ import {
   previewLicensedStates,
 } from "./licensedStates";
 import type {
+  CustomerAccountIdentity,
+  CustomerAccountWorkspace,
   LicensedStateImpact,
   LicensedStateReview,
-  LicensedStateWorkspace,
 } from "./licensedStates";
 
 import "./CustomerAccount.css";
@@ -37,6 +39,120 @@ function formatStates(states: string[]): string {
 
 function sameStates(left: string[], right: string[]): boolean {
   return left.join(",") === right.join(",");
+}
+
+interface SetupProblem {
+  key: "mapping_unconfirmed" | "no_licensed_states";
+  name: string;
+  next: string;
+  actor: "Jawnix" | "You";
+}
+
+function setupProblems(
+  identity: CustomerAccountIdentity,
+  licensedStates: string[],
+): SetupProblem[] {
+  const problems: SetupProblem[] = [];
+  if (identity.customer_id === null || identity.mapping_confirmed_at === null) {
+    problems.push({
+      key: "mapping_unconfirmed",
+      name: "Customer mapping needs confirmation",
+      next:
+        "Jawnix will confirm which Customer record this User Account belongs to. Batch Requests unlock automatically after confirmation.",
+      actor: "Jawnix",
+    });
+  }
+  if (!licensedStates.length) {
+    problems.push({
+      key: "no_licensed_states",
+      name: "No Licensed States",
+      next:
+        "Add at least one Licensed State below, then review and save the change. Batch Requests unlock after it is saved.",
+      actor: "You",
+    });
+  }
+  return problems;
+}
+
+function Identity({ identity }: { identity: CustomerAccountIdentity }) {
+  const name = [identity.first_name, identity.last_name]
+    .filter(Boolean)
+    .join(" ");
+  return (
+    <Section
+      title="Identity"
+      description="The person currently signed in to this Customer account."
+    >
+      <Card>
+        <dl className="customer-account__identity">
+          <div>
+            <dt><LabelText>Name</LabelText></dt>
+            <dd>{name || "Not provided"}</dd>
+          </div>
+          <div>
+            <dt><LabelText>Email</LabelText></dt>
+            <dd>{identity.email}</dd>
+          </div>
+          <div>
+            <dt><LabelText>Phone</LabelText></dt>
+            <dd>{identity.phone || "Not provided"}</dd>
+          </div>
+        </dl>
+      </Card>
+    </Section>
+  );
+}
+
+function SetupStatus({ problems }: { problems: SetupProblem[] }) {
+  return (
+    <Section
+      title="Setup status"
+      description="Anything that currently prevents you from requesting a Batch appears here with a clear owner and next step."
+    >
+      {problems.length ? (
+        <Grid as="ul" minColumnWidth="20rem" className="setup-problem-list">
+          {problems.map((problem) => (
+            <Card
+              as="li"
+              padding={4}
+              className="setup-problem"
+              key={problem.key}
+            >
+              <Stack gap={4}>
+                <Cluster justify="space-between" align="flex-start">
+                  <Heading level={3} size="sm">{problem.name}</Heading>
+                  <StatusBadge tone="warning">Needs attention</StatusBadge>
+                </Cluster>
+                <dl className="setup-problem__details">
+                  <div>
+                    <dt><LabelText>What happens next</LabelText></dt>
+                    <dd>{problem.next}</dd>
+                  </div>
+                  <div>
+                    <dt><LabelText>Who acts</LabelText></dt>
+                    <dd>{problem.actor}</dd>
+                  </div>
+                </dl>
+              </Stack>
+            </Card>
+          ))}
+        </Grid>
+      ) : (
+        <Card padding={4} className="setup-status--ready">
+          <Stack gap={3}>
+            <Cluster justify="space-between" align="flex-start">
+              <Heading level={3} size="sm">Setup complete</Heading>
+              <StatusBadge tone="success">Ready</StatusBadge>
+            </Cluster>
+            <Text>
+              Your identity is connected and at least one Licensed State is
+              saved. You can request Batches.
+            </Text>
+          </Stack>
+        </Card>
+      )}
+    </Section>
+  );
 }
 
 function Impact({ impact }: { impact: LicensedStateImpact }) {
@@ -128,10 +244,10 @@ function ReviewContents({ review }: { review: LicensedStateReview }) {
 }
 
 export function CustomerAccountRoute() {
-  const loaded = useLoaderData<LicensedStateWorkspace>();
+  const loaded = useLoaderData<CustomerAccountWorkspace>();
   const revalidator = useRevalidator();
-  const [account, setAccount] = useState(loaded);
-  const [selected, setSelected] = useState(loaded.states);
+  const [account, setAccount] = useState(loaded.licensed_states);
+  const [selected, setSelected] = useState(loaded.licensed_states.states);
   const [query, setQuery] = useState("");
   const [review, setReview] = useState<LicensedStateReview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -141,10 +257,10 @@ export function CustomerAccountRoute() {
   useDocumentTitle("Account");
 
   useEffect(() => {
-    if (loaded.version === account.version) return;
-    setAccount(loaded);
-    setSelected(loaded.states);
-  }, [account.version, loaded]);
+    if (loaded.licensed_states.version === account.version) return;
+    setAccount(loaded.licensed_states);
+    setSelected(loaded.licensed_states.states);
+  }, [account.version, loaded.licensed_states]);
 
   const filteredOptions = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -157,6 +273,7 @@ export function CustomerAccountRoute() {
   }, [account.options, query]);
 
   const changed = !sameStates(selected, account.states);
+  const problems = setupProblems(loaded.identity, account.states);
 
   function toggleState(code: string) {
     setSaved("");
@@ -228,7 +345,7 @@ export function CustomerAccountRoute() {
   return (
     <Page
       title="Account"
-      description="Keep the states where you are licensed accurate and review every Batch Request consequence before saving."
+      description="Review your identity and setup status, and keep the states where you are licensed accurate."
     >
       {failure ? (
         <div className="licensed-state-page__message licensed-state-page__message--error" role="alert">
@@ -240,6 +357,9 @@ export function CustomerAccountRoute() {
           {saved}
         </div>
       ) : null}
+
+      <Identity identity={loaded.identity} />
+      <SetupStatus problems={problems} />
 
       <Section
         title="Licensed States"

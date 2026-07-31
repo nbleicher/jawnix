@@ -1,9 +1,14 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-import { mockLicensedStates } from "./customer-account-fixtures";
+import {
+  CUSTOMER_ACCOUNT_IDENTITY,
+  LICENSED_STATE_ACCOUNT,
+  mockLicensedStates,
+} from "./customer-account-fixtures";
 import { mockCustomerAuth } from "./customer-auth-fixtures";
 import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
+import { MAPPING_BLOCKED_BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
 
 async function openAccount(
   page: Page,
@@ -27,6 +32,71 @@ async function openAccount(
   ).toBeVisible();
   return state;
 }
+
+test.describe("identity and setup status", () => {
+  test("names every Setup Problem with what happens next and who acts", async ({
+    page,
+  }) => {
+    await mockCustomerAuth(page, {
+      profile: {
+        ...CUSTOMER_ACCOUNT_IDENTITY,
+        customer_id: null,
+        mapping_confirmed_at: null,
+      },
+      licensedStates: { ...LICENSED_STATE_ACCOUNT, states: [] },
+    });
+    await page.goto("./account");
+
+    const identity = page.getByRole("region", { name: "Identity" });
+    await expect(identity.getByText("River Morgan")).toBeVisible();
+    await expect(identity.getByText("river@northstar.example")).toBeVisible();
+
+    const status = page.getByRole("region", { name: "Setup status" });
+    await expect(
+      status.getByRole("heading", {
+        name: "Customer mapping needs confirmation",
+      }),
+    ).toBeVisible();
+    await expect(
+      status.getByText(/Jawnix will confirm which Customer record/),
+    ).toBeVisible();
+    await expect(
+      status.getByRole("heading", { name: "No Licensed States" }),
+    ).toBeVisible();
+    await expect(
+      status.getByText(/Add at least one Licensed State below/),
+    ).toBeVisible();
+    await expect(status.getByText("What happens next")).toHaveCount(2);
+    await expect(status.getByText("Who acts")).toHaveCount(2);
+    await expect(status.getByText("Jawnix", { exact: true })).toBeVisible();
+    await expect(status.getByText("You", { exact: true })).toBeVisible();
+  });
+
+  test("the Requests blocker deep-links to its visible Account problem", async ({
+    page,
+  }) => {
+    await mockCustomerAuth(page, {
+      profile: {
+        ...CUSTOMER_ACCOUNT_IDENTITY,
+        customer_id: null,
+        mapping_confirmed_at: null,
+      },
+      batchRequests: MAPPING_BLOCKED_BATCH_REQUEST_WORKSPACE,
+    });
+    await page.goto("./requests");
+
+    await page.getByRole("link", { name: "Review Account" }).click();
+
+    await expect(page).toHaveURL(/\/app\/account$/);
+    const setupStatus = page.getByRole("region", { name: "Setup status" });
+    await expect(
+      setupStatus.getByRole("heading", {
+        name: "Customer mapping needs confirmation",
+      }),
+    ).toBeVisible();
+    await expect(setupStatus.getByText("Jawnix", { exact: true })).toBeVisible();
+  });
+});
 
 test.describe("safe Licensed State management", () => {
   test("searches by name and remains keyboard operable", async ({ page }) => {

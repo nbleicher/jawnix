@@ -8,6 +8,10 @@ import {
   mockAcquisition,
 } from "./acquisition-fixtures";
 import { mockActivity } from "./activity-fixtures";
+import {
+  CUSTOMER_ACCOUNT_IDENTITY,
+  LICENSED_STATE_ACCOUNT,
+} from "./customer-account-fixtures";
 import { mockFeedback } from "./customer-feedback-fixtures";
 import { mockCustomerAuth } from "./customer-auth-fixtures";
 import {
@@ -155,6 +159,31 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
 
     const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("the Account Setup Problems state has no accessibility violations", async ({
+    page,
+  }) => {
+    await mockCustomerAuth(page, {
+      profile: {
+        ...CUSTOMER_ACCOUNT_IDENTITY,
+        customer_id: null,
+        mapping_confirmed_at: null,
+      },
+      licensedStates: { ...LICENSED_STATE_ACCOUNT, states: [] },
+    });
+    await page.goto("./account");
+    await expect(
+      page.getByRole("heading", {
+        name: "Customer mapping needs confirmation",
+      }),
+    ).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_AA_TAGS)
+      .analyze();
 
     expect(results.violations).toEqual([]);
   });
