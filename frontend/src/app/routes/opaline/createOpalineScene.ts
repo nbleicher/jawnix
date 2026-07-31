@@ -13,6 +13,7 @@ export interface OpalineSceneOptions {
 
 export interface OpalineSceneController {
   dispose: () => void;
+  setPaused: (paused: boolean) => void;
 }
 
 const LAYERS = {
@@ -281,6 +282,7 @@ export function createOpalineScene(
   let disposed = false;
   let animationFrame = 0;
   let failureReported = false;
+  let paused = false;
 
   const reportFailure = () => {
     if (disposed || failureReported) return;
@@ -601,7 +603,8 @@ export function createOpalineScene(
   };
 
   const render = () => {
-    if (disposed || failureReported) return;
+    animationFrame = 0;
+    if (disposed || failureReported || paused) return;
     try {
       mouse.x += (mouseTarget.x - mouse.x) * 0.06;
       mouse.y += (mouseTarget.y - mouse.y) * 0.06;
@@ -611,7 +614,7 @@ export function createOpalineScene(
       reportFailure();
       return;
     }
-    animationFrame = requestAnimationFrame(render);
+    if (!paused) animationFrame = requestAnimationFrame(render);
   };
 
   try {
@@ -656,6 +659,17 @@ export function createOpalineScene(
       composer.renderTarget1.dispose();
       composer.renderTarget2.dispose();
       renderer.dispose();
+    },
+    setPaused(nextPaused) {
+      if (disposed || reducedMotion || paused === nextPaused) return;
+      paused = nextPaused;
+      if (paused) {
+        if (animationFrame) cancelAnimationFrame(animationFrame);
+        animationFrame = 0;
+      } else if (!failureReported) {
+        t0 = performance.now() / 1000;
+        animationFrame = requestAnimationFrame(render);
+      }
     },
   };
 }

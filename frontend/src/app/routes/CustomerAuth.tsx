@@ -31,12 +31,18 @@ const SIGN_IN_ERROR =
 const INVITATION_ERROR =
   "This invitation cannot be used. Ask your administrator for a new invitation, or sign in if you already set your password.";
 
-function AuthRouteFrame({ children }: { children: ReactNode }) {
+function AuthRouteFrame({
+  children,
+  scenePaused = false,
+}: {
+  children: ReactNode;
+  scenePaused?: boolean;
+}) {
   useRouteTheme("opaline");
 
   return (
     <div className="jx-auth-route">
-      <OpalineScene />
+      <OpalineScene paused={scenePaused} />
       <a className="jx-auth-route__skip-link" href="#jx-auth-main">
         Skip to main content
       </a>
@@ -100,7 +106,7 @@ export function SignInRoute() {
   }
 
   return (
-    <AuthRouteFrame>
+    <AuthRouteFrame scenePaused={busy}>
       <AuthPanel
         title="Sign in"
         description="Use the email address and password for your Customer account."
@@ -220,7 +226,7 @@ export function AcceptInvitationRoute() {
   }
 
   return (
-    <AuthRouteFrame>
+    <AuthRouteFrame scenePaused={busy}>
       <AuthPanel
         title="Create your password"
         description="Finish accepting your invitation. Your administrator cannot see or set this password."
