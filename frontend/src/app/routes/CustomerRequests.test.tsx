@@ -1,10 +1,13 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ThemeProvider } from "../../design-system/theme/ThemeProvider";
-import { CustomerRequestsRoute } from "./CustomerRequests";
+import {
+  ACTIVE_REQUEST_REFRESH_MS,
+  CustomerRequestsRoute,
+} from "./CustomerRequests";
 import type {
   BatchRequest,
   BatchRequestWorkspace,
@@ -73,6 +76,27 @@ function batchRequest(overrides: Partial<BatchRequest> = {}): BatchRequest {
   };
 }
 
+function deliveredRequest(overrides: Partial<BatchRequest> = {}): BatchRequest {
+  return batchRequest({
+    delivered_at: "2026-07-22T12:00:00Z",
+    status: {
+      label: "Delivered",
+      description: "Your Batch is ready.",
+      tone: "success",
+    },
+    milestones: graph({
+      current_key: "delivered",
+      milestones: graph().milestones.map((milestone) => ({
+        ...milestone,
+        state: "complete" as const,
+        occurred_at: milestone.occurred_at ?? "2026-07-22T12:00:00Z",
+      })),
+    }),
+    can_cancel: false,
+    ...overrides,
+  });
+}
+
 function workspace(
   overrides: Partial<BatchRequestWorkspace> = {},
 ): BatchRequestWorkspace {
@@ -88,7 +112,13 @@ function workspace(
   };
 }
 
-function renderRoute(data: BatchRequestWorkspace) {
+function renderRoute(
+  data: BatchRequestWorkspace,
+  options: {
+    initialEntry?: string;
+    loader?: () => BatchRequestWorkspace | Promise<BatchRequestWorkspace>;
+  } = {},
+) {
   const router = createMemoryRouter(
     [
       {
@@ -99,14 +129,14 @@ function renderRoute(data: BatchRequestWorkspace) {
           {
             id: "requests",
             path: "requests",
-            loader: () => data,
+            loader: options.loader ?? (() => data),
             element: <CustomerRequestsRoute />,
           },
         ],
       },
     ],
     {
-      initialEntries: ["/app/requests"],
+      initialEntries: [options.initialEntry ?? "/app/requests"],
       hydrationData: { loaderData: { requests: data } },
     },
   );
@@ -143,6 +173,7 @@ async function completeQuantityStage(user: ReturnType<typeof userEvent.setup>) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -364,7 +395,50 @@ describe("the guided Batch Request flow", () => {
   });
 });
 
-describe("the submitted request list", () => {
+describe("the submitted request index", () => {
+  it("links each summary to its real detail page", () => {
+    renderRoute(workspace({ requests: [batchRequest()] }));
+
+    expect(
+      screen.getByRole("link", { name: /View request for 750 leads/ }),
+    ).toHaveAttribute("href", `/app/requests?request=${REQUEST_ID}`);
+    expect(
+      screen.queryByRole("list", { name: /Progress for/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("presents an empty history as a nothing-yet state, not an error", () => {
+    renderRoute(workspace());
+
+    expect(
+      screen.getByRole("heading", { name: "No Batch Requests yet" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("a Batch Request detail page", () => {
+  const detailPath = `/app/requests?request=${REQUEST_ID}`;
+
+  it("resolves a deep link and carries the milestone graph", () => {
+    renderRoute(workspace({ requests: [batchRequest()] }), {
+      initialEntry: detailPath,
+    });
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Batch Request" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "750 lead Batch Request" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("list", { name: /Progress for the 750 lead request/ }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "All Requests" }),
+    ).toHaveAttribute("href", "/app/requests");
+  });
+
   it("explains a Waiting for Inventory pause instead of reporting a failure", () => {
     renderRoute(
       workspace({
@@ -387,6 +461,7 @@ describe("the submitted request list", () => {
           }),
         ],
       }),
+      { initialEntry: detailPath },
     );
 
     expect(screen.getByText("Waiting for Inventory")).toBeVisible();
@@ -429,6 +504,7 @@ describe("the submitted request list", () => {
             }),
           ],
         }),
+        { initialEntry: detailPath },
       );
 
       // The outcome note headlines the label with when it happened, which is
@@ -445,18 +521,11 @@ describe("the submitted request list", () => {
   );
 
   it("offers cancellation only while the domain still allows it", () => {
-    renderRoute(
-      workspace({
-        requests: [
-          batchRequest({ id: "a", can_cancel: true }),
-          batchRequest({ id: "b", can_cancel: false }),
-        ],
-      }),
-    );
+    renderRoute(workspace({ requests: [batchRequest()] }), {
+      initialEntry: detailPath,
+    });
 
-    expect(
-      screen.getAllByRole("button", { name: "Cancel request" }),
-    ).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Cancel request" })).toBeVisible();
   });
 
   it("updates the timeline as soon as the cancellation is confirmed", async () => {
@@ -495,7 +564,9 @@ describe("the submitted request list", () => {
         }),
       200,
     );
-    renderRoute(workspace({ requests: [batchRequest()] }));
+    renderRoute(workspace({ requests: [batchRequest()] }), {
+      initialEntry: detailPath,
+    });
 
     await user.click(screen.getByRole("button", { name: "Cancel request" }));
     await user.click(
@@ -517,18 +588,80 @@ describe("the submitted request list", () => {
   });
 
   it("never renders internal fulfillment vocabulary", () => {
-    renderRoute(workspace({ requests: [batchRequest()] }));
+    renderRoute(workspace({ requests: [batchRequest()] }), {
+      initialEntry: detailPath,
+    });
 
     expect(document.body).not.toHaveTextContent("waiting_inventory");
     expect(document.body).not.toHaveTextContent("status_message");
   });
 
-  it("presents an empty history as a nothing-yet state, not an error", () => {
-    renderRoute(workspace());
+  it("reserves an artifact-card slot only after delivery", () => {
+    renderRoute(workspace({ requests: [deliveredRequest()] }), {
+      initialEntry: detailPath,
+    });
 
     expect(
-      screen.getByRole("heading", { name: "No Batch Requests yet" }),
+      screen.getByRole("heading", { name: "Batch Artifact" }),
     ).toBeVisible();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText(/self-serve downloads/)).toBeVisible();
+    expect(screen.queryByRole("link", { name: /Download/ })).not.toBeInTheDocument();
+  });
+
+  it("shows a safe not-found state for an unknown deep link", () => {
+    renderRoute(workspace({ requests: [batchRequest()] }), {
+      initialEntry: "/app/requests?request=42",
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Batch Request not found" }),
+    ).toBeVisible();
+  });
+});
+
+describe("active request refresh", () => {
+  it("revalidates while any request is non-terminal", async () => {
+    vi.useFakeTimers();
+    const data = workspace({ requests: [batchRequest()] });
+    const loader = vi.fn(() => data);
+    renderRoute(data, { loader });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVE_REQUEST_REFRESH_MS);
+    });
+
+    expect(loader).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops entirely after revalidation settles the last active request", async () => {
+    vi.useFakeTimers();
+    const active = workspace({ requests: [batchRequest()] });
+    const settled = workspace({ requests: [deliveredRequest()] });
+    const loader = vi.fn(() => settled);
+    renderRoute(active, { loader });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVE_REQUEST_REFRESH_MS);
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Your Batch is ready.")).toBeVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVE_REQUEST_REFRESH_MS * 3);
+    });
+
+    expect(loader).toHaveBeenCalledTimes(1);
+  });
+
+  it("never starts when every request is already settled", async () => {
+    vi.useFakeTimers();
+    const data = workspace({ requests: [deliveredRequest()] });
+    const loader = vi.fn(() => data);
+    renderRoute(data, { loader });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVE_REQUEST_REFRESH_MS * 3);
+    });
+
+    expect(loader).not.toHaveBeenCalled();
   });
 });

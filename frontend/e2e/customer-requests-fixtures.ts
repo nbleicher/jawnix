@@ -131,6 +131,36 @@ export const REJECTED_REQUEST = {
   receipt_href: "/app/requests?request=22222222-2222-4222-8222-222222222222",
 } as const;
 
+export const DELIVERED_REQUEST = {
+  ...WAITING_REQUEST,
+  id: "44444444-4444-4444-8444-444444444444",
+  delivered_at: "2026-07-27T16:00:00Z",
+  status: {
+    label: "Delivered",
+    description: "Your Batch is ready.",
+    tone: "success",
+  },
+  milestones: {
+    milestones: WAITING_REQUEST.milestones.milestones.map((milestone) => ({
+      ...milestone,
+      state: "complete",
+      occurred_at: milestone.occurred_at ?? "2026-07-27T16:00:00Z",
+    })),
+    current_key: "delivered",
+    pause: null,
+    outcome: null,
+  },
+  can_cancel: false,
+  next_action: {
+    kind: "submit_feedback",
+    label: "Submit Feedback",
+    description: "Tell us how the leads performed.",
+    href: "/app/feedback",
+  },
+  receipt_href:
+    "/app/requests?request=44444444-4444-4444-8444-444444444444",
+} as const;
+
 export const BATCH_REQUEST_WORKSPACE = {
   limits: {
     minimum_lead_count: 1,
@@ -170,6 +200,8 @@ export const BLOCKED_BATCH_REQUEST_WORKSPACE = {
 
 export interface BatchRequestMockOptions {
   workspace?: unknown;
+  /** Successive aggregate reads, holding on the last value once exhausted. */
+  workspaceSequence?: unknown[];
   /** Held open long enough that a second click lands while the first is busy. */
   submitDelayMs?: number;
 }
@@ -249,7 +281,11 @@ export async function mockBatchRequests(
   await page.route(/\/api\/me\/batch-requests$/, async (route) => {
     if (route.request().method() !== "POST") {
       state.workspaceRequests += 1;
-      return json(route, workspace);
+      const sequence = options.workspaceSequence;
+      const response = sequence?.length
+        ? sequence[Math.min(state.workspaceRequests - 1, sequence.length - 1)]
+        : workspace;
+      return json(route, response);
     }
     const body = route.request().postDataJSON() as Record<string, unknown>;
     state.submissions.push(body);

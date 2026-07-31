@@ -3,8 +3,12 @@ import type { Locator, Page } from "@playwright/test";
 
 import { mockCustomerAuth } from "./customer-auth-fixtures";
 import {
+  BATCH_REQUEST_WORKSPACE,
   BLOCKED_BATCH_REQUEST_WORKSPACE,
+  DELIVERED_REQUEST,
   EMPTY_BATCH_REQUEST_WORKSPACE,
+  REJECTED_REQUEST,
+  WAITING_REQUEST,
   mockBatchRequests,
 } from "./customer-requests-fixtures";
 
@@ -13,6 +17,20 @@ async function openRequests(page: Page, options: Parameters<typeof mockBatchRequ
   const state = await mockBatchRequests(page, options);
   await page.goto("./requests");
   await expect(page.getByRole("heading", { level: 1, name: "Requests" })).toBeVisible();
+  return state;
+}
+
+async function openRequestDetail(
+  page: Page,
+  requestId: string = WAITING_REQUEST.id,
+  options: Parameters<typeof mockBatchRequests>[1] = {},
+) {
+  await mockCustomerAuth(page);
+  const state = await mockBatchRequests(page, options);
+  await page.goto(`./requests?request=${requestId}`);
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Batch Request" }),
+  ).toBeVisible();
   return state;
 }
 
@@ -136,7 +154,7 @@ test.describe("The milestone graph", () => {
   test("reads as an ordered, timestamped, state-labelled list", async ({
     page,
   }) => {
-    await openRequests(page);
+    await openRequestDetail(page);
 
     const nodes = milestoneNodes(page, /Progress for the 750 lead request/);
     await expect(nodes).toHaveCount(4);
@@ -159,7 +177,7 @@ test.describe("The milestone graph", () => {
   test("runs along the inline axis when there is room and stacks when there is not", async ({
     page,
   }, testInfo) => {
-    await openRequests(page);
+    await openRequestDetail(page);
 
     const nodes = milestoneNodes(page, /Progress for the 750 lead request/);
     const first = await nodes.nth(0).boundingBox();
@@ -179,7 +197,7 @@ test.describe("The milestone graph", () => {
   test("never marks a milestone the request will not reach as merely upcoming", async ({
     page,
   }) => {
-    await openRequests(page);
+    await openRequestDetail(page, REJECTED_REQUEST.id);
 
     const nodes = milestoneNodes(page, /Progress for the 300 lead request/);
     await expect(nodes.nth(1)).toContainText("Stopped");
@@ -191,7 +209,7 @@ test.describe("The milestone graph", () => {
 test.describe("The milestone graph with motion suppressed", () => {
   test("says exactly the same thing", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await openRequests(page);
+    await openRequestDetail(page);
 
     const nodes = milestoneNodes(page, /Progress for the 750 lead request/);
     await expect(nodes.nth(0)).toContainText("Completed");
@@ -206,7 +224,7 @@ test.describe("Outcomes and pauses", () => {
   test("explains Waiting for Inventory as a pause rather than a failure", async ({
     page,
   }) => {
-    await openRequests(page);
+    await openRequestDetail(page);
 
     await expect(page.getByText("Waiting for Inventory").first()).toBeVisible();
     await expect(
@@ -219,10 +237,10 @@ test.describe("Outcomes and pauses", () => {
   test("gives a rejected request its own outcome and a valid next action", async ({
     page,
   }) => {
-    await openRequests(page);
+    await openRequestDetail(page, REJECTED_REQUEST.id);
 
     await expect(
-      page.getByText("This request was not approved", { exact: false }),
+      page.getByText("This request was not approved.", { exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Request another Batch" }),
@@ -234,13 +252,13 @@ test.describe("Pending cancellation", () => {
   test("appears only for the request the domain still allows withdrawing", async ({
     page,
   }) => {
-    await openRequests(page);
+    await openRequestDetail(page);
 
     await expect(page.getByRole("button", { name: "Cancel request" })).toHaveCount(1);
   });
 
   test("updates the timeline as soon as it is confirmed", async ({ page }) => {
-    const state = await openRequests(page);
+    const state = await openRequestDetail(page);
 
     await page.getByRole("button", { name: "Cancel request" }).click();
     const dialog = page.getByRole("dialog");
@@ -257,5 +275,94 @@ test.describe("Pending cancellation", () => {
     expect(state.cancellations).toEqual([
       "11111111-1111-4111-8111-111111111111",
     ]);
+  });
+});
+
+test.describe("Batch Request detail deep links", () => {
+  test("a hard-loaded request link resolves to its own lifecycle", async ({
+    page,
+  }) => {
+    await openRequestDetail(page);
+
+    await expect(
+      page.getByRole("heading", { name: "750 lead Batch Request" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("list", { name: /Progress for the 750 lead request/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "All Requests" }),
+    ).toHaveAttribute("href", "/app/requests");
+  });
+
+  test("an unknown request link resolves to a safe not-found page", async ({
+    page,
+  }) => {
+    await openRequestDetail(page, "42");
+
+    await expect(
+      page.getByRole("heading", { name: "Batch Request not found" }),
+    ).toBeVisible();
+  });
+
+  test("a delivered request reserves the artifact-card slot", async ({ page }) => {
+    await openRequestDetail(page, DELIVERED_REQUEST.id, {
+      workspace: {
+        ...BATCH_REQUEST_WORKSPACE,
+        requests: [DELIVERED_REQUEST],
+      },
+    });
+
+    await expect(
+      page.getByRole("heading", { name: "Batch Artifact" }),
+    ).toBeVisible();
+    await expect(page.getByText(/self-serve downloads/)).toBeVisible();
+    await expect(page.getByRole("link", { name: /Download/ })).toHaveCount(0);
+  });
+
+  test("matches the Opaline visual baseline", async ({ page }) => {
+    await openRequestDetail(page);
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+
+    await expect(page).toHaveScreenshot("customer-request-detail.png", {
+      animations: "disabled",
+      fullPage: true,
+    });
+  });
+});
+
+test.describe("Active request refresh", () => {
+  test("starts for active work and stops once the last request settles", async ({
+    page,
+  }) => {
+    await page.clock.install();
+    const settledWorkspace = {
+      ...BATCH_REQUEST_WORKSPACE,
+      requests: [DELIVERED_REQUEST, REJECTED_REQUEST],
+    };
+    const state = await openRequests(page, {
+      workspaceSequence: [BATCH_REQUEST_WORKSPACE, settledWorkspace],
+    });
+
+    expect(state.workspaceRequests).toBe(1);
+    await page.clock.fastForward(10_000);
+    await expect.poll(() => state.workspaceRequests).toBe(2);
+    await expect(page.getByText("Your Batch is ready.")).toBeVisible();
+
+    await page.clock.fastForward(30_000);
+    expect(state.workspaceRequests).toBe(2);
+  });
+
+  test("never starts when all requests are already settled", async ({ page }) => {
+    await page.clock.install();
+    const state = await openRequests(page, {
+      workspace: {
+        ...BATCH_REQUEST_WORKSPACE,
+        requests: [DELIVERED_REQUEST, REJECTED_REQUEST],
+      },
+    });
+
+    await page.clock.fastForward(30_000);
+    expect(state.workspaceRequests).toBe(1);
   });
 });
