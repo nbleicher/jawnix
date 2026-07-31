@@ -49,6 +49,23 @@ test.describe("Opaline authentication scene", () => {
     });
   });
 
+  test("pauses animation while the form has keyboard focus", async ({ page }) => {
+    await mockCustomerAuth(page);
+    await page.goto("./sign-in");
+
+    const scene = page.locator(".jx-opaline-scene");
+    const canvas = scene.locator("canvas");
+    await expect(scene).toHaveAttribute("data-opaline-state", "animated");
+    await page.getByLabel("Email address (required)").focus();
+    await expect(scene).toHaveAttribute("data-opaline-paused", "true");
+
+    await page.waitForTimeout(200);
+    const focusedFrame = await canvas.screenshot();
+    await page.waitForTimeout(200);
+    const laterFrame = await canvas.screenshot();
+    expect(laterFrame.equals(focusedFrame)).toBe(true);
+  });
+
   test("WebGL failure keeps the gradient fallback and invitation form usable", async ({
     page,
   }) => {

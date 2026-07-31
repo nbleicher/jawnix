@@ -39,17 +39,23 @@ function AuthRouteFrame({
   scenePaused?: boolean;
 }) {
   useRouteTheme("opaline");
+  const [sceneInteracting, setSceneInteracting] = useState(false);
 
   return (
     <div className="jx-auth-route">
-      <OpalineScene paused={scenePaused} />
+      <OpalineScene paused={scenePaused || sceneInteracting} />
       <a className="jx-auth-route__skip-link" href="#jx-auth-main">
         Skip to main content
       </a>
       <header className="jx-auth-route__banner">
         <span className="jx-auth-route__brand">Jawnix</span>
       </header>
-      <main className="jx-auth-route__main" id="jx-auth-main" tabIndex={-1}>
+      <main
+        className="jx-auth-route__main"
+        id="jx-auth-main"
+        onFocusCapture={() => setSceneInteracting(true)}
+        tabIndex={-1}
+      >
         {children}
       </main>
     </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { createOpalineScene } from "./createOpalineScene";
 
@@ -43,7 +43,7 @@ export function OpalineScene({ paused = false }: { paused?: boolean }) {
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     controllerRef.current?.setPaused(paused);
   }, [paused]);
 
@@ -51,6 +51,7 @@ export function OpalineScene({ paused = false }: { paused?: boolean }) {
     <div
       aria-hidden="true"
       className="jx-opaline-scene"
+      data-opaline-paused={paused || undefined}
       data-opaline-state={sceneState}
     >
       <canvas id="scene" ref={canvasRef} />
