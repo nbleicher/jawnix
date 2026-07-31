@@ -14,6 +14,10 @@ from jawnix.scraper_keywords import (
     KeywordTextRequest,
     keyword_version,
 )
+from jawnix.scraper_database import (
+    MultiStateExportRequest,
+    StateExportRequest,
+)
 from jawnix.scraper_operations import (
     HTTPScraperOperations,
     ScraperOperationsError,
@@ -181,6 +185,203 @@ def test_http_adapter_speaks_the_typed_keyword_contract(settings):
     assert "review_token" not in save_body
     assert calls[4].extensions["timeout"]["read"] == 9
     assert calls[2].extensions["timeout"]["read"] == 1
+
+
+def test_http_adapter_speaks_the_typed_database_and_coverage_contract(
+    settings,
+):
+    calls: list[httpx.Request] = []
+
+    database_workspace = {
+        "totals": {"businesses": 5, "unique_phones": 4},
+        "states": [
+            {
+                "state": "OH",
+                "businesses": 5,
+                "unique_phones": 4,
+                "niches": 2,
+            }
+        ],
+        "browse": {
+            "records": [
+                {
+                    "title": "",
+                    "phone": "6145550101",
+                    "website": "https://buckeye.example",
+                    "state": "OH",
+                    "niche": "plumbers",
+                    "last_seen": "2026-07-28T11:59:00+00:00",
+                }
+            ],
+            "search": "plumbing",
+            "state": "OH",
+            "page": 1,
+            "page_size": 50,
+            "total": 1,
+            "pages": 1,
+            "has_previous": False,
+            "has_next": False,
+        },
+        "stored_exports": [{"filename": "OH.csv", "size_label": "1.0 KB"}],
+    }
+    database_state = {
+        "state": "OH",
+        "totals": {
+            "state": "OH",
+            "businesses": 5,
+            "unique_phones": 4,
+            "niches": 1,
+        },
+        "niches": [
+            {
+                "key": "plumbers",
+                "label": "plumbers",
+                "businesses": 5,
+                "unique_phones": 4,
+            }
+        ],
+    }
+    keywords = [
+        {
+            "keyword": "Plumbers",
+            "businesses": 5,
+            "posted_cells": 1,
+            "total_cells": 2,
+            "coverage": 50,
+            "empty_rate": 0.25,
+            "last_enqueued": "2026-07-28T11:59:00+00:00",
+        }
+    ]
+    cells = {
+        "cells": [
+            {"index": 1, "cell": "40.0,-80.0", "status": "posted"}
+        ],
+        "posted": 1,
+        "reserved": 0,
+        "failed": 0,
+        "uncovered": 0,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        path = request.url.path
+        if path == "/api/database":
+            return httpx.Response(200, json=database_workspace)
+        if path == "/api/database/states/oh":
+            return httpx.Response(200, json=database_state)
+        if path in {
+            "/api/database/exports/state/oh",
+            "/api/database/exports/states",
+        }:
+            filename = (
+                "OH-all-phone-leads-2026-07-29.csv"
+                if path.endswith("/state/oh")
+                else "OH-PA-phone-leads-2026-07-29.csv"
+            )
+            return httpx.Response(
+                200,
+                json={
+                    "filename": filename,
+                    "media_type": "text/csv",
+                    "content": "business_name,phone_number,state\n",
+                },
+            )
+        if path == "/api/database/exports/stored/OH.csv":
+            return httpx.Response(
+                200,
+                json={
+                    "filename": "OH.csv",
+                    "media_type": "text/csv",
+                    "content": "phone,title\n",
+                },
+            )
+        if path == "/api/database/exports/oh/regenerate":
+            return httpx.Response(
+                200,
+                json={
+                    "generated": "OH.csv",
+                    "stored_exports": [
+                        {"filename": "OH.csv", "size_label": "1.0 KB"}
+                    ],
+                },
+            )
+        if path == "/api/coverage":
+            return httpx.Response(
+                200,
+                json={
+                    "states": [
+                        {
+                            "state": "OH",
+                            "businesses": 5,
+                            "posted_cells": 1,
+                            "total_cells": 2,
+                            "active_keywords": 1,
+                            "coverage": 50,
+                            "status": "partial",
+                        }
+                    ]
+                },
+            )
+        if path == "/api/coverage/oh":
+            return httpx.Response(
+                200,
+                json={"state": "OH", "keywords": keywords, "cells": cells},
+            )
+        if path == "/api/coverage/oh/keywords":
+            return httpx.Response(
+                200,
+                json={"state": "OH", "keywords": keywords},
+            )
+        if path == "/api/coverage/oh/cells":
+            return httpx.Response(200, json=cells)
+        raise AssertionError(path)
+
+    adapter = HTTPScraperOperations(
+        operations_settings(settings),
+        transport=httpx.MockTransport(handler),
+    )
+
+    async def exercise():
+        return (
+            await adapter.database_workspace(
+                search="plumbing", state="oh", page=1
+            ),
+            await adapter.database_state("oh"),
+            await adapter.export_database_state(
+                "oh", StateExportRequest(niches=None)
+            ),
+            await adapter.export_database_states(
+                MultiStateExportRequest(states=["oh", "pa"])
+            ),
+            await adapter.stored_database_export("OH.csv"),
+            await adapter.regenerate_database_exports("oh"),
+            await adapter.coverage_states(),
+            await adapter.coverage_state("oh"),
+            await adapter.coverage_state_keywords("oh"),
+            await adapter.coverage_state_cells("oh"),
+        )
+
+    results = asyncio.run(exercise())
+
+    assert results[0].browse.records[0].last_seen == "Jul 28, 11:59"
+    assert results[0].browse.records[0].title == "Untitled"
+    assert results[1].niches[0].key == "plumbers"
+    assert results[2].filename == "OH-all-phone-leads-2026-07-29.csv"
+    assert results[3].filename == "OH-PA-phone-leads-2026-07-29.csv"
+    assert results[4].content == "phone,title\n"
+    assert results[5].generated == "OH.csv"
+    assert results[6][0].status == "partial"
+    assert results[7].keywords[0].last_enqueued == "Jul 28, 11:59"
+    assert results[8].keywords[0].keyword == "Plumbers"
+    assert results[9].posted == 1
+    assert dict(calls[0].url.params) == {
+        "search": "plumbing",
+        "state": "oh",
+        "page": "1",
+    }
+    assert json.loads(calls[2].content) == {"niches": None}
+    assert json.loads(calls[3].content) == {"states": ["oh", "pa"]}
+    assert all(call.headers["authorization"] == f"Bearer {TOKEN}" for call in calls)
 
 
 def test_http_adapter_preserves_declared_errors_and_redacts_transport(
