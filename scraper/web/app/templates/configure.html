@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Configure · GMS Operations{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">Control plane</p><h1>Configure</h1></div></div>
+<form class="config-layout">
+  <div class="config-main">
+    <section><div class="section-head"><div><p class="eyebrow">Coverage</p><h2>Active states</h2></div></div>
+      <div class="state-picker">{% for code in all_states %}<label><input type="checkbox" name="states" value="{{ code }}" {% if code in config.states %}checked{% endif %}><span>{{ code.upper() }}</span></label>{% endfor %}</div>
+    </section>
+    <section class="section-block"><div class="section-head"><div><p class="eyebrow">Scrape</p><h2>Runtime settings</h2></div></div>
+      <div class="field-grid">
+        <label>Zoom<input type="number" name="zoom" min="1" max="21" value="{{ config.settings.zoom }}"></label>
+        <label>Radius (m)<input type="number" name="radius" min="100" max="100000" value="{{ config.settings.radius }}"></label>
+        <label>Depth<input type="number" name="depth" min="1" max="100" value="{{ config.settings.depth }}"></label>
+        <label>Language<input type="text" name="lang" maxlength="10" value="{{ config.settings.lang }}"></label>
+        <label>Timeout (sec)<input type="number" name="timeout" min="1" max="300" value="{{ config.settings.timeout }}"></label>
+        <label class="toggle-label"><span>Fast mode</span><input type="checkbox" name="fast_mode" {% if config.settings.fast_mode %}checked{% endif %}><i></i></label>
+      </div>
+    </section>
+    <section class="section-block"><div class="section-head"><div><p class="eyebrow">River</p><h2>Queue</h2></div></div>
+      <div class="field-grid">
+        <label>Fallback depth<input type="number" name="target_depth" min="1" max="10000" value="{{ config.queue.target_depth }}"></label>
+        <label>Jobs per worker<input type="number" name="target_per_worker" min="1" max="100" value="{{ config.queue.get('target_per_worker', 25) }}"></label>
+        <label>Minimum depth<input type="number" name="min_target_depth" min="1" max="10000" value="{{ config.queue.get('min_target_depth', 25) }}"></label>
+        <label>Maximum depth<input type="number" name="max_target_depth" min="1" max="100000" value="{{ config.queue.get('max_target_depth', 500) }}"></label>
+        <label>Batch size<input type="number" name="batch_size" min="1" max="10000" value="{{ config.queue.batch_size }}"></label>
+        <label>Poll interval (sec)<input type="number" name="poll_secs" min="5" max="3600" value="{{ config.queue.poll_secs }}"></label>
+        <label>Skip recent days<input type="number" name="skip_recent_days" min="0" max="365" value="{{ config.queue.skip_recent_days }}"></label>
+      </div>
+    </section>
+    <section class="section-block"><div class="section-head"><div><p class="eyebrow">Tuning</p><h2>State overrides</h2></div></div>
+      <div class="override-grid">{% for code in config.states %}<div class="override-row"><strong>{{ code.upper() }}</strong><label>Cell size (km)<input type="number" name="cell_size_km_{{ code }}" min="1" max="500" step="0.5" value="{{ config.overrides.get(code, {}).get('cell_size_km', '') }}" placeholder="Default"></label><label>Zoom<input type="number" name="zoom_{{ code }}" min="1" max="21" value="{{ config.overrides.get(code, {}).get('zoom', '') }}" placeholder="Default"></label></div>{% endfor %}</div>
+    </section>
+    <div class="action-row sticky-actions"><label class="check-label"><input type="checkbox" name="enqueue" value="true"><span>Request enqueue after save</span></label><button class="button secondary" hx-post="/configure/preview" hx-target="#config-preview" type="submit"><i data-lucide="calculator"></i>Preview</button><button class="button primary" hx-post="/configure/save" hx-target="#config-preview" type="submit"><i data-lucide="save"></i>Save configuration</button></div>
+  </div>
+  <aside id="config-preview" class="config-preview">{% include "fragments/config_preview.html" %}</aside>
+</form>
+{% endblock %}

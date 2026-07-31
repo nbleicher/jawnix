@@ -1,0 +1,10 @@
+[Unit]
+Description=Report stack availability to external heartbeat
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=scraper
+EnvironmentFile=/opt/gms-scale/.env.control
+WorkingDirectory=/opt/gms-scale
+ExecStart=/opt/gms-scale/venv/bin/python /opt/gms-scale/control/uptime_probe.py

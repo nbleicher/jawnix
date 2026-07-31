@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>{% block title %}GMS/OPS{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/lucide.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body class="min-h-full bg-canvas text-ink antialiased">
+  <div class="crt-overlay" aria-hidden="true"></div>
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a href="/dashboard" class="brand" aria-label="GMS operations home">
+        <span class="brand-mark" aria-hidden="true">&gt;_</span>
+        <span><strong>GMS/OPS</strong><small>control plane</small></span>
+      </a>
+      <nav class="nav-list" aria-label="Operations">
+        {% set items = [
+          ('/dashboard','layout-dashboard','Overview'),
+          ('/states','map','States'),
+          ('/keywords','list-plus','Keywords'),
+          ('/history','history','History'),
+          ('/configure','sliders-horizontal','Configure'),
+          ('/database','database','Database')
+        ] %}
+        {% for href, icon, label in items %}
+          <a href="{{ href }}" class="nav-item {% if active_path == href or (href == '/states' and active_path.startswith('/states/')) or (href == '/keywords' and active_path.startswith('/keywords')) %}active{% endif %}">
+            <i data-lucide="{{ icon }}"></i><span>{{ label }}</span>
+          </a>
+        {% endfor %}
+      </nav>
+      <div class="sidebar-footer">
+        <span class="status-dot"></span><span>tty.control</span>
+      </div>
+    </aside>
+    <main class="main-content">
+      <header class="mobile-header">
+        <a href="/dashboard" class="brand"><span class="brand-mark" aria-hidden="true">&gt;_</span><strong>GMS/OPS</strong></a>
+      </header>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

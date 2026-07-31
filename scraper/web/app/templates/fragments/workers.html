@@ -1,0 +1,14 @@
+{% if workers %}
+<div class="worker-list">
+  {% for worker in workers %}
+  <div class="worker-row">
+    <span class="worker-icon"><i data-lucide="container"></i></span>
+    <div><strong>{{ worker.container_name }}</strong><small>{{ worker.box_id }}</small></div>
+    <span class="health-label {% if not worker.is_healthy %}health-bad{% endif %}"><span class="status-dot"></span>{{ worker.status }}</span>
+    <div class="worker-target">{% if worker.current_state %}<span class="state-code small">{{ worker.current_state }}</span><small>{{ worker.current_keyword }}</small>{% else %}<span class="state-code small">--</span><small>Waiting for job</small>{% endif %}</div>
+    <div class="worker-stat"><strong>{{ worker.active_jobs }}</strong><small>jobs</small></div>
+    <div class="worker-stat"><strong>{{ "{:.1f}".format(worker.results_per_min) }}</strong><small>results/min · {{ worker.heartbeat_age }} ago</small></div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}<div class="empty-state"><i data-lucide="server-off"></i><p>No worker heartbeat received</p></div>{% endif %}

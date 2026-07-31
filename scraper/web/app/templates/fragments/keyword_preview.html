@@ -1,0 +1,6 @@
+{% if saved %}<div class="notice success"><i data-lucide="circle-check"></i><span>Saved {{ proposed|length }} keywords{% if enqueued %}; enqueue requested{% endif %}</span></div>{% endif %}
+<div class="diff-summary"><div><strong>{{ added|length }}</strong><span>Added</span></div><div><strong>{{ removed|length }}</strong><span>Removed</span></div><div><strong>{{ unchanged|length }}</strong><span>Unchanged</span></div></div>
+<div class="diff-columns">
+  <div><h3>Added</h3>{% for item in added %}<span class="diff-item added">+ {{ item }}</span>{% else %}<span class="quiet">None</span>{% endfor %}</div>
+  <div><h3>Removed</h3>{% for item in removed %}<span class="diff-item removed">− {{ item }}</span>{% else %}<span class="quiet">None</span>{% endfor %}</div>
+</div>

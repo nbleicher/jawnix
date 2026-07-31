@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}States · GMS Operations{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">Coverage</p><h1>States</h1></div><a class="button secondary" href="/configure"><i data-lucide="settings-2"></i>Configure</a></div>
+<div id="state-cards" hx-get="/frag/states/cards" hx-trigger="every 20s" hx-swap="innerHTML">{% include "fragments/state_cards.html" %}</div>
+{% endblock %}

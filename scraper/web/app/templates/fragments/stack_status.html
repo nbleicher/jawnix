@@ -1,0 +1,27 @@
+{% if sample %}
+<div class="stack-band status-{{ stack_status.key }}">
+  <div class="stack-primary">
+    <span class="stack-status-icon"><i data-lucide="{% if stack_status.key == 'operational' %}circle-check{% elif stack_status.key == 'idle' %}circle-pause{% elif stack_status.key == 'attention' %}triangle-alert{% else %}circle-help{% endif %}"></i></span>
+    <div><strong>{{ stack_status.label }}</strong><small>{{ stack_status.detail }}</small></div>
+  </div>
+  <div class="resource-stat"><span>CPU</span><strong>{{ "{:.1f}".format(sample.cpu_percent) }}%</strong><small>load {{ "{:.2f}".format(sample.load_1) }}</small></div>
+  <div class="resource-stat"><span>Memory</span><strong>{{ "{:.1f}".format(sample.memory_percent) }}%</strong><small>{{ "{:.1f}".format(sample.memory_used_bytes / 1073741824) }} of {{ "{:.0f}".format(sample.memory_total_bytes / 1073741824) }} GB</small></div>
+  <div class="resource-stat"><span>Disk</span><strong>{{ "{:.1f}".format(sample.disk_percent) }}%</strong><small>{{ "{:.0f}".format((sample.disk_total_bytes - sample.disk_used_bytes) / 1073741824) }} GB free</small></div>
+  <div class="resource-stat"><span>Uptime</span><strong>{{ sample.uptime_label }}</strong><small>{{ sample.worker_restarts }} worker restarts</small></div>
+  <div class="resource-stat"><span>Spool</span><strong>{{ sample.spool_pending_files }}</strong><small>{% if sample.spool_pending_files %}oldest {{ sample.spool_age_label }}{% else %}no pending files{% endif %}</small></div>
+</div>
+{% if stack_status.reasons %}
+<div class="status-reasons">{% for reason in stack_status.reasons[:3] %}<span><i data-lucide="alert-circle"></i>{{ reason }}</span>{% endfor %}</div>
+{% endif %}
+<div class="service-grid">
+  {% for service in services %}
+  <div class="service-row service-{{ service.state }}">
+    <span class="service-dot"></span><strong>{{ service.label }}</strong><small>{{ service.detail }}</small>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="stack-band status-stale">
+  <div class="stack-primary"><span class="stack-status-icon"><i data-lucide="circle-help"></i></span><div><strong>Telemetry unavailable</strong><small>The host collector has not reported yet</small></div></div>
+</div>
+{% endif %}

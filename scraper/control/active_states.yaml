@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# active_states.yaml — the ONLY thing you edit to change coverage.
+# Add or remove a 2-letter state code and the next enqueue top-up picks it up.
+# No VPS changes, no restarts. bbox + cell size auto-resolve from STATE_CONFIG
+# (in orchestrate.py); override per state only if you need to.
+# ─────────────────────────────────────────────────────────────────────────────
+
+states:
+  - oh
+  - ky
+  - mo
+  - az
+
+# Optional per-state overrides (uncomment to use):
+# overrides:
+#   ca:
+#     cell_size_km: 60
+#   tx:
+#     zoom: 14
+
+settings:
+  zoom: 15
+  radius: 10000          # metres per cell
+  depth: 3               # scroll depth per keyword
+  lang: en
+  fast_mode: true
+  timeout: 300           # seconds; capped at 5 min by the worker anyway
+
+queue:
+  target_depth: 50       # fallback before worker heartbeats are available
+  target_per_worker: 25  # ~20 seconds of work at box1's measured smoke-test rate
+  min_target_depth: 25   # enough work to avoid starvation between top-up cycles
+  max_target_depth: 500  # hard cap; the producer never floods Postgres
+  batch_size: 100        # upper bound inserted per top-up cycle
+  poll_secs: 5           # LISTEN/NOTIFY wakes workers; producer checks backpressure here
+  skip_recent_days: 0    # O-12: skip (keyword,state) enqueued within N days (0 = off).
+                         # Set e.g. 7 once you want to avoid re-scraping recent coverage.
+
+# The enqueue ledger (O-11 idempotency + O-12 campaign dedup) uses Postgres via
+# the DATABASE_URL env var. With no DATABASE_URL the enqueuer still runs, just
+# without dedup.
+
+# serve API that owns the River queue (on the control VPS or reachable from it)
+api_base: http://localhost:8080

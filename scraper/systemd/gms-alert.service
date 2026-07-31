@@ -1,0 +1,9 @@
+[Unit]
+Description=Pipeline drift alerts
+
+[Service]
+Type=oneshot
+User=scraper
+EnvironmentFile=/opt/gms-scale/.env.control
+WorkingDirectory=/opt/gms-scale
+ExecStart=/opt/gms-scale/venv/bin/python /opt/gms-scale/control/alert.py --api-base http://localhost:8080

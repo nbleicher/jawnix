@@ -1,0 +1,119 @@
+name: gms-scale
+
+x-worker-common: &worker-common
+  build:
+    context: ${SCRAPER_SRC:-.scraper-src}
+    dockerfile: Dockerfile.saas
+    args:
+      GMS_GO_BUILD_FLAGS: ${GMS_GO_BUILD_FLAGS:-}
+      GMS_GOGC: ${GMS_GOGC:-100}
+  image: gmapssaas:local
+  restart: unless-stopped
+  depends_on:
+    db:
+      condition: service_healthy
+  environment:
+    DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-gmaps_pro}
+    HASHID_SALT: ${HASHID_SALT:?set HASHID_SALT}
+    PROXIES: ${PROXIES:-}
+    FAST_MODE: "true"
+    MAX_JOBS_PER_CYCLE: "100"
+    DISABLE_TELEMETRY: "1"
+    GMS_SPOOL_DIR: /data/incoming
+  command: ["worker"]
+  cpus: "1.5"
+  mem_limit: 2g
+  mem_reservation: 1500m
+  shm_size: 1g
+  volumes:
+    - ${SPOOL_DIR:-/data/incoming}:/data/incoming
+  tmpfs:
+    - /tmp:size=512m
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 65536
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-gmaps_pro}
+      GMAPS_RO_PASSWORD: ${GMAPS_RO_PASSWORD:?set GMAPS_RO_PASSWORD}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - gmaps_postgres:/var/lib/postgresql/data
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    image: gms-dashboard:local
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-gmaps_pro}
+      DATABASE_URL_RO: postgresql://gmaps_ro:${GMAPS_RO_PASSWORD:?set GMAPS_RO_PASSWORD}@db:5432/${POSTGRES_DB:-gmaps_pro}
+      DASH_PASSWORD: ${DASH_PASSWORD:?set DASH_PASSWORD}
+      CONTROL_DIR: /app/control
+      KEYWORDS_PATH: /app/control/runtime/keywords.txt
+      ACTIVE_STATES_PATH: /app/control/active_states.yaml
+      EXPORTS_DIR: /app/exports/by_state
+      ENQUEUE_TRIGGER_PATH: /app/control/triggers/enqueue.request
+      EXPECTED_WORKERS: ${WORKER_REPLICAS:-5}
+      TELEMETRY_STALE_SECS: ${GMS_TELEMETRY_STALE_SECS:-180}
+      QUEUE_MAX_DEPTH: ${GMS_QUEUE_MAX_DEPTH:-500}
+      QUEUE_MAX_AGE_MINS: ${GMS_QUEUE_MAX_AGE_MINS:-30}
+      MAX_RETRYABLE: ${GMS_MAX_RETRYABLE:-50}
+      MAX_EMPTY_RATE: ${GMS_MAX_EMPTY_RATE:-0.9}
+      MAX_SPOOL_FILES: ${GMS_MAX_SPOOL_FILES:-200}
+      MAX_SPOOL_AGE_MINS: ${GMS_MAX_SPOOL_AGE_MINS:-15}
+      DISK_WARN_PERCENT: ${GMS_DISK_WARN_PERCENT:-85}
+      MEMORY_WARN_PERCENT: ${GMS_MEMORY_WARN_PERCENT:-90}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-deepseek/deepseek-v4-flash}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_TIMEOUT_SECS: ${OPENROUTER_TIMEOUT_SECS:-45}
+    ports:
+      - "${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:8090:8000"
+    volumes:
+      - ./control:/app/control
+      - ./exports:/app/exports
+
+  worker:
+    <<: *worker-common
+
+  migrate:
+    image: golang:1.26.3-alpine
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-gmaps_pro}?sslmode=disable
+    volumes:
+      - ${SCRAPER_SRC:-.scraper-src}:/scraper:ro
+      - ./scraper_changes/migrations:/scale-migrations:ro
+      - ./docker/run-migrations.sh:/run-migrations.sh:ro
+    entrypoint: ["/bin/sh", "/run-migrations.sh"]
+
+volumes:
+  gmaps_postgres:

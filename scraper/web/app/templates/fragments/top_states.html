@@ -1,0 +1,6 @@
+{% set maximum = top_states[0].businesses if top_states else 1 %}
+<div class="bar-list">
+{% for row in top_states %}
+  <div class="bar-row"><span>{{ row.state }}</span><div class="bar-track"><div style="width:{{ (row.businesses / maximum * 100)|round }}%"></div></div><strong>{{ "{:,}".format(row.businesses) }}</strong></div>
+{% else %}<div class="empty-state"><i data-lucide="map-pinned"></i><p>No business data</p></div>{% endfor %}
+</div>
