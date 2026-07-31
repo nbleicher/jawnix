@@ -77,6 +77,10 @@ class Settings(BaseSettings):
         default="",
         alias="JAWNIX_SCRAPER_OPS_PASSWORD",
     )
+    scraper_control_token: str = Field(
+        default="",
+        alias="JAWNIX_SCRAPER_CONTROL_TOKEN",
+    )
     #: The Scraper database page runs several live aggregates over ~772k rows and
     #: measured 11.3s against production on 2026-07-29 — count(DISTINCT phone)
     #: alone is 1.4s. A 10s ceiling sat *below* a known-good response, so the
