@@ -155,6 +155,13 @@ export async function customerAccessLoader({
     const requested = safeCustomerPath(new URL(request.url).pathname);
     throw redirect(`/sign-in?next=${encodeURIComponent(requested)}`);
   }
+  // 404 is an authenticated principal with no Customer profile — the
+  // administrator identity intentionally has none. Since cutover the site
+  // root lands here, so hand them to their own shell; the admin boundary
+  // still decides admission.
+  if (response.status === 404) {
+    throw redirect("/admin/overview");
+  }
   if (!response.ok) {
     throw new Response("Customer access is temporarily unavailable.", {
       status: response.status,

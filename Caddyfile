@@ -70,7 +70,7 @@
 		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
 		path /login.html /login
 	}
-	redir @newui_login /app/sign-in 302
+	redir @newui_login /app/sign-in?{query} 302
 	@newui_portal {
 		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
 		path /portal.html /portal
