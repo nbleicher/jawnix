@@ -232,7 +232,7 @@ def test_telegram_batch_action_and_replay_converge_in_every_jawnix_read(
             for item in fulfillment["batchRequests"]
             if item["id"] == str(request_id)
         )["status"] == RequestStatus.approved.value
-        assert overview.current_request.status.label == "Under Review"
+        assert overview.items == []
         assert session.scalar(
             select(func.count(AuditEntry.id)).where(
                 AuditEntry.action == "batch_request_approve",

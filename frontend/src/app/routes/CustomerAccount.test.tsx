@@ -59,19 +59,7 @@ function json(body: unknown, status = 200): Response {
 function result(account: LicensedStateWorkspace) {
   return {
     account,
-    overview: {
-      first_name: "Licensed",
-      licensed_states: account.states,
-      current_request: null,
-      recent_deliveries: [],
-      next_action: {
-        kind: "request_batch",
-        label: "Request a Batch",
-        description: "Start a request.",
-        href: "/app/requests",
-      },
-      primary_actions: [],
-    },
+    overview: { items: [] },
     requests: {
       limits: {
         minimum_lead_count: 1,
