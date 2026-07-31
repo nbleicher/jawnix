@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import ast
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -22,7 +24,24 @@ from jawnix.scraper_operations import (
     HTTPScraperOperations,
     ScraperOperationsError,
 )
-from scraper_fake import KEYWORDS, WINNERS
+from jawnix.scraper_monitoring import ControlPipelineRequest
+from jawnix.scraper_runtime import (
+    ControlRuntimeSaveRequest,
+    RuntimeConfiguration,
+    RuntimePreviewRequest,
+    runtime_version,
+)
+from scraper_fake import (
+    ACTIVITY,
+    CAMPAIGN_HISTORY,
+    KEYWORDS,
+    PAUSE_INFO,
+    PIPELINE_STATE,
+    REGION_PAYLOADS,
+    RUNTIME_CONFIGURATION,
+    WINNERS,
+    aggregate_payload,
+)
 
 
 TOKEN = "test-scraper-control-token-0000000000000000"
@@ -382,6 +401,186 @@ def test_http_adapter_speaks_the_typed_database_and_coverage_contract(
     assert json.loads(calls[2].content) == {"niches": None}
     assert json.loads(calls[3].content) == {"states": ["oh", "pa"]}
     assert all(call.headers["authorization"] == f"Bearer {TOKEN}" for call in calls)
+
+
+def test_http_adapter_speaks_all_remaining_typed_contracts(settings):
+    calls: list[httpx.Request] = []
+    configuration = RuntimeConfiguration.model_validate(RUNTIME_CONFIGURATION)
+    version = runtime_version(configuration)
+    effects = {
+        "cells": [{"state": "KY", "cells": 324}, {"state": "OH", "cells": 240}],
+        "current_total_cells": 564,
+        "proposed_total_cells": 564,
+        "total_cell_delta": 0,
+        "states_added": [],
+        "states_removed": [],
+        "runtime_changes": [],
+        "queue_changes": [],
+        "override_changes": [],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        path = request.url.path
+        if path == "/api/workspace":
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "active_states": ["KY", "OH"],
+                    "keyword_count": 2,
+                    "business_count": 9_244_326,
+                    "pipeline_state": "running",
+                },
+            )
+        if path == "/api/dashboard":
+            return httpx.Response(200, json=aggregate_payload())
+        if path == "/api/dashboard/activity":
+            return httpx.Response(200, json=REGION_PAYLOADS["activity"])
+        if path == "/api/pipeline":
+            return httpx.Response(
+                200,
+                json={
+                    "ok": True,
+                    "pipeline_state": PIPELINE_STATE,
+                    "cancelled_jobs": 0,
+                    "activity": ACTIVITY,
+                    "pause_info": PAUSE_INFO,
+                },
+            )
+        if path == "/api/runtime":
+            return httpx.Response(
+                200,
+                json={
+                    "current": RUNTIME_CONFIGURATION,
+                    "version": version,
+                    "all_states": ["KY", "OH"],
+                    "cells": effects["cells"],
+                    "total_cells": 564,
+                    "bounds": {
+                        "runtime": {
+                            "zoom": {"minimum": 1, "maximum": 21, "step": 1}
+                        },
+                        "queue": {},
+                        "override": {},
+                        "language_max_length": 10,
+                    },
+                },
+            )
+        if path == "/api/runtime/preview":
+            return httpx.Response(
+                200,
+                json={
+                    "configuration": RUNTIME_CONFIGURATION,
+                    "expected_version": version,
+                    "proposed_version": version,
+                    "effects": effects,
+                },
+            )
+        if path == "/api/runtime/save":
+            return httpx.Response(
+                200,
+                json={
+                    "saved": True,
+                    "version": version,
+                    "configuration": RUNTIME_CONFIGURATION,
+                    "effects": effects,
+                    "enqueued": True,
+                },
+            )
+        if path == "/api/history":
+            return httpx.Response(
+                200,
+                json={
+                    "search": "farm",
+                    "state": "KY",
+                    "sort": "cells_posted",
+                    "direction": "asc",
+                    "all_states": ["KY", "OH"],
+                    "rows": [CAMPAIGN_HISTORY[1]],
+                },
+            )
+        raise AssertionError(path)
+
+    adapter = HTTPScraperOperations(
+        operations_settings(settings),
+        transport=httpx.MockTransport(handler),
+    )
+
+    async def exercise():
+        return (
+            await adapter.workspace_summary(),
+            await adapter.monitoring_dashboard(),
+            await adapter.monitoring_region("activity"),
+            await adapter.control_pipeline(
+                ControlPipelineRequest(action="pause")
+            ),
+            await adapter.runtime_workspace(),
+            await adapter.preview_runtime(
+                RuntimePreviewRequest(configuration=configuration)
+            ),
+            await adapter.save_runtime(
+                ControlRuntimeSaveRequest(
+                    configuration=configuration,
+                    expected_version=version,
+                    enqueue=True,
+                )
+            ),
+            await adapter.campaign_history(
+                search="farm",
+                state="ky",
+                sort="cells_posted",
+                direction="asc",
+            ),
+        )
+
+    results = asyncio.run(exercise())
+
+    assert results[0].business_count == 9_244_326
+    assert results[1].stats.businesses == 9_244_326
+    assert results[2].pipeline_state.key == "running"
+    assert results[3].activity.queue_depth == 812
+    assert results[4].version == version
+    assert results[5].effects.total_cell_delta == 0
+    assert results[6].enqueued is True
+    assert results[7].rows[0].keyword == "Farm Equipment Dealer"
+    assert [call.url.path for call in calls] == [
+        "/api/workspace",
+        "/api/dashboard",
+        "/api/dashboard/activity",
+        "/api/pipeline",
+        "/api/runtime",
+        "/api/runtime/preview",
+        "/api/runtime/save",
+        "/api/history",
+    ]
+    assert json.loads(calls[3].content) == {
+        "action": "pause",
+        "clear_queue": False,
+    }
+    assert dict(calls[7].url.params) == {
+        "search": "farm",
+        "state": "ky",
+        "sort": "cells_posted",
+        "direction": "asc",
+    }
+    assert all(call.headers["authorization"] == f"Bearer {TOKEN}" for call in calls)
+
+
+def test_jawnix_package_has_no_html_parser_imports():
+    package = Path(__file__).parents[1] / "jawnix"
+    violations: list[str] = []
+    for path in package.rglob("*.py"):
+        source = path.read_text()
+        tree = ast.parse(source, filename=str(path))
+        if "HTMLParser" in source or "html.parser" in source:
+            violations.append(str(path.relative_to(package.parent)))
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "html":
+                if any(alias.name == "parser" for alias in node.names):
+                    violations.append(str(path.relative_to(package.parent)))
+    assert violations == []
 
 
 def test_http_adapter_preserves_declared_errors_and_redacts_transport(

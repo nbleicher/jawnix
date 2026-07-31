@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Protocol, TypeVar
+from typing import Literal, Protocol, TypeVar
 
 import httpx
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .config import Settings
 from .scraper_coverage import (
@@ -37,6 +37,22 @@ from .scraper_keywords import (
     ScraperKeywordWinners,
     ScraperKeywordWorkspace,
 )
+from .scraper_monitoring import (
+    ControlPipelineRequest,
+    ControlPipelineResult,
+    RegionData,
+    RegionKey,
+)
+from .scraper_runtime import (
+    ControlCampaignHistory,
+    ControlRuntimePreview,
+    ControlRuntimeSaveRequest,
+    ControlRuntimeSaveResult,
+    ControlRuntimeWorkspace,
+    HistorySort,
+    RuntimePreviewRequest,
+    SortDirection,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -59,7 +75,21 @@ class ScraperOperationsError(Exception):
         self.transport_error = transport_error
 
 
+class ScraperWorkspaceSummary(BaseModel):
+    """Availability probe and private Scraper workspace summary."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ok"] = "ok"
+    active_states: list[str]
+    keyword_count: int = Field(ge=0)
+    business_count: int = Field(ge=0)
+    pipeline_state: Literal["pausing", "paused", "running", "stopped"]
+
+
 class ScraperOperations(Protocol):
+    async def workspace_summary(self) -> ScraperWorkspaceSummary: ...
+
     async def list_keywords(self) -> ScraperKeywordWorkspace: ...
 
     async def keyword_winners(self) -> list[KeywordWinner]: ...
@@ -114,6 +144,36 @@ class ScraperOperations(Protocol):
 
     async def coverage_state_cells(self, state: str) -> StateGridCoverage: ...
 
+    async def monitoring_dashboard(self) -> RegionData: ...
+
+    async def monitoring_region(self, region: RegionKey) -> RegionData: ...
+
+    async def control_pipeline(
+        self,
+        payload: ControlPipelineRequest,
+    ) -> ControlPipelineResult: ...
+
+    async def runtime_workspace(self) -> ControlRuntimeWorkspace: ...
+
+    async def preview_runtime(
+        self,
+        payload: RuntimePreviewRequest,
+    ) -> ControlRuntimePreview: ...
+
+    async def save_runtime(
+        self,
+        payload: ControlRuntimeSaveRequest,
+    ) -> ControlRuntimeSaveResult: ...
+
+    async def campaign_history(
+        self,
+        *,
+        search: str,
+        state: str,
+        sort: HistorySort,
+        direction: SortDirection,
+    ) -> ControlCampaignHistory: ...
+
 
 class HTTPScraperOperations:
     """HTTP adapter for the Scraper service's bearer-authenticated JSON API."""
@@ -131,6 +191,13 @@ class HTTPScraperOperations:
             settings.scraper_ops_generation_timeout_seconds
         )
         self._transport = transport
+
+    async def workspace_summary(self) -> ScraperWorkspaceSummary:
+        return await self._request(
+            "GET",
+            "/api/workspace",
+            ScraperWorkspaceSummary,
+        )
 
     async def _request(
         self,
@@ -338,4 +405,78 @@ class HTTPScraperOperations:
             "GET",
             f"/api/coverage/{state}/cells",
             StateGridCoverage,
+        )
+
+    async def monitoring_dashboard(self) -> RegionData:
+        return await self._request(
+            "GET",
+            "/api/dashboard",
+            RegionData,
+        )
+
+    async def monitoring_region(self, region: RegionKey) -> RegionData:
+        return await self._request(
+            "GET",
+            f"/api/dashboard/{region}",
+            RegionData,
+        )
+
+    async def control_pipeline(
+        self,
+        payload: ControlPipelineRequest,
+    ) -> ControlPipelineResult:
+        return await self._request(
+            "POST",
+            "/api/pipeline",
+            ControlPipelineResult,
+            payload=payload.model_dump(),
+        )
+
+    async def runtime_workspace(self) -> ControlRuntimeWorkspace:
+        return await self._request(
+            "GET",
+            "/api/runtime",
+            ControlRuntimeWorkspace,
+        )
+
+    async def preview_runtime(
+        self,
+        payload: RuntimePreviewRequest,
+    ) -> ControlRuntimePreview:
+        return await self._request(
+            "POST",
+            "/api/runtime/preview",
+            ControlRuntimePreview,
+            payload=payload.model_dump(mode="json"),
+        )
+
+    async def save_runtime(
+        self,
+        payload: ControlRuntimeSaveRequest,
+    ) -> ControlRuntimeSaveResult:
+        return await self._request(
+            "POST",
+            "/api/runtime/save",
+            ControlRuntimeSaveResult,
+            payload=payload.model_dump(mode="json"),
+        )
+
+    async def campaign_history(
+        self,
+        *,
+        search: str,
+        state: str,
+        sort: HistorySort,
+        direction: SortDirection,
+    ) -> ControlCampaignHistory:
+        return await self._request(
+            "GET",
+            "/api/history",
+            ControlCampaignHistory,
+            params={
+                "search": search,
+                "state": state,
+                "sort": sort,
+                "direction": direction,
+            },
         )

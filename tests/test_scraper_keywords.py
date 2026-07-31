@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import httpx
 import pytest
 from sqlalchemy import select
 
@@ -16,7 +15,6 @@ from test_scraper_workspace import (  # noqa: F401 — shared fixtures
 
 
 def arm(fake: ScraperFake) -> ScraperFake:
-    app.state.scraper_proxy_transport = httpx.MockTransport(fake)
     app.state.scraper_operations = fake
     return fake
 
