@@ -23,6 +23,7 @@ import { AuthPanel } from "../../design-system/primitives/auth";
 import { Field, Input } from "../../design-system/primitives/form";
 import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
+import { OpalineScene } from "./opaline/OpalineScene";
 import "./CustomerAuth.css";
 
 const SIGN_IN_ERROR =
@@ -35,6 +36,7 @@ function AuthRouteFrame({ children }: { children: ReactNode }) {
 
   return (
     <div className="jx-auth-route">
+      <OpalineScene />
       <a className="jx-auth-route__skip-link" href="#jx-auth-main">
         Skip to main content
       </a>
