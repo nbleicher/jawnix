@@ -1,0 +1,4 @@
+{% if saved %}<div class="notice success"><i data-lucide="circle-check"></i><span>Configuration saved{% if enqueued %}; enqueue requested{% endif %}</span></div>{% endif %}
+<div class="section-head"><div><p class="eyebrow">Computed</p><h2>Cell count</h2></div></div>
+<div class="preview-list">{% for row in preview %}<div><span class="state-code small">{{ row.state.upper() }}</span><strong>{{ "{:,}".format(row.cells) }}</strong></div>{% else %}<p class="quiet">No active states</p>{% endfor %}</div>
+<div class="preview-total"><span>Total cells</span><strong>{{ "{:,}".format(preview|sum(attribute='cells')) }}</strong></div>

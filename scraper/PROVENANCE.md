@@ -1,0 +1,35 @@
+# Scraper source provenance
+
+This subsystem was imported on 2026-07-31 as source snapshots. No Git history
+from either source repository was merged into Jawnix.
+
+## Scale control plane
+
+- Source: <https://github.com/nbleicher/scale>
+- Release tag: `scraper-source-baseline-2026-07-27-v4`
+- Resolved commit: `a57fcfadd387d068e706eec4925d368dd2fadd98`
+- Imported path: `scraper/`
+
+The tracked tree at that release supplied the control logic, database
+migrations, deployment configuration, monitoring and export utilities,
+pipeline controls, keyword rollover tasks, and scheduled operations. The
+"Conductor Playground" React project mentioned by Scale's
+`SCRAPER_BASELINE.md` supplied visual design language only and was not used as
+a source for this import. Statements in that snapshot that call Scale the
+authoritative source describe the legacy state at the time of the tag; ADR
+0017 records Jawnix's ownership from this import forward.
+
+## Go worker
+
+- Source: <https://github.com/nbleicher/scraper>
+- Immutable revision: `7caca2ce8122c0ffaf47ca5737a06d05a23a90ca`
+- Imported path: `scraper/worker/src/`
+- License: `scraper/worker/src/LICENSE` (MIT)
+- Applied patch: `scraper/scraper_changes/worker-build.patch`
+- Patch SHA-256: `a4e11a53b32a6dba4a518dd01f91513fe613f9baf24eff78ce22ef74b2f962ff`
+- Patched `Dockerfile.saas` Git blob: `d7dc0cf3e8bb45abb46643edbb0efb6e53b9594f`
+
+The Scale patch only adds configurable Go build flags, garbage-collector
+pressure, and a single build process to limit build-time resource use. The
+tracked generated `google-maps-scraper` binary and `results.csv` were excluded
+from the vendored snapshot, as were tracked `.DS_Store` metadata files.

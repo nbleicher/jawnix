@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Keywords · GMS Operations{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">Campaign input</p><h1>Keywords</h1></div><span class="count-pill">{{ current|length }} active</span></div>
+{% include "fragments/keyword_tabs.html" %}
+{% include "fragments/keyword_rollover.html" %}
+<div id="generation-feedback">
+  {% if generation %}<div class="notice ai-notice"><i data-lucide="sparkles"></i><span><strong>Draft ready:</strong> 25 {% if generation.mode == 'adjacent' %}keywords adjacent to {{ generation.seed_keyword }}{% else %}broad local-business keywords{% endif %}. Review below; nothing has been saved or enqueued. {{ generation.excluded_count }} candidates were filtered.</span></div>
+  {% elif not ai_enabled %}<div class="notice"><i data-lucide="key-round"></i><span>AI generation is unavailable until an OpenRouter key is configured</span></div>{% endif %}
+</div>
+<form class="editor-layout" hx-encoding="multipart/form-data">
+  <section class="editor-pane">
+    <label class="field-label" for="keyword-text">Keyword list</label>
+    <textarea id="keyword-text" name="text" rows="18" spellcheck="false">{{ keyword_text }}</textarea>
+    {% if generation_id %}<input type="hidden" name="generation_id" value="{{ generation_id }}">{% endif %}
+    <div class="form-row split">
+      <label class="file-button"><i data-lucide="upload"></i><span>Choose text file</span><input type="file" name="upload" accept=".txt,text/plain"></label>
+      <label class="check-label"><input type="checkbox" name="enqueue" value="true"><span>Request enqueue after save</span></label>
+    </div>
+    <div class="action-row">
+      <button class="button ai-button" type="button" hx-post="/keywords/generate" hx-vals='{"mode":"broad"}' hx-target="#generation-feedback" hx-disabled-elt="this" data-pending-message="Generating 25 unused keywords..." {% if not ai_enabled %}disabled title="OpenRouter key not configured"{% endif %}><i data-lucide="sparkles"></i><span class="button-label">Generate 25</span><span class="htmx-indicator">Generating...</span></button>
+      <button class="button secondary" type="submit" hx-post="/keywords/preview" hx-target="#keyword-preview" hx-disabled-elt="this" data-pending-message="Preparing keyword preview..." data-success-message="Keyword preview ready"><i data-lucide="scan-search"></i><span class="button-label">Preview changes</span><span class="htmx-indicator">Preparing...</span></button>
+      <button class="button primary" type="submit" hx-post="/keywords/save" hx-target="#keyword-preview" hx-disabled-elt="this" data-pending-message="Saving keyword list..." data-success-message="Keyword list saved"><i data-lucide="save"></i><span class="button-label">Save list</span><span class="htmx-indicator">Saving...</span></button>
+    </div>
+  </section>
+  <section id="keyword-preview" class="preview-pane"><div class="empty-state"><i data-lucide="list-checks"></i><p>No pending changes</p></div></section>
+</form>
+{% endblock %}

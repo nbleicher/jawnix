@@ -1,0 +1,64 @@
+#cloud-config
+# ============================================================
+# Google Maps Scraper — Worker Cloud-Init
+# ============================================================
+# Paste this as "User Data" when creating a new VPS.
+# Supported by: Netcup (vServer / Root Server), Oracle Cloud,
+#               Hetzner, DigitalOcean, Vultr, Linode, and most others.
+#
+# The worker installs Docker and starts automatically on first boot.
+# No SSH needed.
+#
+# Replace the three YOUR_* placeholders below before pasting.
+# ============================================================
+
+write_files:
+  - path: /opt/gms-worker/.env
+    permissions: '0600'
+    content: |
+      DATABASE_URL=YOUR_NEON_CONNECTION_STRING
+      ENCRYPTION_KEY=YOUR_32_BYTE_HEX_KEY
+      CONCURRENCY=4
+      MAX_JOBS_PER_CYCLE=100
+      FAST_MODE=true
+      PROXIES=
+      DISABLE_TELEMETRY=1
+
+  - path: /opt/gms-worker/docker-compose.yml
+    permissions: '0644'
+    content: |
+      services:
+        worker:
+          image: ghcr.io/gosom/google-maps-scraper-saas:latest
+          restart: unless-stopped
+          ports:
+            - "8081:8080"
+          env_file:
+            - .env
+          command: ["worker"]
+          mem_limit: "2g"
+          shm_size: "1g"
+          tmpfs:
+            - /tmp:size=512m
+          ulimits:
+            nofile:
+              soft: 65536
+              hard: 65536
+          logging:
+            driver: json-file
+            options:
+              max-size: "10m"
+              max-file: "3"
+
+runcmd:
+  # Install Docker
+  - curl -fsSL https://get.docker.com | sh
+  - systemctl enable docker
+  - systemctl start docker
+
+  # Pull and start worker
+  - cd /opt/gms-worker && docker compose pull && docker compose up -d
+
+  # Harden SSH (optional but recommended)
+  - sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true

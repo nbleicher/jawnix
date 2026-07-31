@@ -1,0 +1,22 @@
+<div id="pipeline-log" class="pipeline-log" hx-get="/frag/dashboard/log" hx-trigger="every 2s" hx-swap="outerHTML">
+  <div class="pipeline-log-head">
+    <span><i data-lucide="terminal"></i><code>tail -f pipeline.log</code></span>
+    <span class="terminal-live"><i data-lucide="radio"></i> LIVE · UTC</span>
+  </div>
+  <div class="pipeline-log-body" role="log" aria-live="polite" aria-label="Recent committed scrape jobs">
+    {% if pipeline_events %}
+      {% for event in pipeline_events %}
+        <div class="log-line log-write">
+          <time datetime="{{ event.created_at.isoformat() }}">{{ event.created_at.strftime('%H:%M:%S') }}</time>
+          <span class="log-level">PHONE</span>
+          <span class="log-job">job#{{ event.job_id }}</span>
+          <span class="log-target"><b>{{ event.state }}</b> {{ event.keyword }}</span>
+          <span class="log-result">+{{ event.phone_count }} phone{% if event.phone_count != 1 %}s{% endif %} · {{ event.result_count }} raw</span>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="log-line log-waiting"><time>--:--:--</time><span class="log-level">WAIT</span><span class="log-target">No phone-bearing job commits yet</span></div>
+    {% endif %}
+    <div class="terminal-prompt" aria-hidden="true"><span>$</span><i></i></div>
+  </div>
+</div>

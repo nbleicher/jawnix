@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ state.upper() }} database · GMS Operations{% endblock %}
+{% block content %}
+<div class="page-head database-detail-head">
+  <div><a href="/database" class="back-link"><i data-lucide="arrow-left"></i>Database</a><h1>{{ state.upper() }} database</h1></div>
+  <a class="button primary" href="/database/states/{{ state }}/download?scope=all" data-download-link><i data-lucide="download"></i>Download entire state</a>
+</div>
+<div class="database-summary" aria-label="{{ state.upper() }} database totals">
+  <div><span>Total businesses</span><strong>{{ "{:,}".format(summary.businesses) }}</strong></div>
+  <div><span>Unique phones</span><strong>{{ "{:,}".format(summary.unique_phones) }}</strong></div>
+  <div><span>Niches</span><strong>{{ summary.niches }}</strong></div>
+</div>
+<section class="section-block">
+  <form id="niche-export-form" class="niche-export-form" action="/database/states/{{ state }}/download" method="get">
+    <input type="hidden" name="scope" value="selected">
+    <div class="section-head niche-section-head">
+      <div><p class="eyebrow">Phone-bearing businesses</p><h2>Niches</h2></div>
+      <div class="niche-bulk-actions">
+        <label class="check-label"><input id="select-all-niches" type="checkbox">Select all</label>
+        <span id="selected-niche-count" class="quiet">0 selected</span>
+        <button id="download-selected-niches" class="button secondary" type="submit" disabled><i data-lucide="download"></i>Download selected</button>
+      </div>
+    </div>
+    <div class="table-wrap niche-table"><table>
+      <thead><tr><th class="selection-column"><span class="sr-only">Select</span></th><th>Niche</th><th>Total businesses</th><th>Unique phones</th><th class="table-action"><span class="sr-only">Download</span></th></tr></thead>
+      <tbody>
+      {% for row in niches %}
+        <tr>
+          <td class="selection-column"><input class="niche-checkbox" type="checkbox" name="keyword" value="{{ row.niche_key }}" aria-label="Select {{ row.niche }}"></td>
+          <td><strong>{{ row.niche }}</strong></td>
+          <td>{{ "{:,}".format(row.businesses) }}</td>
+          <td>{{ "{:,}".format(row.unique_phones) }}</td>
+          <td class="table-action"><a class="icon-button" href="/database/states/{{ state }}/download?scope=selected&amp;keyword={{ row.niche_key|urlencode }}" title="Download {{ row.niche }}" aria-label="Download {{ row.niche }}"><i data-lucide="download"></i></a></td>
+        </tr>
+      {% else %}<tr><td colspan="5" class="table-empty">No niches found</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </form>
+</section>
+{% endblock %}

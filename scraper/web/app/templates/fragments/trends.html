@@ -1,0 +1,22 @@
+{% if trends %}
+<div class="trend-grid">
+  <article class="trend-panel">
+    <div class="trend-head"><strong>Throughput</strong><span><i class="legend-swatch businesses"></i>Businesses <i class="legend-swatch jobs"></i>Jobs</span></div>
+    <div class="chart-bars" role="img" aria-label="Hourly businesses and completed jobs for the last 24 hours">
+      {% for point in trends %}<div class="chart-slot" title="{{ point.label }} UTC · {{ point.businesses }} businesses · {{ point.jobs }} jobs"><span class="chart-bar businesses" style="height:{{ point.businesses_height }}%"></span><span class="chart-bar jobs" style="height:{{ point.jobs_height }}%"></span>{% if loop.index0 % 6 == 0 %}<small>{{ point.label[:2] }}</small>{% endif %}</div>{% endfor %}
+    </div>
+  </article>
+  <article class="trend-panel">
+    <div class="trend-head"><strong>Queue depth</strong><span>{{ trends[-1].queue }} current</span></div>
+    <div class="chart-bars single" role="img" aria-label="Hourly queue depth for the last 24 hours">
+      {% for point in trends %}<div class="chart-slot" title="{{ point.label }} UTC · {{ point.queue }} queued"><span class="chart-bar queue" style="height:{{ point.queue_height }}%"></span>{% if loop.index0 % 6 == 0 %}<small>{{ point.label[:2] }}</small>{% endif %}</div>{% endfor %}
+    </div>
+  </article>
+  <article class="trend-panel">
+    <div class="trend-head"><strong>Host utilization</strong><span><i class="legend-swatch cpu"></i>CPU <i class="legend-swatch memory"></i>Memory</span></div>
+    <div class="chart-bars" role="img" aria-label="Hourly CPU and memory utilization for the last 24 hours">
+      {% for point in trends %}<div class="chart-slot" title="{{ point.label }} UTC · {{ point.cpu }}% CPU · {{ point.memory }}% memory"><span class="chart-bar cpu" style="height:{{ point.cpu }}%"></span><span class="chart-bar memory" style="height:{{ point.memory }}%"></span>{% if loop.index0 % 6 == 0 %}<small>{{ point.label[:2] }}</small>{% endif %}</div>{% endfor %}
+    </div>
+  </article>
+</div>
+{% else %}<div class="empty-state"><i data-lucide="chart-no-axes-column"></i><p>Trend data will appear after telemetry samples arrive</p></div>{% endif %}

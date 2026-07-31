@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ state.upper() }} · GMS Operations{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><a href="/states" class="back-link"><i data-lucide="arrow-left"></i>States</a><h1>{{ state.upper() }} coverage</h1></div>
+  <span class="state-code large">{{ state.upper() }}</span>
+</div>
+<section>
+  <div class="section-head"><div><p class="eyebrow">Campaigns</p><h2>Keywords</h2></div><span class="quiet">10 sec</span></div>
+  <div id="state-keywords" hx-get="/frag/states/{{ state }}/keywords" hx-trigger="every 10s" hx-swap="innerHTML">{% include "fragments/state_keywords.html" %}</div>
+</section>
+<section class="section-block">
+  <div class="section-head"><div><p class="eyebrow">Today</p><h2>Grid cells</h2></div><div class="legend"><span class="posted">Posted</span><span class="reserved">Reserved</span><span class="failed">Failed</span><span>Uncovered</span></div></div>
+  <div id="state-cells" hx-get="/frag/states/{{ state }}/cells" hx-trigger="every 15s" hx-swap="innerHTML">{% include "fragments/state_cells.html" %}</div>
+</section>
+{% endblock %}

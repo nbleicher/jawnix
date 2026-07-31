@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}History · GMS Operations{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">Campaign ledger</p><h1>History</h1></div></div>
+<form class="filter-bar" hx-get="/frag/history/table" hx-target="#history-table" hx-trigger="input changed delay:350ms from:input, change from:select">
+  <label><i data-lucide="search"></i><input type="search" name="search" value="{{ search }}" placeholder="Search keywords"></label>
+  <select name="state"><option value="">All states</option>{% for code in request.app.state.control.grid.STATE_CONFIG|sort %}<option value="{{ code }}" {% if state == code %}selected{% endif %}>{{ code.upper() }}</option>{% endfor %}</select>
+  <select name="sort"><option value="last_enqueued">Last enqueued</option><option value="keyword">Keyword</option><option value="state">State</option><option value="cells_posted">Cells posted</option></select>
+  <select name="direction"><option value="desc">Descending</option><option value="asc">Ascending</option></select>
+</form>
+<div id="history-table">{% include "fragments/history_table.html" %}</div>
+{% endblock %}

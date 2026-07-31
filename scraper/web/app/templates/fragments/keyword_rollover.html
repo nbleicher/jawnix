@@ -1,0 +1,18 @@
+<section id="keyword-rollover" class="keyword-rollover rollover-{{ rollover_state.key }}" hx-get="/frag/keywords/auto-rollover" hx-trigger="every 15s" hx-swap="outerHTML" aria-live="polite">
+  <div class="rollover-summary">
+    <span class="rollover-icon"><i data-lucide="refresh-cw"></i></span>
+    <div><p class="eyebrow">Automatic batches</p><strong>{{ rollover_state.label }}</strong><small>{{ rollover_state.detail }}</small></div>
+  </div>
+  <div class="rollover-meter">
+    <div><span>Current coverage</span><strong>{{ rollover_progress.percent_complete }}%</strong></div>
+    <div class="progress"><span style="width:{{ rollover_progress.percent_complete }}%"></span></div>
+  </div>
+  <div class="rollover-event">
+    <span>Last rollover</span>
+    {% if rollover.last_event_at %}<strong class="event-{{ rollover.last_status }}">{{ rollover.last_status|title }}</strong><small>{{ rollover.last_event_at.strftime('%b %d · %H:%M UTC') }}</small>
+    {% else %}<strong>None yet</strong><small>Awaiting current batch</small>{% endif %}
+  </div>
+  <button class="button rollover-control {% if not rollover.enabled %}primary{% endif %}" type="button" hx-post="/keywords/auto-rollover" hx-vals='{"action":"{% if rollover.enabled %}disable{% else %}enable{% endif %}"}' hx-target="#keyword-rollover" hx-swap="outerHTML" hx-disabled-elt="this" data-pending-message="Updating automatic batches..." data-success-message="Automatic batch setting updated">
+    <i data-lucide="{% if rollover.enabled %}pause{% else %}play{% endif %}"></i><span class="button-label">{% if rollover.enabled %}Disable{% else %}Enable{% endif %}</span><span class="htmx-indicator">Updating...</span>
+  </button>
+</section>

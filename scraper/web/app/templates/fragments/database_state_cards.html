@@ -1,0 +1,15 @@
+<div class="state-grid database-state-grid">
+{% for card in database_states %}
+  <div class="state-card-wrap">
+    <input class="state-checkbox" type="checkbox" name="state" value="{{ card.state.lower() }}" aria-label="Select {{ card.state }} for bulk download">
+    <a href="/database/states/{{ card.state.lower() }}" class="state-card database-state-card">
+      <div class="state-card-head"><span class="state-code">{{ card.state }}</span><i data-lucide="arrow-up-right"></i></div>
+      <strong>{{ "{:,}".format(card.businesses) }}</strong><small>total businesses</small>
+      <div class="database-card-stats">
+        <span><b>{{ "{:,}".format(card.unique_phones) }}</b> unique phones</span>
+        <span><b>{{ card.niches }}</b> niches</span>
+      </div>
+    </a>
+  </div>
+{% else %}<div class="empty-state"><i data-lucide="database"></i><p>No state data</p></div>{% endfor %}
+</div>

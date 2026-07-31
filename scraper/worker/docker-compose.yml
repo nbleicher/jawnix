@@ -1,0 +1,45 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose.yml — first worker box (box1 = 18 vCPU / 64 GB)
+# Mirrors infra/cloudinit so it stays compatible with auto-provisioning later.
+#
+# CONCURRENCY = NUMBER OF CONTAINERS (this is the whole point — one container
+# scrapes one job at a time; you scale by running many). For 18 vCPU at 1.5 cpu
+# each, run 12 containers:  1 `worker` + 11 `worker_replica`.
+#
+#   docker compose up -d --scale worker_replica=11
+#
+# Health (per container):  docker compose exec worker curl -s localhost:8080/health
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-worker-common: &worker-common
+  build:
+    context: ../../auto_scrape/util/scraper_src
+    dockerfile: Dockerfile.saas      # copy scale/worker/Dockerfile.saas there first — see FIRST_BOT_SETUP.md §2
+  image: gmapssaas:local
+  restart: unless-stopped
+  env_file:
+    - .env
+  command: ["worker"]
+  cpus: "1.5"
+  mem_limit: "2g"
+  mem_reservation: "1500m"
+  shm_size: "1g"            # Chromium needs real /dev/shm or it hangs (issue I-12)
+  volumes:
+    - /data/incoming:/data/incoming   # spool: workers write NDJSON here; shipper.py (on the host) drains it
+  tmpfs:
+    - /tmp:size=512m
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 65536
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  worker:
+    <<: *worker-common
+  worker_replica:
+    <<: *worker-common

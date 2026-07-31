@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Overview · GMS Operations{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><p class="eyebrow">Live operation</p><h1>Overview</h1></div>
+  <span id="overall-status" hx-get="/frag/dashboard/overall" hx-trigger="every 15s" hx-swap="outerHTML" class="status-pill status-{{ stack_status.key }}"><span></span>{{ stack_status.label }}</span>
+</div>
+<section id="stack-status" hx-get="/frag/dashboard/stack" hx-trigger="every 15s" hx-swap="innerHTML">
+  {% include "fragments/stack_status.html" %}
+</section>
+{% include "fragments/pipeline_activity.html" %}
+<section id="dashboard-stats" hx-get="/frag/dashboard/stats" hx-trigger="every 10s" hx-swap="innerHTML">
+  {% include "fragments/dashboard_stats.html" %}
+</section>
+<section class="section-block activity-log-section">
+  <div class="section-head"><div><p class="eyebrow">Committed jobs</p><h2>Database activity log</h2></div><span class="quiet">Live · 2 sec</span></div>
+  {% include "fragments/pipeline_log.html" %}
+</section>
+<section class="section-block">
+  <div class="section-head"><div><p class="eyebrow">Last 24 hours</p><h2>Performance trends</h2></div><span class="quiet">UTC · 60 sec</span></div>
+  <div id="trends" hx-get="/frag/dashboard/trends" hx-trigger="every 60s" hx-swap="innerHTML">{% include "fragments/trends.html" %}</div>
+</section>
+<div class="dashboard-grid">
+  <section class="panel-span-2">
+    <div class="section-head"><div><p class="eyebrow">Fleet</p><h2>Workers</h2></div><span class="quiet">{{ workers|length }}/{{ expected_workers }} reporting</span></div>
+    <div id="workers" hx-get="/frag/dashboard/workers" hx-trigger="every 15s" hx-swap="innerHTML">{% include "fragments/workers.html" %}</div>
+  </section>
+  <section>
+    <div class="section-head"><div><p class="eyebrow">Events</p><h2>Pipeline alerts</h2></div><span class="quiet">24 hours</span></div>
+    <div id="incidents" hx-get="/frag/dashboard/incidents" hx-trigger="every 60s" hx-swap="innerHTML">{% include "fragments/incidents.html" %}</div>
+  </section>
+</div>
+<section class="section-block">
+  <div class="section-head"><div><p class="eyebrow">Distribution</p><h2>Top states</h2></div><span class="quiet">30 sec</span></div>
+  <div id="top-states" hx-get="/frag/dashboard/top-states" hx-trigger="every 30s" hx-swap="innerHTML">{% include "fragments/top_states.html" %}</div>
+</section>
+{% endblock %}

@@ -1,0 +1,11 @@
+<div class="state-grid">
+{% for card in cards %}
+  <a href="/states/{{ card.state }}" class="state-card">
+    <div class="state-card-head"><span class="state-code">{{ card.state.upper() }}</span><i data-lucide="arrow-up-right"></i></div>
+    <strong>{{ "{:,}".format(card.businesses) }}</strong><small>businesses</small>
+    <div class="progress-meta"><span>Coverage</span><b>{{ card.coverage }}%</b></div>
+    <div class="progress"><span style="width:{{ card.coverage }}%"></span></div>
+    <div class="state-card-foot"><span>{{ card.posted_cells }}/{{ card.total_cells }} cells</span><span>{{ card.active_keywords }} keywords</span></div>
+  </a>
+{% else %}<div class="empty-state"><i data-lucide="map"></i><p>No active states</p></div>{% endfor %}
+</div>
