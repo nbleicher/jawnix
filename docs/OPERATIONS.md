@@ -60,6 +60,47 @@ browser-public values: the Supabase URL and publishable/anon key, the Scraper
 Operations origin, and the billing flag. Service-role, Telegram, Resend,
 PostgreSQL, and Restic secrets remain server-side.
 
+## Deploying the application host
+
+`ops/deploy.sh` is the only sanctioned path for updating the application tree
+at `/srv/jawnix/app`. Do not copy a hand-picked file set or run `scp` or a
+separate `rsync` command against that directory. The host has no Git checkout,
+so every deployment originates from a clean local checkout of a tagged commit
+on `origin/main`.
+
+Create and push the release tag from an up-to-date `main`, then check out that
+exact tag. Run the deploy script interactively with the SSH destination in
+`JAWNIX_DEPLOY_TARGET`:
+
+```sh
+git fetch origin main --tags
+git switch --detach production-YYYYMMDDTHHMMSSZ
+JAWNIX_DEPLOY_TARGET=root@159.195.15.51 \
+  ops/deploy.sh production-YYYYMMDDTHHMMSSZ
+```
+
+The script refuses a dirty checkout, a tag that is absent from `origin`, a
+checkout that does not exactly match the requested tag, or a tagged commit that
+is not on the freshly fetched `origin/main`. It builds the rsync source from the
+tagged commit rather than from ignored local files. It always prints an
+itemized `rsync --dry-run` first and requires the exact confirmation shown in
+the prompt before repeating the same sync without `--dry-run`.
+
+The sync uses `--delete`, but its pinned excludes protect the production
+`.env`, `batches/`, `backups/`, `invoices/`, `monitoring/`,
+`restic-repository/`, `migration/`, and `user-account-migration/`. These paths
+contain host-owned configuration, datasets, generated invoices, monitoring
+state, backup material, or migration evidence and must never be removed or
+replaced by an application deploy. The backup, monitoring, and migration
+directories are normally siblings of `/srv/jawnix/app`; keeping them excluded
+also protects legacy or accidentally nested copies.
+
+After the source sync, connect to the host, confirm that `.env` still sets
+`COMPOSE_FILE=docker-compose.yml:docker-compose.edge.yml`, and use the normal
+Compose sequence for the release: build, run migrations, recreate the intended
+services, and verify `/api/healthz`, `/api/readyz`, container health/logs, and a
+current Restic snapshot.
+
 ## Administrator MFA break-glass recovery
 
 Break-glass Recovery is for an administrator who has lost both the Primary and
