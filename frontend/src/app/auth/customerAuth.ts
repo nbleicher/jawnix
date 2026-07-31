@@ -30,6 +30,7 @@ export type CustomerOverviewTone =
 
 export interface CustomerOverviewAction {
   kind:
+    | "download_artifact"
     | "request_batch"
     | "submit_feedback"
     | "review_request"
@@ -40,33 +41,22 @@ export interface CustomerOverviewAction {
   href: string;
 }
 
-export interface CustomerOverviewRequest {
+export interface CustomerOverviewItem {
   id: string;
-  lead_count: number;
-  states: string[];
-  submitted_at: string;
-  delivered_at: string | null;
-  status: {
-    label: string;
-    description: string;
-    tone: CustomerOverviewTone;
-  };
-}
-
-export interface CustomerOverviewDelivery {
-  request_id: string;
-  lead_count: number;
-  states: string[];
-  delivered_at: string;
+  kind:
+    | "batch_ready"
+    | "artifact_expiring"
+    | "waiting_inventory"
+    | "feedback_nudge"
+    | "setup_problem";
+  title: string;
+  description: string;
+  tone: CustomerOverviewTone;
+  action: CustomerOverviewAction;
 }
 
 export interface CustomerOverviewData {
-  first_name: string;
-  licensed_states: string[];
-  current_request: CustomerOverviewRequest | null;
-  recent_deliveries: CustomerOverviewDelivery[];
-  next_action: CustomerOverviewAction;
-  primary_actions: CustomerOverviewAction[];
+  items: CustomerOverviewItem[];
 }
 
 // Invitation/recovery links are hard navigations. Capture the fragment while

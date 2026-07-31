@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 from .config import Settings
 from .jobs import enqueue_job
 from .milestone_emails import (
+    customer_overview_url,
     enqueue_milestone_email,
-    request_timeline_url,
 )
 from .models import BatchArtifact, LeadRequest, RequestStatus, utcnow
 
@@ -61,7 +61,7 @@ def deliver_request(session: Session, request_id: uuid.UUID, settings: Settings)
             f"Rows: {artifact.row_count:,}\n"
             f"States: {', '.join(request.states_snapshot)}\n"
             "\nSign in to download it within its 30-day retention period:\n"
-            f"{request_timeline_url(settings, request.id)}\n"
+            f"{customer_overview_url(settings)}\n"
         ),
     }
     response = httpx.post(

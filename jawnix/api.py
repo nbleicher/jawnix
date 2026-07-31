@@ -12,7 +12,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Req
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from svix.webhooks import Webhook, WebhookVerificationError
@@ -136,6 +136,7 @@ from .schemas import (
     DeleteConfirmation,
     FeedbackCreate,
     FeedbackLookup,
+    FeedbackSearch,
     OutcomeCreate,
     OutcomeOut,
     ProfileOut,
@@ -988,6 +989,68 @@ def lookup_feedback(
             else None
         ),
     }
+
+
+@app.post("/api/me/feedback/search")
+def search_feedback(
+    payload: FeedbackSearch,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    profile = db.get(CustomerProfile, principal.user_id)
+    if profile is None or profile.customer_id is None:
+        return []
+    query = payload.query
+    digits = "".join(character for character in query if character.isdigit())
+    conditions = [
+        DistributionEvent.title.icontains(query, autoescape=True),
+    ]
+    if digits:
+        conditions.append(
+            DistributionEvent.phone.contains(digits, autoescape=True)
+        )
+    events = list(
+        db.scalars(
+            select(DistributionEvent)
+            .join(
+                LeadRequest,
+                LeadRequest.id == DistributionEvent.request_id,
+            )
+            .where(
+                DistributionEvent.agent_id == profile.customer_id,
+                LeadRequest.agent_id == profile.customer_id,
+                LeadRequest.user_id == principal.user_id,
+                LeadRequest.status == RequestStatus.delivered.value,
+                or_(*conditions),
+            )
+            .order_by(
+                DistributionEvent.delivered_at.desc(),
+                DistributionEvent.id.desc(),
+            )
+            .limit(20)
+        )
+    )
+    states = {
+        state.distribution_event_id: state.current_disposition
+        for state in db.scalars(
+            select(LeadDispositionState).where(
+                LeadDispositionState.distribution_event_id.in_(
+                    [event.id for event in events]
+                )
+            )
+        )
+    }
+    return [
+        {
+            "distributionEventId": event.id,
+            "businessName": event.title,
+            "phone": event.phone,
+            "deliveredAt": event.delivered_at,
+            "batchId": str(event.request_id),
+            "currentDisposition": states.get(event.id),
+        }
+        for event in events
+    ]
 
 
 def _customer_distribution(

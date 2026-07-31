@@ -9,6 +9,21 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from .config import Settings
+from .scraper_coverage import (
+    CoverageStates,
+    ScraperStateCoverageDetail,
+    StateCoverageCard,
+    StateGridCoverage,
+    StateKeywords,
+)
+from .scraper_database import (
+    DatabaseExport,
+    ExportRegeneration,
+    MultiStateExportRequest,
+    ScraperDatabaseStateDetail,
+    ScraperDatabaseWorkspace,
+    StateExportRequest,
+)
 from .scraper_keywords import (
     KeywordDiff,
     KeywordGenerateRequest,
@@ -63,6 +78,42 @@ class ScraperOperations(Protocol):
         payload: KeywordRolloverRequest,
     ) -> KeywordRollover: ...
 
+    async def database_workspace(
+        self,
+        *,
+        search: str,
+        state: str,
+        page: int,
+    ) -> ScraperDatabaseWorkspace: ...
+
+    async def database_state(self, state: str) -> ScraperDatabaseStateDetail: ...
+
+    async def export_database_state(
+        self,
+        state: str,
+        payload: StateExportRequest,
+    ) -> DatabaseExport: ...
+
+    async def export_database_states(
+        self,
+        payload: MultiStateExportRequest,
+    ) -> DatabaseExport: ...
+
+    async def stored_database_export(self, filename: str) -> DatabaseExport: ...
+
+    async def regenerate_database_exports(
+        self,
+        state: str,
+    ) -> ExportRegeneration: ...
+
+    async def coverage_states(self) -> list[StateCoverageCard]: ...
+
+    async def coverage_state(self, state: str) -> ScraperStateCoverageDetail: ...
+
+    async def coverage_state_keywords(self, state: str) -> StateKeywords: ...
+
+    async def coverage_state_cells(self, state: str) -> StateGridCoverage: ...
+
 
 class HTTPScraperOperations:
     """HTTP adapter for the Scraper service's bearer-authenticated JSON API."""
@@ -88,6 +139,7 @@ class HTTPScraperOperations:
         response_model: type[ResponseModel],
         *,
         payload: dict | None = None,
+        params: dict[str, object] | None = None,
         timeout: float | None = None,
     ) -> ResponseModel:
         if not self._base_url or not self._token:
@@ -99,7 +151,12 @@ class HTTPScraperOperations:
                 timeout=timeout if timeout is not None else self._timeout,
                 transport=self._transport,
             ) as client:
-                response = await client.request(method, path, json=payload)
+                response = await client.request(
+                    method,
+                    path,
+                    json=payload,
+                    params=params,
+                )
         except httpx.RequestError as error:
             transport_error = type(error).__name__
             logger.warning(
@@ -188,4 +245,97 @@ class HTTPScraperOperations:
             "/api/keywords/rollover",
             KeywordRollover,
             payload=payload.model_dump(),
+        )
+
+    async def database_workspace(
+        self,
+        *,
+        search: str,
+        state: str,
+        page: int,
+    ) -> ScraperDatabaseWorkspace:
+        return await self._request(
+            "GET",
+            "/api/database",
+            ScraperDatabaseWorkspace,
+            params={"search": search, "state": state, "page": page},
+        )
+
+    async def database_state(self, state: str) -> ScraperDatabaseStateDetail:
+        return await self._request(
+            "GET",
+            f"/api/database/states/{state}",
+            ScraperDatabaseStateDetail,
+        )
+
+    async def export_database_state(
+        self,
+        state: str,
+        payload: StateExportRequest,
+    ) -> DatabaseExport:
+        return await self._request(
+            "POST",
+            f"/api/database/exports/state/{state}",
+            DatabaseExport,
+            payload=payload.model_dump(),
+        )
+
+    async def export_database_states(
+        self,
+        payload: MultiStateExportRequest,
+    ) -> DatabaseExport:
+        return await self._request(
+            "POST",
+            "/api/database/exports/states",
+            DatabaseExport,
+            payload=payload.model_dump(),
+        )
+
+    async def stored_database_export(self, filename: str) -> DatabaseExport:
+        return await self._request(
+            "GET",
+            f"/api/database/exports/stored/{filename}",
+            DatabaseExport,
+        )
+
+    async def regenerate_database_exports(
+        self,
+        state: str,
+    ) -> ExportRegeneration:
+        return await self._request(
+            "POST",
+            f"/api/database/exports/{state}/regenerate",
+            ExportRegeneration,
+        )
+
+    async def coverage_states(self) -> list[StateCoverageCard]:
+        result = await self._request(
+            "GET",
+            "/api/coverage",
+            CoverageStates,
+        )
+        return result.states
+
+    async def coverage_state(
+        self,
+        state: str,
+    ) -> ScraperStateCoverageDetail:
+        return await self._request(
+            "GET",
+            f"/api/coverage/{state}",
+            ScraperStateCoverageDetail,
+        )
+
+    async def coverage_state_keywords(self, state: str) -> StateKeywords:
+        return await self._request(
+            "GET",
+            f"/api/coverage/{state}/keywords",
+            StateKeywords,
+        )
+
+    async def coverage_state_cells(self, state: str) -> StateGridCoverage:
+        return await self._request(
+            "GET",
+            f"/api/coverage/{state}/cells",
+            StateGridCoverage,
         )

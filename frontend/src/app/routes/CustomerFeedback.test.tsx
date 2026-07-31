@@ -181,7 +181,9 @@ function json(body: unknown, status = 200) {
 /** Routes fetches by URL so a test states only what it cares about. */
 function mockApi(options: {
   lookup?: Response;
+  search?: Response;
   history?: unknown[];
+  historyResponse?: Response;
   submit?: Response;
 } = {}) {
   return vi
@@ -191,8 +193,11 @@ function mockApi(options: {
       if (url.includes("/feedback/lookup")) {
         return options.lookup ?? json(LEAD);
       }
+      if (url.includes("/feedback/search")) {
+        return options.search ?? json([LEAD]);
+      }
       if (url.includes("/dispositions")) {
-        return json(options.history ?? []);
+        return options.historyResponse ?? json(options.history ?? []);
       }
       if (url.includes("/api/me/feedback")) {
         return options.submit ?? json(receipt(), 201);
@@ -216,7 +221,7 @@ function renderRoute() {
       hydrationData: { loaderData: { feedback: CATALOG } },
     },
   );
-  render(
+  return render(
     <ThemeProvider>
       <RouterProvider router={router} />
     </ThemeProvider>,
@@ -303,7 +308,70 @@ describe("confirming the Lead", () => {
   });
 });
 
+describe("searching delivered batches", () => {
+  it("finds a Lead by partial name and enters the existing confirmation flow", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = mockApi();
+    renderRoute();
+
+    await user.type(screen.getByLabelText("Business name or phone"), "roof");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+
+    const results = await screen.findByRole("region", {
+      name: "Search results",
+    });
+    await user.click(
+      within(results).getByRole("button", { name: /Acme Roofing/ }),
+    );
+
+    expect(
+      screen.getByRole("region", { name: "Confirm the Lead" }),
+    ).toBeVisible();
+    const searchCall = fetchSpy.mock.calls.find(([url]) =>
+      String(url).includes("/feedback/search"),
+    );
+    expect(JSON.parse(String((searchCall![1] as RequestInit).body))).toEqual({
+      query: "roof",
+    });
+  });
+
+  it("does not offer a bulk or file-import path", () => {
+    mockApi();
+    const { container } = renderRoute();
+
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+    expect(screen.queryByText(/bulk import|import csv/i)).toBeNull();
+  });
+});
+
 describe("disposition controls", () => {
+  it("keeps exactly one disposition selected and submits only the latest one", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = mockApi();
+    renderRoute();
+    await lookUp(user);
+
+    const first = screen.getByRole("button", { name: /No Contact/ });
+    const second = screen.getByRole("button", { name: /Positive Response/ });
+    await user.click(first);
+    await user.click(second);
+
+    expect(first).toHaveAttribute("aria-pressed", "false");
+    expect(second).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Submit feedback" }));
+
+    await waitFor(() => {
+      const submitCall = fetchSpy.mock.calls.find(
+        ([url, init]) =>
+          String(url) === "/api/me/feedback" &&
+          (init as RequestInit)?.method === "POST",
+      );
+      expect(
+        JSON.parse(String((submitCall![1] as RequestInit).body)).disposition,
+      ).toBe("positive_response");
+    });
+  });
+
   it("materializes every disposition as a visible button, not a dropdown", async () => {
     const user = userEvent.setup();
     mockApi();
@@ -617,6 +685,25 @@ describe("receipt and append-only history", () => {
     expect(
       screen.getByRole("heading", { level: 2, name: "No feedback yet" }),
     ).toBeVisible();
+  });
+
+  it("renders a history fetch error differently from an empty history", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      historyResponse: json({ detail: "temporarily unavailable" }, 503),
+    });
+    renderRoute();
+    await lookUp(user);
+
+    expect(
+      screen.getByRole("heading", {
+        level: 2,
+        name: "Feedback history unavailable",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("heading", { level: 2, name: "No feedback yet" }),
+    ).toBeNull();
   });
 });
 

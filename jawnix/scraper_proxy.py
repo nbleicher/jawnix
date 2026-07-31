@@ -75,27 +75,21 @@ from .scraper_coverage import (
     STATE_CARDS_REFRESH_SECONDS,
     STATE_CELLS_REFRESH_SECONDS,
     STATE_KEYWORDS_REFRESH_SECONDS,
-    CoverageContractError,
     CoverageFeed,
     StateCoverageDetail,
     StateCoverageSnapshot,
     StateGridCoverage,
     StateKeywordActivity,
-    parse_state_cards,
-    parse_state_cells,
-    parse_state_keywords,
 )
 from .scraper_database import (
     GENERATED_EXPORT_NAME,
     STORED_EXPORT_NAME,
-    DatabaseContractError,
+    DatabaseExport,
     DatabaseStateDetail,
     DatabaseWorkspace,
     ExportRegeneration,
-    StoredExport,
-    parse_database_state,
-    parse_database_workspace,
-    parse_export_regeneration,
+    MultiStateExportRequest,
+    StateExportRequest,
 )
 from .scraper_runtime import (
     CampaignHistory,
@@ -586,54 +580,6 @@ async def _native_json(
     return payload if isinstance(payload, dict) else None
 
 
-async def _coverage_fragment(
-    request: Request,
-    settings: Settings,
-    *,
-    path: str,
-    parser,
-):
-    """Parse one reviewed GMS/OPS fragment without exposing its markup."""
-
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="GET",
-        path=path,
-    )
-    if upstream is None or not 200 <= upstream.status_code < 300:
-        return None
-    try:
-        return parser(upstream.text)
-    except (CoverageContractError, UnicodeError):
-        return None
-
-
-async def _database_markup(
-    request: Request,
-    settings: Settings,
-    *,
-    path: str,
-) -> str | None:
-    """One reviewed database page without exposing its private location."""
-
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="GET",
-        path=path,
-    )
-    if upstream is None or not 200 <= upstream.status_code < 300:
-        return None
-    content_type = upstream.headers.get("content-type", "").lower()
-    if "text/html" not in content_type:
-        return None
-    try:
-        return upstream.text
-    except UnicodeError:
-        return None
-
-
 def _database_state(state: str) -> str:
     normalized = state.strip().upper()
     if normalized not in US_STATES:
@@ -672,45 +618,27 @@ async def scraper_database_workspace(
     normalized_state = ""
     if state.strip():
         normalized_state = _database_state(state)
-    query = urlencode(
-        {
-            "search": search.strip(),
-            "state": normalized_state.lower(),
-            "page": page,
-        }
-    )
-    markup = await _database_markup(
-        request,
-        settings,
-        path=f"/database?{query}",
-    )
-    if markup is None:
-        return _database_unavailable(request, settings)
     try:
-        totals, states, browse, embedded_exports = parse_database_workspace(
-            markup,
-            search=search,
-            state=normalized_state,
-            requested_page=page,
+        workspace = await _scraper_operations(
+            request,
+            settings,
+        ).database_workspace(
+            search=search.strip(),
+            state=normalized_state.lower(),
+            page=page,
         )
-    except DatabaseContractError:
+    except ScraperOperationsError:
         return _database_unavailable(request, settings)
-    probed_exports = await _probe_stored_exports(
-        request,
-        settings,
-        [item.state for item in states],
-    )
-    stored_exports = probed_exports or embedded_exports
     proxy_state = _state(request, settings)
     proxy_state.last_success = _workspace_now(request)
     return DatabaseWorkspace(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
         idle_expires_in=SCRAPER_IDLE_SECONDS,
-        totals=totals,
-        states=states,
-        browse=browse,
-        stored_exports=stored_exports,
+        totals=workspace.totals,
+        states=workspace.states,
+        browse=workspace.browse,
+        stored_exports=workspace.stored_exports,
     )
 
 
@@ -729,25 +657,13 @@ async def scraper_database_state_detail(
 
     _require_scraper_grant(request, response, principal, settings)
     normalized_state = _database_state(state)
-    markup = await _database_markup(
-        request,
-        settings,
-        path=f"/database/states/{normalized_state.lower()}",
-    )
     proxy_state = _state(request, settings)
-    if markup is None:
-        return DatabaseStateDetail(
-            service_state="unavailable",
-            last_successful_at=_safe_last_success(proxy_state),
-            idle_expires_in=SCRAPER_IDLE_SECONDS,
-            state=normalized_state,
-        )
     try:
-        totals, niches = parse_database_state(
-            markup,
-            expected_state=normalized_state,
-        )
-    except DatabaseContractError:
+        detail = await _scraper_operations(
+            request,
+            settings,
+        ).database_state(normalized_state.lower())
+    except ScraperOperationsError:
         return DatabaseStateDetail(
             service_state="unavailable",
             last_successful_at=_safe_last_success(proxy_state),
@@ -760,8 +676,8 @@ async def scraper_database_state_detail(
         last_successful_at=_safe_last_success(proxy_state),
         idle_expires_in=SCRAPER_IDLE_SECONDS,
         state=normalized_state,
-        totals=totals,
-        niches=niches,
+        totals=detail.totals,
+        niches=detail.niches,
     )
 
 
@@ -782,165 +698,31 @@ def _safe_download_error(status_code: int) -> JSONResponse:
     )
 
 
-def _download_filename(
-    upstream: httpx.Response,
-    *,
-    expected: re.Pattern[str],
-    exact: str | None = None,
-) -> str | None:
-    disposition = upstream.headers.get("content-disposition", "")
-    match = re.search(
-        r'(?:^|;)\s*filename="(?P<filename>[^"\r\n;]+)"(?:;|$)',
-        disposition,
-        flags=re.IGNORECASE,
-    )
-    if match is None:
-        return None
-    filename = match.group("filename")
-    if exact is not None and not hmac.compare_digest(filename, exact):
-        return None
-    return filename if expected.fullmatch(filename) else None
-
-
-async def _probe_stored_exports(
-    request: Request,
-    settings: Settings,
-    states: list[str],
-) -> list[StoredExport]:
-    """Read only stored-file headers; never buffer every state CSV to list it."""
-
-    if (
-        not settings.scraper_ops_url
-        or not settings.scraper_ops_user
-        or not settings.scraper_ops_password
-        or not states
-    ):
-        return []
-    transport = getattr(request.app.state, "scraper_proxy_transport", None)
-    async with httpx.AsyncClient(
-        base_url=settings.scraper_ops_url.rstrip("/"),
-        auth=httpx.BasicAuth(
-            settings.scraper_ops_user,
-            settings.scraper_ops_password,
-        ),
-        timeout=settings.scraper_ops_timeout_seconds,
-        follow_redirects=False,
-        transport=transport,
-    ) as client:
-        async def probe(state: str) -> StoredExport | None:
-            filename = f"{state}.csv"
-            try:
-                upstream = await client.send(
-                    client.build_request(
-                        "GET",
-                        f"/database/download/{filename}",
-                        headers={"Accept": "text/csv"},
-                    ),
-                    stream=True,
-                )
-            except httpx.RequestError:
-                return None
-            try:
-                if upstream.status_code != 200:
-                    return None
-                if "text/csv" not in upstream.headers.get(
-                    "content-type",
-                    "",
-                ).lower():
-                    return None
-                safe_name = _download_filename(
-                    upstream,
-                    expected=STORED_EXPORT_NAME,
-                    exact=filename,
-                )
-                raw_size = upstream.headers.get("content-length", "")
-                if safe_name is None or not raw_size.isdigit():
-                    return None
-                return StoredExport(
-                    filename=safe_name,
-                    size_label=f"{int(raw_size) / 1024:.1f} KB",
-                )
-            finally:
-                await upstream.aclose()
-
-        found = await asyncio.gather(*(probe(state) for state in states))
-    return [item for item in found if item is not None]
-
-
-async def _stream_database_export(
+def _database_export_response(
     request: Request,
     settings: Settings,
     *,
-    path: str,
+    export: DatabaseExport,
     filename_pattern: re.Pattern[str],
     exact_filename: str | None = None,
 ) -> Response:
-    """Relay CSV bytes while keeping every upstream detail server-side."""
+    """Return a validated typed export with the existing public headers."""
 
-    if (
-        not settings.scraper_ops_url
-        or not settings.scraper_ops_user
-        or not settings.scraper_ops_password
+    if not filename_pattern.fullmatch(export.filename):
+        return _safe_download_error(503)
+    if exact_filename is not None and not hmac.compare_digest(
+        export.filename,
+        exact_filename,
     ):
         return _safe_download_error(503)
-    transport = getattr(request.app.state, "scraper_proxy_transport", None)
-    client = httpx.AsyncClient(
-        base_url=settings.scraper_ops_url.rstrip("/"),
-        auth=httpx.BasicAuth(
-            settings.scraper_ops_user,
-            settings.scraper_ops_password,
-        ),
-        timeout=settings.scraper_ops_timeout_seconds,
-        follow_redirects=False,
-        transport=transport,
-    )
-    try:
-        upstream = await client.send(
-            client.build_request(
-                "GET",
-                path,
-                headers={"Accept": "text/csv"},
-            ),
-            stream=True,
-        )
-    except httpx.RequestError:
-        await client.aclose()
-        return _safe_download_error(503)
-    if not 200 <= upstream.status_code < 300:
-        status_code = upstream.status_code
-        await upstream.aclose()
-        await client.aclose()
-        return _safe_download_error(status_code)
-    content_type = upstream.headers.get("content-type", "").lower()
-    filename = _download_filename(
-        upstream,
-        expected=filename_pattern,
-        exact=exact_filename,
-    )
-    if "text/csv" not in content_type or filename is None:
-        await upstream.aclose()
-        await client.aclose()
-        return _safe_download_error(503)
     _state(request, settings).last_success = _workspace_now(request)
-
-    async def stream_body():
-        try:
-            async for chunk in upstream.aiter_bytes():
-                yield chunk
-        except httpx.RequestError:
-            # Once streaming starts, changing the response status would itself
-            # corrupt the CSV. Closing the response produces a failed download
-            # without appending topology, credentials, or provider text.
-            return
-        finally:
-            await upstream.aclose()
-            await client.aclose()
-
-    return StreamingResponse(
-        stream_body(),
-        media_type="text/csv",
+    return Response(
+        content=export.content,
+        media_type=export.media_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": (
+                f'attachment; filename="{export.filename}"'
+            ),
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
         },
@@ -971,17 +753,25 @@ async def download_scraper_state_export(
             status_code=400,
             detail="Niche selection requires selected scope.",
         )
-    query_items: list[tuple[str, str]] = [("scope", scope)]
-    query_items.extend(("keyword", value) for value in niche or [])
-    result = await _stream_database_export(
-        request,
-        settings,
-        path=(
-            f"/database/states/{normalized_state.lower()}/download?"
-            f"{urlencode(query_items)}"
-        ),
-        filename_pattern=GENERATED_EXPORT_NAME,
-    )
+    try:
+        export = await _scraper_operations(
+            request,
+            settings,
+        ).export_database_state(
+            normalized_state.lower(),
+            StateExportRequest(
+                niches=None if scope == "all" else niche,
+            ),
+        )
+    except ScraperOperationsError as error:
+        result = _safe_download_error(error.status_code or 503)
+    else:
+        result = _database_export_response(
+            request,
+            settings,
+            export=export,
+            filename_pattern=GENERATED_EXPORT_NAME,
+        )
     _issue_grant(result, request, principal, settings)
     return result
 
@@ -1005,17 +795,24 @@ async def download_scraper_multi_state_export(
             status_code=422,
             detail="Select at least one state.",
         )
-    result = await _stream_database_export(
-        request,
-        settings,
-        path=(
-            "/database/bulk-download?"
-            + urlencode(
-                [("state", value.lower()) for value in normalized_states]
+    try:
+        export = await _scraper_operations(
+            request,
+            settings,
+        ).export_database_states(
+            MultiStateExportRequest(
+                states=[value.lower() for value in normalized_states],
             )
-        ),
-        filename_pattern=GENERATED_EXPORT_NAME,
-    )
+        )
+    except ScraperOperationsError as error:
+        result = _safe_download_error(error.status_code or 503)
+    else:
+        result = _database_export_response(
+            request,
+            settings,
+            export=export,
+            filename_pattern=GENERATED_EXPORT_NAME,
+        )
     _issue_grant(result, request, principal, settings)
     return result
 
@@ -1036,13 +833,21 @@ async def download_stored_scraper_export(
             status_code=400,
             detail="Invalid export filename.",
         )
-    result = await _stream_database_export(
-        request,
-        settings,
-        path=f"/database/download/{filename}",
-        filename_pattern=STORED_EXPORT_NAME,
-        exact_filename=filename,
-    )
+    try:
+        export = await _scraper_operations(
+            request,
+            settings,
+        ).stored_database_export(filename)
+    except ScraperOperationsError as error:
+        result = _safe_download_error(error.status_code or 503)
+    else:
+        result = _database_export_response(
+            request,
+            settings,
+            export=export,
+            filename_pattern=STORED_EXPORT_NAME,
+            exact_filename=filename,
+        )
     _issue_grant(result, request, principal, settings)
     return result
 
@@ -1063,24 +868,17 @@ async def regenerate_scraper_exports(
 
     _require_scraper_grant(request, response, principal, settings)
     normalized_state = _database_state(state)
-    upstream = await _native_upstream(
-        request,
-        settings,
-        method="POST",
-        path=f"/database/export/{normalized_state.lower()}",
-    )
-    if upstream is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Scraper exports are unavailable.",
-        )
     try:
-        result = parse_export_regeneration(upstream.text)
-    except (DatabaseContractError, UnicodeError):
+        result = await _scraper_operations(
+            request,
+            settings,
+        ).regenerate_database_exports(normalized_state.lower())
+    except ScraperOperationsError:
         raise HTTPException(
             status_code=503,
             detail="Scraper exports are unavailable.",
         ) from None
+    _state(request, settings).last_success = _workspace_now(request)
     record_activity(
         db,
         action="scraper_exports_regenerated",
@@ -1132,12 +930,13 @@ async def scraper_state_coverage(
     """Active-state counts and coverage at the legacy twenty-second cadence."""
 
     _require_scraper_grant(request, response, principal, settings)
-    cards = await _coverage_fragment(
-        request,
-        settings,
-        path="/frag/states/cards",
-        parser=parse_state_cards,
-    )
+    try:
+        cards = await _scraper_operations(
+            request,
+            settings,
+        ).coverage_states()
+    except ScraperOperationsError:
+        cards = None
     state = _state(request, settings)
     return StateCoverageSnapshot(
         service_state=(
@@ -1168,18 +967,21 @@ async def scraper_state_coverage_detail(
 
     _require_scraper_grant(request, response, principal, settings)
     state = _coverage_state(state)
-    state_path = state.lower()
-    keywords = await _coverage_fragment(
-        request,
-        settings,
-        path=f"/frag/states/{state_path}/keywords",
-        parser=parse_state_keywords,
+    operations = _scraper_operations(request, settings)
+    keyword_result, cell_result = await asyncio.gather(
+        operations.coverage_state_keywords(state.lower()),
+        operations.coverage_state_cells(state.lower()),
+        return_exceptions=True,
     )
-    cells = await _coverage_fragment(
-        request,
-        settings,
-        path=f"/frag/states/{state_path}/cells",
-        parser=parse_state_cells,
+    keywords = (
+        None
+        if isinstance(keyword_result, ScraperOperationsError)
+        else keyword_result.keywords
+    )
+    cells = (
+        None
+        if isinstance(cell_result, ScraperOperationsError)
+        else cell_result
     )
     available = int(keywords is not None) + int(cells is not None)
     service_state = (
@@ -1223,12 +1025,15 @@ async def scraper_state_keyword_coverage(
 
     _require_scraper_grant(request, response, principal, settings)
     state = _coverage_state(state)
-    keywords = await _coverage_fragment(
-        request,
-        settings,
-        path=f"/frag/states/{state.lower()}/keywords",
-        parser=parse_state_keywords,
-    )
+    try:
+        result = await _scraper_operations(
+            request,
+            settings,
+        ).coverage_state_keywords(state.lower())
+    except ScraperOperationsError:
+        keywords = None
+    else:
+        keywords = result.keywords
     return _coverage_feed(
         keywords,
         refresh_seconds=STATE_KEYWORDS_REFRESH_SECONDS,
@@ -1251,12 +1056,13 @@ async def scraper_state_grid_coverage(
 
     _require_scraper_grant(request, response, principal, settings)
     state = _coverage_state(state)
-    cells = await _coverage_fragment(
-        request,
-        settings,
-        path=f"/frag/states/{state.lower()}/cells",
-        parser=parse_state_cells,
-    )
+    try:
+        cells = await _scraper_operations(
+            request,
+            settings,
+        ).coverage_state_cells(state.lower())
+    except ScraperOperationsError:
+        cells = None
     return _coverage_feed(
         cells,
         refresh_seconds=STATE_CELLS_REFRESH_SECONDS,

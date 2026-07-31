@@ -57,9 +57,9 @@ describe("customerAccessLoader", () => {
   });
 
   it("returns the overview payload for a Customer", async () => {
-    mockOverviewStatus(200, { first_name: "Casey" });
+    mockOverviewStatus(200, { items: [] });
     await expect(customerAccessLoader(loaderArgs())).resolves.toMatchObject({
-      first_name: "Casey",
+      items: [],
     });
   });
 });

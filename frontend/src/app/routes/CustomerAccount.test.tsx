@@ -5,10 +5,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ThemeProvider } from "../../design-system/theme/ThemeProvider";
 import { CustomerAccountRoute } from "./CustomerAccount";
+import { customerAccountLoader } from "./licensedStates";
 import type {
+  CustomerAccountIdentity,
   LicensedStateReview,
   LicensedStateWorkspace,
 } from "./licensedStates";
+
+const IDENTITY: CustomerAccountIdentity = {
+  user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  email: "river@northstar.example",
+  first_name: "River",
+  last_name: "Morgan",
+  phone: "(215) 555-0142",
+  customer_id: 7,
+  mapping_confirmed_at: "2026-07-28T12:00:00Z",
+};
 
 const ACCOUNT: LicensedStateWorkspace = {
   states: ["FL", "TX"],
@@ -59,19 +71,7 @@ function json(body: unknown, status = 200): Response {
 function result(account: LicensedStateWorkspace) {
   return {
     account,
-    overview: {
-      first_name: "Licensed",
-      licensed_states: account.states,
-      current_request: null,
-      recent_deliveries: [],
-      next_action: {
-        kind: "request_batch",
-        label: "Request a Batch",
-        description: "Start a request.",
-        href: "/app/requests",
-      },
-      primary_actions: [],
-    },
+    overview: { items: [] },
     requests: {
       limits: {
         minimum_lead_count: 1,
@@ -84,22 +84,26 @@ function result(account: LicensedStateWorkspace) {
   };
 }
 
-function renderRoute(data = ACCOUNT) {
+function renderRoute(
+  licensedStates = ACCOUNT,
+  identity = IDENTITY,
+) {
   const router = createMemoryRouter(
     [
       {
         id: "account",
         path: "/account",
-        loader: async () => {
-          const response = await fetch("/api/me/licensed-states");
-          return response.json() as Promise<LicensedStateWorkspace>;
-        },
+        loader: customerAccountLoader,
         element: <CustomerAccountRoute />,
       },
     ],
     {
       initialEntries: ["/account"],
-      hydrationData: { loaderData: { account: data } },
+      hydrationData: {
+        loaderData: {
+          account: { identity, licensed_states: licensedStates },
+        },
+      },
     },
   );
   render(
@@ -111,6 +115,51 @@ function renderRoute(data = ACCOUNT) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("Account identity and setup status", () => {
+  it("renders identity and every Setup Problem with its next step and actor", () => {
+    renderRoute(
+      { ...ACCOUNT, states: [] },
+      { ...IDENTITY, customer_id: null, mapping_confirmed_at: null },
+    );
+
+    const identity = screen.getByRole("region", { name: "Identity" });
+    expect(within(identity).getByText("River Morgan")).toBeVisible();
+    expect(within(identity).getByText("river@northstar.example")).toBeVisible();
+    expect(within(identity).getByText("(215) 555-0142")).toBeVisible();
+
+    const status = screen.getByRole("region", { name: "Setup status" });
+    expect(
+      within(status).getByRole("heading", {
+        name: "Customer mapping needs confirmation",
+      }),
+    ).toBeVisible();
+    expect(
+      within(status).getByText(/Jawnix will confirm which Customer record/),
+    ).toBeVisible();
+    expect(
+      within(status).getByRole("heading", { name: "No Licensed States" }),
+    ).toBeVisible();
+    expect(
+      within(status).getByText(/Add at least one Licensed State below/),
+    ).toBeVisible();
+    expect(within(status).getAllByText("What happens next")).toHaveLength(2);
+    expect(within(status).getAllByText("Who acts")).toHaveLength(2);
+    expect(within(status).getByText("Jawnix", { exact: true })).toBeVisible();
+    expect(within(status).getByText("You", { exact: true })).toBeVisible();
+  });
+
+  it("shows a calm ready state when no Setup Problems remain", () => {
+    renderRoute();
+
+    const status = screen.getByRole("region", { name: "Setup status" });
+    expect(
+      within(status).getByRole("heading", { name: "Setup complete" }),
+    ).toBeVisible();
+    expect(within(status).getByText("Ready")).toBeVisible();
+    expect(within(status).queryByText("Needs attention")).not.toBeInTheDocument();
+  });
 });
 
 describe("Licensed State management", () => {
@@ -152,6 +201,7 @@ describe("Licensed State management", () => {
         calls.push(`${init?.method ?? "GET"} ${path}`);
         if (path.endsWith("/preview")) return json(REVIEW);
         if (path.endsWith("/apply")) return json(result(updated));
+        if (path.endsWith("/profile")) return json(IDENTITY);
         return json(updated);
       }),
     );
@@ -226,6 +276,7 @@ describe("Licensed State management", () => {
             409,
           );
         }
+        if (path.endsWith("/profile")) return json(IDENTITY);
         return json(concurrent);
       }),
     );
