@@ -180,7 +180,7 @@ def test_confirmed_review_applies_and_returns_all_customer_aggregates_atomically
         assert response.status_code == 200
         body = response.json()
         assert body["account"]["states"] == ["CA", "FL"]
-        assert body["overview"]["licensed_states"] == ["CA", "FL"]
+        assert body["overview"]["items"] == []
         by_id = {
             item["id"]: item
             for item in body["requests"]["requests"]

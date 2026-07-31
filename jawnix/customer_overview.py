@@ -1,16 +1,26 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
+from math import ceil
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import CustomerProfile, LeadRequest, RequestStatus
+from .fulfillment import artifact_available
+from .models import (
+    AuditEntry,
+    CustomerProfile,
+    DistributionEvent,
+    LeadDispositionTransition,
+    LeadOutcome,
+    LeadRequest,
+    RequestStatus,
+)
 from .schemas import (
     CustomerOverviewAction,
-    CustomerOverviewDelivery,
+    CustomerOverviewItem,
     CustomerOverviewOut,
-    CustomerOverviewRequest,
     CustomerOverviewStatus,
 )
 from .states import normalize_states
@@ -71,18 +81,7 @@ _REQUEST_STATUS: dict[str, CustomerOverviewStatus] = {
 }
 
 
-_REQUEST_BATCH = CustomerOverviewAction(
-    kind="request_batch",
-    label="Request a Batch",
-    description="Choose a quantity and Licensed States for your next Batch.",
-    href="/app/requests",
-)
-_SUBMIT_FEEDBACK = CustomerOverviewAction(
-    kind="submit_feedback",
-    label="Submit Lead Feedback",
-    description="Share the result of a delivered lead.",
-    href="/app/feedback",
-)
+ARTIFACT_EXPIRING_SOON = timedelta(days=7)
 
 
 def customer_request_status(status: str) -> CustomerOverviewStatus:
@@ -98,60 +97,8 @@ def customer_request_status(status: str) -> CustomerOverviewStatus:
     )
 
 
-def _request_out(item: LeadRequest) -> CustomerOverviewRequest:
-    return CustomerOverviewRequest(
-        id=item.id,
-        lead_count=item.lead_count,
-        states=normalize_states(item.states_snapshot),
-        submitted_at=item.created_at,
-        delivered_at=item.delivered_at,
-        status=customer_request_status(item.status),
-    )
-
-
-def _next_action(
-    profile: CustomerProfile,
-    current_request: LeadRequest | None,
-) -> CustomerOverviewAction:
-    if profile.mapping_confirmed_at is None or profile.customer_id is None:
-        return CustomerOverviewAction(
-            kind="review_account",
-            label="Review Account",
-            description=(
-                "Review your account details while an administrator confirms "
-                "your Customer mapping."
-            ),
-            href="/app/account",
-        )
-    if not normalize_states(profile.licensed_states):
-        return CustomerOverviewAction(
-            kind="add_licensed_states",
-            label="Add Licensed States",
-            description="Add at least one Licensed State before requesting a Batch.",
-            href="/app/account",
-        )
-    if current_request is None:
-        return _REQUEST_BATCH
-    if current_request.status == RequestStatus.delivered.value:
-        return _SUBMIT_FEEDBACK
-    if current_request.status in {
-        RequestStatus.rejected.value,
-        RequestStatus.canceled.value,
-    }:
-        return _REQUEST_BATCH
-    if current_request.status == RequestStatus.failed.value:
-        return CustomerOverviewAction(
-            kind="review_request",
-            label="Review Request",
-            description="Review the request outcome and contact Jawnix for help.",
-            href="/app/requests",
-        )
-    return CustomerOverviewAction(
-        kind="review_request",
-        label="Review Request",
-        description="See the latest progress for your current Batch Request.",
-        href="/app/requests",
-    )
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 def build_customer_overview(
@@ -159,46 +106,176 @@ def build_customer_overview(
     *,
     user_id: uuid.UUID,
     profile: CustomerProfile,
-    delivery_limit: int = 3,
+    now: datetime | None = None,
 ) -> CustomerOverviewOut:
-    """Build the one Customer-workspace aggregate used by routed screens."""
+    """Build only the work that currently needs this Customer."""
 
-    current_request = db.scalar(
-        select(LeadRequest)
-        .where(LeadRequest.user_id == user_id)
-        .order_by(LeadRequest.created_at.desc(), LeadRequest.id.desc())
-        .limit(1)
-    )
-    delivered_requests = list(
+    moment = now or datetime.now(timezone.utc)
+    requests = list(
         db.scalars(
             select(LeadRequest)
+            .where(LeadRequest.user_id == user_id)
+            .order_by(LeadRequest.created_at.desc(), LeadRequest.id.desc())
+        )
+    )
+    downloaded = set(
+        db.scalars(
+            select(AuditEntry.target_id)
             .where(
-                LeadRequest.user_id == user_id,
-                LeadRequest.delivered_at.is_not(None),
+                AuditEntry.action == "batch_artifact_downloaded",
+                AuditEntry.actor_user_id == str(user_id),
             )
-            .order_by(LeadRequest.delivered_at.desc(), LeadRequest.id.desc())
-            .limit(delivery_limit)
         )
     )
-    deliveries = [
-        CustomerOverviewDelivery(
-            request_id=item.id,
-            lead_count=item.lead_count,
-            states=normalize_states(item.states_snapshot),
-            delivered_at=item.delivered_at,
+    distributed_request_ids = set(
+        db.scalars(
+            select(DistributionEvent.request_id).where(
+                DistributionEvent.request_id.in_([item.id for item in requests])
+            )
         )
-        for item in delivered_requests
-        if item.delivered_at is not None
-    ]
-    return CustomerOverviewOut(
-        first_name=profile.first_name.strip(),
-        licensed_states=normalize_states(profile.licensed_states),
-        current_request=(
-            _request_out(current_request)
-            if current_request is not None
-            else None
-        ),
-        recent_deliveries=deliveries,
-        next_action=_next_action(profile, current_request),
-        primary_actions=[_REQUEST_BATCH, _SUBMIT_FEEDBACK],
     )
+    feedback_request_ids = set(
+        db.scalars(
+            select(DistributionEvent.request_id)
+            .join(
+                LeadDispositionTransition,
+                LeadDispositionTransition.distribution_event_id
+                == DistributionEvent.id,
+            )
+            .where(DistributionEvent.request_id.is_not(None))
+        )
+    )
+    feedback_request_ids.update(
+        db.scalars(
+            select(DistributionEvent.request_id)
+            .join(
+                LeadOutcome,
+                LeadOutcome.distribution_event_id == DistributionEvent.id,
+            )
+            .where(DistributionEvent.request_id.is_not(None))
+        )
+    )
+
+    items: list[CustomerOverviewItem] = []
+    if not normalize_states(profile.licensed_states):
+        items.append(
+            CustomerOverviewItem(
+                id="setup-problem:no-licensed-states",
+                kind="setup_problem",
+                title="Add Licensed States",
+                description=(
+                    "Add at least one Licensed State before requesting a Batch."
+                ),
+                tone="warning",
+                action=CustomerOverviewAction(
+                    kind="add_licensed_states",
+                    label="Open Account",
+                    description="Add the states where you are licensed.",
+                    href="/app/account",
+                ),
+            )
+        )
+    for request in requests:
+        if request.status == RequestStatus.waiting_inventory.value:
+            states = ", ".join(normalize_states(request.states_snapshot))
+            items.append(
+                CustomerOverviewItem(
+                    id=f"waiting-inventory:{request.id}",
+                    kind="waiting_inventory",
+                    title="Batch Request is waiting for inventory",
+                    description=(
+                        f"Review or cancel your {request.lead_count:,}-lead "
+                        f"request for {states}."
+                    ),
+                    tone="warning",
+                    action=CustomerOverviewAction(
+                        kind="review_request",
+                        label="Review request",
+                        description="Open this Batch Request's detail page.",
+                        href=f"/app/requests?request={request.id}",
+                    ),
+                )
+            )
+            continue
+        if request.status != RequestStatus.delivered.value:
+            continue
+
+        artifact = request.artifact
+        if str(request.id) not in downloaded:
+            if (
+                artifact is None
+                or not artifact_available(artifact, now=moment)
+                or artifact.expires_at is None
+            ):
+                continue
+            remaining = _as_utc(artifact.expires_at) - moment
+            if remaining <= ARTIFACT_EXPIRING_SOON:
+                days = max(1, ceil(remaining / timedelta(days=1)))
+                items.append(
+                    CustomerOverviewItem(
+                        id=f"artifact-expiring:{request.id}",
+                        kind="artifact_expiring",
+                        title="Batch Artifact expires soon",
+                        description=(
+                            f"Download the {request.lead_count:,}-lead Batch "
+                            f"Artifact within {days} "
+                            f"{('day' if days == 1 else 'days')}."
+                        ),
+                        tone="warning",
+                        action=CustomerOverviewAction(
+                            kind="download_artifact",
+                            label="Download CSV",
+                            description=(
+                                "Download this Batch Artifact before it expires."
+                            ),
+                            href=(
+                                f"/api/me/batch-requests/{request.id}/artifact"
+                            ),
+                        ),
+                    )
+                )
+                continue
+            items.append(
+                CustomerOverviewItem(
+                    id=f"batch-ready:{request.id}",
+                    kind="batch_ready",
+                    title="Your Batch is ready",
+                    description=(
+                        f"Download the {request.lead_count:,}-lead Batch Artifact."
+                    ),
+                    tone="info",
+                    action=CustomerOverviewAction(
+                        kind="download_artifact",
+                        label="Download CSV",
+                        description="Download this Batch Artifact while it is live.",
+                        href=f"/api/me/batch-requests/{request.id}/artifact",
+                    ),
+                )
+            )
+            continue
+
+        if (
+            request.id in distributed_request_ids
+            and request.id not in feedback_request_ids
+        ):
+            items.append(
+                CustomerOverviewItem(
+                    id=f"feedback-nudge:{request.id}",
+                    kind="feedback_nudge",
+                    title="How did this Batch perform?",
+                    description=(
+                        f"Share one lead outcome from this "
+                        f"{request.lead_count:,}-lead Batch."
+                    ),
+                    tone="info",
+                    action=CustomerOverviewAction(
+                        kind="submit_feedback",
+                        label="Give feedback",
+                        description=(
+                            "Record one Lead Disposition or Quality Rating."
+                        ),
+                        href=f"/app/feedback?request={request.id}",
+                    ),
+                )
+            )
+    return CustomerOverviewOut(items=items)
