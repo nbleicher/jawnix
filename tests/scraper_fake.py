@@ -536,6 +536,7 @@ class ScraperFake:
         keywords: list[str] | None = None,
         ai_enabled: bool = True,
         generation_error: str | None = None,
+        generation_timeout: bool = False,
         runtime_failing: set[str] | None = None,
     ) -> None:
         self.failing = failing or set()
@@ -545,6 +546,7 @@ class ScraperFake:
         self.keywords = list(keywords or KEYWORDS)
         self.ai_enabled = ai_enabled
         self.generation_error = generation_error
+        self.generation_timeout = generation_timeout
         self.runtime_failing = runtime_failing or set()
         self.rollover_enabled = False
         self.drafts: dict[str, list[str]] = {}
@@ -594,6 +596,11 @@ class ScraperFake:
             draft = self.drafts.get(draft_id or "")
             return self._html(self._keywords_page(draft_id, draft))
         if path == "/keywords/generate":
+            if self.generation_timeout:
+                raise httpx.ReadTimeout(
+                    "keyword generation timed out",
+                    request=request,
+                )
             form = self._form(request)
             if self.generation_error:
                 return self._html(

@@ -354,6 +354,71 @@ def test_ai_unavailable_and_provider_failure_are_recoverable_and_audited(
     ) == 2
 
 
+def test_generation_timeout_is_diagnosable_and_uses_its_own_budget(
+    workspace_client,
+    workspace_settings,
+    session,
+    caplog,
+):
+    client, csrf, fake = privileged(
+        workspace_client,
+        ScraperFake(generation_timeout=True),
+    )
+
+    response = post(
+        client,
+        csrf,
+        "/api/admin/scraper/keywords/generate",
+        {"mode": "broad"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Scraper Operations is unavailable.",
+        "lastSuccessfulAt": None,
+    }
+    timeout = fake.calls[0].extensions["timeout"]
+    assert (
+        timeout["read"]
+        == workspace_settings.scraper_ops_generation_timeout_seconds
+    )
+    assert timeout["read"] != workspace_settings.scraper_ops_timeout_seconds
+    entry = session.scalars(
+        select(AuditEntry).where(
+            AuditEntry.action == "scraper_keyword_generation_failed"
+        )
+    ).one()
+    assert entry.details["outcome"] == "upstream_unavailable"
+    assert entry.details["transportError"] == "ReadTimeout"
+    assert "transport_error=ReadTimeout" in caplog.text
+    assert "path=/keywords/generate" in caplog.text
+    assert workspace_settings.scraper_ops_url not in caplog.text
+    assert workspace_settings.scraper_ops_user not in caplog.text
+    assert workspace_settings.scraper_ops_password not in caplog.text
+
+
+def test_preview_transport_failure_is_audited(workspace_client, session):
+    client, csrf, _ = privileged(
+        workspace_client,
+        ScraperFake(offline=True),
+    )
+
+    response = post(
+        client,
+        csrf,
+        "/api/admin/scraper/keywords/preview",
+        {"text": "plumbers"},
+    )
+
+    assert response.status_code == 503
+    entry = session.scalars(
+        select(AuditEntry).where(
+            AuditEntry.action == "scraper_keywords_preview_failed"
+        )
+    ).one()
+    assert entry.details == {"outcome": "upstream_unavailable"}
+
+
 def test_winner_must_still_be_ranked_when_adjacent_generation_starts(
     workspace_client,
 ):
