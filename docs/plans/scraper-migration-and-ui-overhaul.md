@@ -24,18 +24,18 @@ epic #46; the Scraper migration ADR lands as 0017 in step S1's wake.
 
 ## Delivery order
 
-| Order | Step | Track | Depends on |
-|---|---|---|---|
-| 1 | 0.1 Operator smoke walk (#119) | UI Phase 0 | — |
-| 2 | 0.2 Guarded deploy script (rsync excludes) | Ops | — |
-| 3 | 0.3 Stabilization sign-off, close #71 | UI Phase 0 | 0.1 + 48 h monitoring |
-| 4 ∥ | S1–S5 Scraper Stage A (typed control plane) | Scraper | dev: none; deploy: 0.2 |
-| 4 ∥ | P1–P7 Portal overhaul slices (#116) | UI Phase 1 | 0.1 passed; deploy: 0.2 |
-| 5 | S6–S7 Scraper Stage B (generation + history) | Scraper | S1–S5 |
-| 6 | S8–S9 Scraper Stage C (rehearsal + cutover) | Scraper | S6–S7 |
-| 7 | P8 Static-page retirement | UI Phase 0 close-out | 0.3 + explicit approval |
-| 8 | S10 Scale remnant removal | Scraper | S9 + 7-day rollback window |
-| later | X1 Admin-phase overhaul spec | UI Phase 2 | #116 shipped |
+| Order | Step | Track | Depends on | Status |
+|---|---|---|---|---|
+| 1 | 0.1 Operator smoke walk (#119) | UI Phase 0 | — | ✅ done 2026-07-31 |
+| 2 | 0.2 Guarded deploy script (rsync excludes) | Ops | — | |
+| 3 | 0.3 Stabilization sign-off, close #71 | UI Phase 0 | 0.1 + 48 h monitoring | |
+| 4 ∥ | S1–S5 Scraper Stage A (typed control plane) | Scraper | dev: none; deploy: 0.2 | |
+| 4 ∥ | P1–P7 Portal overhaul slices (#116) | UI Phase 1 | 0.1 passed; deploy: 0.2 | |
+| 5 | S6–S7 Scraper Stage B (generation + history) | Scraper | S1–S5 | |
+| 6 | S8–S9 Scraper Stage C (rehearsal + cutover) | Scraper | S6–S7 | |
+| 7 | P8 Static-page retirement | UI Phase 0 close-out | 0.3 + explicit approval | |
+| 8 | S10 Scale remnant removal | Scraper | S9 + 7-day rollback window | |
+| later | X1 Admin-phase overhaul spec | UI Phase 2 | #116 shipped | |
 
 Steps marked ∥ run in parallel workspaces; the two tracks are code-disjoint
 (backend/acquisition vs. `frontend/` customer portal), so only production
@@ -51,11 +51,11 @@ The #71 flag flip already happened in production (2026-07-31, PR #117, fix
 the deploy script unblocks all future full deploys, and sign-off closes the
 stabilization window.
 
-### Step 0.1 — Operator smoke walk **[operator]**
+### Step 0.1 — Operator smoke walk **[operator]** — ✅ complete 2026-07-31
 
-The #119 checklist items A1–A4 (admin journey) and B5–B10 (customer journey)
-are inherently human — real sign-ins, Telegram, email. The agent pre-verifies
-the automatable surface and keeps the issue current.
+All #119 checklist items A1–A4 and B5–B10 are ticked. Remaining on #119 are
+the 48-hour monitoring window and the sign-off decisions, which step 0.3
+closes out. Original prompt retained for the record:
 
 ```
 Production smoke-walk support for the UI cutover (issue #119, checklist items A and B).
