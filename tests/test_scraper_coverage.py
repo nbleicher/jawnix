@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import httpx
-
 from jawnix.api import app
 from jawnix.scraper_coverage import (
     STATE_CARDS_REFRESH_SECONDS,
@@ -17,7 +15,7 @@ from test_scraper_workspace import (  # noqa: F401 — shared fixtures
 
 
 def arm(fake: ScraperFake) -> ScraperFake:
-    app.state.scraper_proxy_transport = httpx.MockTransport(fake)
+    app.state.scraper_operations = fake
     return fake
 
 
@@ -38,6 +36,7 @@ def test_state_overview_preserves_live_counts_coverage_and_status(
     assert response.status_code == 200
     body = response.json()
     assert body["service_state"] == "connected"
+    assert body["last_successful_at"] is None
     assert body["states"]["state"] == "ok"
     assert body["states"]["refresh_seconds"] == (
         STATE_CARDS_REFRESH_SECONDS
@@ -62,7 +61,7 @@ def test_state_overview_preserves_live_counts_coverage_and_status(
             "status": "covered",
         },
     ]
-    assert fake.calls[-1].url.path == "/frag/states/cards"
+    assert fake.coverage_calls[-1] == "states"
 
 
 def test_state_detail_keeps_every_keyword_field_and_grid_state(
@@ -77,6 +76,7 @@ def test_state_detail_keeps_every_keyword_field_and_grid_state(
     body = response.json()
     assert body["state"] == "PA"
     assert body["service_state"] == "connected"
+    assert body["last_successful_at"] is None
     assert body["keywords"]["refresh_seconds"] == (
         STATE_KEYWORDS_REFRESH_SECONDS
     )
@@ -124,9 +124,9 @@ def test_state_detail_keeps_every_keyword_field_and_grid_state(
         "cell": "40.000000,-80.000000",
         "status": "posted",
     }
-    assert [call.url.path for call in fake.calls[-2:]] == [
-        "/frag/states/pa/keywords",
-        "/frag/states/pa/cells",
+    assert fake.coverage_calls[-2:] == [
+        "pa:keywords",
+        "pa:cells",
     ]
 
 
@@ -145,9 +145,9 @@ def test_keyword_and_grid_refreshes_remain_independently_addressable(
     assert keywords["data"][0]["keyword"] == "24 Hour Pharmacy"
     assert cells["state"] == "ok"
     assert cells["data"]["failed"] == 1
-    assert [call.url.path for call in fake.calls[-2:]] == [
-        "/frag/states/pa/keywords",
-        "/frag/states/pa/cells",
+    assert fake.coverage_calls[-2:] == [
+        "pa:keywords",
+        "pa:cells",
     ]
 
 
@@ -183,33 +183,6 @@ def test_coverage_outage_is_a_readable_contract_not_a_raw_error(
     assert "cards unavailable" not in response.text
 
 
-def test_successful_error_markup_is_not_mistaken_for_empty_coverage(
-    workspace_client,
-):
-    client = verified(workspace_client)
-
-    def unexpected_markup(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            headers={"Content-Type": "text/html; charset=utf-8"},
-            text="<main>Temporarily unavailable</main>",
-        )
-
-    app.state.scraper_proxy_transport = httpx.MockTransport(
-        unexpected_markup
-    )
-
-    overview = client.get("/api/admin/scraper/coverage")
-    cells = client.get("/api/admin/scraper/coverage/PA/cells")
-
-    assert overview.status_code == 200
-    assert overview.json()["states"]["state"] == "unavailable"
-    assert overview.json()["states"]["data"] is None
-    assert cells.status_code == 200
-    assert cells.json()["state"] == "unavailable"
-    assert cells.json()["data"] is None
-
-
 def test_an_unknown_state_is_refused_before_an_upstream_call(
     workspace_client,
 ):
@@ -219,7 +192,7 @@ def test_an_unknown_state_is_refused_before_an_upstream_call(
     response = client.get("/api/admin/scraper/coverage/XX")
 
     assert response.status_code == 404
-    assert fake.calls == []
+    assert fake.coverage_calls == []
 
 
 def test_coverage_requires_the_privileged_scraper_session(workspace_client):
@@ -229,4 +202,4 @@ def test_coverage_requires_the_privileged_scraper_session(workspace_client):
     response = client.get("/api/admin/scraper/coverage")
 
     assert response.status_code == 401
-    assert fake.calls == []
+    assert fake.coverage_calls == []
