@@ -14,6 +14,21 @@ from urllib.parse import parse_qs
 
 import httpx
 
+from jawnix.scraper_keywords import (
+    KeywordDiff,
+    KeywordGenerateRequest,
+    KeywordGenerationDraft,
+    KeywordRollover,
+    KeywordRolloverRequest,
+    KeywordSaveRequest,
+    KeywordSaveResult,
+    KeywordTextRequest,
+    KeywordWinner,
+    ScraperKeywordWorkspace,
+    diff_keywords,
+    keyword_version,
+)
+from jawnix.scraper_operations import ScraperOperationsError
 from jawnix.states import US_STATES
 
 
@@ -550,11 +565,171 @@ class ScraperFake:
         self.runtime_failing = runtime_failing or set()
         self.rollover_enabled = False
         self.drafts: dict[str, list[str]] = {}
+        self.keyword_calls: list[str] = []
         self.calls: list[httpx.Request] = []
         self.writes: list[bytes] = []
-        self.keyword_writes: list[dict[str, str]] = []
+        self.keyword_writes: list[dict[str, object]] = []
         self.runtime = json.loads(json.dumps(RUNTIME_CONFIGURATION))
         self.runtime_writes: list[dict[str, list[str]]] = []
+
+    def _keyword_failure(self) -> None:
+        if self.offline:
+            raise ScraperOperationsError(transport_error="ConnectError")
+
+    def _rollover_model(self) -> KeywordRollover:
+        return KeywordRollover(
+            enabled=self.rollover_enabled,
+            state="working" if self.rollover_enabled else "off",
+            label="Current batch active" if self.rollover_enabled else "Off",
+            detail=(
+                "12 of 20 coverage jobs enqueued"
+                if self.rollover_enabled
+                else "Manual keyword batches"
+            ),
+            percent_complete=60,
+            posted_jobs=12,
+            expected_jobs=20,
+            last_status="generated",
+            last_event="Jul 28 · 12:00 UTC",
+        )
+
+    def _winners(self) -> list[KeywordWinner]:
+        return [
+            KeywordWinner(rank=rank, **winner)
+            for rank, winner in enumerate(WINNERS, 1)
+        ]
+
+    async def list_keywords(self) -> ScraperKeywordWorkspace:
+        self.keyword_calls.append("list")
+        self._keyword_failure()
+        return ScraperKeywordWorkspace(
+            current=self.keywords,
+            version=keyword_version(self.keywords),
+            ai_enabled=self.ai_enabled,
+            rollover=self._rollover_model(),
+            winners=self._winners(),
+        )
+
+    async def keyword_winners(self) -> list[KeywordWinner]:
+        self.keyword_calls.append("winners")
+        self._keyword_failure()
+        return self._winners()
+
+    async def preview_keywords(
+        self,
+        payload: KeywordTextRequest,
+    ) -> KeywordDiff:
+        self.keyword_calls.append("preview")
+        self._keyword_failure()
+        diff = diff_keywords(self.keywords, payload.text)
+        if not diff.proposed:
+            raise ScraperOperationsError(
+                status_code=422,
+                detail="At least one keyword is required.",
+            )
+        return diff
+
+    async def save_keywords(
+        self,
+        payload: KeywordSaveRequest,
+    ) -> KeywordSaveResult:
+        self.keyword_calls.append("save")
+        self._keyword_failure()
+        if keyword_version(self.keywords) != payload.expected_version:
+            raise ScraperOperationsError(
+                status_code=409,
+                detail=(
+                    "Active keywords changed after this preview. "
+                    "Reload the current list and preview again."
+                ),
+            )
+        diff = diff_keywords(self.keywords, payload.text)
+        if not diff.proposed:
+            raise ScraperOperationsError(
+                status_code=422,
+                detail="At least one keyword is required.",
+            )
+        if payload.generation_id and payload.generation_id not in self.drafts:
+            raise ScraperOperationsError(
+                status_code=422,
+                detail="Invalid keyword generation.",
+            )
+        self.keywords = diff.proposed
+        self.keyword_writes.append(
+            payload.model_dump(exclude={"review_token"}, exclude_none=True)
+        )
+        return KeywordSaveResult(
+            enqueued=payload.enqueue,
+            current=self.keywords,
+            version=keyword_version(self.keywords),
+            diff=diff,
+        )
+
+    async def generate_keywords(
+        self,
+        payload: KeywordGenerateRequest,
+    ) -> KeywordGenerationDraft:
+        self.keyword_calls.append("generate")
+        self._keyword_failure()
+        if self.generation_timeout:
+            raise ScraperOperationsError(transport_error="ReadTimeout")
+        if self.generation_error:
+            status_code = (
+                409
+                if self.generation_error.startswith("Another keyword generation")
+                else 503
+            )
+            raise ScraperOperationsError(
+                status_code=status_code,
+                detail=self.generation_error,
+            )
+        if not self.ai_enabled:
+            raise ScraperOperationsError(
+                status_code=422,
+                detail="AI generation is not configured",
+            )
+        if (
+            payload.mode == "adjacent"
+            and (payload.seed_keyword or "").casefold()
+            not in {item["keyword"].casefold() for item in WINNERS}
+        ):
+            raise ScraperOperationsError(
+                status_code=422,
+                detail="The selected winner is unavailable",
+            )
+        generation_id = str(uuid.uuid4())
+        keywords = [f"Unused Service {index}" for index in range(1, 26)]
+        self.drafts[generation_id] = keywords
+        label = (
+            f"keywords adjacent to {payload.seed_keyword}"
+            if payload.mode == "adjacent"
+            else "broad local-business keywords"
+        )
+        return KeywordGenerationDraft(
+            generation_id=generation_id,
+            mode=payload.mode,
+            seed_keyword=payload.seed_keyword,
+            keywords=keywords,
+            excluded_count=7,
+            notice=(
+                f"Draft ready: 25 {label}. Review below; nothing has been "
+                "saved or enqueued. 7 candidates were filtered."
+            ),
+        )
+
+    async def set_keyword_rollover(
+        self,
+        payload: KeywordRolloverRequest,
+    ) -> KeywordRollover:
+        self.keyword_calls.append("rollover")
+        self._keyword_failure()
+        if payload.action == "enable" and not self.ai_enabled:
+            raise ScraperOperationsError(
+                status_code=422,
+                detail="AI generation is not configured.",
+            )
+        self.rollover_enabled = payload.action == "enable"
+        return self._rollover_model()
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.calls.append(request)
@@ -589,67 +764,6 @@ class ScraperFake:
             self.runtime = proposed
             self.runtime_writes.append(self._multi_form(request))
             return self._html(self._runtime_preview(proposed, saved=True))
-        if path == "/keywords/winners":
-            return self._html(self._winners_page())
-        if path == "/keywords" and request.method == "GET":
-            draft_id = request.url.params.get("draft")
-            draft = self.drafts.get(draft_id or "")
-            return self._html(self._keywords_page(draft_id, draft))
-        if path == "/keywords/generate":
-            if self.generation_timeout:
-                raise httpx.ReadTimeout(
-                    "keyword generation timed out",
-                    request=request,
-                )
-            form = self._form(request)
-            if self.generation_error:
-                return self._html(
-                    f'<div class="notice error"><span>{self.generation_error}</span></div>'
-                )
-            if not self.ai_enabled:
-                return self._html(
-                    '<div class="notice error"><span>AI generation is not configured</span></div>'
-                )
-            if (
-                form.get("mode") == "adjacent"
-                and form.get("seed_keyword", "").casefold()
-                not in {item["keyword"].casefold() for item in WINNERS}
-            ):
-                return self._html(
-                    '<div class="notice error"><span>The selected winner is unavailable</span></div>'
-                )
-            generation_id = str(uuid.uuid4())
-            self.drafts[generation_id] = [
-                f"Unused Service {index}" for index in range(1, 26)
-            ]
-            return httpx.Response(
-                303,
-                headers={"Location": f"/keywords?draft={generation_id}"},
-            )
-        if path == "/keywords/save":
-            form = self._form(request)
-            proposed = []
-            seen = set()
-            for line in form.get("text", "").splitlines():
-                value = line.strip()
-                key = value.casefold()
-                if value and not value.startswith("#") and key not in seen:
-                    seen.add(key)
-                    proposed.append(value)
-            if not proposed:
-                return httpx.Response(422, json={"detail": "At least one keyword is required"})
-            self.keywords = proposed
-            self.keyword_writes.append(form)
-            return self._html("<div>saved</div>")
-        if path == "/keywords/auto-rollover":
-            form = self._form(request)
-            if form.get("action") == "enable" and not self.ai_enabled:
-                return httpx.Response(
-                    422,
-                    json={"detail": "AI generation is not configured"},
-                )
-            self.rollover_enabled = form.get("action") == "enable"
-            return self._html(self._rollover())
         if path == "/api/dashboard":
             return self._json(aggregate_payload())
         if path.startswith("/api/dashboard/"):
@@ -763,93 +877,6 @@ class ScraperFake:
             200,
             headers={"Content-Type": "text/html"},
             text=document,
-        )
-
-    def _rollover(self) -> str:
-        if self.rollover_enabled:
-            state = "working"
-            label = "Current batch active"
-            detail = "12 of 20 coverage jobs enqueued"
-            percent = 60
-            action = "Disable"
-        else:
-            state = "off"
-            label = "Off"
-            detail = "Manual keyword batches"
-            percent = 60
-            action = "Enable"
-        return f"""
-        <section class="keyword-rollover rollover-{state}">
-          <div class="rollover-summary">
-            <strong>{label}</strong><small>{detail}</small>
-          </div>
-          <div class="rollover-meter"><div><strong>{percent}%</strong></div></div>
-          <div class="rollover-event">
-            <strong class="event-generated">Generated</strong>
-            <small>Jul 28 · 12:00 UTC</small>
-          </div>
-          <button class="button rollover-control"><span>{action}</span></button>
-        </section>
-        """
-
-    def _keywords_page(
-        self,
-        draft_id: str | None = None,
-        draft: list[str] | None = None,
-    ) -> str:
-        values = draft if draft is not None else self.keywords
-        disabled = "" if self.ai_enabled else " disabled"
-        generation = ""
-        hidden = ""
-        if draft_id and draft is not None:
-            generation = """
-              <div class="notice ai-notice"><span>
-                <strong>Draft ready:</strong> 25 broad local-business keywords.
-                Review below; nothing has been saved or enqueued.
-                7 candidates were filtered.
-              </span></div>
-            """
-            hidden = (
-                f'<input type="hidden" name="generation_id" value="{draft_id}">'
-            )
-        return f"""
-        <html><body>
-          {self._rollover()}
-          {generation}
-          <textarea id="keyword-text">{"\n".join(values)}</textarea>
-          {hidden}
-          <button hx-post="/keywords/generate" hx-vals='{{"mode":"broad"}}'{disabled}>
-            Generate 25
-          </button>
-        </body></html>
-        """
-
-    @staticmethod
-    def _winners_page() -> str:
-        rows = []
-        for rank, winner in enumerate(WINNERS, 1):
-            rows.append(
-                f"""
-                <tr>
-                  <td>{rank}</td>
-                  <td><strong>{winner["keyword"].title()}</strong>
-                    <small>Last used {winner["last_used"]}</small></td>
-                  <td>{winner["phone_businesses"]:,}</td>
-                  <td>{winner["businesses"]:,}</td>
-                  <td>{winner["posted_cells"]:,}</td>
-                  <td>{winner["phones_per_cell"]:.2f}</td>
-                  <td>{winner["phone_rate"]:.1%}</td>
-                  <td><button hx-vals='{json.dumps({
-                      "mode": "adjacent",
-                      "seed_keyword": winner["keyword"],
-                  })}'>Generate adjacent</button></td>
-                </tr>
-                """
-            )
-        return (
-            '<div class="table-wrap winners-table"><table><tbody>'
-            + "".join(rows)
-            + "</tbody></table></div>"
         )
 
     def _history_table(self, request: httpx.Request) -> str:

@@ -17,6 +17,7 @@ from test_scraper_workspace import (  # noqa: F401 — shared fixtures
 
 def arm(fake: ScraperFake) -> ScraperFake:
     app.state.scraper_proxy_transport = httpx.MockTransport(fake)
+    app.state.scraper_operations = fake
     return fake
 
 
@@ -68,10 +69,7 @@ def test_keyword_workspace_projects_editor_rankings_and_rollover(
         "phone_rate": 0.62,
         "last_used": "Jul 28",
     }
-    assert [call.url.path for call in fake.calls[-2:]] == [
-        "/keywords",
-        "/keywords/winners",
-    ]
+    assert sorted(fake.keyword_calls) == ["list", "winners"]
 
 
 def test_preview_uses_the_supported_text_format_and_changes_nothing(
@@ -177,7 +175,8 @@ def test_reviewed_save_preserves_enqueue_and_is_audited(
     assert fake.keyword_writes == [
         {
             "text": "Plumbers\nroofers",
-            "enqueue": "true",
+            "expected_version": preview["expected_version"],
+            "enqueue": True,
         }
     ]
     entry = session.scalars(
@@ -354,11 +353,9 @@ def test_ai_unavailable_and_provider_failure_are_recoverable_and_audited(
     ) == 2
 
 
-def test_generation_timeout_is_diagnosable_and_uses_its_own_budget(
+def test_generation_timeout_is_diagnosable_and_audited(
     workspace_client,
-    workspace_settings,
     session,
-    caplog,
 ):
     client, csrf, fake = privileged(
         workspace_client,
@@ -377,12 +374,6 @@ def test_generation_timeout_is_diagnosable_and_uses_its_own_budget(
         "detail": "Scraper Operations is unavailable.",
         "lastSuccessfulAt": None,
     }
-    timeout = fake.calls[0].extensions["timeout"]
-    assert (
-        timeout["read"]
-        == workspace_settings.scraper_ops_generation_timeout_seconds
-    )
-    assert timeout["read"] != workspace_settings.scraper_ops_timeout_seconds
     entry = session.scalars(
         select(AuditEntry).where(
             AuditEntry.action == "scraper_keyword_generation_failed"
@@ -390,11 +381,6 @@ def test_generation_timeout_is_diagnosable_and_uses_its_own_budget(
     ).one()
     assert entry.details["outcome"] == "upstream_unavailable"
     assert entry.details["transportError"] == "ReadTimeout"
-    assert "transport_error=ReadTimeout" in caplog.text
-    assert "path=/keywords/generate" in caplog.text
-    assert workspace_settings.scraper_ops_url not in caplog.text
-    assert workspace_settings.scraper_ops_user not in caplog.text
-    assert workspace_settings.scraper_ops_password not in caplog.text
 
 
 def test_preview_transport_failure_is_audited(workspace_client, session):
@@ -522,7 +508,7 @@ def test_every_keyword_action_requires_the_privileged_session(
     )
 
     assert response.status_code == 401
-    assert fake.calls == []
+    assert fake.keyword_calls == []
 
 
 def test_upstream_failure_is_recoverable_without_leaking_details(

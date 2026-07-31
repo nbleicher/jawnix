@@ -83,6 +83,9 @@ def workspace_settings(settings) -> Settings:
         JAWNIX_SCRAPER_OPS_URL="http://10.77.0.2:8090",
         JAWNIX_SCRAPER_OPS_USER="scraper-admin",
         JAWNIX_SCRAPER_OPS_PASSWORD="upstream-secret",
+        JAWNIX_SCRAPER_CONTROL_TOKEN=(
+            "test-scraper-control-token-0000000000000000"
+        ),
         JAWNIX_SCRAPER_OPS_TIMEOUT_SECONDS=1,
     )
 
@@ -133,7 +136,7 @@ def workspace_client(
             text="<html><body>GMS/OPS ready</body></html>",
         )
     )
-    for attribute in ("scraper_proxy_state",):
+    for attribute in ("scraper_proxy_state", "scraper_operations"):
         if hasattr(app.state, attribute):
             delattr(app.state, attribute)
 
@@ -149,6 +152,7 @@ def workspace_client(
             "scraper_workspace_clock",
             "scraper_proxy_transport",
             "scraper_proxy_state",
+            "scraper_operations",
         ):
             if hasattr(app.state, attribute):
                 delattr(app.state, attribute)

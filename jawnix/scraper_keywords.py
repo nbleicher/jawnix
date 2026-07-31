@@ -1,20 +1,9 @@
-"""Typed projection of the current GMS/OPS keyword-management surface.
-
-The private Scraper service still owns keyword files, AI generation, winner
-ranking, enqueue triggers, and automatic rollover. Its current contract for
-those actions is server-rendered HTML and form posts. Jawnix deliberately does
-not reimplement those actions; this module only projects the operator-visible
-HTML into a small native JSON contract and provides the exact line-list parsing
-used for previews and optimistic concurrency checks.
-"""
+"""Typed keyword-management models and line-list semantics."""
 
 from __future__ import annotations
 
 import hashlib
-import json
-import re
-from dataclasses import dataclass, field
-from html.parser import HTMLParser
+from datetime import date, datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -34,6 +23,22 @@ class KeywordRollover(BaseModel):
     last_status: Literal["generated", "error"] | None = None
     last_event: str | None = None
 
+    @field_validator("last_event", mode="before")
+    @classmethod
+    def format_last_event(cls, value: object) -> object:
+        if isinstance(value, datetime):
+            moment = value
+        elif isinstance(value, str):
+            try:
+                moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return value
+        else:
+            return value
+        if moment.tzinfo is not None:
+            moment = moment.astimezone(timezone.utc)
+        return moment.strftime("%b %d · %H:%M UTC")
+
 
 class KeywordWinner(BaseModel):
     rank: int = Field(ge=1)
@@ -44,6 +49,40 @@ class KeywordWinner(BaseModel):
     phones_per_cell: float = Field(ge=0)
     phone_rate: float = Field(ge=0)
     last_used: str
+
+    @field_validator("last_used", mode="before")
+    @classmethod
+    def format_last_used(cls, value: object) -> object:
+        if isinstance(value, datetime):
+            return value.strftime("%b %d")
+        if isinstance(value, date):
+            return value.strftime("%b %d")
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(
+                    value.replace("Z", "+00:00")
+                ).strftime("%b %d")
+            except ValueError:
+                return value
+        return value
+
+
+class ScraperKeywordWorkspace(BaseModel):
+    """The private Scraper control service's keyword workspace."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    current: list[str]
+    version: str = Field(pattern=r"^[0-9a-f]{64}$")
+    ai_enabled: bool
+    rollover: KeywordRollover
+    winners: list[KeywordWinner]
+
+
+class ScraperKeywordWinners(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    winners: list[KeywordWinner]
 
 
 class KeywordWorkspace(BaseModel):
@@ -167,341 +206,3 @@ def diff_keywords(current: list[str], text: str) -> KeywordDiff:
         ],
         expected_version=keyword_version(current),
     )
-
-
-@dataclass
-class _Node:
-    tag: str
-    attrs: dict[str, str]
-    children: list["_Node | str"] = field(default_factory=list)
-
-    def text(self) -> str:
-        raw = "".join(
-            child.text() if isinstance(child, _Node) else child
-            for child in self.children
-        )
-        return " ".join(raw.split())
-
-    def raw_text(self) -> str:
-        return "".join(
-            child.raw_text() if isinstance(child, _Node) else child
-            for child in self.children
-        )
-
-    def descendants(self) -> list["_Node"]:
-        values: list[_Node] = []
-        for child in self.children:
-            if isinstance(child, _Node):
-                values.append(child)
-                values.extend(child.descendants())
-        return values
-
-    def classes(self) -> set[str]:
-        return set(self.attrs.get("class", "").split())
-
-
-class _TreeParser(HTMLParser):
-    _VOID = {
-        "area",
-        "base",
-        "br",
-        "col",
-        "embed",
-        "hr",
-        "img",
-        "input",
-        "link",
-        "meta",
-        "param",
-        "source",
-        "track",
-        "wbr",
-    }
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.root = _Node("document", {})
-        self.stack = [self.root]
-
-    def handle_starttag(
-        self,
-        tag: str,
-        attrs: list[tuple[str, str | None]],
-    ) -> None:
-        node = _Node(
-            tag,
-            {key: value if value is not None else "" for key, value in attrs},
-        )
-        self.stack[-1].children.append(node)
-        if tag not in self._VOID:
-            self.stack.append(node)
-
-    def handle_startendtag(
-        self,
-        tag: str,
-        attrs: list[tuple[str, str | None]],
-    ) -> None:
-        self.handle_starttag(tag, attrs)
-        if self.stack[-1].tag == tag:
-            self.stack.pop()
-
-    def handle_endtag(self, tag: str) -> None:
-        for index in range(len(self.stack) - 1, 0, -1):
-            if self.stack[index].tag == tag:
-                del self.stack[index:]
-                return
-
-    def handle_data(self, data: str) -> None:
-        self.stack[-1].children.append(data)
-
-
-def _tree(document: str) -> _Node:
-    parser = _TreeParser()
-    parser.feed(document)
-    parser.close()
-    return parser.root
-
-
-def _find(
-    node: _Node,
-    *,
-    tag: str | None = None,
-    node_id: str | None = None,
-    class_name: str | None = None,
-) -> _Node | None:
-    for candidate in node.descendants():
-        if tag is not None and candidate.tag != tag:
-            continue
-        if node_id is not None and candidate.attrs.get("id") != node_id:
-            continue
-        if class_name is not None and class_name not in candidate.classes():
-            continue
-        return candidate
-    return None
-
-
-def _find_all(
-    node: _Node,
-    *,
-    tag: str | None = None,
-    class_name: str | None = None,
-) -> list[_Node]:
-    values = []
-    for candidate in node.descendants():
-        if tag is not None and candidate.tag != tag:
-            continue
-        if class_name is not None and class_name not in candidate.classes():
-            continue
-        values.append(candidate)
-    return values
-
-
-def _required(node: _Node | None, label: str) -> _Node:
-    if node is None:
-        raise ValueError(f"Scraper keyword response omitted {label}.")
-    return node
-
-
-def _rollover_from_tree(root: _Node) -> KeywordRollover:
-    section = _required(
-        _find(root, tag="section", class_name="keyword-rollover"),
-        "automatic rollover status",
-    )
-    state_class = next(
-        (
-            value.removeprefix("rollover-")
-            for value in section.classes()
-            if value.startswith("rollover-")
-            and value != "rollover-control"
-        ),
-        "",
-    )
-    if state_class not in {"off", "working", "draining", "ready"}:
-        raise ValueError("Scraper keyword response has an unknown rollover state.")
-
-    summary = _required(
-        _find(section, class_name="rollover-summary"),
-        "the rollover summary",
-    )
-    label = _required(_find(summary, tag="strong"), "the rollover label").text()
-    detail = _required(_find(summary, tag="small"), "rollover detail").text()
-
-    meter = _required(
-        _find(section, class_name="rollover-meter"),
-        "rollover progress",
-    )
-    percent_text = _required(
-        _find(meter, tag="strong"),
-        "rollover completion",
-    ).text()
-    try:
-        percent_complete = int(percent_text.rstrip("%"))
-    except ValueError as error:
-        raise ValueError(
-            "Scraper keyword response has invalid rollover completion."
-        ) from error
-
-    event = _required(
-        _find(section, class_name="rollover-event"),
-        "the latest rollover event",
-    )
-    event_status = _find(event, tag="strong")
-    last_status: Literal["generated", "error"] | None = None
-    if event_status is not None:
-        if "event-generated" in event_status.classes():
-            last_status = "generated"
-        elif "event-error" in event_status.classes():
-            last_status = "error"
-    event_time = _find(event, tag="small")
-    last_event = event_time.text() if last_status and event_time else None
-
-    control = _required(
-        _find(section, tag="button", class_name="rollover-control"),
-        "the rollover control",
-    )
-    enabled = "Disable" in control.text()
-
-    jobs = re.search(
-        r"([\d,]+)\s+of\s+([\d,]+)\s+coverage jobs enqueued",
-        detail,
-        flags=re.IGNORECASE,
-    )
-    return KeywordRollover(
-        enabled=enabled,
-        state=state_class,
-        label=label,
-        detail=detail,
-        percent_complete=percent_complete,
-        posted_jobs=(
-            int(jobs.group(1).replace(",", "")) if jobs else None
-        ),
-        expected_jobs=(
-            int(jobs.group(2).replace(",", "")) if jobs else None
-        ),
-        last_status=last_status,
-        last_event=last_event,
-    )
-
-
-def parse_rollover(document: str) -> KeywordRollover:
-    return _rollover_from_tree(_tree(document))
-
-
-def parse_editor(document: str) -> tuple[list[str], bool, KeywordRollover]:
-    root = _tree(document)
-    editor = _required(
-        _find(root, tag="textarea", node_id="keyword-text"),
-        "the keyword editor",
-    )
-    current = parse_keyword_text(editor.raw_text())
-
-    generate = next(
-        (
-            node
-            for node in _find_all(root, tag="button")
-            if node.attrs.get("hx-post") == "/keywords/generate"
-            and "Generate 25" in node.text()
-        ),
-        None,
-    )
-    ai_enabled = generate is not None and "disabled" not in generate.attrs
-    return current, ai_enabled, _rollover_from_tree(root)
-
-
-def _integer(value: str) -> int:
-    return int(value.replace(",", "").strip())
-
-
-def parse_winners(document: str) -> list[KeywordWinner]:
-    root = _tree(document)
-    table = _find(root, tag="div", class_name="winners-table")
-    if table is None:
-        if "No keyword has at least 100 posted cells yet" in root.text():
-            return []
-        raise ValueError("Scraper keyword response omitted winner rankings.")
-
-    winners: list[KeywordWinner] = []
-    tbody = _required(_find(table, tag="tbody"), "winner ranking rows")
-    for row in _find_all(tbody, tag="tr"):
-        cells = [
-            child
-            for child in row.children
-            if isinstance(child, _Node) and child.tag == "td"
-        ]
-        if len(cells) != 8:
-            raise ValueError("Scraper keyword response has an invalid winner row.")
-        button = _required(
-            _find(cells[7], tag="button"),
-            "the adjacent generation action",
-        )
-        try:
-            values = json.loads(button.attrs["hx-vals"])
-            keyword = str(values["seed_keyword"])
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-            raise ValueError(
-                "Scraper keyword response has an invalid winner action."
-            ) from error
-        last_used = _required(
-            _find(cells[1], tag="small"),
-            "winner last-used time",
-        ).text()
-        winners.append(
-            KeywordWinner(
-                rank=_integer(cells[0].text()),
-                keyword=keyword,
-                phone_businesses=_integer(cells[2].text()),
-                businesses=_integer(cells[3].text()),
-                posted_cells=_integer(cells[4].text()),
-                phones_per_cell=float(cells[5].text()),
-                phone_rate=float(cells[6].text().rstrip("%")) / 100,
-                last_used=last_used.removeprefix("Last used ").strip(),
-            )
-        )
-    return winners
-
-
-def parse_generation_draft(
-    document: str,
-    *,
-    generation_id: str,
-    mode: Literal["broad", "adjacent"],
-    seed_keyword: str | None,
-) -> KeywordGenerationDraft:
-    root = _tree(document)
-    editor = _required(
-        _find(root, tag="textarea", node_id="keyword-text"),
-        "the generated keyword draft",
-    )
-    hidden = next(
-        (
-            node
-            for node in _find_all(root, tag="input")
-            if node.attrs.get("name") == "generation_id"
-        ),
-        None,
-    )
-    if hidden is None or hidden.attrs.get("value") != generation_id:
-        raise ValueError("Scraper returned a different keyword generation.")
-    notice_node = _required(
-        _find(root, class_name="ai-notice"),
-        "the generation review notice",
-    )
-    notice = notice_node.text()
-    excluded = re.search(r"(\d+)\s+candidates were filtered", notice)
-    keywords = parse_keyword_text(editor.raw_text())
-    if not keywords:
-        raise ValueError("Scraper returned an empty keyword generation.")
-    return KeywordGenerationDraft(
-        generation_id=generation_id,
-        mode=mode,
-        seed_keyword=seed_keyword,
-        keywords=keywords,
-        excluded_count=int(excluded.group(1)) if excluded else 0,
-        notice=notice,
-    )
-
-
-def parse_feedback_error(document: str) -> str | None:
-    root = _tree(document)
-    error = _find(root, class_name="error")
-    return error.text() if error is not None else None
