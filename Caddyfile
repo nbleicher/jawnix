@@ -58,14 +58,14 @@
 	# parses the config, so flipping the flag means restarting this container
 	# (and api) with the new env — which is also the whole rollback: set it
 	# false again and the static UI below answers untouched. 302, not 308, so
-	# no browser caches a redirect across a rollback. portal-accept keeps its
-	# query string because invitation links may carry `?code=`; Supabase hash
-	# fragments survive any redirect on their own.
+	# no browser caches a redirect across a rollback. Every redirect keeps its
+	# query string, including invitation `?code=` and sign-in `?next=` values;
+	# Supabase hash fragments survive any redirect on their own.
 	@newui_root {
 		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
 		path / /index.html
 	}
-	redir @newui_root /app/ 302
+	redir @newui_root /app/?{query} 302
 	@newui_login {
 		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
 		path /login.html /login
@@ -75,7 +75,7 @@
 		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
 		path /portal.html /portal
 	}
-	redir @newui_portal /app/ 302
+	redir @newui_portal /app/?{query} 302
 	@newui_accept {
 		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
 		path /portal-accept.html
@@ -85,7 +85,7 @@
 		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
 		path /admin.html
 	}
-	redir @newui_admin /app/admin 302
+	redir @newui_admin /app/admin?{query} 302
 
 	redir / /login.html 302
 	redir /index.html /login.html 302
