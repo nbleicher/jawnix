@@ -74,6 +74,36 @@ test.describe("Confirming the delivered Lead", () => {
   });
 });
 
+test.describe("Searching delivered batches", () => {
+  test("a partial name enters the same flow with one disposition selected", async ({
+    page,
+  }) => {
+    await page.goto("./feedback");
+
+    await page.getByLabel("Business name or phone").fill("roof");
+    await page.getByRole("button", { name: "Search" }).click();
+    const results = page.getByRole("region", { name: "Search results" });
+    await results.getByRole("button", { name: /Acme Roofing/ }).click();
+
+    await expect(
+      page.getByRole("region", { name: "Confirm the Lead" }),
+    ).toBeVisible();
+    const first = page.getByRole("button", { name: /No Contact/ });
+    const second = page.getByRole("button", { name: /Positive Response/ });
+    await first.click();
+    await second.click();
+    await expect(first).toHaveAttribute("aria-pressed", "false");
+    await expect(second).toHaveAttribute("aria-pressed", "true");
+
+    await page.getByRole("button", { name: "Submit feedback" }).click();
+    await expect(page.getByRole("region", { name: "Recorded" })).toBeVisible();
+    const submit = calls.find((call) => call.path === "/api/me/feedback");
+    expect(submit?.body["disposition"]).toBe("positive_response");
+    await expect(page.locator('input[type="file"]')).toHaveCount(0);
+    await expect(page.getByText(/bulk import|import csv/i)).toHaveCount(0);
+  });
+});
+
 test.describe("Control materialization", () => {
   test("every disposition is a visible button, never a dropdown", async ({
     page,
@@ -260,6 +290,39 @@ test.describe("Quality Rating is optional and independent", () => {
 });
 
 test.describe("Receipt and append-only history", () => {
+  test("a history error is distinct from no feedback yet", async ({ page }) => {
+    await page.route(
+      /\/api\/me\/distributions\/\d+\/dispositions$/,
+      (route) =>
+        route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ detail: "temporarily unavailable" }),
+        }),
+    );
+    await page.goto("./feedback");
+    await lookUp(page);
+
+    await expect(
+      page.getByRole("heading", { name: "Feedback history unavailable" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "No feedback yet" }),
+    ).toHaveCount(0);
+  });
+
+  test("an empty history still says no feedback yet", async ({ page }) => {
+    await page.goto("./feedback");
+    await lookUp(page);
+
+    await expect(
+      page.getByRole("heading", { name: "No feedback yet" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Feedback history unavailable" }),
+    ).toHaveCount(0);
+  });
+
   test("a correction is added to history, not substituted for the first", async ({
     page,
   }) => {

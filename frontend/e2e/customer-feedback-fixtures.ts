@@ -169,6 +169,7 @@ export interface FeedbackMockOptions {
   /** When false, every lookup fails — whatever the reason would have been. */
   lookupSucceeds?: boolean;
   history?: unknown[];
+  searchResults?: unknown[];
 }
 
 function json(route: Route, value: unknown, status = 200) {
@@ -183,7 +184,12 @@ export async function mockFeedback(
   page: Page,
   options: FeedbackMockOptions = {},
 ): Promise<FeedbackCall[]> {
-  const settings = { lookupSucceeds: true, history: [], ...options };
+  const settings = {
+    lookupSucceeds: true,
+    history: [],
+    searchResults: [DELIVERED_LEAD],
+    ...options,
+  };
   const calls: FeedbackCall[] = [];
   const history = [...settings.history];
 
@@ -200,6 +206,14 @@ export async function mockFeedback(
     return settings.lookupSucceeds
       ? json(route, DELIVERED_LEAD)
       : json(route, { detail: "No delivered Lead found." }, 404);
+  });
+
+  await page.route(/\/api\/me\/feedback\/search$/, (route) => {
+    calls.push({
+      path: "/api/me/feedback/search",
+      body: (route.request().postDataJSON() ?? {}) as Record<string, unknown>,
+    });
+    return json(route, settings.searchResults);
   });
 
   await page.route(/\/api\/me\/distributions\/\d+\/dispositions$/, (route) =>
