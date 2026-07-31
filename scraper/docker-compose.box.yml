@@ -59,11 +59,11 @@ services:
       timeout: 5s
       retries: 20
 
-  dashboard:
+  scraper-control:
     build:
       context: .
       dockerfile: web/Dockerfile
-    image: gms-dashboard:local
+    image: jawnix-scraper-control:local
     user: "${APP_UID:-1000}:${APP_GID:-1000}"
     restart: unless-stopped
     depends_on:
@@ -72,10 +72,11 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-gmaps_pro}
       DATABASE_URL_RO: postgresql://gmaps_ro:${GMAPS_RO_PASSWORD:?set GMAPS_RO_PASSWORD}@db:5432/${POSTGRES_DB:-gmaps_pro}
-      DASH_PASSWORD: ${DASH_PASSWORD:?set DASH_PASSWORD}
+      JAWNIX_SCRAPER_CONTROL_TOKEN: ${JAWNIX_SCRAPER_CONTROL_TOKEN:?set JAWNIX_SCRAPER_CONTROL_TOKEN}
       CONTROL_DIR: /app/control
       KEYWORDS_PATH: /app/control/runtime/keywords.txt
       ACTIVE_STATES_PATH: /app/control/active_states.yaml
+      SOURCE_SEGMENTS_PATH: /app/control/runtime/source_segments.yaml
       EXPORTS_DIR: /app/exports/by_state
       ENQUEUE_TRIGGER_PATH: /app/control/triggers/enqueue.request
       EXPECTED_WORKERS: ${WORKER_REPLICAS:-5}
@@ -93,7 +94,7 @@ services:
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
       OPENROUTER_TIMEOUT_SECS: ${OPENROUTER_TIMEOUT_SECS:-45}
     ports:
-      - "${DASHBOARD_BIND_ADDRESS:-127.0.0.1}:8090:8000"
+      - "${SCRAPER_CONTROL_BIND_ADDRESS:?set SCRAPER_CONTROL_BIND_ADDRESS}:8090:8000"
     volumes:
       - ./control:/app/control
       - ./exports:/app/exports

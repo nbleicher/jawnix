@@ -7,6 +7,11 @@ import httpx
 import pytest
 import pytest_asyncio
 
+os.environ.setdefault(
+    "JAWNIX_SCRAPER_CONTROL_TOKEN",
+    "test-scraper-control-token-0000000000000000",
+)
+
 from app.config import Settings
 from app.main import create_app
 
@@ -28,7 +33,7 @@ def migration_up_sql(path: Path) -> str:
 async def seeded_database():
     dsn = os.environ.get("TEST_DATABASE_URL")
     if not dsn:
-        pytest.skip("TEST_DATABASE_URL is required for dashboard integration tests")
+        pytest.skip("TEST_DATABASE_URL is required for control-service integration tests")
     connection = await asyncpg.connect(dsn)
     try:
         await connection.execute(
@@ -46,7 +51,7 @@ async def seeded_database():
 async def app_client(tmp_path, seeded_database):
     control = tmp_path / "control"
     control.mkdir()
-    for name in ("grid.py", "export_leads.py"):
+    for name in ("grid.py", "export_leads.py", "source_segments.py"):
         shutil.copy2(SCALE / "control" / name, control / name)
     shutil.copy2(SCALE / "control" / "active_states.yaml", control / "active_states.yaml")
     (control / "triggers").mkdir()
@@ -61,14 +66,26 @@ async def app_client(tmp_path, seeded_database):
         control_dir=control,
         keywords_path=keywords,
         active_states_path=control / "active_states.yaml",
+        source_segments_path=control / "runtime" / "source_segments.yaml",
         exports_dir=exports,
         enqueue_trigger_path=control / "triggers" / "enqueue.request",
         pipeline_pause_path=control / "runtime" / "pipeline.paused",
         enqueue_trigger_mode="sentinel",
         openrouter_api_key="test-openrouter-key",
+        JAWNIX_SCRAPER_CONTROL_TOKEN=(
+            "test-scraper-control-token-0000000000000000"
+        ),
     )
     app = create_app(settings)
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test", auth=("operator", "secret")) as client:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+            headers={
+                "Authorization": (
+                    "Bearer test-scraper-control-token-0000000000000000"
+                )
+            },
+        ) as client:
             yield client, settings

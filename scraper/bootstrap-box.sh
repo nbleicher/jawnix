@@ -46,7 +46,7 @@ if [ ! -f .env ]; then
   hashid_salt="$(openssl rand -hex 16)"
   encryption_key="$(openssl rand -hex 32)"
   api_key="gms_$(openssl rand -hex 32)"
-  dash_password="$(openssl rand -base64 24 | tr -d '/+=' | head -c 24)"
+  scraper_control_token="$(openssl rand -hex 32)"
   cat >.env <<ENV
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=${postgres_password}
@@ -56,7 +56,8 @@ GMAPS_RO_PASSWORD=${ro_password}
 HASHID_SALT=${hashid_salt}
 ENCRYPTION_KEY=${encryption_key}
 API_KEY=${api_key}
-DASH_PASSWORD=${dash_password}
+JAWNIX_SCRAPER_CONTROL_TOKEN=${scraper_control_token}
+SCRAPER_CONTROL_BIND_ADDRESS=10.77.0.2
 PROXIES=
 SPOOL_DIR=${SPOOL_DIR}
 SCRAPER_SRC=${SCRAPER_SRC}
@@ -78,13 +79,20 @@ GMS_MEMORY_WARN_PERCENT=90
 GMS_TELEMETRY_STALE_SECS=180
 ENV
   chmod 600 .env
-  printf '\nGenerated credentials (store these now):\n  DASH_PASSWORD=%s\n  POSTGRES_PASSWORD=%s\n  GMAPS_RO_PASSWORD=%s\n  HASHID_SALT=%s\n\n' "$dash_password" "$postgres_password" "$ro_password" "$hashid_salt"
+  printf '\nGenerated credentials (store these now):\n  JAWNIX_SCRAPER_CONTROL_TOKEN=%s\n  POSTGRES_PASSWORD=%s\n  GMAPS_RO_PASSWORD=%s\n  HASHID_SALT=%s\n\n' "$scraper_control_token" "$postgres_password" "$ro_password" "$hashid_salt"
 else
   echo "Using existing ${APP_DIR}/.env"
 fi
 
 if ! grep -q '^API_KEY=' .env; then
   printf 'API_KEY=gms_%s\n' "$(openssl rand -hex 32)" >>.env
+fi
+if ! grep -q '^JAWNIX_SCRAPER_CONTROL_TOKEN=' .env; then
+  printf 'JAWNIX_SCRAPER_CONTROL_TOKEN=%s\n' "$(openssl rand -hex 32)" >>.env
+  echo "Added JAWNIX_SCRAPER_CONTROL_TOKEN to ${APP_DIR}/.env; store it with the Jawnix host secrets."
+fi
+if ! grep -q '^SCRAPER_CONTROL_BIND_ADDRESS=' .env; then
+  printf 'SCRAPER_CONTROL_BIND_ADDRESS=10.77.0.2\n' >>.env
 fi
 set -a
 source .env
@@ -192,6 +200,6 @@ systemctl daemon-reload
 systemctl reset-failed gms-ship.path gms-ship.service gms-alert.service gms-uptime.service || true
 systemctl enable --now gms-ship.path gms-ship.timer gms-heartbeat.timer gms-uptime.timer
 
-docker compose -f docker-compose.box.yml up -d --build --scale worker="${WORKER_REPLICAS}" dashboard worker
+docker compose -f docker-compose.box.yml up -d --build --scale worker="${WORKER_REPLICAS}" scraper-control worker
 echo "Workers: ${WORKER_REPLICAS} replicas (override with WORKER_REPLICAS in ${APP_DIR}/.env)"
-echo "Dashboard: ssh -L 8090:127.0.0.1:8090 <box>, then open http://127.0.0.1:8090/dashboard"
+echo "Scraper control: http://${SCRAPER_CONTROL_BIND_ADDRESS}:8090/api/workspace (WireGuard only)"

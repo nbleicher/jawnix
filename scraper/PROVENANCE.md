@@ -19,6 +19,23 @@ a source for this import. Statements in that snapshot that call Scale the
 authoritative source describe the legacy state at the time of the tag; ADR
 0017 records Jawnix's ownership from this import forward.
 
+### JSON contract compatibility absorbed after the snapshot
+
+The headless control service also absorbs the production JSON behavior Jawnix
+was already calling after the baseline tag. These files were used as migration
+inputs, then consolidated under `web/app/contracts.py` and
+`web/app/control_api.py`:
+
+- explicit Source Segments: Scale commits
+  `1b4d72b746f4504dc6d33ca1a28b2440e3b84334`,
+  `fbd168206d3277e7eebd79f5d17e488758f4a38a`, and
+  `da48c0f39f86b772db430dbc3fb9eed720066fb7`;
+- dashboard JSON projection: Scale commit
+  `3ea1751e684f4332d82f46fd07d8b22c24ad7cec`.
+
+Those compatibility endpoints are now owned here; the temporary patch that
+applied the dashboard projection back to Scale has been deleted.
+
 ## Go worker
 
 - Source: <https://github.com/nbleicher/scraper>

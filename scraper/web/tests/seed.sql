@@ -1,6 +1,7 @@
 TRUNCATE businesses, leads, enqueue_log, keyword_history, scrape_results, worker_heartbeats,
          stack_samples, pipeline_alert_events, river_job RESTART IDENTITY CASCADE;
 TRUNCATE keyword_rollover_events, keyword_generations RESTART IDENTITY;
+TRUNCATE scraper_dataset_publications;
 INSERT INTO app_config (key,value,encrypted,updated_at)
 VALUES ('auto_keyword_rollover','false',false,NOW())
 ON CONFLICT (key) DO UPDATE SET value='false', updated_at=NOW();
@@ -61,3 +62,11 @@ INSERT INTO stack_samples (
    1,1,0,40,5,2,0.2);
 
 INSERT INTO pipeline_alert_events (status,messages) VALUES ('ok','[]');
+
+INSERT INTO scraper_dataset_publications (
+  publication_date, committed_at, business_count, lead_count,
+  latest_job_at, checksum
+) VALUES (
+  CURRENT_DATE, NOW(), 5, 3, NOW(),
+  'seeded-publication-checksum'
+);

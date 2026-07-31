@@ -84,17 +84,19 @@ git -C "$ROOT" diff --exit-code -- web/app/static/app.css
 POSTGRES_PASSWORD=baseline-check \
 GMAPS_RO_PASSWORD=baseline-readonly \
 HASHID_SALT=baseline-hash \
-DASH_PASSWORD=baseline-dashboard \
+JAWNIX_SCRAPER_CONTROL_TOKEN=baseline-scraper-control-token-0000000000000000 \
+SCRAPER_CONTROL_BIND_ADDRESS=127.0.0.1 \
 SCRAPER_SRC="$temp_dir/scraper-src" \
 docker compose -f "$ROOT/docker-compose.box.yml" config --quiet
 
 POSTGRES_PASSWORD=baseline-check \
 GMAPS_RO_PASSWORD=baseline-readonly \
 HASHID_SALT=baseline-hash \
-DASH_PASSWORD=baseline-dashboard \
+JAWNIX_SCRAPER_CONTROL_TOKEN=baseline-scraper-control-token-0000000000000000 \
+SCRAPER_CONTROL_BIND_ADDRESS=127.0.0.1 \
 SCRAPER_SRC="$temp_dir/scraper-src" \
 GMS_GO_BUILD_FLAGS="-p=1 -gcflags=all=-l" \
 GMS_GOGC=10 \
-docker compose -f "$ROOT/docker-compose.box.yml" build dashboard worker
+docker compose -f "$ROOT/docker-compose.box.yml" build scraper-control worker
 
 echo "Scraper source baseline verified."

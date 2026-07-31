@@ -38,11 +38,15 @@ def test_systemd_states(monkeypatch):
 def test_uptime_probe_success_and_failure(monkeypatch):
     sent = []
     monkeypatch.setattr(uptime, "HEARTBEAT_URL", "https://example.test/heartbeat/token")
-    monkeypatch.setattr(uptime, "CHECKS", (("dashboard", "http://local/healthz", None),))
+    monkeypatch.setattr(
+        uptime,
+        "CHECKS",
+        (("scraper control", "http://local/healthz", "token", True),),
+    )
     monkeypatch.setattr(uptime, "request_ok", lambda *args: (True, "ok"))
     monkeypatch.setattr(uptime, "send_heartbeat", lambda url, failures: sent.append(failures) or True)
     assert uptime.main() == 0
     assert sent == [[]]
     monkeypatch.setattr(uptime, "request_ok", lambda *args: (False, "connection refused"))
     assert uptime.main() == 1
-    assert sent[-1] == ["dashboard: connection refused"]
+    assert sent[-1] == ["scraper control: connection refused"]

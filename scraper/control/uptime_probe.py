@@ -11,16 +11,22 @@ from urllib.request import Request, urlopen
 
 HEARTBEAT_URL = os.environ.get("UPTIME_HEARTBEAT_URL", "").strip()
 API_KEY = os.environ.get("API_KEY", "")
+CONTROL_TOKEN = os.environ.get("JAWNIX_SCRAPER_CONTROL_TOKEN", "")
 CHECKS = (
-    ("dashboard/database", os.environ.get("DASHBOARD_HEALTH_URL", "http://127.0.0.1:8090/healthz"), None),
-    ("queue API", os.environ.get("QUEUE_API_URL", "http://127.0.0.1:8080/api/v1/jobs"), API_KEY),
+    ("scraper control/database", os.environ.get("SCRAPER_CONTROL_HEALTH_URL", "http://127.0.0.1:8090/healthz"), CONTROL_TOKEN, True),
+    ("queue API", os.environ.get("QUEUE_API_URL", "http://127.0.0.1:8080/api/v1/jobs"), API_KEY, False),
 )
 
 
-def request_ok(url: str, api_key: str | None = None) -> tuple[bool, str]:
+def request_ok(
+    url: str, credential: str | None = None, bearer: bool = False
+) -> tuple[bool, str]:
     request = Request(url)
-    if api_key:
-        request.add_header("X-API-Key", api_key)
+    if credential:
+        request.add_header(
+            "Authorization" if bearer else "X-API-Key",
+            f"Bearer {credential}" if bearer else credential,
+        )
     try:
         with urlopen(request, timeout=10) as response:
             if 200 <= response.status < 300:
@@ -51,8 +57,8 @@ def main() -> int:
         print("uptime heartbeat disabled: UPTIME_HEARTBEAT_URL is not set")
         return 0
     failures = []
-    for name, url, api_key in CHECKS:
-        healthy, detail = request_ok(url, api_key)
+    for name, url, credential, bearer in CHECKS:
+        healthy, detail = request_ok(url, credential, bearer)
         if not healthy:
             failures.append(f"{name}: {detail}")
     delivered = send_heartbeat(HEARTBEAT_URL, failures)
