@@ -40,6 +40,7 @@ from .admin_mfa_api import (
 from .auth import Principal, require_admin
 from .config import Settings, get_settings
 from .database import get_db
+from .keyword_history import observe_keyword_history
 from .mfa_provider import MFAProviderError, get_mfa_provider
 from .models import ScraperRuntimeConfigurationRevision
 from .schemas import AdminMFAChallenge
@@ -1236,6 +1237,7 @@ async def scraper_keyword_workspace(
     response: Response,
     principal: Principal = Depends(require_admin),
     settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
 ):
     """Project every current keyword read without moving ownership to Jawnix."""
 
@@ -1249,6 +1251,20 @@ async def scraper_keyword_workspace(
     except ScraperOperationsError:
         return _keyword_workspace_unavailable(request, settings)
     _mark_operations_success(request, settings)
+    observed_at = _workspace_now(request)
+    observe_keyword_history(
+        db,
+        workspace.current,
+        origin="active_list",
+        observed_at=observed_at,
+    )
+    observe_keyword_history(
+        db,
+        (winner.keyword for winner in winners),
+        origin="winner",
+        observed_at=observed_at,
+    )
+    db.commit()
     proxy_state = _state(request, settings)
     return KeywordWorkspace(
         service_state="connected",
@@ -1437,6 +1453,12 @@ async def save_scraper_keywords(
 
         _mark_operations_success(request, settings)
         next_version = keyword_version(diff.proposed)
+        observe_keyword_history(
+            db,
+            diff.proposed,
+            origin="accepted_save",
+            observed_at=_workspace_now(request),
+        )
         record_activity(
             db,
             action="scraper_keywords_saved",

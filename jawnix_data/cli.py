@@ -20,6 +20,7 @@ from jawnix.models import Agent, CustomerProfile, DistributionEvent, Lead, LeadR
 from jawnix.states import normalize_states
 
 from .migration import import_agent_config, import_distribution_history, import_manifest, import_scraper_sqlite, import_supabase_jsonl
+from .keyword_history import import_keyword_history
 from .scraper import sync_scraper
 from .restore import validate_or_replay_restored_dataset
 from .configuration import prepare_agent_config
@@ -197,6 +198,17 @@ def import_manifest_command(path: Path, expected_sha256: str = ""):
 def import_scraper_command(path: Path, expected_sha256: str = ""):
     with SessionLocal.begin() as session:
         emit(import_scraper_sqlite(session, path, expected_sha256 or None))
+
+
+@app.command("import-keyword-history")
+def import_keyword_history_command(
+    path: Path,
+    expected_sha256: str = "",
+):
+    """Import the legacy Scraper keyword-history union into Jawnix."""
+
+    with SessionLocal.begin() as session:
+        emit(import_keyword_history(session, path, expected_sha256 or None))
 
 
 @app.command("import-supabase")
