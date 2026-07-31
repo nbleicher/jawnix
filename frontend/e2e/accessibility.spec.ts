@@ -134,6 +134,16 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
 
     expect(results.violations).toEqual([]);
   });
+
+  test("the design-system gallery is clean in the Opaline theme too", async ({ page }) => {
+    await page.goto("./design-system");
+    await page.getByRole("button", { name: "Opaline" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
+
+    expect(results.violations).toEqual([]);
+  });
 });
 
 test.describe("Landmarks", () => {

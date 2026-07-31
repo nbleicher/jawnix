@@ -101,6 +101,7 @@ describe("CustomerOverviewRoute", () => {
     expect(
       screen.getByRole("link", { name: "Submit Lead Feedback" }),
     ).toHaveAttribute("href", "/app/feedback");
+    expect(document.querySelector(".jx-page")).toHaveClass("jx-page--data");
     expect(document.body).not.toHaveTextContent("waiting_inventory");
   });
 

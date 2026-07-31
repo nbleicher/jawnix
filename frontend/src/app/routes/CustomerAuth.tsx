@@ -31,7 +31,7 @@ const INVITATION_ERROR =
   "This invitation cannot be used. Ask your administrator for a new invitation, or sign in if you already set your password.";
 
 function AuthRouteFrame({ children }: { children: ReactNode }) {
-  useRouteTheme("jawnix");
+  useRouteTheme("opaline");
 
   return (
     <div className="jx-auth-route">

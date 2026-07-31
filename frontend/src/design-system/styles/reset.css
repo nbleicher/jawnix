@@ -40,6 +40,16 @@ dd {
   margin: 0;
 }
 
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--jx-font-display);
+  font-optical-sizing: auto;
+}
+
 ul[class],
 ol[class] {
   margin: 0;

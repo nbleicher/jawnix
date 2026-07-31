@@ -49,19 +49,25 @@ src/
 
 ## Themes
 
-Two themes resolve one token contract, so every primitive is written once:
+Three themes resolve one token contract, so every primitive is written once:
 
-- **`jawnix`** — the navy/blue product language (light).
+- **`jawnix`** — the navy/blue administration language (light).
+- **`opaline`** — the customer portal's dark ember/indigo identity.
 - **`terminal`** — the dark GMS/OPS acquisition workspace, mono-first.
 
-`AdminShell` switches to `terminal` on entry to Acquisition and back on exit, so
-an operator never sets it by hand.
+Customer and authentication routes declare `opaline`. `AdminShell` switches to
+`terminal` on entry to Acquisition and back on exit, so nobody sets a product
+theme by hand.
+
+Fraunces is self-hosted as the shared display face for headings and deliberate
+numeric metrics. Interface copy stays in the sans stack, identifiers stay
+monospaced, and the terminal workspace keeps its mono-first typography.
 
 ## Accessibility
 
 Target is WCAG 2.2 AA. `e2e/accessibility.spec.ts` runs an axe sweep over every
 route — each in the theme that route uses, plus the design-system gallery in
-both — and asserts the parts axe cannot see: skip-link order, dialog focus
+all three — and asserts the parts axe cannot see: skip-link order, dialog focus
 containment and restoration, 44px touch targets on gallery controls and
 navigation links, visible focus, and reduced-motion behaviour.
 

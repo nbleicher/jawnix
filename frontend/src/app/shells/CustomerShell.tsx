@@ -17,8 +17,8 @@ const DESTINATIONS: NavigationDestination[] = [
 ];
 
 export function CustomerShell() {
-  // The Customer portal is always the product language.
-  useRouteTheme("jawnix");
+  // The Customer portal is always the Opaline product language.
+  useRouteTheme("opaline");
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
 

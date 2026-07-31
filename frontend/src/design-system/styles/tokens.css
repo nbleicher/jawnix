@@ -1,9 +1,10 @@
 /*
  * Jawnix design tokens.
  *
- * Two themes share one token contract, so every primitive is written once and
+ * Three themes share one token contract, so every primitive is written once and
  * re-themed by swapping `data-theme` on <html>:
  *   - `jawnix`   — the main navy/blue product language (light).
+ *   - `opaline`  — the customer portal's dark ember/indigo identity.
  *   - `terminal` — the dark GMS/OPS acquisition workspace.
  *
  * Every foreground/background pair below meets WCAG 2.2 AA (4.5:1 for body
@@ -16,6 +17,21 @@
   --jx-font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
   --jx-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --jx-font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
+
+  /* Opaline's interference colors are identity tokens, not general-purpose
+     decoration. Use them for statuses and deliberate special moments only. */
+  --jx-color-film-amber: #ffaa2e;
+  --jx-color-film-magenta: #ef4fd8;
+  --jx-color-film-cyan: #3fd2ff;
+  --jx-color-film-blue: #2130e8;
+  --jx-gradient-film: linear-gradient(
+    110deg,
+    var(--jx-color-film-amber),
+    var(--jx-color-film-magenta),
+    var(--jx-color-film-cyan),
+    var(--jx-color-film-blue)
+  );
 
   /* Type scale — 1.200 minor third off a 16px base, expressed in rem so it
      scales with user font-size preferences (WCAG 1.4.4). */
@@ -76,9 +92,63 @@
 }
 
 /* --------------------------------------------------------------------------
+ * Opaline theme (dark) — customer-facing ember and indigo surfaces.
+ *
+ * The film cyan remains #3fd2ff. It is paired with near-black text when used
+ * as a fill (11.1:1) and clears AA as text on every surface (11.2:1 on the
+ * darkest ember). Status foregrounds are lifted where the exact interference
+ * stop would not clear AA; the exact ramp remains available above for borders,
+ * gradients, and other non-text special moments.
+ * ------------------------------------------------------------------------ */
+[data-theme="opaline"] {
+  color-scheme: dark;
+
+  --jx-font-body: var(--jx-font-sans);
+
+  --jx-color-page: #03040c;
+  --jx-color-surface: #12060d;
+  --jx-color-surface-strong: #191124;
+  --jx-color-surface-recessed: #08050e;
+
+  --jx-color-border: #342338;
+  --jx-color-border-strong: #5a405c;
+
+  /* 15.3:1 on surface */
+  --jx-color-text: #e8dfe8;
+  /* 18.1:1 on surface */
+  --jx-color-text-strong: #f8f3f8;
+  /* 8.7:1 on surface */
+  --jx-color-text-muted: #b5a7b7;
+
+  /* 11.2:1 on surface; filled controls use 11.1:1 near-black copy. */
+  --jx-color-accent: #3fd2ff;
+  --jx-color-accent-strong: #78e0ff;
+  --jx-color-accent-soft: #08232d;
+  --jx-color-accent-contrast: #070c16;
+
+  /* The semantic status family is the Opaline interference ramp. */
+  --jx-color-success: #3fd2ff;
+  --jx-color-success-soft: #08232d;
+  --jx-color-warning: #ffaa2e;
+  --jx-color-warning-soft: #2a1806;
+  --jx-color-danger: #ff7de6;
+  --jx-color-danger-soft: #2b1029;
+  --jx-color-info: #3fd2ff;
+  --jx-color-info-soft: #08232d;
+  --jx-color-neutral: #aeb4ff;
+  --jx-color-neutral-soft: #11164a;
+
+  --jx-color-focus-ring: #3fd2ff;
+  --jx-color-overlay: rgba(3, 4, 12, 0.82);
+
+  --jx-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.66), 0 8px 24px -12px rgba(33, 48, 232, 0.28);
+  --jx-shadow-lg: 0 28px 64px -28px rgba(0, 0, 0, 0.92), 0 12px 32px -18px rgba(239, 79, 216, 0.32);
+}
+
+/* --------------------------------------------------------------------------
  * Jawnix theme (light) — navy and blue core brand.
  * ------------------------------------------------------------------------ */
-:root,
+:root:not([data-theme]),
 [data-theme="jawnix"] {
   color-scheme: light;
 
@@ -132,6 +202,7 @@
   color-scheme: dark;
 
   --jx-font-body: var(--jx-font-mono);
+  --jx-font-display: var(--jx-font-mono);
 
   --jx-color-page: #04070a;
   --jx-color-surface: #0a1014;

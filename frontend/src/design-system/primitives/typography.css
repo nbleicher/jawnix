@@ -77,6 +77,12 @@
   word-break: break-word;
 }
 
+.jx-numeral {
+  font-family: var(--jx-font-display);
+  font-optical-sizing: auto;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
 .jx-visually-hidden {
   position: absolute;
   width: 1px;

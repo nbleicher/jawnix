@@ -7,6 +7,7 @@ import type { GallerySection } from "./gallery/types";
 
 const THEMES: { value: Theme; label: string }[] = [
   { value: "jawnix", label: "Jawnix" },
+  { value: "opaline", label: "Opaline" },
   { value: "terminal", label: "Terminal" },
 ];
 
@@ -55,7 +56,7 @@ export function DesignSystemRoute() {
   return (
     <Page
       title="Design system"
-      description="Every shell primitive, in both themes. Used as the accessibility and visual-regression fixture."
+      description="Every shell primitive, in all three themes. Used as the accessibility and visual-regression fixture."
       actions={
         <Cluster gap={2}>
           {THEMES.map((option) => (
