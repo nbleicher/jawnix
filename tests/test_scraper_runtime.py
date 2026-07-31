@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import uuid
 
-import httpx
 from sqlalchemy import func, select
 
 from jawnix.api import app
@@ -26,7 +25,7 @@ from test_scraper_workspace import (  # noqa: F401 — shared fixtures
 
 
 def arm(fake: ScraperFake) -> ScraperFake:
-    app.state.scraper_proxy_transport = httpx.MockTransport(fake)
+    app.state.scraper_operations = fake
     return fake
 
 
@@ -87,19 +86,19 @@ def test_campaign_history_preserves_filters_sort_and_row_detail(
             "campaign_date": "Jul 29, 2026",
         }
     ]
-    call = fake.calls[-1]
-    assert call.url.path == "/frag/history/table"
-    assert call.url.params["search"] == "farm"
-    assert call.url.params["state"] == "ky"
-    assert call.url.params["sort"] == "cells_posted"
-    assert call.url.params["direction"] == "asc"
+    assert fake.history_calls[-1] == {
+        "search": "farm",
+        "state": "ky",
+        "sort": "cells_posted",
+        "direction": "asc",
+    }
 
 
 def test_campaign_history_rejects_invalid_filters_before_upstream(
     workspace_client,
 ):
     client, _, fake = privileged(workspace_client)
-    calls = len(fake.calls)
+    calls = len(fake.operation_calls)
 
     invalid_state = client.get(
         "/api/admin/scraper/history",
@@ -112,7 +111,7 @@ def test_campaign_history_rejects_invalid_filters_before_upstream(
 
     assert invalid_state.status_code == 422
     assert invalid_sort.status_code == 422
-    assert len(fake.calls) == calls
+    assert len(fake.operation_calls) == calls
 
 
 def test_runtime_workspace_keeps_current_controls_and_bounds(
@@ -201,7 +200,7 @@ def test_runtime_validation_keeps_current_bounds_and_cross_field_rules(
 
     assert response.status_code == 422
     assert fake.runtime_writes == []
-    assert all(call.url.path != "/configure/preview" for call in fake.calls)
+    assert "runtime_preview" not in fake.operation_calls
 
 
 def test_save_requires_a_review_of_the_exact_configuration(
@@ -259,8 +258,8 @@ def test_reviewed_save_preserves_enqueue_and_journals_safe_activity(
     assert body["enqueued"] is True
     assert body["configuration"] == proposal
     assert fake.runtime == proposal
-    assert fake.runtime_writes[0]["states"] == ["oh", "pa"]
-    assert fake.runtime_writes[0]["enqueue"] == ["true"]
+    assert fake.runtime_writes[0]["configuration"]["states"] == ["OH", "PA"]
+    assert fake.runtime_writes[0]["enqueue"] is True
     revision = session.scalars(
         select(ScraperRuntimeConfigurationRevision)
     ).one()
@@ -460,4 +459,4 @@ def test_every_history_and_runtime_route_requires_privileged_session(
     ]
 
     assert [response.status_code for response in requests] == [401] * 4
-    assert fake.calls == []
+    assert fake.operation_calls == []
