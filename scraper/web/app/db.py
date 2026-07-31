@@ -11,14 +11,14 @@ async def create_pools(app) -> None:
         min_size=1,
         max_size=8,
         command_timeout=settings.db_command_timeout,
-        server_settings={"application_name": "gms-dashboard-ro"},
+        server_settings={"application_name": "scraper-control-ro"},
     )
     app.state.pool_rw = await asyncpg.create_pool(
         settings.database_url,
         min_size=1,
         max_size=2,
         command_timeout=settings.db_command_timeout,
-        server_settings={"application_name": "gms-dashboard-rw"},
+        server_settings={"application_name": "scraper-control-rw"},
     )
 
 

@@ -21,6 +21,10 @@ class ControlBridge:
         self.export_leads = self._load_module(
             "gms_control_export_leads", settings.control_dir / "export_leads.py"
         )
+        self.source_segments = self._load_module(
+            "gms_control_source_segments",
+            settings.control_dir / "source_segments.py",
+        )
 
     @staticmethod
     def _load_module(name: str, path: Path):
@@ -68,6 +72,24 @@ class ControlBridge:
         if not self.settings.keywords_path.exists():
             return []
         return self.parse_keywords(self.settings.keywords_path.read_text(encoding="utf-8"))
+
+    def load_source_segments(self):
+        return self.source_segments.materialize_legacy(
+            self.settings.source_segments_path,
+            states=self.active_states(),
+            keywords=self.load_keywords(),
+        )
+
+    async def write_source_segments(self, version: int, segments: list) -> None:
+        path = self.settings.source_segments_path
+        lock = _locks.setdefault(path, asyncio.Lock())
+        async with lock:
+            current_version, _ = self.load_source_segments()
+            if version != current_version + 1:
+                raise ValueError(
+                    "Source Segment version must compare-and-set the current version."
+                )
+            self.source_segments.write(path, version, segments)
 
     async def atomic_write(self, path: Path, content: str, yaml_check: bool = False) -> None:
         lock = _locks.setdefault(path, asyncio.Lock())

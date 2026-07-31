@@ -1,1 +1,1 @@
-"""GMS operations dashboard."""
+"""Headless Scraper control service."""

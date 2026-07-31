@@ -12,11 +12,16 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://postgres:postgres@localhost:5432/gmaps_pro"
     database_url_ro: Optional[str] = None
-    dash_password: str = Field(default="change-me", min_length=1)
-    dash_username: str = "operator"
+    scraper_control_token: SecretStr = Field(
+        validation_alias="JAWNIX_SCRAPER_CONTROL_TOKEN",
+        min_length=32,
+    )
     control_dir: Path = Path("/app/control")
     keywords_path: Path = Path("/app/keywords.txt")
     active_states_path: Path = Path("/app/control/active_states.yaml")
+    source_segments_path: Path = Path(
+        "/app/control/runtime/source_segments.yaml"
+    )
     exports_dir: Path = Path("/app/exports/by_state")
     worker_stale_secs: int = 180
     expected_workers: int = 8

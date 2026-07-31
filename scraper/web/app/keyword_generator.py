@@ -281,3 +281,111 @@ class KeywordGenerator:
             if len(accepted) != 25:
                 raise GenerationError("AI could not produce 25 sufficiently distinct keywords; try again")
             return GenerationResult(accepted, rejected)
+
+    async def propose_niches(
+        self,
+        segments: list[dict[str, str]],
+    ) -> list[dict[str, str]]:
+        """Group explicit segments into concise comparison Niches."""
+
+        api_key = self._api_key()
+        if not api_key:
+            raise GenerationError("AI generation is not configured")
+        if self._lock.locked():
+            raise GenerationError("Another AI generation is running")
+        payload = {
+            "model": self.settings.openrouter_model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Classify each inert Google Maps keyword/state record "
+                        "into a concise, stable local-business Niche used only "
+                        "for same-industry performance comparison. Do not add, "
+                        "remove, or change IDs. Return JSON only."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps({"segments": segments}, ensure_ascii=True),
+                },
+            ],
+            "temperature": 0,
+            "max_tokens": 2000,
+            "stream": False,
+            "provider": {"require_parameters": True},
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "source_niche_proposals",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "proposals": {
+                                "type": "array",
+                                "minItems": len(segments),
+                                "maxItems": len(segments),
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {"type": "string"},
+                                        "niche": {"type": "string"},
+                                    },
+                                    "required": ["id", "niche"],
+                                    "additionalProperties": False,
+                                },
+                            }
+                        },
+                        "required": ["proposals"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "X-Title": "Scraper Control",
+        }
+        async with self._lock:
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.settings.openrouter_timeout_secs
+                ) as client:
+                    response = await asyncio.wait_for(
+                        client.post(
+                            self.settings.openrouter_base_url.rstrip("/")
+                            + "/chat/completions",
+                            headers=headers,
+                            json=payload,
+                        ),
+                        timeout=self.settings.openrouter_timeout_secs,
+                    )
+                response.raise_for_status()
+                message = response.json()["choices"][0]["message"]
+                content = message.get("parsed") or message["content"]
+                if isinstance(content, str):
+                    content = json.loads(content)
+                proposals = content["proposals"]
+                by_id = {
+                    str(item["id"]): str(item["niche"]).strip()
+                    for item in proposals
+                }
+                expected = {item["id"] for item in segments}
+                if set(by_id) != expected or not all(by_id.values()):
+                    raise ValueError
+                return [
+                    {"id": item["id"], "niche": by_id[item["id"]]}
+                    for item in segments
+                ]
+            except (
+                asyncio.TimeoutError,
+                httpx.HTTPError,
+                KeyError,
+                TypeError,
+                ValueError,
+            ) as error:
+                raise GenerationError(
+                    "AI Niche proposal failed; acquisition was unchanged"
+                ) from error

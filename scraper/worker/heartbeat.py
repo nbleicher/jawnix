@@ -332,7 +332,7 @@ def collect_and_store(conn) -> dict:
             (BOX_ID, int(float(Path("/proc/uptime").read_text().split()[0])), cpu_percent(),
              os.getloadavg()[0], memory_used, memory_total, disk.used, disk.total,
              spool_pending, spool_oldest, EXPECTED_WORKERS, running_workers, unhealthy_workers,
-             restart_count, container_service_health("dashboard"), queue_api_ok(),
+             restart_count, container_service_health("scraper-control"), queue_api_ok(),
              required_services_ok, Json(services), metrics["queue_depth"], metrics["running_jobs"],
              metrics["retryable_jobs"], metrics["oldest_queue_seconds"],
              metrics["businesses_total"], metrics["completed_jobs_total"], metrics["empty_rate_1h"]),
