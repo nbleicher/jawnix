@@ -473,3 +473,48 @@ for future migrations or a repeated cutover after rollback.
 6. Preserve the VPS database and logs for reconciliation; do not merge them back into Supabase automatically.
 
 The VPS migration is additive. Rollback does not overwrite or delete old Supabase application data.
+
+## UI cutover (#71)
+
+Activates the redesigned React shell (`/app`) as the production UI and retires
+the legacy static pages. This is a flag flip, not a data migration: the #61
+User Account migration is not run (see #70/#71 — ~10 people are invited
+manually through the administrator screens), so the only irreversible-feeling
+step here is customer impressions, not data.
+
+Preflight:
+
+1. Verify the latest database backup and Restic snapshot per "Backup
+   verification and external copy". The flag change needs no data way back,
+   but do not cut over without a verified backup regardless.
+2. Confirm both redirect URLs are allow-listed in Supabase Auth:
+   `$JAWNIX_PUBLIC_BASE_URL/portal-accept.html` and
+   `$JAWNIX_PUBLIC_BASE_URL/app/accept-invitation`. Keep both until
+   retirement; this is what preserves rollback for outstanding invitations.
+3. Confirm `jawnix-cutover-monitor.timer` is active.
+
+Cutover:
+
+1. Set `JAWNIX_ENABLE_NEW_UI=true` in `/srv/jawnix/.env`.
+2. `docker compose up -d api caddy` — both containers must be recreated: api
+   serves the shell from the flag, and Caddy substitutes it at parse time to
+   enable the legacy-URL redirects (`/`, `/login[.html]`, `/portal[.html]`,
+   `/portal-accept.html`, `/admin.html` → `/app/...`, all 302).
+3. Smoke-verify in production: sign-in at `/app/sign-in`; each legacy URL
+   redirects; Customer Overview, Batch Request submission, Telegram approval,
+   delivery email, Customer Feedback; administrator MFA challenge and each
+   admin destination; Scraper step-up and workspace against the live private
+   service; `/app` hard-refresh on a deep route.
+4. Monitor per the cutover-monitoring section for 48 hours.
+
+Rollback (available through the stabilization period):
+
+1. Set `JAWNIX_ENABLE_NEW_UI=false` in `/srv/jawnix/.env`.
+2. `docker compose up -d api caddy`. The static pages answer again at their
+   original URLs; `/app` returns 404. All redirects were 302, so no browser
+   has cached the cutover.
+
+Retirement of the static pages (deleting them from the image and Compose bind
+mounts, and removing `/portal-accept.html` from Supabase) happens only after
+the stabilization criteria in #71 are met and explicitly approved — it is a
+separate change, not part of the flip.

@@ -174,7 +174,7 @@ A legacy-compatible append-only Customer feedback record attached to a specific 
 _Avoid_: Lead status, CRM record
 
 **Customer Feedback**:
-The single-phone Customer workflow for finding the Customer's most recent Distribution Event for that delivered phone, confirming the business, phone, delivery date, and Batch, then recording one Lead Disposition and an optional independent Quality Rating. A failed lookup always returns the same response whether the phone is invalid, absent, or belongs to another Customer, and the workflow does not support bulk entry.
+The Customer workflow for recording one Lead Disposition and an optional independent Quality Rating against the Customer's most recent Distribution Event for a delivered phone, after confirming the business, phone, delivery date, and Batch. Entry is a typed phone lookup or a scoped search within one of the Customer's own delivered batches. A failed lookup always returns the same response whether the phone is invalid, absent, or belongs to another Customer, and the workflow does not support bulk entry.
 _Avoid_: Inventory search, bulk feedback, CRM workflow
 
 **Lead Disposition**:
@@ -218,8 +218,8 @@ A Batch Request withdrawn before any Distribution Event commits. Cancellation is
 _Avoid_: Voided batch, delivery failure
 
 **Batch Artifact**:
-The exact CSV materialization of a fulfilled Batch Request. Its file expires after 30 days while its internal history remains permanent; an administrator may regenerate the exact file through an audited action, starting a new 30-day retention period.
-_Avoid_: Batch request, distribution history
+The exact CSV materialization of a fulfilled Batch Request. The Customer retrieves the live file self-serve from the portal, while email notifies of delivery rather than carrying it. Its file expires after 30 days while its internal history remains permanent; an administrator may regenerate the exact file through an audited action, starting a new 30-day retention period.
+_Avoid_: Batch request, distribution history, email delivery
 
 **Inventory Conflict**:
 A situation where an older Batch Request cannot be fulfilled but a newer request could consume Leads eligible for both requests. One pending operator decision may authorize one attempt against the current inventory snapshot; denial or silence keeps the newer request waiting, and the conflict may recur only after a material change.

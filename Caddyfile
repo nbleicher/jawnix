@@ -53,6 +53,40 @@
 		reverse_proxy api:8001
 	}
 
+	# UI cutover (#71): with JAWNIX_ENABLE_NEW_UI=true the legacy static pages
+	# hand their URLs to the React shell. `{$VAR}` is substituted when Caddy
+	# parses the config, so flipping the flag means restarting this container
+	# (and api) with the new env — which is also the whole rollback: set it
+	# false again and the static UI below answers untouched. 302, not 308, so
+	# no browser caches a redirect across a rollback. portal-accept keeps its
+	# query string because invitation links may carry `?code=`; Supabase hash
+	# fragments survive any redirect on their own.
+	@newui_root {
+		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
+		path / /index.html
+	}
+	redir @newui_root /app/ 302
+	@newui_login {
+		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
+		path /login.html /login
+	}
+	redir @newui_login /app/sign-in 302
+	@newui_portal {
+		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
+		path /portal.html /portal
+	}
+	redir @newui_portal /app/ 302
+	@newui_accept {
+		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
+		path /portal-accept.html
+	}
+	redir @newui_accept /app/accept-invitation?{query} 302
+	@newui_admin {
+		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
+		path /admin.html
+	}
+	redir @newui_admin /app/admin 302
+
 	redir / /login.html 302
 	redir /index.html /login.html 302
 	redir /login /login.html 308
