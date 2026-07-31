@@ -23,6 +23,7 @@ import { AuthPanel } from "../../design-system/primitives/auth";
 import { Field, Input } from "../../design-system/primitives/form";
 import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
+import { OpalineScene } from "./opaline/OpalineScene";
 import "./CustomerAuth.css";
 
 const SIGN_IN_ERROR =
@@ -30,18 +31,31 @@ const SIGN_IN_ERROR =
 const INVITATION_ERROR =
   "This invitation cannot be used. Ask your administrator for a new invitation, or sign in if you already set your password.";
 
-function AuthRouteFrame({ children }: { children: ReactNode }) {
+function AuthRouteFrame({
+  children,
+  scenePaused = false,
+}: {
+  children: ReactNode;
+  scenePaused?: boolean;
+}) {
   useRouteTheme("opaline");
+  const [sceneInteracting, setSceneInteracting] = useState(false);
 
   return (
     <div className="jx-auth-route">
+      <OpalineScene paused={scenePaused || sceneInteracting} />
       <a className="jx-auth-route__skip-link" href="#jx-auth-main">
         Skip to main content
       </a>
       <header className="jx-auth-route__banner">
         <span className="jx-auth-route__brand">Jawnix</span>
       </header>
-      <main className="jx-auth-route__main" id="jx-auth-main" tabIndex={-1}>
+      <main
+        className="jx-auth-route__main"
+        id="jx-auth-main"
+        onFocusCapture={() => setSceneInteracting(true)}
+        tabIndex={-1}
+      >
         {children}
       </main>
     </div>
@@ -98,7 +112,7 @@ export function SignInRoute() {
   }
 
   return (
-    <AuthRouteFrame>
+    <AuthRouteFrame scenePaused={busy}>
       <AuthPanel
         title="Sign in"
         description="Use the email address and password for your Customer account."
@@ -218,7 +232,7 @@ export function AcceptInvitationRoute() {
   }
 
   return (
-    <AuthRouteFrame>
+    <AuthRouteFrame scenePaused={busy}>
       <AuthPanel
         title="Create your password"
         description="Finish accepting your invitation. Your administrator cannot see or set this password."
