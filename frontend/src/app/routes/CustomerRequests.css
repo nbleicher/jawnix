@@ -120,3 +120,10 @@
 .request-card__note--success {
   border-inline-start-color: var(--jx-color-success);
 }
+
+.request-artifact-slot {
+  padding: var(--jx-space-5);
+  border: 1px dashed var(--jx-color-border-strong);
+  border-radius: var(--jx-radius-lg);
+  background: var(--jx-color-surface-recessed);
+}

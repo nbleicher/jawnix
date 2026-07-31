@@ -10,6 +10,10 @@ import {
 import { mockActivity } from "./activity-fixtures";
 import { mockFeedback } from "./customer-feedback-fixtures";
 import { mockCustomerAuth } from "./customer-auth-fixtures";
+import {
+  WAITING_REQUEST,
+  mockBatchRequests,
+} from "./customer-requests-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import {
   CONFLICT_ID,
@@ -33,6 +37,7 @@ const ROUTES = [
   "./accept-invitation",
   "./overview",
   "./requests",
+  `./requests?request=${WAITING_REQUEST.id}`,
   "./feedback",
   "./account",
   "./admin/overview",
@@ -69,6 +74,7 @@ test.beforeEach(async ({ page }) => {
   await mockAcquisition(page);
   await mockFeedback(page);
   await mockCustomerAuth(page);
+  await mockBatchRequests(page);
   await mockAdminCustomers(page, { pendingInvitation: true });
   await mockFulfillment(page);
   await mockLeadReports(page);
