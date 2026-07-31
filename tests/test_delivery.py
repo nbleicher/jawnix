@@ -57,6 +57,9 @@ def test_delivery_retry_reuses_artifact_and_resend_idempotency(session, settings
     assert captured["headers"]["Idempotency-Key"] == f"jawnix-batch/{request.id}"
     assert str(request.id) in captured["json"]["subject"]
     assert f"Batch Request: {request.id}" in captured["json"]["text"]
+    assert "ready in the customer portal" in captured["json"]["text"]
+    assert "30-day retention period" in captured["json"]["text"]
+    assert "attachments" not in captured["json"]
     assert (
         f"http://localhost:8080/app/requests?request={request.id}"
         in captured["json"]["text"]

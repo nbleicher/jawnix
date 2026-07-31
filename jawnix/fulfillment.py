@@ -81,7 +81,7 @@ class FulfillmentAction:
     label: str
     #: Plain-language statement of what happens, shown as the confirmation
     #: dialog's description. Required by ConfirmDialog, and the thing that
-    #: keeps Retry delivery and Retry generation from reading alike.
+    #: keeps Retry notification and Retry generation from reading alike.
     consequence: str
     #: Statuses the underlying transition accepts. Empty for actions that are
     #: not status transitions (regeneration rebuilds a file and leaves the
@@ -127,10 +127,11 @@ RETRY = FulfillmentAction(
 
 RETRY_DELIVERY = FulfillmentAction(
     name="retry_delivery",
-    label="Retry delivery",
+    label="Retry notification",
     consequence=(
-        "Emails the exact existing Batch Artifact again. Nothing is "
-        "reallocated and the delivered Leads do not change."
+        "Emails another portal notification for the exact existing Batch "
+        "Artifact. Nothing is reallocated and the delivered Leads do not "
+        "change."
     ),
     from_statuses=frozenset({RequestStatus.failed.value}),
     # There is nothing to resend without one.

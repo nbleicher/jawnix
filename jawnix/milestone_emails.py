@@ -3,7 +3,8 @@
 The fulfillment state machine moves through more states than a Customer needs
 in their inbox. This module is the allow-list: approval, Waiting for Inventory,
 rejection, and failure receive a concise email; delivery remains the existing
-Batch Artifact email so its durable retry behavior stays authoritative.
+durably retried notification job, now pointing to the portal rather than
+carrying the Batch Artifact itself.
 
 Jobs and Resend use the same request/milestone identity. The job lookup avoids
 queue churn when a status is processed repeatedly, while Resend's idempotency

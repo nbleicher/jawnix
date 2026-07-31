@@ -121,9 +121,37 @@
   border-inline-start-color: var(--jx-color-success);
 }
 
-.request-artifact-slot {
+.request-artifact {
   padding: var(--jx-space-5);
-  border: 1px dashed var(--jx-color-border-strong);
+  border: 1px solid var(--jx-color-success);
   border-radius: var(--jx-radius-lg);
   background: var(--jx-color-surface-recessed);
+}
+
+.request-artifact--unavailable {
+  border-color: var(--jx-color-warning);
+}
+
+.request-artifact__metadata {
+  display: grid;
+  gap: var(--jx-space-4);
+  grid-template-columns: minmax(0, 2fr) minmax(7rem, 1fr);
+}
+
+.request-artifact__metadata div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+  min-width: 0;
+}
+
+.request-artifact__metadata dd {
+  color: var(--jx-color-text-strong);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 32rem) {
+  .request-artifact__metadata {
+    grid-template-columns: 1fr;
+  }
 }

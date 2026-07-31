@@ -64,6 +64,14 @@ export interface RequestAction {
   href: string;
 }
 
+export interface BatchArtifact {
+  filename: string;
+  row_count: number;
+  expires_at: string | null;
+  available: boolean;
+  download_href: string | null;
+}
+
 export interface BatchRequest {
   id: string;
   lead_count: number;
@@ -75,6 +83,7 @@ export interface BatchRequest {
   can_cancel: boolean;
   next_action: RequestAction | null;
   receipt_href: string;
+  artifact: BatchArtifact | null;
 }
 
 export interface RequestLimits {

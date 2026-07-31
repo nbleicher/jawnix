@@ -22,6 +22,7 @@ import { StatusBadge } from "../../design-system/primitives/status";
 import {
   Heading,
   LabelText,
+  Mono,
   Text,
   VisuallyHidden,
 } from "../../design-system/primitives/typography";
@@ -34,6 +35,7 @@ import {
   submitBatchRequest,
 } from "./batchRequests";
 import type {
+  BatchArtifact,
   BatchRequest,
   BatchRequestReceipt,
   BatchRequestWorkspace,
@@ -69,6 +71,25 @@ export const ACTIVE_REQUEST_REFRESH_MS = 10_000;
  * their own. Everything else is still moving through fulfillment. */
 export function isRequestSettled(request: BatchRequest): boolean {
   return request.delivered_at !== null || request.milestones.outcome !== null;
+}
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+export function formatArtifactExpiry(expiresAt: string, now: number): string {
+  const remaining = Date.parse(expiresAt) - now;
+  if (remaining <= 0) return "Expired — contact us";
+  if (remaining >= DAY_MS) {
+    const days = Math.ceil(remaining / DAY_MS);
+    return `Expires in ${days} ${days === 1 ? "day" : "days"}`;
+  }
+  if (remaining >= HOUR_MS) {
+    const hours = Math.ceil(remaining / HOUR_MS);
+    return `Expires in ${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
+  const minutes = Math.max(1, Math.ceil(remaining / MINUTE_MS));
+  return `Expires in ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
 }
 
 // --- The guided flow --------------------------------------------------------
@@ -428,6 +449,92 @@ function RequestFlow({
 
 // --- Submitted requests -----------------------------------------------------
 
+function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!artifact?.available) return;
+    const interval = window.setInterval(() => setNow(Date.now()), MINUTE_MS);
+    return () => window.clearInterval(interval);
+  }, [artifact?.available]);
+
+  const expiresAt = artifact?.expires_at
+    ? Date.parse(artifact.expires_at)
+    : Number.NaN;
+  const expired = !Number.isFinite(expiresAt) || expiresAt <= now;
+  const live = Boolean(
+    artifact?.available && artifact.download_href && !expired,
+  );
+  const status = expired
+    ? "Expired — contact us"
+    : live && artifact?.expires_at
+      ? formatArtifactExpiry(artifact.expires_at, now)
+      : "Unavailable — contact us";
+
+  return (
+    <section
+      className={cx(
+        "request-artifact",
+        !live && "request-artifact--unavailable",
+      )}
+      aria-labelledby="batch-artifact-title"
+    >
+      <Stack gap={4}>
+        <Cluster justify="space-between" align="flex-start">
+          <Stack gap={1}>
+            <Heading level={3} id="batch-artifact-title">
+              Batch Artifact
+            </Heading>
+            <Text size="sm" tone="muted">
+              The exact CSV created for this Batch Request.
+            </Text>
+          </Stack>
+          <Text
+            size="sm"
+            weight="semibold"
+            tone={live ? "success" : "warning"}
+          >
+            {artifact?.expires_at ? (
+              <time dateTime={artifact.expires_at}>{status}</time>
+            ) : (
+              status
+            )}
+          </Text>
+        </Cluster>
+
+        {artifact ? (
+          <dl className="request-artifact__metadata">
+            <div>
+              <dt>
+                <LabelText>Filename</LabelText>
+              </dt>
+              <dd>
+                <Mono>{artifact.filename}</Mono>
+              </dd>
+            </div>
+            <div>
+              <dt>
+                <LabelText>Rows</LabelText>
+              </dt>
+              <dd>{formatCount(artifact.row_count)}</dd>
+            </div>
+          </dl>
+        ) : null}
+
+        {live && artifact?.download_href ? (
+          <ActionLink href={artifact.download_href} variant="primary">
+            Download CSV
+          </ActionLink>
+        ) : (
+          <Text size="sm">
+            Batch files are retained for 30 days. Contact Jawnix to have this
+            exact file regenerated.
+          </Text>
+        )}
+      </Stack>
+    </section>
+  );
+}
+
 function RequestDetail({
   request,
   onCanceled,
@@ -511,17 +618,7 @@ function RequestDetail({
         ) : null}
 
         {request.delivered_at ? (
-          <section className="request-artifact-slot" aria-labelledby="batch-artifact-title">
-            <Stack gap={2}>
-              <Heading level={3} id="batch-artifact-title">
-                Batch Artifact
-              </Heading>
-              <Text size="sm" tone="muted">
-                Your delivered file will appear here when self-serve downloads
-                ship in the next portal update.
-              </Text>
-            </Stack>
-          </section>
+          <ArtifactCard artifact={request.artifact} />
         ) : null}
 
         {failure ? (

@@ -294,7 +294,7 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
                 }
         artifact = generate_artifact(session, request, existing_events, settings)
         request.status = RequestStatus.generated.value
-        request.status_message = "Batch generated; email delivery is queued."
+        request.status_message = "Batch generated; portal notification is queued."
         enqueue_job(session, "deliver_request", request.id)
         enqueue_job(session, "update_notification", request.id)
         return AllocationResult(
@@ -362,7 +362,7 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
     request.status = RequestStatus.generated.value
     request.available_count = len(candidates)
     request.processed_at = distributed_at
-    request.status_message = "Batch generated; email delivery is queued."
+    request.status_message = "Batch generated; portal notification is queued."
     enqueue_job(session, "deliver_request", request.id)
     enqueue_job(session, "update_notification", request.id)
     session.flush()

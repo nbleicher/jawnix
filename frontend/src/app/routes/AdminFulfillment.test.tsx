@@ -228,7 +228,7 @@ describe("the Fulfillment workspace renders only server-offered actions", () => 
     renderRoute(<AdminFulfillmentRoute />, workspace());
 
     expect(screen.getByRole("button", { name: "Approve" })).toBeVisible();
-    for (const absent of ["Retry generation", "Retry delivery", "Reject", "Cancel"]) {
+    for (const absent of ["Retry generation", "Retry notification", "Reject", "Cancel"]) {
       expect(screen.queryByRole("button", { name: absent })).toBeNull();
     }
   });
@@ -253,9 +253,9 @@ describe("the Fulfillment workspace renders only server-offered actions", () => 
             actions: [
               action({
                 name: "retry_delivery",
-                label: "Retry delivery",
+                label: "Retry notification",
                 consequence:
-                  "Emails the exact existing Batch Artifact again. Nothing is reallocated.",
+                  "Emails another portal notification for the exact existing Batch Artifact. Nothing is reallocated.",
               }),
             ],
           }),
@@ -263,7 +263,7 @@ describe("the Fulfillment workspace renders only server-offered actions", () => 
       }),
     );
 
-    expect(screen.getByRole("button", { name: "Retry delivery" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Retry notification" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Retry generation" })).toBeNull();
   });
 

@@ -26,9 +26,11 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .customer_overview import customer_request_status
+from .fulfillment import artifact_available
 from .jobs import enqueue_job
 from .models import CustomerProfile, LeadRequest, RequestStatus, utcnow
 from .schemas import (
+    CustomerBatchArtifact,
     CustomerMilestone,
     CustomerOverviewAction,
     CustomerRequestAction,
@@ -201,7 +203,7 @@ _MILESTONE_COPY: dict[str, tuple[str, str]] = {
     ),
     "delivered": (
         "Delivered",
-        "Your Batch was emailed to you.",
+        "Your Batch is available in the customer portal.",
     ),
 }
 
@@ -322,6 +324,22 @@ def _next_action(item: LeadRequest) -> CustomerRequestAction | None:
 def request_detail(item: LeadRequest) -> CustomerRequestDetail:
     """One Batch Request as the Customer application reads it."""
 
+    artifact = item.artifact if item.delivered_at is not None else None
+    customer_artifact = None
+    if artifact is not None:
+        available = artifact_available(artifact)
+        customer_artifact = CustomerBatchArtifact(
+            filename=artifact.filename,
+            row_count=artifact.row_count,
+            expires_at=artifact.expires_at,
+            available=available,
+            download_href=(
+                f"/api/me/batch-requests/{item.id}/artifact"
+                if available
+                else None
+            ),
+        )
+
     return CustomerRequestDetail(
         id=item.id,
         lead_count=item.lead_count,
@@ -333,6 +351,7 @@ def request_detail(item: LeadRequest) -> CustomerRequestDetail:
         can_cancel=item.status in CANCELABLE_STATUSES,
         next_action=_next_action(item),
         receipt_href=f"/app/requests?request={item.id}",
+        artifact=customer_artifact,
     )
 
 
