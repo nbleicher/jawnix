@@ -15,6 +15,7 @@ import { StatusBadge } from "../../design-system/primitives/status";
 import {
   Heading,
   LabelText,
+  Numeral,
   Text,
 } from "../../design-system/primitives/typography";
 import type {
@@ -70,7 +71,7 @@ function Delivery({ delivery }: { delivery: CustomerOverviewDelivery }) {
               {delivery.lead_count.toLocaleString()} leads
             </Heading>
             <Text size="sm" tone="muted">
-              {formatDate(delivery.delivered_at)}
+              <Numeral>{formatDate(delivery.delivered_at)}</Numeral>
             </Text>
           </Cluster>
           <Text size="sm">
@@ -96,6 +97,7 @@ export function CustomerOverviewRoute() {
   return (
     <Page
       title="Overview"
+      density="data"
       description={`${greeting} See what is happening now and what you can do next.`}
       actions={
         overview.primary_actions.map((action, index) => (
@@ -139,11 +141,11 @@ export function CustomerOverviewRoute() {
                   {overview.current_request.states.join(", ")}
                 </Detail>
                 <Detail label="Submitted">
-                  {formatDate(overview.current_request.submitted_at)}
+                  <Numeral>{formatDate(overview.current_request.submitted_at)}</Numeral>
                 </Detail>
                 {overview.current_request.delivered_at ? (
                   <Detail label="Delivered">
-                    {formatDate(overview.current_request.delivered_at)}
+                    <Numeral>{formatDate(overview.current_request.delivered_at)}</Numeral>
                   </Detail>
                 ) : null}
               </dl>

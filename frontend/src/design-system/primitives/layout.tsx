@@ -92,11 +92,11 @@ export interface CardProps extends HTMLAttributes<HTMLElement> {
   children?: ReactNode;
 }
 
-export function Card({ as: Component = "div", padding = 5, style, className, ...rest }: CardProps) {
+export function Card({ as: Component = "div", padding, style, className, ...rest }: CardProps) {
   return (
     <Component
       className={cx("jx-card", className)}
-      style={{ "--jx-card-padding": spaceVar(padding), ...style } as CSSProperties}
+      style={{ ...(padding === undefined ? {} : { "--jx-card-padding": spaceVar(padding) }), ...style } as CSSProperties}
       {...rest}
     />
   );
@@ -105,6 +105,9 @@ export function Card({ as: Component = "div", padding = 5, style, className, ...
 export interface PageProps {
   title: string;
   description?: string;
+  /** Tightens passive spacing on information-heavy screens without reducing
+   *  the 44px target contract for their controls. */
+  density?: "default" | "data";
   /** Primary page actions. Rendered below the title on mobile, inline on
    *  desktop — never hidden behind a menu. */
   actions?: ReactNode;
@@ -113,9 +116,9 @@ export interface PageProps {
 
 /** A routed screen. Owns the single <h1> and the page-level heading structure so
  *  no route has to remember the landmark contract. */
-export function Page({ title, description, actions, children }: PageProps) {
+export function Page({ title, description, density = "default", actions, children }: PageProps) {
   return (
-    <div className="jx-page">
+    <div className={cx("jx-page", density === "data" && "jx-page--data")}>
       {/* A plain div, not <header>: a <header> inside <main> is generic in
           browsers but is reported as a second `banner` by some DOM
           accessibility implementations. The <h1> already carries the structure. */}

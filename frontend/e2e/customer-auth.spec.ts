@@ -9,6 +9,17 @@ const INVITATION_RECOVERY =
   "This invitation cannot be used. Ask your administrator for a new invitation, or sign in if you already set your password.";
 
 test.describe("Customer sign-in and session lifecycle", () => {
+  test("uses Opaline with the chosen Fraunces display face", async ({ page }) => {
+    await mockCustomerAuth(page);
+    await page.goto("./sign-in");
+
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toHaveCSS(
+      "font-family",
+      /Fraunces Variable/,
+    );
+  });
+
   test("signs in through the Jawnix boundary and signs out with the keyboard", async ({
     page,
   }) => {

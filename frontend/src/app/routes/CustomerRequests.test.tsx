@@ -151,6 +151,7 @@ describe("the guided Batch Request flow", () => {
     const user = userEvent.setup();
     renderRoute(workspace());
 
+    expect(document.querySelector(".jx-page")).toHaveClass("jx-page--data");
     expect(
       screen.getByRole("spinbutton", { name: /How many leads/ }),
     ).toBeVisible();

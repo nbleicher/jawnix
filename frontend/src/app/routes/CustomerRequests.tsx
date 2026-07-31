@@ -557,6 +557,7 @@ export function CustomerRequestsRoute() {
   return (
     <Page
       title="Requests"
+      density="data"
       description="Ask for an exact Batch, then follow it from Submitted to Delivered."
     >
       <Section

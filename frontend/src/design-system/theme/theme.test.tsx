@@ -47,6 +47,17 @@ describe("ThemeProvider", () => {
     expect(document.documentElement).toHaveAttribute("data-theme", "terminal");
   });
 
+  it("accepts the Opaline customer theme", () => {
+    render(
+      <ThemeProvider defaultTheme="opaline">
+        <ThemeProbe />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("current")).toHaveTextContent("opaline");
+    expect(document.documentElement).toHaveAttribute("data-theme", "opaline");
+  });
+
   it("switches theme at runtime", async () => {
     const user = userEvent.setup();
     render(

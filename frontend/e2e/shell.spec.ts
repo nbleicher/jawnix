@@ -65,6 +65,16 @@ test.describe("Customer shell", () => {
 });
 
 test.describe("Administration shell", () => {
+  test("shares the Fraunces display face without taking the Opaline palette", async ({ page }) => {
+    await page.goto("./admin/overview");
+
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "jawnix");
+    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toHaveCSS(
+      "font-family",
+      /Fraunces Variable/,
+    );
+  });
+
   test("keeps primary navigation to the domain-work destinations", async ({ page }) => {
     await page.goto("./admin/overview");
 

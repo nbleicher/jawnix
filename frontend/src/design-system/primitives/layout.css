@@ -24,7 +24,7 @@
   background: var(--jx-color-surface);
   border: 1px solid var(--jx-color-border);
   border-radius: var(--jx-radius-lg);
-  padding: var(--jx-card-padding, var(--jx-space-5));
+  padding: var(--jx-card-padding, var(--jx-card-padding-default, var(--jx-space-5)));
   box-shadow: var(--jx-shadow-sm);
   min-width: 0;
 }
@@ -73,6 +73,21 @@
   display: flex;
   flex-direction: column;
   gap: var(--jx-space-5);
+}
+
+/* Information-heavy screens earn a denser reading rhythm. This only changes
+   passive whitespace; controls retain the global 44px target contract. */
+.jx-page--data {
+  --jx-card-padding-default: var(--jx-space-4);
+  gap: var(--jx-space-4);
+}
+
+.jx-page--data .jx-page__body {
+  gap: var(--jx-space-4);
+}
+
+.jx-page--data .jx-section {
+  gap: var(--jx-space-2);
 }
 
 .jx-section {
