@@ -1,0 +1,3 @@
+# Deliver Batch Artifacts through the portal
+
+Customers retrieve their Batch Artifact files self-serve from the customer portal while the file is within its 30-day retention period; email notifies the customer of delivery but is no longer the delivery channel. Previously the CSV existed only as an email attachment, so a lost email left the customer with no recovery path and artifacts expired with no customer-facing warning. The portal shows the artifact's filename, row count, and expiry alongside its Batch Request; after expiry, regeneration remains an audited administrator action (ADR 0005). We chose portal-primary over email-primary because the portal is also where feedback is captured, and delivery is what gives customers a reason to be there.
