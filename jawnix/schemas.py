@@ -590,6 +590,20 @@ class FeedbackLookup(BaseModel):
     phone: str
 
 
+class FeedbackSearch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=2, max_length=100)
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, value: str) -> str:
+        query = value.strip()
+        if len(query) < 2:
+            raise ValueError("Search requires at least two characters.")
+        return query
+
+
 class FeedbackCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

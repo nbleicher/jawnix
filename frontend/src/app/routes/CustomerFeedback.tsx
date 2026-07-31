@@ -186,6 +186,12 @@ export function CustomerFeedbackRoute() {
   const [lead, setLead] = useState<DeliveredLead | null>(null);
   const [lookupError, setLookupError] = useState("");
   const [lookingUp, setLookingUp] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<DeliveredLead[] | null>(
+    null,
+  );
+  const [searchError, setSearchError] = useState("");
+  const [searching, setSearching] = useState(false);
 
   const [selected, setSelected] = useState<DispositionOption | null>(null);
   const [note, setNote] = useState("");
@@ -194,7 +200,7 @@ export function CustomerFeedbackRoute() {
   const [submitting, setSubmitting] = useState(false);
   const [receipt, setReceipt] = useState<FeedbackReceipt | null>(null);
   const [history, setHistory] = useState<DispositionTransition[]>([]);
-
+  const [historyError, setHistoryError] = useState("");
 
   function resetEntry() {
     setSelected(null);
@@ -205,33 +211,78 @@ export function CustomerFeedbackRoute() {
   }
 
   async function loadHistory(eventId: number) {
-    const response = await fetch(
-      `/api/me/distributions/${eventId}/dispositions`,
-      { credentials: "same-origin" },
-    );
-    setHistory(
-      response.ok ? ((await response.json()) as DispositionTransition[]) : [],
-    );
+    setHistoryError("");
+    try {
+      const response = await fetch(
+        `/api/me/distributions/${eventId}/dispositions`,
+        { credentials: "same-origin" },
+      );
+      if (!response.ok) throw new Error("history request failed");
+      setHistory((await response.json()) as DispositionTransition[]);
+    } catch {
+      setHistory([]);
+      setHistoryError(
+        "Feedback history could not be loaded. This does not mean the Lead has no feedback.",
+      );
+    }
+  }
+
+  async function chooseLead(found: DeliveredLead) {
+    setLookupError("");
+    setSearchError("");
+    setLead(found);
+    resetEntry();
+    setHistory([]);
+    setHistoryError("");
+    await loadHistory(found.distributionEventId);
   }
 
   async function lookup(event: React.FormEvent) {
     event.preventDefault();
     setLookingUp(true);
     setLookupError("");
+    setSearchResults(null);
     setLead(null);
     resetEntry();
     setHistory([]);
+    setHistoryError("");
     try {
       const found = await post<DeliveredLead>("/api/me/feedback/lookup", {
         phone,
       });
-      setLead(found);
-      await loadHistory(found.distributionEventId);
+      await chooseLead(found);
     } catch {
       // Every cause produces this one message. Not a branch — a constant.
       setLookupError(LOOKUP_FAILURE);
     } finally {
       setLookingUp(false);
+    }
+  }
+
+  async function search(event: React.FormEvent) {
+    event.preventDefault();
+    const query = searchQuery.trim();
+    setSearchError("");
+    setSearchResults(null);
+    if (query.length < 2) {
+      setSearchError("Enter at least two characters to search.");
+      return;
+    }
+    setSearching(true);
+    setLead(null);
+    resetEntry();
+    setHistory([]);
+    setHistoryError("");
+    try {
+      setSearchResults(
+        await post<DeliveredLead[]>("/api/me/feedback/search", { query }),
+      );
+    } catch {
+      setSearchError(
+        "Your delivered batches could not be searched. Try again.",
+      );
+    } finally {
+      setSearching(false);
     }
   }
 
@@ -272,35 +323,103 @@ export function CustomerFeedbackRoute() {
       <Stack gap={6}>
         <Section
           title="Find the Lead"
-          description="Enter the phone number exactly as it appeared in your batch."
+          description="Look up the exact phone number or search your delivered batches."
         >
-          <form onSubmit={(event) => void lookup(event)}>
+          <Stack gap={5}>
             <Stack gap={3}>
-              <Field
-                label="Delivered phone number"
-                required
-                {...(lookupError ? { error: lookupError } : {})}
-              >
-                <Input
-                  name="phone"
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  value={phone}
-                  onChange={(event) => setPhone(event.target.value)}
-                />
-              </Field>
-              <div>
-                <Button
-                  type="submit"
-                  busy={lookingUp}
-                  busyLabel="Looking up…"
-                >
-                  Look up
-                </Button>
-              </div>
+              <Heading level={3} size="sm">
+                Use a phone number
+              </Heading>
+              <form onSubmit={(event) => void lookup(event)}>
+                <Stack gap={3}>
+                  <Field
+                    label="Delivered phone number"
+                    required
+                    {...(lookupError ? { error: lookupError } : {})}
+                  >
+                    <Input
+                      name="phone"
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      value={phone}
+                      onChange={(event) => setPhone(event.target.value)}
+                    />
+                  </Field>
+                  <div>
+                    <Button
+                      type="submit"
+                      busy={lookingUp}
+                      busyLabel="Looking up…"
+                    >
+                      Look up
+                    </Button>
+                  </div>
+                </Stack>
+              </form>
             </Stack>
-          </form>
+
+            <Stack gap={3}>
+              <Heading level={3} size="sm">
+                Search your delivered batches
+              </Heading>
+              <form onSubmit={(event) => void search(event)}>
+                <Stack gap={3}>
+                  <Field
+                    label="Business name or phone"
+                    description="Enter at least two characters from the business name or phone number."
+                    {...(searchError ? { error: searchError } : {})}
+                  >
+                    <Input
+                      name="search"
+                      type="search"
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                    />
+                  </Field>
+                  <div>
+                    <Button
+                      type="submit"
+                      busy={searching}
+                      busyLabel="Searching…"
+                    >
+                      Search
+                    </Button>
+                  </div>
+                </Stack>
+              </form>
+
+              {searchResults ? (
+                <div role="region" aria-label="Search results">
+                  {searchResults.length ? (
+                    <ol className="customer-feedback__search-results">
+                      {searchResults.map((result) => (
+                        <li key={result.distributionEventId}>
+                          <button
+                            type="button"
+                            className="customer-feedback__search-result"
+                            onClick={() => void chooseLead(result)}
+                          >
+                            <span className="customer-feedback__option-label">
+                              {result.businessName}
+                            </span>
+                            <span className="customer-feedback__option-description">
+                              {formatPhone(result.phone)} · Batch {result.batchId}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <EmptyState
+                      title="No matching Leads"
+                      description="Try another part of the business name or phone number."
+                    />
+                  )}
+                </div>
+              ) : null}
+            </Stack>
+          </Stack>
         </Section>
 
         {lead ? (
@@ -494,7 +613,13 @@ export function CustomerFeedbackRoute() {
               title="Feedback history"
               description="Every answer you have given for this Lead, oldest first. Answers are added, never replaced."
             >
-              {history.length ? (
+              {historyError ? (
+                <ErrorState
+                  title="Feedback history unavailable"
+                  description={historyError}
+                  onRetry={() => void loadHistory(lead.distributionEventId)}
+                />
+              ) : history.length ? (
                 <ol className="customer-feedback__history">
                   {history.map((item) => (
                     <li key={item.id}>
