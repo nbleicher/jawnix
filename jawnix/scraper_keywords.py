@@ -121,6 +121,15 @@ class KeywordSaveRequest(KeywordTextRequest):
         return value
 
 
+class KeywordRolloverEventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["generated", "error"]
+    previous_keywords: list[str] | None = None
+    next_keywords: list[str] | None = None
+    message: str = Field(max_length=300)
+
+
 class KeywordGenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

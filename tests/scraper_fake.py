@@ -33,6 +33,7 @@ from jawnix.scraper_database import (
 from jawnix.scraper_keywords import (
     KeywordDiff,
     KeywordRollover,
+    KeywordRolloverEventRequest,
     KeywordRolloverRequest,
     KeywordSaveRequest,
     KeywordSaveResult,
@@ -548,6 +549,8 @@ class ScraperFake:
         self.ai_enabled = ai_enabled
         self.runtime_failing = runtime_failing or set()
         self.rollover_enabled = False
+        self.rollover_state_override: str | None = None
+        self.rollover_events: list[dict[str, object]] = []
         self.keyword_calls: list[str] = []
         self.database_calls: list[tuple[str, object]] = []
         self.coverage_calls: list[str] = []
@@ -574,9 +577,12 @@ class ScraperFake:
             raise ScraperOperationsError(transport_error="ConnectError")
 
     def _rollover_model(self) -> KeywordRollover:
+        state = self.rollover_state_override or (
+            "working" if self.rollover_enabled else "off"
+        )
         return KeywordRollover(
             enabled=self.rollover_enabled,
-            state="working" if self.rollover_enabled else "off",
+            state=state,
             label="Current batch active" if self.rollover_enabled else "Off",
             detail=(
                 "12 of 20 coverage jobs enqueued"
@@ -663,12 +669,16 @@ class ScraperFake:
     ) -> KeywordRollover:
         self.keyword_calls.append("rollover")
         self._keyword_failure()
-        if payload.action == "enable" and not self.ai_enabled:
-            raise ScraperOperationsError(
-                status_code=422,
-                detail="AI generation is not configured.",
-            )
         self.rollover_enabled = payload.action == "enable"
+        return self._rollover_model()
+
+    async def record_keyword_rollover_event(
+        self,
+        payload: KeywordRolloverEventRequest,
+    ) -> KeywordRollover:
+        self.keyword_calls.append("rollover_event")
+        self._keyword_failure()
+        self.rollover_events.append(payload.model_dump())
         return self._rollover_model()
 
     def _operations_failure(self, key: str) -> None:

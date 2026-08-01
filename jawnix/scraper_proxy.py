@@ -1730,6 +1730,24 @@ async def control_scraper_keyword_rollover(
     db: Session = Depends(get_db),
 ):
     _require_scraper_grant(request, response, principal, settings)
+    if (
+        payload.action == "enable"
+        and not _generation_provider(request, settings).available
+    ):
+        _audit_keyword_failure(
+            db,
+            principal=principal,
+            action="scraper_keyword_rollover_failed",
+            reason="Automatic Scraper keyword rollover could not be changed",
+            details={
+                "requestedAction": payload.action,
+                "outcome": "not_configured",
+            },
+        )
+        raise HTTPException(
+            status_code=422,
+            detail="AI generation is not configured.",
+        )
     try:
         rollover = await _scraper_operations(
             request,
@@ -1746,11 +1764,6 @@ async def control_scraper_keyword_rollover(
                 "upstreamStatus": error.status_code,
             },
         )
-        if error.status_code == 422:
-            raise HTTPException(
-                status_code=422,
-                detail="AI generation is not configured.",
-            )
         return _native_unavailable(_state(request, settings))
     rollover = _public_rollover(rollover)
     _mark_operations_success(request, settings)
