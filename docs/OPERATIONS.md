@@ -206,15 +206,27 @@ The PostgreSQL initialization hook enables password-authenticated replication on
 
 ## Scraper ownership cutover
 
-Do not schedule this window until a Stage C rehearsal report says **GO**. The
-[2026-08-01 rehearsal report](rehearsals/2026-08-01-scraper-cutover.md) is a
-**GO**: it cleared the three blockers from the
-[2026-07-31 NO-GO](rehearsals/2026-07-31-scraper-cutover.md) with a verified
-off-host `gmaps_pro` backup, an exact-count idempotent keyword-history
-artifact, and Jawnix-owned automatic rollover (PR #138). It also corrected
-the production topology: the live `gmaps_pro` runs on the application host,
-the legacy Scale control VPS holds WireGuard `10.77.0.2`, and the worker box
-carries the empty `scraper-db-1` volume the new stack deploys onto.
+Do not schedule this window until a Stage C rehearsal report says **GO**. No
+rehearsal has produced a standing GO. The
+[2026-08-01 report](rehearsals/2026-08-01-scraper-cutover.md) published a GO
+and **retracted it**: it backed up and rehearsed against the application
+host's `gmaps_pro`, which is a stale or partial copy (17,650 businesses, all
+with an empty `state`, last enqueue 2026-07-01), not the live acquisition
+store the legacy dashboard serves (779,408 businesses across PA, NC, OH, FL,
+SC, GA, TX, UT). The earlier
+[2026-07-31 report](rehearsals/2026-07-31-scraper-cutover.md) is also a
+NO-GO.
+
+**Identify the acquisition store before anything else.** It sits behind the
+Scale control VPS (`51.81.184.162`, WireGuard `10.77.0.2`), which exposes
+only dashboard port 8090 and rejects the available SSH keys. Do not treat a
+DSN found in a worker or application `.env` as authoritative: cross-check the
+candidate database's row counts and per-state distribution against the live
+dashboard's `/api/dashboard` and `/database` before backing anything up.
+
+Of the three 2026-07-31 blockers, only rollover ownership (PR #138) is
+cleared. The acquisition backup and the keyword-history artifact remain open
+and must be redone against the real store.
 
 ### Required artifacts and rehearsal isolation
 
