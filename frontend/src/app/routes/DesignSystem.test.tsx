@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { DesignSystemRoute } from "./DesignSystem";
@@ -77,5 +78,15 @@ describe("design-system gallery", () => {
     renderGallery();
 
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  });
+
+  it("renders every discovered component under the Opaline theme", async () => {
+    const user = userEvent.setup();
+    renderGallery();
+
+    await user.click(screen.getByRole("button", { name: "Opaline" }));
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "opaline");
+    expect(sectionTitlesInOrder()).toHaveLength(Object.keys(modules).length);
   });
 });

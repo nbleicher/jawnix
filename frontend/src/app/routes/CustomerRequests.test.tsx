@@ -1,10 +1,14 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ThemeProvider } from "../../design-system/theme/ThemeProvider";
-import { CustomerRequestsRoute } from "./CustomerRequests";
+import {
+  ACTIVE_REQUEST_REFRESH_MS,
+  CustomerRequestsRoute,
+  formatArtifactExpiry,
+} from "./CustomerRequests";
 import type {
   BatchRequest,
   BatchRequestWorkspace,
@@ -69,8 +73,37 @@ function batchRequest(overrides: Partial<BatchRequest> = {}): BatchRequest {
     can_cancel: true,
     next_action: null,
     receipt_href: `/app/requests?request=${REQUEST_ID}`,
+    artifact: null,
     ...overrides,
   };
+}
+
+function deliveredRequest(overrides: Partial<BatchRequest> = {}): BatchRequest {
+  return batchRequest({
+    delivered_at: "2026-07-22T12:00:00Z",
+    status: {
+      label: "Delivered",
+      description: "Your Batch is ready.",
+      tone: "success",
+    },
+    milestones: graph({
+      current_key: "delivered",
+      milestones: graph().milestones.map((milestone) => ({
+        ...milestone,
+        state: "complete" as const,
+        occurred_at: milestone.occurred_at ?? "2026-07-22T12:00:00Z",
+      })),
+    }),
+    can_cancel: false,
+    artifact: {
+      filename: "requests-customer_batch.csv",
+      row_count: 750,
+      expires_at: "2026-07-27T12:00:00Z",
+      available: true,
+      download_href: `/api/me/batch-requests/${REQUEST_ID}/artifact`,
+    },
+    ...overrides,
+  });
 }
 
 function workspace(
@@ -88,7 +121,13 @@ function workspace(
   };
 }
 
-function renderRoute(data: BatchRequestWorkspace) {
+function renderRoute(
+  data: BatchRequestWorkspace,
+  options: {
+    initialEntry?: string;
+    loader?: () => BatchRequestWorkspace | Promise<BatchRequestWorkspace>;
+  } = {},
+) {
   const router = createMemoryRouter(
     [
       {
@@ -99,14 +138,14 @@ function renderRoute(data: BatchRequestWorkspace) {
           {
             id: "requests",
             path: "requests",
-            loader: () => data,
+            loader: options.loader ?? (() => data),
             element: <CustomerRequestsRoute />,
           },
         ],
       },
     ],
     {
-      initialEntries: ["/app/requests"],
+      initialEntries: [options.initialEntry ?? "/app/requests"],
       hydrationData: { loaderData: { requests: data } },
     },
   );
@@ -143,6 +182,7 @@ async function completeQuantityStage(user: ReturnType<typeof userEvent.setup>) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -151,6 +191,7 @@ describe("the guided Batch Request flow", () => {
     const user = userEvent.setup();
     renderRoute(workspace());
 
+    expect(document.querySelector(".jx-page")).toHaveClass("jx-page--data");
     expect(
       screen.getByRole("spinbutton", { name: /How many leads/ }),
     ).toBeVisible();
@@ -363,7 +404,50 @@ describe("the guided Batch Request flow", () => {
   });
 });
 
-describe("the submitted request list", () => {
+describe("the submitted request index", () => {
+  it("links each summary to its real detail page", () => {
+    renderRoute(workspace({ requests: [batchRequest()] }));
+
+    expect(
+      screen.getByRole("link", { name: /View request for 750 leads/ }),
+    ).toHaveAttribute("href", `/app/requests?request=${REQUEST_ID}`);
+    expect(
+      screen.queryByRole("list", { name: /Progress for/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("presents an empty history as a nothing-yet state, not an error", () => {
+    renderRoute(workspace());
+
+    expect(
+      screen.getByRole("heading", { name: "No Batch Requests yet" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("a Batch Request detail page", () => {
+  const detailPath = `/app/requests?request=${REQUEST_ID}`;
+
+  it("resolves a deep link and carries the milestone graph", () => {
+    renderRoute(workspace({ requests: [batchRequest()] }), {
+      initialEntry: detailPath,
+    });
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Batch Request" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "750 lead Batch Request" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("list", { name: /Progress for the 750 lead request/ }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "All Requests" }),
+    ).toHaveAttribute("href", "/app/requests");
+  });
+
   it("explains a Waiting for Inventory pause instead of reporting a failure", () => {
     renderRoute(
       workspace({
@@ -386,6 +470,7 @@ describe("the submitted request list", () => {
           }),
         ],
       }),
+      { initialEntry: detailPath },
     );
 
     expect(screen.getByText("Waiting for Inventory")).toBeVisible();
@@ -428,6 +513,7 @@ describe("the submitted request list", () => {
             }),
           ],
         }),
+        { initialEntry: detailPath },
       );
 
       // The outcome note headlines the label with when it happened, which is
@@ -444,18 +530,11 @@ describe("the submitted request list", () => {
   );
 
   it("offers cancellation only while the domain still allows it", () => {
-    renderRoute(
-      workspace({
-        requests: [
-          batchRequest({ id: "a", can_cancel: true }),
-          batchRequest({ id: "b", can_cancel: false }),
-        ],
-      }),
-    );
+    renderRoute(workspace({ requests: [batchRequest()] }), {
+      initialEntry: detailPath,
+    });
 
-    expect(
-      screen.getAllByRole("button", { name: "Cancel request" }),
-    ).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Cancel request" })).toBeVisible();
   });
 
   it("updates the timeline as soon as the cancellation is confirmed", async () => {
@@ -494,7 +573,9 @@ describe("the submitted request list", () => {
         }),
       200,
     );
-    renderRoute(workspace({ requests: [batchRequest()] }));
+    renderRoute(workspace({ requests: [batchRequest()] }), {
+      initialEntry: detailPath,
+    });
 
     await user.click(screen.getByRole("button", { name: "Cancel request" }));
     await user.click(
@@ -516,18 +597,128 @@ describe("the submitted request list", () => {
   });
 
   it("never renders internal fulfillment vocabulary", () => {
-    renderRoute(workspace({ requests: [batchRequest()] }));
+    renderRoute(workspace({ requests: [batchRequest()] }), {
+      initialEntry: detailPath,
+    });
 
     expect(document.body).not.toHaveTextContent("waiting_inventory");
     expect(document.body).not.toHaveTextContent("status_message");
   });
 
-  it("presents an empty history as a nothing-yet state, not an error", () => {
-    renderRoute(workspace());
+  it("shows the live artifact metadata, countdown, and download", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-22T12:00:00Z"));
+    renderRoute(workspace({ requests: [deliveredRequest()] }), {
+      initialEntry: detailPath,
+    });
+
+    const card = screen.getByRole("region", { name: "Batch Artifact" });
+    expect(within(card).getByText("requests-customer_batch.csv")).toBeVisible();
+    expect(within(card).getByText("750")).toBeVisible();
+    expect(within(card).getByText("Expires in 5 days")).toBeVisible();
+    expect(
+      within(card).getByRole("link", { name: "Download CSV" }),
+    ).toHaveAttribute(
+      "href",
+      `/api/me/batch-requests/${REQUEST_ID}/artifact`,
+    );
+  });
+
+  it("replaces the download with the 30-day expired state", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-28T12:00:00Z"));
+    renderRoute(
+      workspace({
+        requests: [
+          deliveredRequest({
+            artifact: {
+              filename: "requests-customer_batch.csv",
+              row_count: 750,
+              expires_at: "2026-07-27T12:00:00Z",
+              available: false,
+              download_href: null,
+            },
+          }),
+        ],
+      }),
+      { initialEntry: detailPath },
+    );
+
+    const card = screen.getByRole("region", { name: "Batch Artifact" });
+    expect(within(card).getByText("Expired — contact us")).toBeVisible();
+    expect(within(card).getByText(/retained for 30 days/)).toBeVisible();
+    expect(within(card).queryByRole("link", { name: /Download/ })).toBeNull();
+  });
+
+  it("shows a safe not-found state for an unknown deep link", () => {
+    renderRoute(workspace({ requests: [batchRequest()] }), {
+      initialEntry: "/app/requests?request=42",
+    });
 
     expect(
-      screen.getByRole("heading", { name: "No Batch Requests yet" }),
+      screen.getByRole("heading", { name: "Batch Request not found" }),
     ).toBeVisible();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("artifact expiry countdown", () => {
+  it("uses the useful unit as the deadline approaches", () => {
+    const expiry = "2026-07-22T12:00:00Z";
+    expect(
+      formatArtifactExpiry(expiry, Date.parse("2026-07-21T10:00:00Z")),
+    ).toBe("Expires in 2 days");
+    expect(
+      formatArtifactExpiry(expiry, Date.parse("2026-07-22T09:30:00Z")),
+    ).toBe("Expires in 3 hours");
+    expect(
+      formatArtifactExpiry(expiry, Date.parse("2026-07-22T12:00:00Z")),
+    ).toBe("Expired — contact us");
+  });
+});
+
+describe("active request refresh", () => {
+  it("revalidates while any request is non-terminal", async () => {
+    vi.useFakeTimers();
+    const data = workspace({ requests: [batchRequest()] });
+    const loader = vi.fn(() => data);
+    renderRoute(data, { loader });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVE_REQUEST_REFRESH_MS);
+    });
+
+    expect(loader).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops entirely after revalidation settles the last active request", async () => {
+    vi.useFakeTimers();
+    const active = workspace({ requests: [batchRequest()] });
+    const settled = workspace({ requests: [deliveredRequest()] });
+    const loader = vi.fn(() => settled);
+    renderRoute(active, { loader });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVE_REQUEST_REFRESH_MS);
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Your Batch is ready.")).toBeVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVE_REQUEST_REFRESH_MS * 3);
+    });
+
+    expect(loader).toHaveBeenCalledTimes(1);
+  });
+
+  it("never starts when every request is already settled", async () => {
+    vi.useFakeTimers();
+    const data = workspace({ requests: [deliveredRequest()] });
+    const loader = vi.fn(() => data);
+    renderRoute(data, { loader });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ACTIVE_REQUEST_REFRESH_MS * 3);
+    });
+
+    expect(loader).not.toHaveBeenCalled();
   });
 });

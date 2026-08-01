@@ -219,8 +219,10 @@ def record_activity(
 
     Consequential actions are durable state transitions, eligibility or
     suppression changes, identity or membership changes, configuration
-    activation, and destructive or irreversible operations. Reads,
-    transport bookkeeping, and idempotent no-ops do not belong here.
+    activation, and destructive or irreversible operations. Ordinary reads,
+    transport bookkeeping, and idempotent no-ops do not belong here. Retrieval
+    of a retained Batch Artifact is the deliberate exception: the file is
+    sensitive Customer data and ADR 0015 requires immutable download evidence.
 
     The caller supplies a deliberately small, safe before/after summary. A
     reason is always required, system work uses a stable ``system:`` actor,

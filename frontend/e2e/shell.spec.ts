@@ -28,6 +28,24 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("Customer shell", () => {
+  test("keeps email support in the shell chrome across destinations", async ({
+    page,
+  }) => {
+    await page.goto("./overview");
+
+    const support = page.getByRole("banner").getByRole("link", {
+      name: "Support",
+    });
+    await expect(support).toBeVisible();
+    await expect(support).toHaveAttribute("href", "mailto:hai@jawnix.com");
+
+    await page
+      .getByRole("navigation", { name: "Customer" })
+      .getByRole("link", { name: "Account" })
+      .click();
+    await expect(support).toBeVisible();
+  });
+
   test("lands on Overview and reaches every primary destination", async ({ page }) => {
     await page.goto("./");
 
@@ -65,6 +83,16 @@ test.describe("Customer shell", () => {
 });
 
 test.describe("Administration shell", () => {
+  test("shares the Fraunces display face without taking the Opaline palette", async ({ page }) => {
+    await page.goto("./admin/overview");
+
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "jawnix");
+    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toHaveCSS(
+      "font-family",
+      /Fraunces Variable/,
+    );
+  });
+
   test("keeps primary navigation to the domain-work destinations", async ({ page }) => {
     await page.goto("./admin/overview");
 
@@ -226,7 +254,7 @@ test.describe("Assets", () => {
     const assetUrls: string[] = [];
     page.on("response", (response) => {
       const url = response.url();
-      if (url.includes("/app/assets/")) assetUrls.push(url);
+      if (/\/app\/assets\/.*\.(?:js|css)$/.test(url)) assetUrls.push(url);
     });
 
     await page.goto("./");

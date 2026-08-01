@@ -8,8 +8,18 @@ import {
   mockAcquisition,
 } from "./acquisition-fixtures";
 import { mockActivity } from "./activity-fixtures";
+import {
+  CUSTOMER_ACCOUNT_IDENTITY,
+  LICENSED_STATE_ACCOUNT,
+} from "./customer-account-fixtures";
 import { mockFeedback } from "./customer-feedback-fixtures";
 import { mockCustomerAuth } from "./customer-auth-fixtures";
+import {
+  BATCH_REQUEST_WORKSPACE,
+  DELIVERED_REQUEST,
+  WAITING_REQUEST,
+  mockBatchRequests,
+} from "./customer-requests-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import {
   CONFLICT_ID,
@@ -33,6 +43,8 @@ const ROUTES = [
   "./accept-invitation",
   "./overview",
   "./requests",
+  `./requests?request=${WAITING_REQUEST.id}`,
+  `./requests?request=${DELIVERED_REQUEST.id}`,
   "./feedback",
   "./account",
   "./admin/overview",
@@ -69,6 +81,12 @@ test.beforeEach(async ({ page }) => {
   await mockAcquisition(page);
   await mockFeedback(page);
   await mockCustomerAuth(page);
+  await mockBatchRequests(page, {
+    workspace: {
+      ...BATCH_REQUEST_WORKSPACE,
+      requests: [...BATCH_REQUEST_WORKSPACE.requests, DELIVERED_REQUEST],
+    },
+  });
   await mockAdminCustomers(page, { pendingInvitation: true });
   await mockFulfillment(page);
   await mockLeadReports(page);
@@ -131,6 +149,41 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "terminal");
 
     const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("the design-system gallery is clean in the Opaline theme too", async ({ page }) => {
+    await page.goto("./design-system");
+    await page.getByRole("button", { name: "Opaline" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("the Account Setup Problems state has no accessibility violations", async ({
+    page,
+  }) => {
+    await mockCustomerAuth(page, {
+      profile: {
+        ...CUSTOMER_ACCOUNT_IDENTITY,
+        customer_id: null,
+        mapping_confirmed_at: null,
+      },
+      licensedStates: { ...LICENSED_STATE_ACCOUNT, states: [] },
+    });
+    await page.goto("./account");
+    await expect(
+      page.getByRole("heading", {
+        name: "Customer mapping needs confirmation",
+      }),
+    ).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_AA_TAGS)
+      .analyze();
 
     expect(results.violations).toEqual([]);
   });

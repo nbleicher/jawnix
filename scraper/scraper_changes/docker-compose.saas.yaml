@@ -1,0 +1,28 @@
+# docker-compose.saas.yaml — AUTHENTIC upstream file from gosom/google-maps-scraper (main).
+# This is ONLY the local-dev Postgres helper (what `make saas-dev` brings up). It is NOT
+# the worker stack and NOT for production. In production you use MANAGED Postgres (D1) and
+# scale/worker/docker-compose.yml for the workers.
+#
+# Use it for a quick local test of the binary (serve/worker against a throwaway DB):
+#   docker compose -f docker-compose.saas.yaml up -d postgres
+#   sql-migrate up -config=migrations/dbconfig.yml      # default env points at localhost
+# ─────────────────────────────────────────────────────────────────────────────
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: gmapssaas
+    ports:
+      - "5432:5432"
+    volumes:
+      - saas_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  saas_pgdata:

@@ -46,7 +46,7 @@ export const WAITING_REQUEST = {
       {
         key: "delivered",
         label: "Delivered",
-        description: "Your Batch was emailed to you.",
+        description: "Your Batch is available in the customer portal.",
         state: "upcoming",
         occurred_at: null,
       },
@@ -63,6 +63,7 @@ export const WAITING_REQUEST = {
   can_cancel: true,
   next_action: null,
   receipt_href: "/app/requests?request=11111111-1111-4111-8111-111111111111",
+  artifact: null,
 } as const;
 
 /** Stopped at review, with the one action that still makes sense. */
@@ -103,7 +104,7 @@ export const REJECTED_REQUEST = {
       {
         key: "delivered",
         label: "Delivered",
-        description: "Your Batch was emailed to you.",
+        description: "Your Batch is available in the customer portal.",
         state: "not_reached",
         occurred_at: null,
       },
@@ -129,6 +130,45 @@ export const REJECTED_REQUEST = {
     href: "/app/requests",
   },
   receipt_href: "/app/requests?request=22222222-2222-4222-8222-222222222222",
+  artifact: null,
+} as const;
+
+export const DELIVERED_REQUEST = {
+  ...WAITING_REQUEST,
+  id: "44444444-4444-4444-8444-444444444444",
+  delivered_at: "2026-07-27T16:00:00Z",
+  status: {
+    label: "Delivered",
+    description: "Your Batch is ready.",
+    tone: "success",
+  },
+  milestones: {
+    milestones: WAITING_REQUEST.milestones.milestones.map((milestone) => ({
+      ...milestone,
+      state: "complete",
+      occurred_at: milestone.occurred_at ?? "2026-07-27T16:00:00Z",
+    })),
+    current_key: "delivered",
+    pause: null,
+    outcome: null,
+  },
+  can_cancel: false,
+  next_action: {
+    kind: "submit_feedback",
+    label: "Submit Feedback",
+    description: "Tell us how the leads performed.",
+    href: "/app/feedback",
+  },
+  receipt_href:
+    "/app/requests?request=44444444-4444-4444-8444-444444444444",
+  artifact: {
+    filename: "requests-customer_batch.csv",
+    row_count: 750,
+    expires_at: "2026-08-26T16:00:00Z",
+    available: true,
+    download_href:
+      "/api/me/batch-requests/44444444-4444-4444-8444-444444444444/artifact",
+  },
 } as const;
 
 export const BATCH_REQUEST_WORKSPACE = {
@@ -168,8 +208,27 @@ export const BLOCKED_BATCH_REQUEST_WORKSPACE = {
   requests: [],
 } as const;
 
+export const MAPPING_BLOCKED_BATCH_REQUEST_WORKSPACE = {
+  ...BATCH_REQUEST_WORKSPACE,
+  blocker: {
+    reason: "mapping_unconfirmed",
+    label: "Your account is still being set up",
+    description:
+      "An administrator is confirming your Customer mapping. "
+      + "You can request a Batch as soon as that is done.",
+    action: {
+      kind: "review_account",
+      label: "Review Account",
+      description: "Check the account details we have for you.",
+      href: "/app/account",
+    },
+  },
+} as const;
+
 export interface BatchRequestMockOptions {
   workspace?: unknown;
+  /** Successive aggregate reads, holding on the last value once exhausted. */
+  workspaceSequence?: unknown[];
   /** Held open long enough that a second click lands while the first is busy. */
   submitDelayMs?: number;
 }
@@ -178,6 +237,7 @@ export interface BatchRequestMockState {
   workspaceRequests: number;
   submissions: Array<Record<string, unknown>>;
   cancellations: string[];
+  artifactDownloads: string[];
 }
 
 function json(route: Route, value: unknown, status = 200) {
@@ -200,9 +260,24 @@ export async function mockBatchRequests(
     workspaceRequests: 0,
     submissions: [],
     cancellations: [],
+    artifactDownloads: [],
   };
   const workspace = options.workspace ?? BATCH_REQUEST_WORKSPACE;
   const bySubmissionKey = new Map<string, unknown>();
+
+  await page.route(/\/api\/me\/batch-requests\/[^/]+\/artifact$/, (route) => {
+    const id = new URL(route.request().url()).pathname.split("/").at(-2) ?? "";
+    state.artifactDownloads.push(id);
+    return route.fulfill({
+      status: 200,
+      contentType: "text/csv",
+      headers: {
+        "Content-Disposition":
+          'attachment; filename="requests-customer_batch.csv"',
+      },
+      body: "phone,title\n2145550100,Portal Lead\n",
+    });
+  });
 
   await page.route(/\/api\/me\/batch-requests\/[^/]+\/cancel$/, (route) => {
     const id = new URL(route.request().url()).pathname.split("/").at(-2) ?? "";
@@ -249,7 +324,11 @@ export async function mockBatchRequests(
   await page.route(/\/api\/me\/batch-requests$/, async (route) => {
     if (route.request().method() !== "POST") {
       state.workspaceRequests += 1;
-      return json(route, workspace);
+      const sequence = options.workspaceSequence;
+      const response = sequence?.length
+        ? sequence[Math.min(state.workspaceRequests - 1, sequence.length - 1)]
+        : workspace;
+      return json(route, response);
     }
     const body = route.request().postDataJSON() as Record<string, unknown>;
     state.submissions.push(body);

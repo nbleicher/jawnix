@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Keyword Winners · GMS Operations{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">Keyword intelligence</p><h1>Keywords</h1></div><span class="count-pill">{{ winners|length }} ranked</span></div>
+{% include "fragments/keyword_tabs.html" %}
+<div id="generation-feedback">{% if not ai_enabled %}<div class="notice"><i data-lucide="key-round"></i><span>AI generation is unavailable until an OpenRouter key is configured</span></div>{% endif %}</div>
+{% if winners %}
+<div class="table-wrap winners-table">
+  <table>
+    <thead><tr><th>Rank</th><th>Keyword</th><th>Phone leads</th><th>Businesses</th><th>Posted cells</th><th>Phones / cell</th><th>Phone rate</th><th></th></tr></thead>
+    <tbody>
+      {% for winner in winners %}
+      <tr>
+        <td><span class="winner-rank">{{ loop.index }}</span></td>
+        <td><strong>{{ winner.keyword|title }}</strong><small class="table-subtext">Last used {{ winner.last_used.strftime('%b %d') }}</small></td>
+        <td>{{ "{:,}".format(winner.phone_businesses) }}</td>
+        <td>{{ "{:,}".format(winner.businesses) }}</td>
+        <td>{{ "{:,}".format(winner.posted_cells) }}</td>
+        <td><strong>{{ "{:.2f}".format(winner.phones_per_cell) }}</strong></td>
+        <td>{{ "{:.1%}".format(winner.phone_rate) }}</td>
+        <td class="table-action"><button class="button compact ai-button" type="button" hx-post="/keywords/generate" hx-vals='{"mode":"adjacent","seed_keyword":{{ winner.keyword|tojson }}}' hx-target="#generation-feedback" hx-disabled-elt="this" data-pending-message="Generating adjacent keywords..." {% if not ai_enabled %}disabled title="OpenRouter key not configured"{% endif %}><i data-lucide="sparkles"></i><span class="button-label">Generate adjacent</span><span class="htmx-indicator">Generating...</span></button></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}<div class="empty-state"><i data-lucide="chart-no-axes-column"></i><p>No keyword has at least 100 posted cells yet</p></div>{% endif %}
+{% endblock %}

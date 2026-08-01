@@ -1,0 +1,35 @@
+<section id="pipeline-activity" class="pipeline-activity pipeline-{{ pipeline_state.key }}" aria-live="polite" hx-get="/frag/dashboard/activity" hx-trigger="every 3s" hx-swap="outerHTML">
+  <div class="pipeline-summary">
+    <span class="pipeline-signal"><i data-lucide="database-zap"></i></span>
+    <div><p class="eyebrow">Live database activity</p><strong>{{ pipeline_state.label }}</strong><small>{{ pipeline_state.detail }}</small></div>
+  </div>
+  <div class="activity-stat"><span>Businesses touched</span><strong>+{{ "{:,}".format(activity.businesses_last_minute) }}</strong><small>last minute · {{ "{:,}".format(activity.businesses_total) }} total</small></div>
+  <div class="activity-stat"><span>Job commits</span><strong>{{ "{:,}".format(activity.jobs_last_minute) }}</strong><small>{{ "{:,}".format(activity.results_last_minute) }} raw results / min</small></div>
+  <div class="activity-stat"><span>Work queue</span><strong>{{ "{:,}".format(activity.queue_depth) }}</strong><small>{{ activity.running_jobs }} running · {{ activity.retryable_jobs }} retrying</small></div>
+  <div class="activity-stat latest-write"><span>Latest DB write</span><strong class="{% if activity.write_is_fresh %}write-fresh{% endif %}">{{ activity.write_age }} ago</strong><small>{% if activity.latest_job_at %}{{ activity.latest_state }} · {{ activity.latest_keyword }} · {{ activity.latest_result_count }} raw results{% else %}Waiting for first committed job{% endif %}</small></div>
+  {% if pipeline_state.key in ['paused','pausing'] %}
+    <button class="button pipeline-control resume" type="button" hx-post="/dashboard/pipeline" hx-vals='{"action":"resume"}' hx-target="#pipeline-activity" hx-swap="outerHTML" hx-disabled-elt="this" data-pending-message="Resuming pipeline..." data-success-message="Pipeline resumed">
+      <i data-lucide="play"></i><span class="button-label">Resume</span><span class="htmx-indicator">Updating...</span>
+    </button>
+  {% else %}
+    <button class="button pipeline-control" type="button" onclick="document.getElementById('pause-dialog').showModal()">
+      <i data-lucide="pause"></i><span>Pause</span>
+    </button>
+    <dialog id="pause-dialog" class="pause-dialog" aria-labelledby="pause-dialog-title">
+      <div class="pause-dialog-head">
+        <span class="dialog-icon"><i data-lucide="pause"></i></span>
+        <div><p class="eyebrow">Pause pipeline</p><strong id="pause-dialog-title">Clear queued jobs?</strong></div>
+        <button class="icon-button" type="button" onclick="this.closest('dialog').close()" title="Close" aria-label="Close"><i data-lucide="x"></i></button>
+      </div>
+      <p>Running jobs will finish safely either way. Choose whether waiting jobs should remain available for resume.</p>
+      <div class="pause-choices">
+        <button class="button pause-choice" type="button" hx-post="/dashboard/pipeline" hx-vals='{"action":"pause","clear_queue":"no"}' hx-target="#pipeline-activity" hx-swap="outerHTML" hx-disabled-elt=".pause-choice" data-pending-message="Pausing and keeping queue..." data-success-message="Pipeline pause requested; queue retained">
+          <i data-lucide="list-restart"></i><span class="button-label">No, keep queue</span><span class="htmx-indicator">Pausing...</span>
+        </button>
+        <button class="button danger pause-choice" type="button" hx-post="/dashboard/pipeline" hx-vals='{"action":"pause","clear_queue":"yes"}' hx-target="#pipeline-activity" hx-swap="outerHTML" hx-disabled-elt=".pause-choice" data-pending-message="Pausing and clearing queue..." data-success-message="Pipeline paused; queue cleared">
+          <i data-lucide="list-x"></i><span class="button-label">Yes, clear queue</span><span class="htmx-indicator">Clearing...</span>
+        </button>
+      </div>
+    </dialog>
+  {% endif %}
+</section>

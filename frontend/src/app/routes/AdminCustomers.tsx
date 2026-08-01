@@ -20,6 +20,7 @@ import { StatusBadge } from "../../design-system/primitives/status";
 import {
   Heading,
   LabelText,
+  Numeral,
   Text,
 } from "../../design-system/primitives/typography";
 
@@ -300,6 +301,7 @@ export function AdminCustomersRoute() {
   return (
     <Page
       title="Customers"
+      density="data"
       description="A Customer is the durable party that owns Licensed States, Agency membership, and permanent distribution history. Its User Account is only replaceable access."
       actions={
         <Cluster gap={3}>
@@ -386,8 +388,8 @@ export function AdminCustomersRoute() {
       >
         <Stack gap={4}>
           <Text size="sm" tone="muted">
-            Showing {data.matched.toLocaleString()} of{" "}
-            {data.total.toLocaleString()} Customers.
+            Showing <Numeral>{data.matched.toLocaleString()}</Numeral> of{" "}
+            <Numeral>{data.total.toLocaleString()}</Numeral> Customers.
           </Text>
           {data.customers.length ? (
             <Grid minColumnWidth="22rem">

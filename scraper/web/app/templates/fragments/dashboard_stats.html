@@ -1,0 +1,13 @@
+<div class="metric-grid">
+  <article class="metric-card"><i data-lucide="building-2"></i><span>Businesses</span><strong>{{ "{:,}".format(stats.businesses) }}</strong><small>net unique</small></article>
+  <article class="metric-card"><i data-lucide="phone-call"></i><span>Phone leads</span><strong>{{ "{:,}".format(stats.unique_phones) }}</strong><small>{{ "{:,}".format(stats.phone_businesses) }} businesses with phone</small></article>
+  <article class="metric-card {% if stats.oldest_queue_secs > 1800 or stats.retryable_jobs > 50 %}metric-alert{% endif %}"><i data-lucide="list-start"></i><span>Queue depth</span><strong>{{ "{:,}".format(stats.queue_depth) }}</strong><small>{{ stats.running_jobs }} running · {{ stats.retryable_jobs }} retrying · oldest {{ (stats.oldest_queue_secs / 60)|round|int }}m</small></article>
+  <article class="metric-card metric-pace">
+    <i data-lucide="gauge"></i><span>Current pace</span>
+    <div class="pace-comparison">
+      <div><strong>{{ "{:,}".format(stats.added_last_hour) }}</strong><small>last hour · empty-adjusted</small></div>
+      <div><strong>~{{ "{:,}".format(stats.added_last_hour * 24) }}</strong><small>24h projection · empty-adjusted</small></div>
+    </div>
+  </article>
+  <article class="metric-card {% if stats.empty_rate > 0.5 %}metric-alert{% endif %}"><i data-lucide="circle-off"></i><span>Empty rate</span><strong>{{ "{:.1%}".format(stats.empty_rate) }}</strong><small>last hour</small></article>
+</div>

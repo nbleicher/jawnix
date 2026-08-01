@@ -1,0 +1,16 @@
+.DS_Store
+**/.DS_Store
+
+.env
+.env.*
+!.env.example
+!.env.box.example
+
+keywords.txt
+exports/
+
+**/__pycache__/
+**/.pytest_cache/
+web/.venv/
+web/node_modules/
+.scraper-src/

@@ -388,24 +388,9 @@ class CustomerOverviewStatus(BaseModel):
     tone: Literal["neutral", "info", "success", "warning", "danger"]
 
 
-class CustomerOverviewRequest(BaseModel):
-    id: uuid.UUID
-    lead_count: int
-    states: list[str]
-    submitted_at: datetime
-    delivered_at: datetime | None
-    status: CustomerOverviewStatus
-
-
-class CustomerOverviewDelivery(BaseModel):
-    request_id: uuid.UUID
-    lead_count: int
-    states: list[str]
-    delivered_at: datetime
-
-
 class CustomerOverviewAction(BaseModel):
     kind: Literal[
+        "download_artifact",
         "request_batch",
         "submit_feedback",
         "review_request",
@@ -417,15 +402,27 @@ class CustomerOverviewAction(BaseModel):
     href: str
 
 
-class CustomerOverviewOut(BaseModel):
-    """Stable aggregate read contract for the Customer application."""
+class CustomerOverviewItem(BaseModel):
+    """One action that currently needs the Customer's attention."""
 
-    first_name: str
-    licensed_states: list[str]
-    current_request: CustomerOverviewRequest | None
-    recent_deliveries: list[CustomerOverviewDelivery]
-    next_action: CustomerOverviewAction
-    primary_actions: list[CustomerOverviewAction]
+    id: str
+    kind: Literal[
+        "batch_ready",
+        "artifact_expiring",
+        "waiting_inventory",
+        "feedback_nudge",
+        "setup_problem",
+    ]
+    title: str
+    description: str
+    tone: Literal["neutral", "info", "success", "warning", "danger"]
+    action: CustomerOverviewAction
+
+
+class CustomerOverviewOut(BaseModel):
+    """The Customer's strictly actionable attention queue."""
+
+    items: list[CustomerOverviewItem]
 
 
 CustomerMilestoneKey = Literal[
@@ -500,6 +497,16 @@ class CustomerRequestAction(BaseModel):
     href: str
 
 
+class CustomerBatchArtifact(BaseModel):
+    """The safe Customer projection of one delivered Batch Artifact."""
+
+    filename: str
+    row_count: int
+    expires_at: datetime | None
+    available: bool
+    download_href: str | None
+
+
 class CustomerRequestDetail(BaseModel):
     """One Batch Request as the Customer application reads it."""
 
@@ -513,6 +520,7 @@ class CustomerRequestDetail(BaseModel):
     can_cancel: bool
     next_action: CustomerRequestAction | None
     receipt_href: str
+    artifact: CustomerBatchArtifact | None
 
 
 class CustomerRequestLimits(BaseModel):
@@ -577,6 +585,20 @@ class FeedbackLookup(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     phone: str
+
+
+class FeedbackSearch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=2, max_length=100)
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, value: str) -> str:
+        query = value.strip()
+        if len(query) < 2:
+            raise ValueError("Search requires at least two characters.")
+        return query
 
 
 class FeedbackCreate(BaseModel):

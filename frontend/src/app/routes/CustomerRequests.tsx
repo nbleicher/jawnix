@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { useLoaderData, useRevalidator } from "react-router";
+import {
+  useLoaderData,
+  useRevalidator,
+  useSearchParams,
+} from "react-router";
 
 import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { cx } from "../../design-system/primitives/cx";
@@ -18,6 +22,7 @@ import { StatusBadge } from "../../design-system/primitives/status";
 import {
   Heading,
   LabelText,
+  Mono,
   Text,
   VisuallyHidden,
 } from "../../design-system/primitives/typography";
@@ -30,6 +35,7 @@ import {
   submitBatchRequest,
 } from "./batchRequests";
 import type {
+  BatchArtifact,
   BatchRequest,
   BatchRequestReceipt,
   BatchRequestWorkspace,
@@ -57,6 +63,33 @@ function formatCount(value: number): string {
 
 function formatStates(states: string[]): string {
   return states.join(", ");
+}
+
+export const ACTIVE_REQUEST_REFRESH_MS = 10_000;
+
+/** Delivered requests and requests with a terminal outcome cannot change on
+ * their own. Everything else is still moving through fulfillment. */
+export function isRequestSettled(request: BatchRequest): boolean {
+  return request.delivered_at !== null || request.milestones.outcome !== null;
+}
+
+const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+export function formatArtifactExpiry(expiresAt: string, now: number): string {
+  const remaining = Date.parse(expiresAt) - now;
+  if (remaining <= 0) return "Expired — contact us";
+  if (remaining >= DAY_MS) {
+    const days = Math.ceil(remaining / DAY_MS);
+    return `Expires in ${days} ${days === 1 ? "day" : "days"}`;
+  }
+  if (remaining >= HOUR_MS) {
+    const hours = Math.ceil(remaining / HOUR_MS);
+    return `Expires in ${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
+  const minutes = Math.max(1, Math.ceil(remaining / MINUTE_MS));
+  return `Expires in ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
 }
 
 // --- The guided flow --------------------------------------------------------
@@ -416,7 +449,93 @@ function RequestFlow({
 
 // --- Submitted requests -----------------------------------------------------
 
-function RequestCard({
+function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!artifact?.available) return;
+    const interval = window.setInterval(() => setNow(Date.now()), MINUTE_MS);
+    return () => window.clearInterval(interval);
+  }, [artifact?.available]);
+
+  const expiresAt = artifact?.expires_at
+    ? Date.parse(artifact.expires_at)
+    : Number.NaN;
+  const expired = !Number.isFinite(expiresAt) || expiresAt <= now;
+  const live = Boolean(
+    artifact?.available && artifact.download_href && !expired,
+  );
+  const status = expired
+    ? "Expired — contact us"
+    : live && artifact?.expires_at
+      ? formatArtifactExpiry(artifact.expires_at, now)
+      : "Unavailable — contact us";
+
+  return (
+    <section
+      className={cx(
+        "request-artifact",
+        !live && "request-artifact--unavailable",
+      )}
+      aria-labelledby="batch-artifact-title"
+    >
+      <Stack gap={4}>
+        <Cluster justify="space-between" align="flex-start">
+          <Stack gap={1}>
+            <Heading level={3} id="batch-artifact-title">
+              Batch Artifact
+            </Heading>
+            <Text size="sm" tone="muted">
+              The exact CSV created for this Batch Request.
+            </Text>
+          </Stack>
+          <Text
+            size="sm"
+            weight="semibold"
+            tone={live ? "success" : "warning"}
+          >
+            {artifact?.expires_at ? (
+              <time dateTime={artifact.expires_at}>{status}</time>
+            ) : (
+              status
+            )}
+          </Text>
+        </Cluster>
+
+        {artifact ? (
+          <dl className="request-artifact__metadata">
+            <div>
+              <dt>
+                <LabelText>Filename</LabelText>
+              </dt>
+              <dd>
+                <Mono>{artifact.filename}</Mono>
+              </dd>
+            </div>
+            <div>
+              <dt>
+                <LabelText>Rows</LabelText>
+              </dt>
+              <dd>{formatCount(artifact.row_count)}</dd>
+            </div>
+          </dl>
+        ) : null}
+
+        {live && artifact?.download_href ? (
+          <ActionLink href={artifact.download_href} variant="primary">
+            Download CSV
+          </ActionLink>
+        ) : (
+          <Text size="sm">
+            Batch files are retained for 30 days. Contact Jawnix to have this
+            exact file regenerated.
+          </Text>
+        )}
+      </Stack>
+    </section>
+  );
+}
+
+function RequestDetail({
   request,
   onCanceled,
 }: {
@@ -448,79 +567,83 @@ function RequestCard({
   }
 
   return (
-    <li id={`request-${request.id}`}>
-      <Card>
-        <Stack gap={4}>
-          <Cluster justify="space-between" align="flex-start">
-            <Stack gap={1}>
-              <Heading level={3}>
-                {`${formatCount(request.lead_count)} leads`}
-              </Heading>
-              <Text size="sm" tone="muted">
-                {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)}`}
-              </Text>
-            </Stack>
-            <StatusBadge tone={request.status.tone}>
-              {request.status.label}
-            </StatusBadge>
-          </Cluster>
-
-          <MilestoneGraph
-            graph={request.milestones}
-            label={`Progress for the ${formatCount(request.lead_count)} lead request submitted ${formatMilestoneTime(request.submitted_at)}`}
-          />
-
-          {pause ? (
-            <div className="request-card__note request-card__note--pause">
-              <Stack gap={1}>
-                <Text weight="semibold">{pause.label}</Text>
-                <Text size="sm">{pause.description}</Text>
-              </Stack>
-            </div>
-          ) : null}
-
-          {outcome ? (
-            <div
-              className={cx(
-                "request-card__note",
-                `request-card__note--${outcome.tone}`,
-              )}
-            >
-              <Stack gap={1}>
-                <Text weight="semibold">
-                  {outcome.occurred_at
-                    ? `${outcome.label} · ${formatMilestoneTime(outcome.occurred_at)}`
-                    : outcome.label}
-                </Text>
-                <Text size="sm">{outcome.description}</Text>
-              </Stack>
-            </div>
-          ) : null}
-
-          {failure ? (
-            <Text tone="danger" role="alert">
-              {failure}
+    <div id={`request-${request.id}`}>
+      <Stack gap={4}>
+        <Cluster justify="space-between" align="flex-start">
+          <Stack gap={1}>
+            <Heading level={2}>
+              {`${formatCount(request.lead_count)} lead Batch Request`}
+            </Heading>
+            <Text size="sm" tone="muted">
+              {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)}`}
             </Text>
-          ) : null}
+          </Stack>
+          <StatusBadge tone={request.status.tone}>
+            {request.status.label}
+          </StatusBadge>
+        </Cluster>
 
-          {request.next_action || request.can_cancel ? (
-            <Cluster>
-              {request.next_action ? (
-                <ActionLink href={request.next_action.href} variant="secondary">
-                  {request.next_action.label}
-                </ActionLink>
-              ) : null}
-              {/* Offered only while the domain still allows withdrawal, so the
-                  button is never a promise the backend will refuse. */}
-              {request.can_cancel ? (
-                <Button variant="danger" onClick={() => setConfirming(true)}>
-                  Cancel request
-                </Button>
-              ) : null}
-            </Cluster>
-          ) : null}
-        </Stack>
-      </Card>
+        <Text>{request.status.description}</Text>
+
+        <MilestoneGraph
+          graph={request.milestones}
+          label={`Progress for the ${formatCount(request.lead_count)} lead request submitted ${formatMilestoneTime(request.submitted_at)}`}
+        />
+
+        {pause ? (
+          <div className="request-card__note request-card__note--pause">
+            <Stack gap={1}>
+              <Text weight="semibold">{pause.label}</Text>
+              <Text size="sm">{pause.description}</Text>
+            </Stack>
+          </div>
+        ) : null}
+
+        {outcome ? (
+          <div
+            className={cx(
+              "request-card__note",
+              `request-card__note--${outcome.tone}`,
+            )}
+          >
+            <Stack gap={1}>
+              <Text weight="semibold">
+                {outcome.occurred_at
+                  ? `${outcome.label} · ${formatMilestoneTime(outcome.occurred_at)}`
+                  : outcome.label}
+              </Text>
+              <Text size="sm">{outcome.description}</Text>
+            </Stack>
+          </div>
+        ) : null}
+
+        {request.delivered_at ? (
+          <ArtifactCard artifact={request.artifact} />
+        ) : null}
+
+        {failure ? (
+          <Text tone="danger" role="alert">
+            {failure}
+          </Text>
+        ) : null}
+
+        {request.next_action || request.can_cancel ? (
+          <Cluster>
+            {request.next_action ? (
+              <ActionLink href={request.next_action.href} variant="secondary">
+                {request.next_action.label}
+              </ActionLink>
+            ) : null}
+            {/* Offered only while the domain still allows withdrawal, so the
+                button is never a promise the backend will refuse. */}
+            {request.can_cancel ? (
+              <Button variant="danger" onClick={() => setConfirming(true)}>
+                Cancel request
+              </Button>
+            ) : null}
+          </Cluster>
+        ) : null}
+      </Stack>
 
       <ConfirmDialog
         open={confirming}
@@ -532,6 +655,33 @@ function RequestCard({
         cancelLabel="Keep request"
         busy={busy}
       />
+    </div>
+  );
+}
+
+function RequestSummary({ request }: { request: BatchRequest }) {
+  return (
+    <li>
+      <Card padding={4}>
+        <Cluster justify="space-between" align="flex-start">
+          <Stack gap={2}>
+            <Heading level={3}>{`${formatCount(request.lead_count)} leads`}</Heading>
+            <Text size="sm" tone="muted">
+              {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)}`}
+            </Text>
+            <Text size="sm">{request.status.description}</Text>
+            <ActionLink href={request.receipt_href} variant="secondary">
+              View request
+              <VisuallyHidden>
+                {` for ${formatCount(request.lead_count)} leads submitted ${formatMilestoneTime(request.submitted_at)}`}
+              </VisuallyHidden>
+            </ActionLink>
+          </Stack>
+          <StatusBadge tone={request.status.tone}>
+            {request.status.label}
+          </StatusBadge>
+        </Cluster>
+      </Card>
     </li>
   );
 }
@@ -541,7 +691,8 @@ function RequestCard({
 export function CustomerRequestsRoute() {
   const workspace = useLoaderData<BatchRequestWorkspace>();
   const revalidator = useRevalidator();
-  useDocumentTitle("Requests");
+  const [searchParams] = useSearchParams();
+  const requestId = searchParams.get("request");
 
   // A cancellation answers with the request's new timeline, so the screen shows
   // it at once instead of waiting for the list to be fetched again.
@@ -554,9 +705,60 @@ export function CustomerRequestsRoute() {
     (request) => canceled[request.id] ?? request,
   );
 
+  const selectedRequest = requestId
+    ? requests.find((request) => request.id === requestId)
+    : undefined;
+  const hasActiveRequest = requests.some(
+    (request) => !isRequestSettled(request),
+  );
+  useDocumentTitle(selectedRequest ? "Batch Request" : "Requests");
+
+  useEffect(() => {
+    if (!hasActiveRequest) return;
+    const interval = window.setInterval(() => {
+      if (revalidator.state === "idle") void revalidator.revalidate();
+    }, ACTIVE_REQUEST_REFRESH_MS);
+    return () => window.clearInterval(interval);
+  }, [hasActiveRequest, revalidator]);
+
+  if (requestId) {
+    return (
+      <Page
+        title="Batch Request"
+        description="Follow this request from submission through delivery."
+        actions={
+          selectedRequest ? (
+            <ActionLink href="/app/requests">All Requests</ActionLink>
+          ) : undefined
+        }
+      >
+        {selectedRequest ? (
+          <Card>
+            <RequestDetail
+              request={selectedRequest}
+              onCanceled={(updated) =>
+                setCanceled((current) => ({
+                  ...current,
+                  [updated.id]: updated,
+                }))
+              }
+            />
+          </Card>
+        ) : (
+          <EmptyState
+            title="Batch Request not found"
+            description="This request is not in your request history."
+            action={<ActionLink href="/app/requests">All Requests</ActionLink>}
+          />
+        )}
+      </Page>
+    );
+  }
+
   return (
     <Page
       title="Requests"
+      density="data"
       description="Ask for an exact Batch, then follow it from Submitted to Delivered."
     >
       <Section
@@ -588,16 +790,7 @@ export function CustomerRequestsRoute() {
         {requests.length ? (
           <Stack as="ul" gap={4} className="request-list">
             {requests.map((request) => (
-              <RequestCard
-                key={request.id}
-                request={request}
-                onCanceled={(updated) =>
-                  setCanceled((current) => ({
-                    ...current,
-                    [updated.id]: updated,
-                  }))
-                }
-              />
+              <RequestSummary key={request.id} request={request} />
             ))}
           </Stack>
         ) : (

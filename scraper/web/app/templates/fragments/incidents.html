@@ -1,0 +1,11 @@
+{% if incidents %}
+<div class="incident-list">
+  {% for incident in incidents %}
+  <div class="incident-row incident-{{ incident.status }}">
+    <span class="incident-icon"><i data-lucide="{% if incident.status == 'ok' %}circle-check{% elif incident.status == 'error' %}circle-x{% else %}triangle-alert{% endif %}"></i></span>
+    <div><strong>{% if incident.status == 'ok' %}Checks passed{% elif incident.status == 'error' %}Infrastructure check failed{% else %}Pipeline warning{% endif %}</strong><small>{% if incident.messages %}{{ incident.messages|join(' · ') }}{% else %}No alert conditions detected{% endif %}</small></div>
+    <time>{{ incident.checked_at.strftime('%H:%M') }}</time>
+  </div>
+  {% endfor %}
+</div>
+{% else %}<div class="empty-state"><i data-lucide="badge-check"></i><p>No alert runs recorded yet</p></div>{% endif %}

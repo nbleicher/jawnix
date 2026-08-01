@@ -59,6 +59,16 @@ export function Mono({ className, ...rest }: MonoProps) {
   return <span className={cx("jx-mono", className)} {...rest} />;
 }
 
+export interface NumeralProps extends HTMLAttributes<HTMLElement> {
+  children?: ReactNode;
+}
+
+/** Display numerals for counts, dates, and metrics. Identifiers stay in Mono;
+ *  prose containing incidental digits stays in the body face. */
+export function Numeral({ className, ...rest }: NumeralProps) {
+  return <span className={cx("jx-numeral", className)} {...rest} />;
+}
+
 export interface VisuallyHiddenProps extends HTMLAttributes<HTMLSpanElement> {
   children?: ReactNode;
 }

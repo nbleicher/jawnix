@@ -1,0 +1,15 @@
+diff --git a/Dockerfile.saas b/Dockerfile.saas
+index 0af0079..d7dc0cf 100644
+--- a/Dockerfile.saas
++++ b/Dockerfile.saas
+@@ -14,7 +14,9 @@ RUN go mod download
+ COPY . .
+ 
+ # Build the gmapssaas binary (stripped and optimized)
+-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /gmapssaas ./cmd/gmapssaas
++ARG GMS_GO_BUILD_FLAGS
++ARG GMS_GOGC=100
++RUN GOGC=${GMS_GOGC} GOMAXPROCS=1 CGO_ENABLED=0 GOOS=linux go build ${GMS_GO_BUILD_FLAGS} -ldflags="-w -s" -o /gmapssaas ./cmd/gmapssaas
+ 
+ # Final stage - Debian slim with Playwright Chromium dependencies
+ FROM debian:bookworm-slim

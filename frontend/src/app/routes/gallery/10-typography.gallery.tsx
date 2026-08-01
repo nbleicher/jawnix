@@ -1,5 +1,5 @@
 import { Card, Stack } from "../../../design-system/primitives/layout";
-import { Heading, LabelText, Mono, Text } from "../../../design-system/primitives/typography";
+import { Heading, LabelText, Mono, Numeral, Text } from "../../../design-system/primitives/typography";
 import type { GallerySection } from "./types";
 
 function Typography() {
@@ -14,7 +14,8 @@ function Typography() {
         </Heading>
         <Text>
           Interface copy uses the sans face at a comfortable measure. Monospace is reserved for identifiers such as{" "}
-          <Mono>REQ-2026-0114</Mono> and dense numeric data.
+          <Mono>REQ-2026-0114</Mono>; display numerals carry metrics such as{" "}
+          <Numeral>19,842 · Jul 31, 2026</Numeral>.
         </Text>
         <Text size="sm" tone="muted">
           Muted supporting copy.

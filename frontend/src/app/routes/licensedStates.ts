@@ -15,6 +15,21 @@ export interface LicensedStateWorkspace {
   version: string;
 }
 
+export interface CustomerAccountIdentity {
+  user_id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  customer_id: number | null;
+  mapping_confirmed_at: string | null;
+}
+
+export interface CustomerAccountWorkspace {
+  identity: CustomerAccountIdentity;
+  licensed_states: LicensedStateWorkspace;
+}
+
 export interface LicensedStateImpact {
   request_id: string;
   lead_count: number;
@@ -90,22 +105,34 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return parsed as T;
 }
 
-export async function licensedStatesLoader({
+export async function customerAccountLoader({
   request,
-}: LoaderFunctionArgs): Promise<LicensedStateWorkspace> {
-  const response = await fetch("/api/me/licensed-states", {
-    credentials: "same-origin",
-  });
-  if (response.status === 401 || response.status === 403) {
+}: LoaderFunctionArgs): Promise<CustomerAccountWorkspace> {
+  const [identityResponse, licensedStatesResponse] = await Promise.all([
+    fetch("/api/me/profile", { credentials: "same-origin" }),
+    fetch("/api/me/licensed-states", { credentials: "same-origin" }),
+  ]);
+  if (
+    identityResponse.status === 401
+    || identityResponse.status === 403
+    || licensedStatesResponse.status === 401
+    || licensedStatesResponse.status === 403
+  ) {
     const next = new URL(request.url).pathname;
     throw redirect(`/sign-in?next=${encodeURIComponent(next)}`);
   }
-  if (!response.ok) {
+  if (!identityResponse.ok || !licensedStatesResponse.ok) {
     throw new Response("Account is temporarily unavailable.", {
-      status: response.status,
+      status: !identityResponse.ok
+        ? identityResponse.status
+        : licensedStatesResponse.status,
     });
   }
-  return response.json() as Promise<LicensedStateWorkspace>;
+  const [identity, licensedStates] = await Promise.all([
+    identityResponse.json() as Promise<CustomerAccountIdentity>,
+    licensedStatesResponse.json() as Promise<LicensedStateWorkspace>,
+  ]);
+  return { identity, licensed_states: licensedStates };
 }
 
 export function previewLicensedStates(

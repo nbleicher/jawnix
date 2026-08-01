@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -14,6 +15,7 @@ from jawnix.config import Settings, get_settings
 from jawnix.database import get_db
 from jawnix.mfa_provider import ProviderFactor, ProviderSession
 from jawnix.models import AdminMFAState, AuditEntry
+from scraper_fake import ACTIVITY, PAUSE_INFO, PIPELINE_STATE, ScraperFake
 
 
 ADMIN_ID = uuid.UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
@@ -83,7 +85,11 @@ def workspace_settings(settings) -> Settings:
         JAWNIX_SCRAPER_OPS_URL="http://10.77.0.2:8090",
         JAWNIX_SCRAPER_OPS_USER="scraper-admin",
         JAWNIX_SCRAPER_OPS_PASSWORD="upstream-secret",
+        JAWNIX_SCRAPER_CONTROL_TOKEN=(
+            "test-scraper-control-token-0000000000000000"
+        ),
         JAWNIX_SCRAPER_OPS_TIMEOUT_SECONDS=1,
+        OPENROUTER_API_KEY="test-openrouter-key",
     )
 
 
@@ -126,16 +132,10 @@ def workspace_client(
     )
     now = [datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc)]
     app.state.scraper_workspace_clock = lambda: now[0]
-    app.state.scraper_proxy_transport = httpx.MockTransport(
-        lambda request: httpx.Response(
-            200,
-            headers={"Content-Type": "text/html"},
-            text="<html><body>GMS/OPS ready</body></html>",
-        )
-    )
-    for attribute in ("scraper_proxy_state",):
+    for attribute in ("scraper_proxy_transport", "scraper_proxy_state"):
         if hasattr(app.state, attribute):
             delattr(app.state, attribute)
+    app.state.scraper_operations = ScraperFake()
 
     client = TestClient(app)
     client.cookies.set(SESSION_COOKIE, token)
@@ -149,6 +149,9 @@ def workspace_client(
             "scraper_workspace_clock",
             "scraper_proxy_transport",
             "scraper_proxy_state",
+            "scraper_operations",
+            "keyword_generation_provider",
+            "keyword_generation_transport",
         ):
             if hasattr(app.state, attribute):
                 delattr(app.state, attribute)
@@ -244,7 +247,7 @@ def test_scraper_grant_expires_after_fifteen_idle_minutes_and_rolls_on_activity(
     assert expired.json()["detail"] == "Scraper privileged session expired."
 
 
-def test_native_adapter_injects_credentials_normalizes_and_audits_operation(
+def test_typed_adapter_injects_bearer_normalizes_and_audits_operation(
     workspace_client,
     session,
 ):
@@ -253,8 +256,22 @@ def test_native_adapter_injects_credentials_normalizes_and_audits_operation(
 
     def upstream(request: httpx.Request) -> httpx.Response:
         calls.append(request)
-        return httpx.Response(200, text="<section>paused</section>")
+        return httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "pipeline_state": {
+                    **PIPELINE_STATE,
+                    "key": "paused",
+                    "label": "Paused",
+                },
+                "cancelled_jobs": 0,
+                "activity": ACTIVITY,
+                "pause_info": {"mode": "drain", "cancelled_jobs": 0},
+            },
+        )
 
+    delattr(app.state, "scraper_operations")
     app.state.scraper_proxy_transport = httpx.MockTransport(upstream)
     enter_and_verify(client, csrf)
 
@@ -268,15 +285,14 @@ def test_native_adapter_injects_credentials_normalizes_and_audits_operation(
     body = operation.json()
     assert body["ok"] is True
     assert body["pipeline_state"] == "paused"
-    # This upstream answers HTML to every path, so the activity read-back does
-    # not parse. The write still reports its outcome, and the region says it
-    # could not be refreshed rather than inventing one.
-    assert body["region"]["state"] == "unavailable"
-    write = next(
-        call for call in calls if call.url.path == "/dashboard/pipeline"
-    )
-    assert write.content == b"action=pause&clear_queue=no"
-    assert write.headers["authorization"].startswith("Basic ")
+    assert body["region"]["state"] == "ok"
+    write = calls[-1]
+    assert write.url.path == "/api/pipeline"
+    assert json.loads(write.content) == {
+        "action": "pause",
+        "clear_queue": False,
+    }
+    assert write.headers["authorization"].startswith("Bearer ")
     assert "upstream-secret" not in operation.text
     entries = session.scalars(
         select(AuditEntry).where(
@@ -293,10 +309,11 @@ def test_native_mutation_requires_jawnix_csrf_before_upstream(
 ):
     client, csrf, _, _ = workspace_client
     calls: list[httpx.Request] = []
+    delattr(app.state, "scraper_operations")
     app.state.scraper_proxy_transport = httpx.MockTransport(
         lambda request: (
             calls.append(request)
-            or httpx.Response(200, text="<section>paused</section>")
+            or httpx.Response(200, json={})
         )
     )
     enter_and_verify(client, csrf)
@@ -317,8 +334,18 @@ def test_native_workspace_fails_closed_with_safe_last_success(workspace_client):
     def upstream(_request: httpx.Request) -> httpx.Response:
         if unavailable:
             raise httpx.ConnectTimeout("private topology 10.77.0.2 failed")
-        return httpx.Response(200, text="<html><body>ready</body></html>")
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "active_states": ["OH"],
+                "keyword_count": 2,
+                "business_count": 100,
+                "pipeline_state": "running",
+            },
+        )
 
+    delattr(app.state, "scraper_operations")
     app.state.scraper_proxy_transport = httpx.MockTransport(upstream)
     enter_and_verify(client, csrf)
     first = client.get("/api/admin/scraper/workspace")

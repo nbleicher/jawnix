@@ -65,10 +65,6 @@ import {
   signInLoader,
 } from "./auth/customerAuth";
 import {
-  AcceptInvitationRoute,
-  SignInRoute,
-} from "./routes/CustomerAuth";
-import {
   ScraperStepUpRoute,
   scraperEntryLoader,
 } from "./routes/ScraperWorkspace";
@@ -106,7 +102,7 @@ import {
 } from "./routes/CustomerFeedback";
 import { CustomerRequestsRoute } from "./routes/CustomerRequests";
 import { batchRequestsLoader } from "./routes/batchRequests";
-import { licensedStatesLoader } from "./routes/licensedStates";
+import { customerAccountLoader } from "./routes/licensedStates";
 
 /**
  * Route table for the redesigned application.
@@ -131,12 +127,20 @@ export const router = createBrowserRouter(
         {
           path: "sign-in",
           loader: signInLoader,
-          element: <SignInRoute />,
+          lazy: async () => {
+            const { SignInRoute } = await import("./routes/CustomerAuth");
+            return { Component: SignInRoute };
+          },
         },
         {
           path: "accept-invitation",
           loader: invitationLoader,
-          element: <AcceptInvitationRoute />,
+          lazy: async () => {
+            const { AcceptInvitationRoute } = await import(
+              "./routes/CustomerAuth"
+            );
+            return { Component: AcceptInvitationRoute };
+          },
         },
 
         // Customer portal — Overview, Requests, Feedback, Account.
@@ -164,7 +168,7 @@ export const router = createBrowserRouter(
             },
             {
               path: "account",
-              loader: licensedStatesLoader,
+              loader: customerAccountLoader,
               element: <CustomerAccountRoute />,
             },
           ],

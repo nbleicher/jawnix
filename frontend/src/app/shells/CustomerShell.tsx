@@ -4,7 +4,10 @@ import { useNavigate } from "react-router";
 import { AppShell } from "../shell/AppShell";
 import type { NavigationDestination } from "../shell/Navigation";
 import { signOutCustomer } from "../auth/customerAuth";
-import { Button } from "../../design-system/primitives/Button";
+import {
+  ActionLink,
+  Button,
+} from "../../design-system/primitives/Button";
 import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 
 /** Customer-facing navigation, matching the Customer's jobs rather than the
@@ -17,8 +20,8 @@ const DESTINATIONS: NavigationDestination[] = [
 ];
 
 export function CustomerShell() {
-  // The Customer portal is always the product language.
-  useRouteTheme("jawnix");
+  // The Customer portal is always the Opaline product language.
+  useRouteTheme("opaline");
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
 
@@ -37,14 +40,19 @@ export function CustomerShell() {
       audience="Customer"
       destinations={DESTINATIONS}
       headerActions={
-        <Button
-          variant="ghost"
-          busy={signingOut}
-          busyLabel="Signing out…"
-          onClick={signOut}
-        >
-          Sign out
-        </Button>
+        <>
+          <ActionLink href="mailto:hai@jawnix.com" variant="ghost">
+            Support
+          </ActionLink>
+          <Button
+            variant="ghost"
+            busy={signingOut}
+            busyLabel="Signing out…"
+            onClick={signOut}
+          >
+            Sign out
+          </Button>
+        </>
       }
     />
   );

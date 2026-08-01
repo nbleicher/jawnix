@@ -1,0 +1,1 @@
+"""Headless Scraper control service."""

@@ -170,6 +170,12 @@ Use the verified Scale release
 production image and source revision have been recorded for rollback as required
 by Jawnix issue #29.
 
+This pin remains the deployment source only until the Scraper ownership cutover
+below passes. At that point it becomes a rollback reference for seven days;
+Jawnix's tagged `main` revision becomes the production source for
+`scraper-control`, the worker, migrations, and schedules. Do not delete the
+Scale tag or stopped stack while it is the rollback path.
+
 1. Assign a private WireGuard address to each host (the examples use Jawnix
    `10.77.0.1` and Scraper `10.77.0.2`) and configure each as the other's only
    peer.
@@ -197,6 +203,157 @@ link. Native Jawnix administration, feedback, and analytics routes do not
 depend on the Scraper connection.
 
 The PostgreSQL initialization hook enables password-authenticated replication only for physical backups on the private Docker network. If attaching this stack to an already-initialized PostgreSQL volume, add the equivalent `host replication` rule to `pg_hba.conf` and reload PostgreSQL before forcing the first base backup.
+
+## Scraper ownership cutover
+
+Do not schedule this window until a Stage C rehearsal report says **GO**. The
+[2026-07-31 rehearsal report](rehearsals/2026-07-31-scraper-cutover.md) is a
+**NO-GO** because the acquisition PostgreSQL database had no restorable backup,
+the available Scraper Dataset did not contain the three keyword-history source
+tables, and automatic rollover still required an acquisition-host OpenRouter
+key. A Jawnix PostgreSQL dump and Scraper Dataset snapshot do not substitute
+for an acquisition PostgreSQL backup.
+
+### Required artifacts and rehearsal isolation
+
+Before the maintenance window, produce and retain all of these as one change
+record:
+
+- a custom-format dump of acquisition database `gmaps_pro`, its SHA-256, a
+  successful `pg_restore --list`, and a successful restore into a disposable
+  PostgreSQL instance;
+- the immutable SQLite keyword-history import artifact containing
+  `enqueue_log`, `keyword_history`, and `businesses`, plus its SHA-256 and the
+  row count of each table;
+- the latest Jawnix custom-format dump and Scraper Dataset snapshot, with their
+  existing Restic snapshot IDs and checksums;
+- the current legacy Scale image, source revision, service/timer state, and
+  configuration digest; and
+- the tagged Jawnix `main` revision and image digests that will be deployed.
+
+Until acquisition backup automation is installed, create the acquisition dump
+on its host and copy it into encrypted storage before stopping anything:
+
+```sh
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+dump="/root/acquisition-gmaps_pro-$timestamp.dump"
+docker exec scraper-db-1 pg_dump \
+  --username postgres --dbname gmaps_pro \
+  --format=custom --no-owner --no-acl >"$dump"
+sha256sum "$dump"
+docker exec -i scraper-db-1 pg_restore --list <"$dump" >/dev/null
+```
+
+This host-local file is not a backup until it has been copied off the
+acquisition host into encrypted storage and the copy's digest matches. Record
+the storage snapshot or object identifier. Do not proceed when the dump, copy,
+or restore verification is missing.
+
+The rehearsal must be incapable of resolving production database names or
+addresses. Use unique Compose project and volume names, keep PostgreSQL
+unpublished or bind it only to loopback, and inspect every proposed host port
+before startup:
+
+```sh
+lsof -nP -iTCP -sTCP:LISTEN
+docker compose -p scraper-cutover-rehearsal \
+  -f scraper/docker-compose.box.yml config
+```
+
+Existing SSH tunnels can occupy otherwise plausible rehearsal ports. Exercise
+service calls by Docker-internal service name on the rehearsal network, not by
+a host port. Confirm container project labels, mounts, networks, and database
+DSNs before the first request. Stop immediately if any value names a production
+host.
+
+Restore the acquisition dump into a disposable `gmaps_pro`, then run the
+migrations from the tagged cutover revision and verify both migration ledgers:
+
+```sh
+docker compose -p scraper-cutover-rehearsal \
+  -f scraper/docker-compose.box.yml up -d db
+docker compose -p scraper-cutover-rehearsal \
+  -f scraper/docker-compose.box.yml exec -T db \
+  pg_restore --username postgres --dbname gmaps_pro \
+  --clean --if-exists --no-owner --no-acl <acquisition-gmaps_pro.dump
+docker compose -p scraper-cutover-rehearsal \
+  -f scraper/docker-compose.box.yml run --rm migrate
+docker compose -p scraper-cutover-rehearsal \
+  -f scraper/docker-compose.box.yml exec -T db \
+  psql --username postgres --dbname gmaps_pro \
+  --command='TABLE scraper_migrations' \
+  --command='TABLE scale_migrations'
+```
+
+Verify the immutable keyword-history source before importing it into the
+restored Jawnix database:
+
+```sh
+history=/restore/acquisition-history.db
+sha256sum "$history"
+sqlite3 -readonly "$history" \
+  "SELECT 'enqueue_log', count(*) FROM enqueue_log
+   UNION ALL SELECT 'keyword_history', count(*) FROM keyword_history
+   UNION ALL SELECT 'businesses', count(*) FROM businesses;"
+docker compose run --rm -v /restore:/restore:ro api \
+  python -m jawnix_data import-keyword-history "$history" \
+  --expected-sha256 REPLACE_WITH_VERIFIED_SHA256
+```
+
+Require the command's `sourceRowsByTable` to equal the three source counts and
+its `checksum` to equal the verified file digest. Rerun it and require
+`skipped: true`, `inserted: 0`, and `updated: 0` before accepting idempotency.
+
+### Maintenance-window sequence
+
+1. Announce the acquisition maintenance window. Pause new acquisition work in
+   Jawnix, then stop the legacy Scale workers and timers; keep the legacy
+   database and dashboard available for rollback.
+2. Create and verify fresh acquisition, Jawnix, and Scraper Dataset backups as
+   described above. Record the legacy image/source and every stopped unit.
+3. Deploy the tagged Jawnix source to both hosts without starting the new
+   worker, timers, or public control path. Build the vendored worker image and
+   record its digest.
+4. Apply only the additive acquisition and Jawnix migrations. Verify every
+   migration ledger and reconcile the pre-migration row counts.
+5. Run the full keyword-history import with its verified checksum. Reconcile
+   all three source counts, the normalized union count, persisted import count,
+   and idempotent rerun.
+6. Start `scraper-control` on the acquisition host's WireGuard address. Run the
+   typed contract suite and authenticated health, reads, exports, monitoring,
+   saves, enqueue trigger, pipeline, runtime, rollover, and schedule checks
+   against the restored/current data.
+7. Install `OPENROUTER_API_KEY` only on the Jawnix application host. Automatic
+   rollover must enable and disable successfully without that secret on the
+   acquisition host; failure is an immediate rollback condition.
+8. From the tagged Jawnix source revision, build the application services, run
+   `docker compose run --rm migrate`, and recreate `api`, `worker`, `scheduler`,
+   `backup`, and `caddy` with `docker compose up -d`. Point Jawnix at the typed
+   control endpoint and exercise generation, reads, CSV exports, monitoring,
+   keyword preview/save/enqueue, pipeline pause/resume, runtime preview/save,
+   rollover, and scheduled controls. Verify audit entries and accepted
+   generation-draft state.
+9. Start the new workers and timers, verify heartbeats and queue movement, then
+   disable the legacy Scale dashboard. Record timings and outputs for every
+   step.
+10. Once the complete smoke passes, retire
+    `scraper-source-baseline-2026-07-27-v4` as the production deployment source.
+    Keep its stopped stack, image, tag, configuration, and backups intact for
+    the seven-day rollback window. Jawnix's tagged `main` revision is now the
+    sole deployment source.
+
+### Seven-day Scraper rollback
+
+1. Pause acquisition in Jawnix and stop the new workers, timers, and
+   `scraper-control`.
+2. Restore the prior tagged Jawnix image and its legacy Scraper endpoint
+   settings.
+3. Restart the recorded Scale dashboard, workers, and timers against the
+   existing acquisition database. Do not downgrade additive migrations.
+4. Confirm legacy `/healthz`, Dashboard, Database, History, exports, queue
+   movement, and worker heartbeats; then re-enable acquisition.
+5. Preserve the failed-cutover databases, logs, import report, and image
+   digests for reconciliation. Do not delete or automatically merge data.
 
 ## Production deployment record
 

@@ -11,8 +11,8 @@ import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from sqlalchemy import func, select, text
+from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from svix.webhooks import Webhook, WebhookVerificationError
@@ -136,6 +136,7 @@ from .schemas import (
     DeleteConfirmation,
     FeedbackCreate,
     FeedbackLookup,
+    FeedbackSearch,
     OutcomeCreate,
     OutcomeOut,
     ProfileOut,
@@ -803,6 +804,67 @@ def cancel_batch_request(
     return request_detail(item)
 
 
+@app.get("/api/me/batch-requests/{request_id}/artifact")
+def download_batch_artifact(
+    request_id: uuid.UUID,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    """Download this Customer's live artifact and record the retrieval."""
+
+    if principal.role != "customer" or principal.audience != "customer":
+        raise HTTPException(status_code=403, detail="Customer access required.")
+    profile = _current_customer_profile(db, principal)
+    item = db.scalar(
+        select(LeadRequest).where(
+            LeadRequest.id == request_id,
+            LeadRequest.agent_id == profile.customer_id,
+            LeadRequest.status == RequestStatus.delivered.value,
+        )
+    )
+    # A missing request, another Customer's request, and a request that has not
+    # been delivered are intentionally indistinguishable at this boundary.
+    if item is None or item.artifact is None:
+        raise HTTPException(status_code=404, detail="Batch Artifact was not found.")
+    artifact = item.artifact
+    if not artifact_available(artifact):
+        raise HTTPException(
+            status_code=410,
+            detail="Batch Artifact has expired. Contact Jawnix to regenerate it.",
+        )
+
+    record_activity(
+        db,
+        action="batch_artifact_downloaded",
+        target_type="batch_request",
+        target_id=item.id,
+        actor_id=principal.user_id,
+        reason="Customer downloaded the live Batch Artifact.",
+        details={
+            "artifactId": artifact.id,
+            "requestId": str(item.id),
+            "filename": artifact.filename,
+            "rowCount": artifact.row_count,
+            "expiresAt": (
+                artifact.expires_at.isoformat()
+                if artifact.expires_at is not None
+                else None
+            ),
+        },
+    )
+    db.commit()
+    return FileResponse(
+        artifact.path,
+        media_type="text/csv",
+        filename=artifact.filename,
+        content_disposition_type="attachment",
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @app.patch("/api/me/profile", response_model=ProfileOut)
 def update_profile(
     payload: ProfileUpdate,
@@ -927,6 +989,68 @@ def lookup_feedback(
             else None
         ),
     }
+
+
+@app.post("/api/me/feedback/search")
+def search_feedback(
+    payload: FeedbackSearch,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    profile = db.get(CustomerProfile, principal.user_id)
+    if profile is None or profile.customer_id is None:
+        return []
+    query = payload.query
+    digits = "".join(character for character in query if character.isdigit())
+    conditions = [
+        DistributionEvent.title.icontains(query, autoescape=True),
+    ]
+    if digits:
+        conditions.append(
+            DistributionEvent.phone.contains(digits, autoescape=True)
+        )
+    events = list(
+        db.scalars(
+            select(DistributionEvent)
+            .join(
+                LeadRequest,
+                LeadRequest.id == DistributionEvent.request_id,
+            )
+            .where(
+                DistributionEvent.agent_id == profile.customer_id,
+                LeadRequest.agent_id == profile.customer_id,
+                LeadRequest.user_id == principal.user_id,
+                LeadRequest.status == RequestStatus.delivered.value,
+                or_(*conditions),
+            )
+            .order_by(
+                DistributionEvent.delivered_at.desc(),
+                DistributionEvent.id.desc(),
+            )
+            .limit(20)
+        )
+    )
+    states = {
+        state.distribution_event_id: state.current_disposition
+        for state in db.scalars(
+            select(LeadDispositionState).where(
+                LeadDispositionState.distribution_event_id.in_(
+                    [event.id for event in events]
+                )
+            )
+        )
+    }
+    return [
+        {
+            "distributionEventId": event.id,
+            "businessName": event.title,
+            "phone": event.phone,
+            "deliveredAt": event.delivered_at,
+            "batchId": str(event.request_id),
+            "currentDisposition": states.get(event.id),
+        }
+        for event in events
+    ]
 
 
 def _customer_distribution(

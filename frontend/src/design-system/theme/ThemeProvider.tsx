@@ -2,10 +2,11 @@ import { createContext, use, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 /**
- * `jawnix` is the main product language; `terminal` is the dark GMS/OPS
- * acquisition workspace. Both resolve the same token contract in tokens.css.
+ * `jawnix` is the light administration language, `opaline` is the customer
+ * portal, and `terminal` is the dark GMS/OPS acquisition workspace. All three
+ * resolve the same token contract in tokens.css.
  */
-export type Theme = "jawnix" | "terminal";
+export type Theme = "jawnix" | "opaline" | "terminal";
 
 interface ThemeContextValue {
   theme: Theme;

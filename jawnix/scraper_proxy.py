@@ -5,12 +5,11 @@ import html
 import hmac
 import logging
 import re
-import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -24,6 +23,7 @@ from fastapi.responses import (
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from .activity import record_activity
 from .admin_mfa_api import (
@@ -41,10 +41,26 @@ from .admin_mfa_api import (
 from .auth import Principal, require_admin
 from .config import Settings, get_settings
 from .database import get_db
+from .keyword_history import observe_keyword_history
+from .keyword_generation import (
+    GenerationErrorCode,
+    GenerationProvider,
+    KeywordGenerationError,
+    accept_generation_draft,
+    build_generation_provider,
+    create_generation_draft,
+    exclusion_metrics,
+    generation_error,
+    keyword_history_terms,
+    purge_generation_drafts,
+    try_generation_lock,
+    valid_generation_draft,
+)
 from .mfa_provider import MFAProviderError, get_mfa_provider
 from .models import ScraperRuntimeConfigurationRevision
 from .schemas import AdminMFAChallenge
 from .scraper_monitoring import (
+    ControlPipelineRequest,
     REGION_INTERVALS,
     REGIONS,
     MonitoringRegion,
@@ -65,40 +81,37 @@ from .scraper_keywords import (
     KeywordWorkspace,
     diff_keywords,
     keyword_version,
-    parse_editor,
-    parse_feedback_error,
-    parse_generation_draft,
-    parse_rollover,
-    parse_winners,
+)
+from .scraper_operations import (
+    HTTPScraperOperations,
+    ScraperOperations,
+    ScraperOperationsError,
 )
 from .scraper_coverage import (
     STATE_CARDS_REFRESH_SECONDS,
     STATE_CELLS_REFRESH_SECONDS,
     STATE_KEYWORDS_REFRESH_SECONDS,
-    CoverageContractError,
     CoverageFeed,
     StateCoverageDetail,
     StateCoverageSnapshot,
     StateGridCoverage,
     StateKeywordActivity,
-    parse_state_cards,
-    parse_state_cells,
-    parse_state_keywords,
 )
 from .scraper_database import (
     GENERATED_EXPORT_NAME,
     STORED_EXPORT_NAME,
-    DatabaseContractError,
+    DatabaseExport,
     DatabaseStateDetail,
     DatabaseWorkspace,
     ExportRegeneration,
-    StoredExport,
-    parse_database_state,
-    parse_database_workspace,
-    parse_export_regeneration,
+    MultiStateExportRequest,
+    StateExportRequest,
 )
 from .scraper_runtime import (
     CampaignHistory,
+    CampaignHistoryRow,
+    ControlRuntimeSaveRequest,
+    ControlRuntimeWorkspace,
     HistorySort,
     RuntimeConfiguration,
     RuntimePreview,
@@ -107,11 +120,6 @@ from .scraper_runtime import (
     RuntimeSaveResult,
     RuntimeWorkspace,
     SortDirection,
-    calculate_effects,
-    parse_campaign_history,
-    parse_cell_effects,
-    parse_runtime_workspace,
-    runtime_form,
     runtime_summary,
     runtime_version,
 )
@@ -155,11 +163,6 @@ PATH_ATTRIBUTE = re.compile(
 class ScraperProxyState:
     settings_key: tuple[str, str, float]
     last_success: datetime | None = None
-
-
-@dataclass
-class ScraperUpstreamDiagnostics:
-    transport_error: str | None = None
 
 
 class PipelineControl(BaseModel):
@@ -342,81 +345,6 @@ def _native_unavailable(state: ScraperProxyState) -> JSONResponse:
     )
 
 
-async def _raw_native_upstream(
-    request: Request,
-    settings: Settings,
-    *,
-    method: str,
-    path: str,
-    form: dict[str, object] | None = None,
-    timeout: float | None = None,
-    diagnostics: ScraperUpstreamDiagnostics | None = None,
-) -> httpx.Response | None:
-    if (
-        not settings.scraper_ops_url
-        or not settings.scraper_ops_user
-        or not settings.scraper_ops_password
-    ):
-        return None
-    transport = getattr(request.app.state, "scraper_proxy_transport", None)
-    started_at = time.perf_counter()
-    try:
-        async with httpx.AsyncClient(
-            base_url=settings.scraper_ops_url.rstrip("/"),
-            auth=httpx.BasicAuth(
-                settings.scraper_ops_user,
-                settings.scraper_ops_password,
-            ),
-            timeout=(
-                settings.scraper_ops_timeout_seconds
-                if timeout is None
-                else timeout
-            ),
-            follow_redirects=False,
-            transport=transport,
-        ) as client:
-            upstream = await client.request(method, path, data=form)
-    except httpx.RequestError as error:
-        transport_error = type(error).__name__
-        if diagnostics is not None:
-            diagnostics.transport_error = transport_error
-        logger.warning(
-            "Scraper upstream request failed: transport_error=%s "
-            "method=%s path=%s elapsed_seconds=%.3f",
-            transport_error,
-            method,
-            path,
-            time.perf_counter() - started_at,
-        )
-        return None
-    return upstream
-
-
-async def _native_upstream(
-    request: Request,
-    settings: Settings,
-    *,
-    method: str,
-    path: str,
-    form: dict[str, object] | None = None,
-    timeout: float | None = None,
-) -> httpx.Response | None:
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method=method,
-        path=path,
-        form=form,
-        timeout=timeout,
-    )
-    if upstream is None:
-        return None
-    if not 200 <= upstream.status_code < 300:
-        return None
-    _state(request, settings).last_success = _workspace_now(request)
-    return upstream
-
-
 @native_router.post("/entry")
 async def begin_scraper_entry(
     request: Request,
@@ -555,91 +483,17 @@ async def scraper_workspace(
         principal,
         settings,
     )
-    upstream = await _native_upstream(
-        request,
-        settings,
-        method="GET",
-        path="/dashboard",
-    )
     state = _state(request, settings)
-    if upstream is None:
+    try:
+        await _scraper_operations(request, settings).workspace_summary()
+    except ScraperOperationsError:
         return _native_unavailable(state)
+    _mark_operations_success(request, settings)
     return {
         "serviceState": "connected",
         "lastSuccessfulAt": _safe_last_success(state),
         "idleExpiresIn": SCRAPER_IDLE_SECONDS,
     }
-
-
-async def _native_json(
-    request: Request,
-    settings: Settings,
-    *,
-    path: str,
-) -> dict | None:
-    """A JSON read from the Scraper projection, or None if it did not answer."""
-
-    upstream = await _native_upstream(
-        request,
-        settings,
-        method="GET",
-        path=path,
-    )
-    if upstream is None:
-        return None
-    try:
-        payload = upstream.json()
-    except ValueError:
-        return None
-    return payload if isinstance(payload, dict) else None
-
-
-async def _coverage_fragment(
-    request: Request,
-    settings: Settings,
-    *,
-    path: str,
-    parser,
-):
-    """Parse one reviewed GMS/OPS fragment without exposing its markup."""
-
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="GET",
-        path=path,
-    )
-    if upstream is None or not 200 <= upstream.status_code < 300:
-        return None
-    try:
-        return parser(upstream.text)
-    except (CoverageContractError, UnicodeError):
-        return None
-
-
-async def _database_markup(
-    request: Request,
-    settings: Settings,
-    *,
-    path: str,
-) -> str | None:
-    """One reviewed database page without exposing its private location."""
-
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="GET",
-        path=path,
-    )
-    if upstream is None or not 200 <= upstream.status_code < 300:
-        return None
-    content_type = upstream.headers.get("content-type", "").lower()
-    if "text/html" not in content_type:
-        return None
-    try:
-        return upstream.text
-    except UnicodeError:
-        return None
 
 
 def _database_state(state: str) -> str:
@@ -680,45 +534,27 @@ async def scraper_database_workspace(
     normalized_state = ""
     if state.strip():
         normalized_state = _database_state(state)
-    query = urlencode(
-        {
-            "search": search.strip(),
-            "state": normalized_state.lower(),
-            "page": page,
-        }
-    )
-    markup = await _database_markup(
-        request,
-        settings,
-        path=f"/database?{query}",
-    )
-    if markup is None:
-        return _database_unavailable(request, settings)
     try:
-        totals, states, browse, embedded_exports = parse_database_workspace(
-            markup,
-            search=search,
-            state=normalized_state,
-            requested_page=page,
+        workspace = await _scraper_operations(
+            request,
+            settings,
+        ).database_workspace(
+            search=search.strip(),
+            state=normalized_state.lower(),
+            page=page,
         )
-    except DatabaseContractError:
+    except ScraperOperationsError:
         return _database_unavailable(request, settings)
-    probed_exports = await _probe_stored_exports(
-        request,
-        settings,
-        [item.state for item in states],
-    )
-    stored_exports = probed_exports or embedded_exports
     proxy_state = _state(request, settings)
     proxy_state.last_success = _workspace_now(request)
     return DatabaseWorkspace(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
         idle_expires_in=SCRAPER_IDLE_SECONDS,
-        totals=totals,
-        states=states,
-        browse=browse,
-        stored_exports=stored_exports,
+        totals=workspace.totals,
+        states=workspace.states,
+        browse=workspace.browse,
+        stored_exports=workspace.stored_exports,
     )
 
 
@@ -737,25 +573,13 @@ async def scraper_database_state_detail(
 
     _require_scraper_grant(request, response, principal, settings)
     normalized_state = _database_state(state)
-    markup = await _database_markup(
-        request,
-        settings,
-        path=f"/database/states/{normalized_state.lower()}",
-    )
     proxy_state = _state(request, settings)
-    if markup is None:
-        return DatabaseStateDetail(
-            service_state="unavailable",
-            last_successful_at=_safe_last_success(proxy_state),
-            idle_expires_in=SCRAPER_IDLE_SECONDS,
-            state=normalized_state,
-        )
     try:
-        totals, niches = parse_database_state(
-            markup,
-            expected_state=normalized_state,
-        )
-    except DatabaseContractError:
+        detail = await _scraper_operations(
+            request,
+            settings,
+        ).database_state(normalized_state.lower())
+    except ScraperOperationsError:
         return DatabaseStateDetail(
             service_state="unavailable",
             last_successful_at=_safe_last_success(proxy_state),
@@ -768,8 +592,8 @@ async def scraper_database_state_detail(
         last_successful_at=_safe_last_success(proxy_state),
         idle_expires_in=SCRAPER_IDLE_SECONDS,
         state=normalized_state,
-        totals=totals,
-        niches=niches,
+        totals=detail.totals,
+        niches=detail.niches,
     )
 
 
@@ -790,165 +614,31 @@ def _safe_download_error(status_code: int) -> JSONResponse:
     )
 
 
-def _download_filename(
-    upstream: httpx.Response,
-    *,
-    expected: re.Pattern[str],
-    exact: str | None = None,
-) -> str | None:
-    disposition = upstream.headers.get("content-disposition", "")
-    match = re.search(
-        r'(?:^|;)\s*filename="(?P<filename>[^"\r\n;]+)"(?:;|$)',
-        disposition,
-        flags=re.IGNORECASE,
-    )
-    if match is None:
-        return None
-    filename = match.group("filename")
-    if exact is not None and not hmac.compare_digest(filename, exact):
-        return None
-    return filename if expected.fullmatch(filename) else None
-
-
-async def _probe_stored_exports(
-    request: Request,
-    settings: Settings,
-    states: list[str],
-) -> list[StoredExport]:
-    """Read only stored-file headers; never buffer every state CSV to list it."""
-
-    if (
-        not settings.scraper_ops_url
-        or not settings.scraper_ops_user
-        or not settings.scraper_ops_password
-        or not states
-    ):
-        return []
-    transport = getattr(request.app.state, "scraper_proxy_transport", None)
-    async with httpx.AsyncClient(
-        base_url=settings.scraper_ops_url.rstrip("/"),
-        auth=httpx.BasicAuth(
-            settings.scraper_ops_user,
-            settings.scraper_ops_password,
-        ),
-        timeout=settings.scraper_ops_timeout_seconds,
-        follow_redirects=False,
-        transport=transport,
-    ) as client:
-        async def probe(state: str) -> StoredExport | None:
-            filename = f"{state}.csv"
-            try:
-                upstream = await client.send(
-                    client.build_request(
-                        "GET",
-                        f"/database/download/{filename}",
-                        headers={"Accept": "text/csv"},
-                    ),
-                    stream=True,
-                )
-            except httpx.RequestError:
-                return None
-            try:
-                if upstream.status_code != 200:
-                    return None
-                if "text/csv" not in upstream.headers.get(
-                    "content-type",
-                    "",
-                ).lower():
-                    return None
-                safe_name = _download_filename(
-                    upstream,
-                    expected=STORED_EXPORT_NAME,
-                    exact=filename,
-                )
-                raw_size = upstream.headers.get("content-length", "")
-                if safe_name is None or not raw_size.isdigit():
-                    return None
-                return StoredExport(
-                    filename=safe_name,
-                    size_label=f"{int(raw_size) / 1024:.1f} KB",
-                )
-            finally:
-                await upstream.aclose()
-
-        found = await asyncio.gather(*(probe(state) for state in states))
-    return [item for item in found if item is not None]
-
-
-async def _stream_database_export(
+def _database_export_response(
     request: Request,
     settings: Settings,
     *,
-    path: str,
+    export: DatabaseExport,
     filename_pattern: re.Pattern[str],
     exact_filename: str | None = None,
 ) -> Response:
-    """Relay CSV bytes while keeping every upstream detail server-side."""
+    """Return a validated typed export with the existing public headers."""
 
-    if (
-        not settings.scraper_ops_url
-        or not settings.scraper_ops_user
-        or not settings.scraper_ops_password
+    if not filename_pattern.fullmatch(export.filename):
+        return _safe_download_error(503)
+    if exact_filename is not None and not hmac.compare_digest(
+        export.filename,
+        exact_filename,
     ):
         return _safe_download_error(503)
-    transport = getattr(request.app.state, "scraper_proxy_transport", None)
-    client = httpx.AsyncClient(
-        base_url=settings.scraper_ops_url.rstrip("/"),
-        auth=httpx.BasicAuth(
-            settings.scraper_ops_user,
-            settings.scraper_ops_password,
-        ),
-        timeout=settings.scraper_ops_timeout_seconds,
-        follow_redirects=False,
-        transport=transport,
-    )
-    try:
-        upstream = await client.send(
-            client.build_request(
-                "GET",
-                path,
-                headers={"Accept": "text/csv"},
-            ),
-            stream=True,
-        )
-    except httpx.RequestError:
-        await client.aclose()
-        return _safe_download_error(503)
-    if not 200 <= upstream.status_code < 300:
-        status_code = upstream.status_code
-        await upstream.aclose()
-        await client.aclose()
-        return _safe_download_error(status_code)
-    content_type = upstream.headers.get("content-type", "").lower()
-    filename = _download_filename(
-        upstream,
-        expected=filename_pattern,
-        exact=exact_filename,
-    )
-    if "text/csv" not in content_type or filename is None:
-        await upstream.aclose()
-        await client.aclose()
-        return _safe_download_error(503)
     _state(request, settings).last_success = _workspace_now(request)
-
-    async def stream_body():
-        try:
-            async for chunk in upstream.aiter_bytes():
-                yield chunk
-        except httpx.RequestError:
-            # Once streaming starts, changing the response status would itself
-            # corrupt the CSV. Closing the response produces a failed download
-            # without appending topology, credentials, or provider text.
-            return
-        finally:
-            await upstream.aclose()
-            await client.aclose()
-
-    return StreamingResponse(
-        stream_body(),
-        media_type="text/csv",
+    return Response(
+        content=export.content,
+        media_type=export.media_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": (
+                f'attachment; filename="{export.filename}"'
+            ),
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
         },
@@ -979,17 +669,25 @@ async def download_scraper_state_export(
             status_code=400,
             detail="Niche selection requires selected scope.",
         )
-    query_items: list[tuple[str, str]] = [("scope", scope)]
-    query_items.extend(("keyword", value) for value in niche or [])
-    result = await _stream_database_export(
-        request,
-        settings,
-        path=(
-            f"/database/states/{normalized_state.lower()}/download?"
-            f"{urlencode(query_items)}"
-        ),
-        filename_pattern=GENERATED_EXPORT_NAME,
-    )
+    try:
+        export = await _scraper_operations(
+            request,
+            settings,
+        ).export_database_state(
+            normalized_state.lower(),
+            StateExportRequest(
+                niches=None if scope == "all" else niche,
+            ),
+        )
+    except ScraperOperationsError as error:
+        result = _safe_download_error(error.status_code or 503)
+    else:
+        result = _database_export_response(
+            request,
+            settings,
+            export=export,
+            filename_pattern=GENERATED_EXPORT_NAME,
+        )
     _issue_grant(result, request, principal, settings)
     return result
 
@@ -1013,17 +711,24 @@ async def download_scraper_multi_state_export(
             status_code=422,
             detail="Select at least one state.",
         )
-    result = await _stream_database_export(
-        request,
-        settings,
-        path=(
-            "/database/bulk-download?"
-            + urlencode(
-                [("state", value.lower()) for value in normalized_states]
+    try:
+        export = await _scraper_operations(
+            request,
+            settings,
+        ).export_database_states(
+            MultiStateExportRequest(
+                states=[value.lower() for value in normalized_states],
             )
-        ),
-        filename_pattern=GENERATED_EXPORT_NAME,
-    )
+        )
+    except ScraperOperationsError as error:
+        result = _safe_download_error(error.status_code or 503)
+    else:
+        result = _database_export_response(
+            request,
+            settings,
+            export=export,
+            filename_pattern=GENERATED_EXPORT_NAME,
+        )
     _issue_grant(result, request, principal, settings)
     return result
 
@@ -1044,13 +749,21 @@ async def download_stored_scraper_export(
             status_code=400,
             detail="Invalid export filename.",
         )
-    result = await _stream_database_export(
-        request,
-        settings,
-        path=f"/database/download/{filename}",
-        filename_pattern=STORED_EXPORT_NAME,
-        exact_filename=filename,
-    )
+    try:
+        export = await _scraper_operations(
+            request,
+            settings,
+        ).stored_database_export(filename)
+    except ScraperOperationsError as error:
+        result = _safe_download_error(error.status_code or 503)
+    else:
+        result = _database_export_response(
+            request,
+            settings,
+            export=export,
+            filename_pattern=STORED_EXPORT_NAME,
+            exact_filename=filename,
+        )
     _issue_grant(result, request, principal, settings)
     return result
 
@@ -1071,24 +784,17 @@ async def regenerate_scraper_exports(
 
     _require_scraper_grant(request, response, principal, settings)
     normalized_state = _database_state(state)
-    upstream = await _native_upstream(
-        request,
-        settings,
-        method="POST",
-        path=f"/database/export/{normalized_state.lower()}",
-    )
-    if upstream is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Scraper exports are unavailable.",
-        )
     try:
-        result = parse_export_regeneration(upstream.text)
-    except (DatabaseContractError, UnicodeError):
+        result = await _scraper_operations(
+            request,
+            settings,
+        ).regenerate_database_exports(normalized_state.lower())
+    except ScraperOperationsError:
         raise HTTPException(
             status_code=503,
             detail="Scraper exports are unavailable.",
         ) from None
+    _state(request, settings).last_success = _workspace_now(request)
     record_activity(
         db,
         action="scraper_exports_regenerated",
@@ -1140,12 +846,13 @@ async def scraper_state_coverage(
     """Active-state counts and coverage at the legacy twenty-second cadence."""
 
     _require_scraper_grant(request, response, principal, settings)
-    cards = await _coverage_fragment(
-        request,
-        settings,
-        path="/frag/states/cards",
-        parser=parse_state_cards,
-    )
+    try:
+        cards = await _scraper_operations(
+            request,
+            settings,
+        ).coverage_states()
+    except ScraperOperationsError:
+        cards = None
     state = _state(request, settings)
     return StateCoverageSnapshot(
         service_state=(
@@ -1176,18 +883,21 @@ async def scraper_state_coverage_detail(
 
     _require_scraper_grant(request, response, principal, settings)
     state = _coverage_state(state)
-    state_path = state.lower()
-    keywords = await _coverage_fragment(
-        request,
-        settings,
-        path=f"/frag/states/{state_path}/keywords",
-        parser=parse_state_keywords,
+    operations = _scraper_operations(request, settings)
+    keyword_result, cell_result = await asyncio.gather(
+        operations.coverage_state_keywords(state.lower()),
+        operations.coverage_state_cells(state.lower()),
+        return_exceptions=True,
     )
-    cells = await _coverage_fragment(
-        request,
-        settings,
-        path=f"/frag/states/{state_path}/cells",
-        parser=parse_state_cells,
+    keywords = (
+        None
+        if isinstance(keyword_result, ScraperOperationsError)
+        else keyword_result.keywords
+    )
+    cells = (
+        None
+        if isinstance(cell_result, ScraperOperationsError)
+        else cell_result
     )
     available = int(keywords is not None) + int(cells is not None)
     service_state = (
@@ -1231,12 +941,15 @@ async def scraper_state_keyword_coverage(
 
     _require_scraper_grant(request, response, principal, settings)
     state = _coverage_state(state)
-    keywords = await _coverage_fragment(
-        request,
-        settings,
-        path=f"/frag/states/{state.lower()}/keywords",
-        parser=parse_state_keywords,
-    )
+    try:
+        result = await _scraper_operations(
+            request,
+            settings,
+        ).coverage_state_keywords(state.lower())
+    except ScraperOperationsError:
+        keywords = None
+    else:
+        keywords = result.keywords
     return _coverage_feed(
         keywords,
         refresh_seconds=STATE_KEYWORDS_REFRESH_SECONDS,
@@ -1259,12 +972,13 @@ async def scraper_state_grid_coverage(
 
     _require_scraper_grant(request, response, principal, settings)
     state = _coverage_state(state)
-    cells = await _coverage_fragment(
-        request,
-        settings,
-        path=f"/frag/states/{state.lower()}/cells",
-        parser=parse_state_cells,
-    )
+    try:
+        cells = await _scraper_operations(
+            request,
+            settings,
+        ).coverage_state_cells(state.lower())
+    except ScraperOperationsError:
+        cells = None
     return _coverage_feed(
         cells,
         refresh_seconds=STATE_CELLS_REFRESH_SECONDS,
@@ -1296,20 +1010,28 @@ async def scraper_monitoring(
     """
 
     _require_scraper_grant(request, response, principal, settings)
-    payload = await _native_json(request, settings, path="/api/dashboard")
     state = _state(request, settings)
-    if payload is None:
+    try:
+        payload = await _scraper_operations(
+            request,
+            settings,
+        ).monitoring_dashboard()
+    except ScraperOperationsError:
         return MonitoringSnapshot(
             service_state="unavailable",
             last_successful_at=state.last_success,
             idle_expires_in=SCRAPER_IDLE_SECONDS,
             regions=[_unavailable_region(region) for region in REGIONS],
         )
+    _mark_operations_success(request, settings)
     return MonitoringSnapshot(
         service_state="connected",
         last_successful_at=state.last_success,
         idle_expires_in=SCRAPER_IDLE_SECONDS,
-        regions=snapshot_regions(payload, fetched_at=_workspace_now(request)),
+        regions=snapshot_regions(
+            payload.model_dump(mode="json", exclude_none=True),
+            fetched_at=_workspace_now(request),
+        ),
     )
 
 
@@ -1331,19 +1053,23 @@ async def scraper_monitoring_region(
     """
 
     _require_scraper_grant(request, response, principal, settings)
-    payload = await _native_json(
-        request,
-        settings,
-        path=f"/api/dashboard/{region}",
-    )
-    if payload is None:
+    try:
+        payload = await _scraper_operations(
+            request,
+            settings,
+        ).monitoring_region(region)
+    except ScraperOperationsError:
         return _unavailable_region(region)
+    _mark_operations_success(request, settings)
     return MonitoringRegion(
         region=region,
         state="ok",
         refresh_seconds=REGION_INTERVALS[region],
         fetched_at=_workspace_now(request),
-        data=region_data(region, payload),
+        data=region_data(
+            region,
+            payload.model_dump(mode="json", exclude_none=True),
+        ),
     )
 
 
@@ -1366,49 +1092,38 @@ async def control_scraper_pipeline(
     """
 
     _require_scraper_grant(request, response, principal, settings)
-    form = {"action": payload.action}
-    if payload.action == "pause":
-        form["clear_queue"] = "yes" if payload.clear_queue else "no"
-    upstream = await _native_upstream(
-        request,
-        settings,
-        method="POST",
-        path="/dashboard/pipeline",
-        form=form,
-    )
     state = _state(request, settings)
-    if upstream is None:
-        return _native_unavailable(state)
-
-    # Read the resulting activity back rather than predicting it. The cancelled
-    # job count only exists upstream, and an audit entry that guessed it would
-    # be worse than one that recorded nothing.
-    activity = await _native_json(
-        request,
-        settings,
-        path="/api/dashboard/activity",
-    )
-    region = (
-        MonitoringRegion(
-            region="activity",
-            state="ok",
-            refresh_seconds=REGION_INTERVALS["activity"],
-            fetched_at=_workspace_now(request),
-            data=region_data("activity", activity),
+    try:
+        result = await _scraper_operations(
+            request,
+            settings,
+        ).control_pipeline(
+            ControlPipelineRequest(
+                action=payload.action,
+                clear_queue=payload.clear_queue,
+            )
         )
-        if activity is not None
-        else _unavailable_region("activity")
+    except ScraperOperationsError:
+        return _native_unavailable(state)
+    _mark_operations_success(request, settings)
+    region = MonitoringRegion(
+        region="activity",
+        state="ok",
+        refresh_seconds=REGION_INTERVALS["activity"],
+        fetched_at=_workspace_now(request),
+        data=region_data(
+            "activity",
+            {
+                "activity": result.activity.model_dump(mode="json"),
+                "pipeline_state": result.pipeline_state.model_dump(
+                    mode="json"
+                ),
+                "pause_info": result.pause_info.model_dump(mode="json"),
+            },
+        ),
     )
-    pipeline_state = (
-        region.data.pipeline_state.key
-        if region.data is not None and region.data.pipeline_state is not None
-        else ("paused" if payload.action == "pause" else "running")
-    )
-    cancelled_jobs = (
-        region.data.pause_info.cancelled_jobs
-        if region.data is not None and region.data.pause_info is not None
-        else 0
-    )
+    pipeline_state = result.pipeline_state.key
+    cancelled_jobs = result.cancelled_jobs
 
     if payload.action == "resume":
         action = "scraper_pipeline_resumed"
@@ -1438,39 +1153,8 @@ async def control_scraper_pipeline(
     )
 
 
-def _mark_keyword_success(request: Request, settings: Settings) -> None:
+def _mark_operations_success(request: Request, settings: Settings) -> None:
     _state(request, settings).last_success = _workspace_now(request)
-
-
-def _keyword_upstream_failed(
-    upstream: httpx.Response | None,
-) -> bool:
-    return upstream is None or not 200 <= upstream.status_code < 300
-
-
-_SAFE_GENERATION_ERRORS = (
-    "Unsupported generation mode",
-    "The selected winner is unavailable",
-    "AI generation is not configured",
-    "The AI provider ",
-    "The OpenRouter ",
-    "OpenRouter ",
-    "The DeepSeek ",
-    "DeepSeek ",
-    "AI generation failed",
-    "AI could not produce ",
-    "Another keyword generation ",
-    "Choose a winner ",
-)
-
-
-def _safe_generation_error(upstream: httpx.Response) -> str:
-    message = parse_feedback_error(upstream.text)
-    if message and len(message) <= 240 and message.startswith(
-        _SAFE_GENERATION_ERRORS
-    ):
-        return message
-    return "AI keyword generation failed; try again."
 
 
 def _audit_keyword_failure(
@@ -1493,24 +1177,46 @@ def _audit_keyword_failure(
     db.commit()
 
 
-async def _keyword_editor(
+def _scraper_operations(
     request: Request,
     settings: Settings,
-) -> tuple[list[str], bool, KeywordRollover] | None:
-    upstream = await _raw_native_upstream(
-        request,
+) -> ScraperOperations:
+    override = getattr(request.app.state, "scraper_operations", None)
+    if override is not None:
+        return override
+    return HTTPScraperOperations(
         settings,
-        method="GET",
-        path="/keywords",
+        transport=getattr(request.app.state, "scraper_proxy_transport", None),
     )
-    if _keyword_upstream_failed(upstream):
-        return None
-    try:
-        parsed = parse_editor(upstream.text)
-    except ValueError:
-        return None
-    _mark_keyword_success(request, settings)
-    return parsed
+
+
+def _generation_provider(
+    request: Request,
+    settings: Settings,
+) -> GenerationProvider:
+    override = getattr(
+        request.app.state,
+        "keyword_generation_provider",
+        None,
+    )
+    if override is not None:
+        return override
+    return build_generation_provider(
+        settings,
+        transport=getattr(
+            request.app.state,
+            "keyword_generation_transport",
+            None,
+        ),
+    )
+
+
+def _public_rollover(rollover: KeywordRollover) -> KeywordRollover:
+    if rollover.state != "off":
+        return rollover
+    return rollover.model_copy(
+        update={"posted_jobs": None, "expected_jobs": None}
+    )
 
 
 def _keyword_workspace_unavailable(
@@ -1543,43 +1249,42 @@ async def scraper_keyword_workspace(
     response: Response,
     principal: Principal = Depends(require_admin),
     settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
 ):
     """Project every current keyword read without moving ownership to Jawnix."""
 
     _require_scraper_grant(request, response, principal, settings)
-    editor_upstream, winners_upstream = await asyncio.gather(
-        _raw_native_upstream(
-            request,
-            settings,
-            method="GET",
-            path="/keywords",
-        ),
-        _raw_native_upstream(
-            request,
-            settings,
-            method="GET",
-            path="/keywords/winners",
-        ),
-    )
-    if (
-        _keyword_upstream_failed(editor_upstream)
-        or _keyword_upstream_failed(winners_upstream)
-    ):
-        return _keyword_workspace_unavailable(request, settings)
+    operations = _scraper_operations(request, settings)
     try:
-        current, ai_enabled, rollover = parse_editor(editor_upstream.text)
-        winners = parse_winners(winners_upstream.text)
-    except ValueError:
+        workspace, winners = await asyncio.gather(
+            operations.list_keywords(),
+            operations.keyword_winners(),
+        )
+    except ScraperOperationsError:
         return _keyword_workspace_unavailable(request, settings)
-    _mark_keyword_success(request, settings)
+    _mark_operations_success(request, settings)
+    observed_at = _workspace_now(request)
+    observe_keyword_history(
+        db,
+        workspace.current,
+        origin="active_list",
+        observed_at=observed_at,
+    )
+    observe_keyword_history(
+        db,
+        (winner.keyword for winner in winners),
+        origin="winner",
+        observed_at=observed_at,
+    )
+    db.commit()
     proxy_state = _state(request, settings)
     return KeywordWorkspace(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
-        current=current,
-        version=keyword_version(current),
-        ai_enabled=ai_enabled,
-        rollover=rollover,
+        current=workspace.current,
+        version=workspace.version,
+        ai_enabled=_generation_provider(request, settings).available,
+        rollover=_public_rollover(workspace.rollover),
         winners=winners,
         idle_expires_in=SCRAPER_IDLE_SECONDS,
     )
@@ -1597,8 +1302,14 @@ async def preview_scraper_keywords(
     """Preview is a fresh read, so its version can safely gate the later save."""
 
     _require_scraper_grant(request, response, principal, settings)
-    editor = await _keyword_editor(request, settings)
-    if editor is None:
+    try:
+        diff = await _scraper_operations(request, settings).preview_keywords(
+            payload
+        )
+    except ScraperOperationsError as error:
+        if error.status_code == 422 and error.detail:
+            _mark_operations_success(request, settings)
+            raise HTTPException(status_code=422, detail=error.detail) from None
         _audit_keyword_failure(
             db,
             principal=principal,
@@ -1607,13 +1318,7 @@ async def preview_scraper_keywords(
             details={"outcome": "upstream_unavailable"},
         )
         return _native_unavailable(_state(request, settings))
-    current, _, _ = editor
-    diff = diff_keywords(current, payload.text)
-    if not diff.proposed:
-        raise HTTPException(
-            status_code=422,
-            detail="At least one keyword is required.",
-        )
+    _mark_operations_success(request, settings)
     diff.review_token = _keyword_review_serializer(settings).dumps(
         {
             "sub": str(principal.user_id),
@@ -1670,19 +1375,33 @@ async def save_scraper_keywords(
             status_code=422,
             detail="Preview these keyword changes again before saving.",
         )
-    generation_id: str | None = None
+    generation_id: uuid.UUID | None = None
+    generation_draft = None
     if payload.generation_id:
         try:
-            generation_id = str(uuid.UUID(payload.generation_id))
+            generation_id = uuid.UUID(payload.generation_id)
         except ValueError as error:
             raise HTTPException(
                 status_code=422,
                 detail="Invalid keyword generation.",
             ) from error
+        generation_draft = valid_generation_draft(
+            db,
+            generation_id,
+            administrator_id=principal.user_id,
+            now=_workspace_now(request),
+        )
+        if generation_draft is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid keyword generation.",
+            )
 
     async with KEYWORD_WRITE_LOCK:
-        editor = await _keyword_editor(request, settings)
-        if editor is None:
+        operations = _scraper_operations(request, settings)
+        try:
+            workspace = await operations.list_keywords()
+        except ScraperOperationsError:
             _audit_keyword_failure(
                 db,
                 principal=principal,
@@ -1695,7 +1414,8 @@ async def save_scraper_keywords(
                 },
             )
             return _native_unavailable(_state(request, settings))
-        current, _, _ = editor
+        _mark_operations_success(request, settings)
+        current = workspace.current
         current_version = keyword_version(current)
         if current_version != payload.expected_version:
             _audit_keyword_failure(
@@ -1719,20 +1439,15 @@ async def save_scraper_keywords(
             )
 
         diff = diff_keywords(current, payload.text)
-        form = {
-            "text": "\n".join(diff.proposed),
-            "enqueue": "true" if payload.enqueue else "false",
-        }
-        if generation_id:
-            form["generation_id"] = generation_id
-        upstream = await _raw_native_upstream(
-            request,
-            settings,
-            method="POST",
-            path="/keywords/save",
-            form=form,
+        upstream_payload = payload.model_copy(
+            update={
+                "text": "\n".join(diff.proposed),
+                "generation_id": None,
+            }
         )
-        if _keyword_upstream_failed(upstream):
+        try:
+            await operations.save_keywords(upstream_payload)
+        except ScraperOperationsError as error:
             _audit_keyword_failure(
                 db,
                 principal=principal,
@@ -1742,15 +1457,37 @@ async def save_scraper_keywords(
                     "expectedVersion": payload.expected_version,
                     "proposedCount": len(diff.proposed),
                     "enqueueRequested": payload.enqueue,
-                    "upstreamStatus": (
-                        upstream.status_code if upstream is not None else None
-                    ),
+                    "upstreamStatus": error.status_code,
                 },
             )
+            if error.status_code == 409:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Active keywords changed after this preview. "
+                        "Reload the current list and preview again."
+                    ),
+                ) from None
+            if error.status_code == 422 and error.detail:
+                raise HTTPException(
+                    status_code=422,
+                    detail=error.detail,
+                ) from None
             return _native_unavailable(_state(request, settings))
 
-        _mark_keyword_success(request, settings)
+        _mark_operations_success(request, settings)
         next_version = keyword_version(diff.proposed)
+        observe_keyword_history(
+            db,
+            diff.proposed,
+            origin="accepted_save",
+            observed_at=_workspace_now(request),
+        )
+        if generation_draft is not None:
+            accept_generation_draft(
+                generation_draft,
+                now=_workspace_now(request),
+            )
         record_activity(
             db,
             action="scraper_keywords_saved",
@@ -1771,7 +1508,7 @@ async def save_scraper_keywords(
                 "removedCount": len(diff.removed),
                 "unchangedCount": len(diff.unchanged),
                 "enqueueRequested": payload.enqueue,
-                "generationAccepted": generation_id is not None,
+                "generationAccepted": generation_draft is not None,
             },
         )
         db.commit()
@@ -1795,153 +1532,189 @@ async def generate_scraper_keywords(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    """Ask the existing generator for a review-only draft."""
+    """Create a Jawnix-owned, review-only keyword draft."""
 
     _require_scraper_grant(request, response, principal, settings)
-    diagnostics = ScraperUpstreamDiagnostics()
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="POST",
-        path="/keywords/generate",
-        form={
-            "mode": payload.mode,
-            "seed_keyword": payload.seed_keyword or "",
-        },
-        timeout=settings.scraper_ops_generation_timeout_seconds,
-        diagnostics=diagnostics,
-    )
-    if upstream is None:
+    provider = _generation_provider(request, settings)
+    if not provider.available:
+        error = generation_error(GenerationErrorCode.NOT_CONFIGURED)
         _audit_keyword_failure(
             db,
             principal=principal,
             action="scraper_keyword_generation_failed",
-            reason="Scraper keyword generator could not be reached",
+            reason="Jawnix keyword generation returned no review draft",
+            details={
+                "mode": payload.mode,
+                "seedKeyword": payload.seed_keyword,
+                "outcome": error.code.value,
+            },
+        )
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.message,
+        )
+    if not try_generation_lock(db):
+        error = generation_error(GenerationErrorCode.CONFLICT)
+        _audit_keyword_failure(
+            db,
+            principal=principal,
+            action="scraper_keyword_generation_failed",
+            reason="Jawnix keyword generation was already in progress",
+            details={
+                "mode": payload.mode,
+                "seedKeyword": payload.seed_keyword,
+                "outcome": error.code.value,
+            },
+        )
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.message,
+        )
+    try:
+        operations = _scraper_operations(request, settings)
+        workspace, winners = await asyncio.gather(
+            operations.list_keywords(),
+            operations.keyword_winners(),
+        )
+    except ScraperOperationsError as error:
+        _audit_keyword_failure(
+            db,
+            principal=principal,
+            action="scraper_keyword_generation_failed",
+            reason="Keyword exclusions could not be read from Scraper Operations",
             details={
                 "mode": payload.mode,
                 "seedKeyword": payload.seed_keyword,
                 "outcome": "upstream_unavailable",
-                "transportError": diagnostics.transport_error,
-            },
-        )
-        return _native_unavailable(_state(request, settings))
-    if upstream.status_code == 200:
-        message = _safe_generation_error(upstream)
-        _audit_keyword_failure(
-            db,
-            principal=principal,
-            action="scraper_keyword_generation_failed",
-            reason="Scraper keyword generator returned no review draft",
-            details={
-                "mode": payload.mode,
-                "seedKeyword": payload.seed_keyword,
-                "outcome": message,
-            },
-        )
-        status_code = (
-            409
-            if message.startswith("Another keyword generation")
-            else 422
-            if message in {
-                "The selected winner is unavailable",
-                "AI generation is not configured",
-                "Choose a winner before generating adjacent keywords",
-            }
-            else 503
-        )
-        raise HTTPException(status_code=status_code, detail=message)
-    if upstream.status_code != status.HTTP_303_SEE_OTHER:
-        _audit_keyword_failure(
-            db,
-            principal=principal,
-            action="scraper_keyword_generation_failed",
-            reason="Scraper keyword generator returned an invalid response",
-            details={
-                "mode": payload.mode,
-                "seedKeyword": payload.seed_keyword,
-                "upstreamStatus": upstream.status_code,
+                "transportError": error.transport_error,
             },
         )
         return _native_unavailable(_state(request, settings))
 
-    location = urlsplit(upstream.headers.get("location", ""))
-    draft_values = parse_qs(location.query).get("draft", [])
-    try:
-        if location.path != "/keywords" or len(draft_values) != 1:
-            raise ValueError
-        generation_id = str(uuid.UUID(draft_values[0]))
-    except ValueError:
+    _mark_operations_success(request, settings)
+    if payload.mode == "adjacent" and (
+        not payload.seed_keyword
+        or payload.seed_keyword.casefold()
+        not in {winner.keyword.casefold() for winner in winners}
+    ):
+        error = generation_error(GenerationErrorCode.INVALID_SEED)
         _audit_keyword_failure(
             db,
             principal=principal,
             action="scraper_keyword_generation_failed",
-            reason="Scraper keyword generator returned an invalid draft",
+            reason="Jawnix keyword generation returned no review draft",
             details={
                 "mode": payload.mode,
                 "seedKeyword": payload.seed_keyword,
-                "outcome": "invalid_draft_location",
+                "outcome": error.code.value,
             },
         )
-        return _native_unavailable(_state(request, settings))
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.message,
+        )
 
-    draft_upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="GET",
-        path=f"/keywords?draft={generation_id}",
+    history = keyword_history_terms(db)
+    observed_at = _workspace_now(request)
+    observe_keyword_history(
+        db,
+        workspace.current,
+        origin="active_list",
+        observed_at=observed_at,
     )
-    if _keyword_upstream_failed(draft_upstream):
-        _audit_keyword_failure(
-            db,
-            principal=principal,
-            action="scraper_keyword_generation_failed",
-            reason="Scraper keyword review draft could not be loaded",
-            details={
-                "mode": payload.mode,
-                "seedKeyword": payload.seed_keyword,
-                "generationId": generation_id,
-            },
-        )
-        return _native_unavailable(_state(request, settings))
+    observe_keyword_history(
+        db,
+        (winner.keyword for winner in winners),
+        origin="winner",
+        observed_at=observed_at,
+    )
+    exclusions, exclusion_counts = exclusion_metrics(
+        active=workspace.current,
+        winners=(winner.keyword for winner in winners),
+        history=history,
+    )
     try:
-        draft = parse_generation_draft(
-            draft_upstream.text,
-            generation_id=generation_id,
+        result = await run_in_threadpool(
+            provider.generate_keywords,
             mode=payload.mode,
+            excluded_keywords=exclusions,
             seed_keyword=payload.seed_keyword,
         )
-    except ValueError:
+        if len(result.terms) != 25:
+            error = generation_error(
+                GenerationErrorCode.INSUFFICIENT_CANDIDATES
+            )
+            error.metrics = {
+                **result.candidate_metrics,
+                "acceptedCount": len(result.terms),
+            }
+            raise error
+    except KeywordGenerationError as error:
         _audit_keyword_failure(
             db,
             principal=principal,
             action="scraper_keyword_generation_failed",
-            reason="Scraper keyword review draft was invalid",
+            reason="Jawnix keyword generation returned no review draft",
             details={
                 "mode": payload.mode,
                 "seedKeyword": payload.seed_keyword,
-                "generationId": generation_id,
+                "outcome": error.code.value,
+                "statusCode": error.status_code,
+                "candidateMetrics": error.metrics,
             },
         )
-        return _native_unavailable(_state(request, settings))
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.message,
+        ) from None
 
-    _mark_keyword_success(request, settings)
+    now = _workspace_now(request)
+    purge_generation_drafts(db, now=now)
+    draft = create_generation_draft(
+        db,
+        administrator_id=principal.user_id,
+        mode=payload.mode,
+        seed_keyword=payload.seed_keyword,
+        model=provider.model,
+        result=result,
+        exclusion_metrics=exclusion_counts,
+        now=now,
+    )
+    label = (
+        f"keywords adjacent to {payload.seed_keyword}"
+        if payload.mode == "adjacent"
+        else "broad local-business keywords"
+    )
+    notice = (
+        f"Draft ready: 25 {label}. Review below; nothing has been saved or "
+        f"enqueued. {result.excluded_count} candidates were filtered."
+    )
     record_activity(
         db,
         action="scraper_keyword_generation_created",
         target_type="scraper_keyword_generation",
-        target_id=generation_id,
+        target_id=draft.id,
         actor_id=principal.user_id,
         reason="Generated Scraper keywords for human review",
         details={
             "mode": payload.mode,
             "seedKeyword": payload.seed_keyword,
-            "keywordCount": len(draft.keywords),
-            "excludedCount": draft.excluded_count,
+            "keywordCount": len(result.terms),
+            "excludedCount": result.excluded_count,
+            "exclusionMetrics": exclusion_counts,
+            "candidateMetrics": result.candidate_metrics,
             "activeConfigurationChanged": False,
         },
     )
     db.commit()
-    return draft
+    return KeywordGenerationDraft(
+        generation_id=str(draft.id),
+        mode=payload.mode,
+        seed_keyword=payload.seed_keyword,
+        keywords=result.terms,
+        excluded_count=result.excluded_count,
+        notice=notice,
+    )
 
 
 @native_router.post(
@@ -1957,14 +1730,12 @@ async def control_scraper_keyword_rollover(
     db: Session = Depends(get_db),
 ):
     _require_scraper_grant(request, response, principal, settings)
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="POST",
-        path="/keywords/auto-rollover",
-        form={"action": payload.action},
-    )
-    if _keyword_upstream_failed(upstream):
+    try:
+        rollover = await _scraper_operations(
+            request,
+            settings,
+        ).set_keyword_rollover(payload)
+    except ScraperOperationsError as error:
         _audit_keyword_failure(
             db,
             principal=principal,
@@ -1972,29 +1743,17 @@ async def control_scraper_keyword_rollover(
             reason="Automatic Scraper keyword rollover could not be changed",
             details={
                 "requestedAction": payload.action,
-                "upstreamStatus": (
-                    upstream.status_code if upstream is not None else None
-                ),
+                "upstreamStatus": error.status_code,
             },
         )
-        if upstream is not None and upstream.status_code == 422:
+        if error.status_code == 422:
             raise HTTPException(
                 status_code=422,
                 detail="AI generation is not configured.",
             )
         return _native_unavailable(_state(request, settings))
-    try:
-        rollover = parse_rollover(upstream.text)
-    except ValueError:
-        _audit_keyword_failure(
-            db,
-            principal=principal,
-            action="scraper_keyword_rollover_failed",
-            reason="Automatic Scraper keyword rollover returned invalid status",
-            details={"requestedAction": payload.action},
-        )
-        return _native_unavailable(_state(request, settings))
-    _mark_keyword_success(request, settings)
+    rollover = _public_rollover(rollover)
+    _mark_operations_success(request, settings)
     record_activity(
         db,
         action=(
@@ -2016,36 +1775,19 @@ async def control_scraper_keyword_rollover(
     return rollover
 
 
-def _runtime_failed(upstream: httpx.Response | None) -> bool:
-    return upstream is None or not 200 <= upstream.status_code < 300
-
-
-def _mark_runtime_success(request: Request, settings: Settings) -> None:
-    _state(request, settings).last_success = _workspace_now(request)
-
-
 async def _runtime_current(
     request: Request,
     settings: Settings,
-) -> tuple[
-    RuntimeConfiguration,
-    list[str],
-    list,
-] | None:
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="GET",
-        path="/configure",
-    )
-    if _runtime_failed(upstream):
-        return None
+) -> ControlRuntimeWorkspace | None:
     try:
-        parsed = parse_runtime_workspace(upstream.text)
-    except (TypeError, ValueError):
+        workspace = await _scraper_operations(
+            request,
+            settings,
+        ).runtime_workspace()
+    except ScraperOperationsError:
         return None
-    _mark_runtime_success(request, settings)
-    return parsed
+    _mark_operations_success(request, settings)
+    return workspace
 
 
 def _audit_runtime_failure(
@@ -2108,33 +1850,18 @@ async def scraper_campaign_history(
     normalized_state = state.strip().upper()
     if normalized_state and normalized_state not in US_STATES:
         raise HTTPException(status_code=422, detail="Unknown state.")
-    query = urlencode(
-        {
-            "search": search.strip(),
-            "state": normalized_state.lower(),
-            "sort": sort,
-            "direction": direction,
-        }
-    )
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="GET",
-        path=f"/frag/history/table?{query}",
-    )
     proxy_state = _state(request, settings)
-    if _runtime_failed(upstream):
-        return _campaign_history_unavailable(
-            request,
-            settings,
-            search=search.strip(),
-            state=normalized_state,
-            sort=sort,
-            direction=direction,
-        )
     try:
-        rows = parse_campaign_history(upstream.text)
-    except (TypeError, ValueError):
+        history = await _scraper_operations(
+            request,
+            settings,
+        ).campaign_history(
+            search=search.strip(),
+            state=normalized_state.lower(),
+            sort=sort,
+            direction=direction,
+        )
+    except ScraperOperationsError:
         return _campaign_history_unavailable(
             request,
             settings,
@@ -2143,7 +1870,13 @@ async def scraper_campaign_history(
             sort=sort,
             direction=direction,
         )
-    _mark_runtime_success(request, settings)
+    _mark_operations_success(request, settings)
+
+    def public_time(value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.strftime("%b ") + str(value.day) + value.strftime(", %H:%M")
+
     return CampaignHistory(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
@@ -2153,7 +1886,21 @@ async def scraper_campaign_history(
         sort=sort,
         direction=direction,
         all_states=sorted(US_STATES),
-        rows=rows,
+        rows=[
+            CampaignHistoryRow(
+                keyword=row.keyword,
+                state=row.state,
+                cells_posted=row.cells_posted,
+                first_enqueued=public_time(row.first_enqueued),
+                latest_enqueued=public_time(row.latest_enqueued),
+                campaign_date=(
+                    row.campaign_date.strftime("%b ")
+                    + str(row.campaign_date.day)
+                    + row.campaign_date.strftime(", %Y")
+                ),
+            )
+            for row in history.rows
+        ],
     )
 
 
@@ -2189,16 +1936,15 @@ async def scraper_runtime_configuration(
     proxy_state = _state(request, settings)
     if parsed is None:
         return _runtime_workspace_unavailable(request, settings)
-    current, all_states, cells = parsed
     return RuntimeWorkspace(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
         idle_expires_in=SCRAPER_IDLE_SECONDS,
-        current=current,
-        version=runtime_version(current),
-        all_states=all_states,
-        cells=cells,
-        total_cells=sum(row.cells for row in cells),
+        current=parsed.current,
+        version=parsed.version,
+        all_states=parsed.all_states,
+        cells=parsed.cells,
+        total_cells=parsed.total_cells,
     )
 
 
@@ -2216,30 +1962,16 @@ async def preview_scraper_runtime_configuration(
     parsed = await _runtime_current(request, settings)
     if parsed is None:
         return _native_unavailable(_state(request, settings))
-    current, _, current_cells = parsed
-    form = runtime_form(payload.configuration)
-    upstream = await _raw_native_upstream(
-        request,
-        settings,
-        method="POST",
-        path="/configure/preview",
-        form=form,
-    )
-    if _runtime_failed(upstream):
-        return _native_unavailable(_state(request, settings))
     try:
-        proposed_cells = parse_cell_effects(upstream.text)
-    except (TypeError, ValueError):
+        preview = await _scraper_operations(
+            request,
+            settings,
+        ).preview_runtime(payload)
+    except ScraperOperationsError:
         return _native_unavailable(_state(request, settings))
-    if (
-        len(proposed_cells) != len(payload.configuration.states)
-        or {row.state for row in proposed_cells}
-        != set(payload.configuration.states)
-    ):
-        return _native_unavailable(_state(request, settings))
-    _mark_runtime_success(request, settings)
-    expected_version = runtime_version(current)
-    proposed_version = runtime_version(payload.configuration)
+    _mark_operations_success(request, settings)
+    expected_version = preview.expected_version
+    proposed_version = preview.proposed_version
     review_token = _runtime_review_serializer(settings).dumps(
         {
             "sub": str(principal.user_id),
@@ -2252,12 +1984,7 @@ async def preview_scraper_runtime_configuration(
         expected_version=expected_version,
         proposed_version=proposed_version,
         review_token=review_token,
-        effects=calculate_effects(
-            current,
-            payload.configuration,
-            current_cells,
-            proposed_cells,
-        ),
+        effects=preview.effects,
     )
 
 
@@ -2318,8 +2045,8 @@ async def save_scraper_runtime_configuration(
                 },
             )
             return _native_unavailable(_state(request, settings))
-        current, _, current_cells = parsed
-        current_version = runtime_version(current)
+        current = parsed.current
+        current_version = parsed.version
         if current_version != payload.expected_version:
             _audit_runtime_failure(
                 db,
@@ -2340,58 +2067,37 @@ async def save_scraper_runtime_configuration(
                 ),
             )
 
-        form = runtime_form(payload.configuration)
-        effects_upstream = await _raw_native_upstream(
-            request,
-            settings,
-            method="POST",
-            path="/configure/preview",
-            form=form,
-        )
-        if _runtime_failed(effects_upstream):
-            _audit_runtime_failure(
-                db,
-                principal=principal,
-                action="scraper_runtime_configuration_save_failed",
-                reason="Scale runtime effects could not be recalculated before save",
-                details={
-                    "expectedVersion": payload.expected_version,
-                    "proposedVersion": proposed_version,
-                    "enqueueRequested": payload.enqueue,
-                },
-            )
-            return _native_unavailable(_state(request, settings))
         try:
-            proposed_cells = parse_cell_effects(effects_upstream.text)
-        except (TypeError, ValueError):
-            proposed_cells = []
-        if (
-            len(proposed_cells) != len(payload.configuration.states)
-            or {row.state for row in proposed_cells}
-            != set(payload.configuration.states)
-        ):
-            _audit_runtime_failure(
-                db,
-                principal=principal,
-                action="scraper_runtime_configuration_save_failed",
-                reason="Scale runtime effects were invalid before save",
-                details={
-                    "expectedVersion": payload.expected_version,
-                    "proposedVersion": proposed_version,
-                    "enqueueRequested": payload.enqueue,
-                },
+            saved = await _scraper_operations(
+                request,
+                settings,
+            ).save_runtime(
+                ControlRuntimeSaveRequest(
+                    configuration=payload.configuration,
+                    expected_version=payload.expected_version,
+                    enqueue=payload.enqueue,
+                )
             )
-            return _native_unavailable(_state(request, settings))
-
-        form["enqueue"] = "true" if payload.enqueue else "false"
-        upstream = await _raw_native_upstream(
-            request,
-            settings,
-            method="POST",
-            path="/configure/save",
-            form=form,
-        )
-        if _runtime_failed(upstream):
+        except ScraperOperationsError as error:
+            if error.status_code == 409:
+                _audit_runtime_failure(
+                    db,
+                    principal=principal,
+                    action="scraper_runtime_configuration_save_refused",
+                    reason="Scale runtime configuration changed after preview",
+                    details={
+                        "expectedVersion": payload.expected_version,
+                        "currentVersion": None,
+                        "proposedVersion": proposed_version,
+                    },
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Runtime configuration changed after this preview. "
+                        "Reload the current settings and preview again."
+                    ),
+                ) from None
             _audit_runtime_failure(
                 db,
                 principal=principal,
@@ -2401,23 +2107,16 @@ async def save_scraper_runtime_configuration(
                     "expectedVersion": payload.expected_version,
                     "proposedVersion": proposed_version,
                     "enqueueRequested": payload.enqueue,
-                    "upstreamStatus": (
-                        upstream.status_code if upstream is not None else None
-                    ),
+                    "upstreamStatus": error.status_code,
                 },
             )
             return _native_unavailable(_state(request, settings))
 
-        _mark_runtime_success(request, settings)
-        effects = calculate_effects(
-            current,
-            payload.configuration,
-            current_cells,
-            proposed_cells,
-        )
+        _mark_operations_success(request, settings)
+        effects = saved.effects
         revision = ScraperRuntimeConfigurationRevision(
             before_checksum=current_version,
-            after_checksum=proposed_version,
+            after_checksum=saved.version,
             configuration=runtime_summary(payload.configuration),
             effects=effects.model_dump(mode="json"),
             enqueue_requested=payload.enqueue,
@@ -2467,7 +2166,7 @@ async def save_scraper_runtime_configuration(
         db.commit()
         return RuntimeSaveResult(
             revision_id=str(revision.id),
-            version=proposed_version,
+            version=saved.version,
             configuration=payload.configuration,
             effects=effects,
             enqueued=payload.enqueue,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -77,6 +77,10 @@ class Settings(BaseSettings):
         default="",
         alias="JAWNIX_SCRAPER_OPS_PASSWORD",
     )
+    scraper_control_token: str = Field(
+        default="",
+        alias="JAWNIX_SCRAPER_CONTROL_TOKEN",
+    )
     #: The Scraper database page runs several live aggregates over ~772k rows and
     #: measured 11.3s against production on 2026-07-29 — count(DISTINCT phone)
     #: alone is 1.4s. A 10s ceiling sat *below* a known-good response, so the
@@ -87,13 +91,25 @@ class Settings(BaseSettings):
         default=30,
         alias="JAWNIX_SCRAPER_OPS_TIMEOUT_SECONDS",
     )
-    #: Generating 25 keywords waits on substantially more LLM output than a
-    #: normal Scraper page request. The nightly adjacent-keyword path already
-    #: reserves at least 60s for only three suggestions, so the interactive
-    #: generator gets its own budget without weakening every proxy deadline.
-    scraper_ops_generation_timeout_seconds: float = Field(
+    openrouter_api_key: SecretStr | None = Field(
+        default=None,
+        alias="OPENROUTER_API_KEY",
+    )
+    openrouter_model: str = Field(
+        default="deepseek/deepseek-v4-flash",
+        alias="OPENROUTER_MODEL",
+    )
+    openrouter_base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        alias="OPENROUTER_BASE_URL",
+    )
+    #: One wall-clock budget covers every adaptive model attempt. It is not a
+    #: per-request transport timeout, so three attempts cannot each consume the
+    #: full allowance.
+    keyword_generation_deadline_seconds: float = Field(
         default=180,
-        alias="JAWNIX_SCRAPER_OPS_GENERATION_TIMEOUT_SECONDS",
+        gt=0,
+        alias="JAWNIX_KEYWORD_GENERATION_DEADLINE_SECONDS",
     )
     scraper_publication_hour_utc: int = Field(
         default=8,

@@ -526,7 +526,10 @@ def process_job(job_id: int) -> None:
                 request.status_message = (
                     "Batch generation failed; no partial allocation was committed."
                     if job.kind == "allocate_request"
-                    else "Email delivery failed. The existing batch is preserved for retry."
+                    else (
+                        "Portal notification failed. The existing Batch "
+                        "Artifact is preserved for retry."
+                    )
                 )
                 request.closed_at = utcnow()
                 if job.kind == "deliver_request":

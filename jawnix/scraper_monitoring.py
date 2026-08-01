@@ -288,6 +288,27 @@ class MonitoringSnapshot(BaseModel):
     regions: list[MonitoringRegion]
 
 
+class ControlPipelineRequest(BaseModel):
+    """Pipeline mutation sent to the private control service."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["pause", "resume"]
+    clear_queue: bool = False
+
+
+class ControlPipelineResult(BaseModel):
+    """Typed pipeline result before Jawnix adds its monitoring envelope."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ok: bool = True
+    pipeline_state: PipelineState
+    cancelled_jobs: int = Field(ge=0)
+    activity: PipelineActivity
+    pause_info: PauseInfo
+
+
 #: Which upstream context keys belong to which region. The upstream projection
 #: returns exactly these, so an unexpected key is a contract drift worth
 #: dropping rather than forwarding blindly.

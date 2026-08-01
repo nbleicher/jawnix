@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 import {
@@ -7,8 +8,139 @@ import {
 
 const INVITATION_RECOVERY =
   "This invitation cannot be used. Ask your administrator for a new invitation, or sign in if you already set your password.";
+const WCAG_AA_TAGS = [
+  "wcag2a",
+  "wcag2aa",
+  "wcag21a",
+  "wcag21aa",
+  "wcag22aa",
+];
+
+test.describe("Opaline authentication scene", () => {
+  test("reduced motion renders one static, accessible frame", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript(() => {
+      let seed = 116;
+      Math.random = () => {
+        seed = (seed * 16807) % 2147483647;
+        return (seed - 1) / 2147483646;
+      };
+    });
+    await mockCustomerAuth(page);
+    await page.goto("./sign-in");
+
+    const scene = page.locator(".jx-opaline-scene");
+    const canvas = scene.locator("canvas");
+    await expect(scene).toHaveAttribute("data-opaline-state", "static");
+    await expect(canvas).toBeVisible();
+
+    const firstFrame = await canvas.screenshot();
+    await page.waitForTimeout(200);
+    const secondFrame = await canvas.screenshot();
+    expect(secondFrame.equals(firstFrame)).toBe(true);
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_AA_TAGS)
+      .analyze();
+    expect(results.violations).toEqual([]);
+    await expect(page).toHaveScreenshot("opaline-sign-in.png", {
+      animations: "disabled",
+      caret: "hide",
+    });
+  });
+
+  test("pauses animation while the form has keyboard focus", async ({ page }) => {
+    await mockCustomerAuth(page);
+    await page.goto("./sign-in");
+
+    const scene = page.locator(".jx-opaline-scene");
+    const canvas = scene.locator("canvas");
+    await expect(scene).toHaveAttribute("data-opaline-state", "animated");
+    await page.getByLabel("Email address (required)").focus();
+    await expect(scene).toHaveAttribute("data-opaline-paused", "true");
+
+    await page.waitForTimeout(200);
+    const focusedFrame = await canvas.screenshot();
+    await page.waitForTimeout(200);
+    const laterFrame = await canvas.screenshot();
+    expect(laterFrame.equals(focusedFrame)).toBe(true);
+  });
+
+  test("WebGL failure keeps the gradient fallback and invitation form usable", async ({
+    page,
+  }) => {
+    await page.addInitScript({
+      content: `
+        const getContext = HTMLCanvasElement.prototype.getContext;
+        HTMLCanvasElement.prototype.getContext = function (type, ...args) {
+          if (type === "webgl" || type === "experimental-webgl" || type === "webgl2") {
+            return null;
+          }
+          return getContext.call(this, type, ...args);
+        };
+      `,
+    });
+    await mockCustomerAuth(page);
+    await page.goto(`./accept-invitation${invitationHash()}`);
+
+    const scene = page.locator(".jx-opaline-scene");
+    await expect(scene).toHaveAttribute("data-opaline-state", "fallback");
+    await expect(scene.locator("canvas")).toHaveCSS("opacity", "0");
+    const background = await scene.evaluate(
+      (element) => getComputedStyle(element).backgroundImage,
+    );
+    expect(background).toContain("linear-gradient");
+    expect(background).toContain("rgb(18, 6, 13)");
+    expect(background).toContain("rgb(3, 4, 12)");
+
+    await page
+      .getByLabel("Password (required)", { exact: true })
+      .fill("first-known-password-48");
+    await page
+      .getByLabel("Confirm password (required)", { exact: true })
+      .fill("second-known-password-48");
+    await page.getByRole("button", { name: "Create password" }).click();
+    await expect(page.getByRole("alert")).toHaveText(
+      "The passwords do not match.",
+    );
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_AA_TAGS)
+      .analyze();
+    expect(results.violations).toEqual([]);
+  });
+
+  test("working-app routes never request the auth scene", async ({ page }) => {
+    const scripts: string[] = [];
+    page.on("response", (response) => {
+      if (response.request().resourceType() === "script") {
+        scripts.push(response.url());
+      }
+    });
+    await mockCustomerAuth(page);
+    await page.goto("./account");
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Account" }),
+    ).toBeVisible();
+    await expect(page.locator(".jx-opaline-scene")).toHaveCount(0);
+    expect(
+      scripts.filter((url) => /CustomerAuth|opaline-three/.test(url)),
+    ).toEqual([]);
+  });
+});
 
 test.describe("Customer sign-in and session lifecycle", () => {
+  test("uses Opaline with the chosen Fraunces display face", async ({ page }) => {
+    await mockCustomerAuth(page);
+    await page.goto("./sign-in");
+
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toHaveCSS(
+      "font-family",
+      /Fraunces Variable/,
+    );
+  });
+
   test("signs in through the Jawnix boundary and signs out with the keyboard", async ({
     page,
   }) => {

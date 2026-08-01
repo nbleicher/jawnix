@@ -71,6 +71,7 @@ describe("administrator Customer directory", () => {
   it("shows durable Customer standing and replaceable access standing separately", () => {
     renderDirectory(directory());
 
+    expect(document.querySelector(".jx-page")).toHaveClass("jx-page--data");
     const card = screen.getByRole("article", { name: "Harbor Insurance" });
     // Router-relative here because this harness has no basename; the real
     // router mounts under `/app`, which e2e asserts against the built app.
@@ -91,7 +92,13 @@ describe("administrator Customer directory", () => {
     expect(
       within(card).getByText("Invitation has not been accepted yet"),
     ).toBeVisible();
-    expect(screen.getByText(/Showing 1 of 12 Customers/)).toBeVisible();
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === "P"
+          && element.textContent === "Showing 1 of 12 Customers.",
+      ),
+    ).toBeVisible();
   });
 
   it("labels every search control and submits them through the URL", () => {

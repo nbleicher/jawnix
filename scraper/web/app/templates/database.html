@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Database · GMS Operations{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">Record store</p><h1>Database</h1></div><div class="lead-totals"><span><b>{{ "{:,}".format(database_totals.businesses) }}</b> businesses</span><span><b>{{ "{:,}".format(database_totals.unique_phones) }}</b> exportable phones</span></div></div>
+<section>
+  <form id="state-export-form" action="/database/bulk-download" method="get">
+    <div class="section-head niche-section-head">
+      <div><p class="eyebrow">State databases</p><h2>Download by state</h2></div>
+      <div class="niche-bulk-actions">
+        <label class="check-label"><input id="select-all-states" type="checkbox">Select all</label>
+        <span id="selected-state-count" class="quiet">0 selected</span>
+        <button id="download-selected-states" class="button secondary" type="submit" disabled><i data-lucide="download"></i>Download selected</button>
+        <span class="count-pill">{{ database_states|length }} states</span>
+      </div>
+    </div>
+    {% include "fragments/database_state_cards.html" %}
+  </form>
+</section>
+<section class="section-block"><div class="section-head"><div><p class="eyebrow">Businesses</p><h2>Browse records</h2></div><span class="count-pill">{{ "{:,}".format(business_total) }}</span></div>
+  <form class="filter-bar" hx-get="/frag/database/browse" hx-target="#database-browse" hx-trigger="input changed delay:350ms from:input, change from:select"><label><i data-lucide="search"></i><input type="search" name="search" value="{{ search }}" placeholder="Name, phone, or website"></label><select name="state"><option value="">All states</option>{% for item in database_states %}{% set code = item.state.lower() %}<option value="{{ code }}" {% if state == code %}selected{% endif %}>{{ item.state }}</option>{% endfor %}</select></form>
+  <div id="database-browse">{% include "fragments/database_browse.html" %}</div>
+</section>
+{% endblock %}

@@ -3,7 +3,8 @@
 The fulfillment state machine moves through more states than a Customer needs
 in their inbox. This module is the allow-list: approval, Waiting for Inventory,
 rejection, and failure receive a concise email; delivery remains the existing
-Batch Artifact email so its durable retry behavior stays authoritative.
+durably retried notification job, now pointing to the portal rather than
+carrying the Batch Artifact itself.
 
 Jobs and Resend use the same request/milestone identity. The job lookup avoids
 queue churn when a status is processed repeatedly, while Resend's idempotency
@@ -13,7 +14,6 @@ accepts a message.
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
 
 import httpx
@@ -41,13 +41,10 @@ class MilestoneMessage:
     text: str
 
 
-def request_timeline_url(settings: Settings, request_id: uuid.UUID) -> str:
-    """The authenticated Customer timeline for one Batch Request."""
+def customer_overview_url(settings: Settings) -> str:
+    """The authenticated Customer attention queue used by email links."""
 
-    return (
-        f"{settings.public_base_url.rstrip('/')}"
-        f"/app/requests?request={request_id}"
-    )
+    return f"{settings.public_base_url.rstrip('/')}/app/overview"
 
 
 def _request_summary(request: LeadRequest) -> str:
@@ -66,7 +63,7 @@ def build_milestone_message(
 ) -> MilestoneMessage:
     """Customer-safe copy for one allow-listed milestone."""
 
-    timeline = request_timeline_url(settings, request.id)
+    overview = customer_overview_url(settings)
     summary = _request_summary(request)
     if milestone == "approval":
         subject = f"Batch Request approved — {request.id}"
@@ -104,8 +101,8 @@ def build_milestone_message(
         text=(
             f"{update}\n\n"
             f"{summary}\n\n"
-            "View the current timeline after signing in:\n"
-            f"{timeline}\n"
+            "View anything that needs your attention after signing in:\n"
+            f"{overview}\n"
         ),
     )
 
