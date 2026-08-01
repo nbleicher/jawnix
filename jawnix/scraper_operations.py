@@ -27,6 +27,7 @@ from .scraper_database import (
 from .scraper_keywords import (
     KeywordDiff,
     KeywordRollover,
+    KeywordRolloverEventRequest,
     KeywordRolloverRequest,
     KeywordSaveRequest,
     KeywordSaveResult,
@@ -99,6 +100,11 @@ class ScraperOperations(Protocol):
     async def set_keyword_rollover(
         self,
         payload: KeywordRolloverRequest,
+    ) -> KeywordRollover: ...
+
+    async def record_keyword_rollover_event(
+        self,
+        payload: KeywordRolloverEventRequest,
     ) -> KeywordRollover: ...
 
     async def database_workspace(
@@ -290,6 +296,17 @@ class HTTPScraperOperations:
         return await self._request(
             "POST",
             "/api/keywords/rollover",
+            KeywordRollover,
+            payload=payload.model_dump(),
+        )
+
+    async def record_keyword_rollover_event(
+        self,
+        payload: KeywordRolloverEventRequest,
+    ) -> KeywordRollover:
+        return await self._request(
+            "POST",
+            "/api/keywords/rollover/events",
             KeywordRollover,
             payload=payload.model_dump(),
         )

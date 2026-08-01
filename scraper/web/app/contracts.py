@@ -124,6 +124,13 @@ class KeywordRolloverRequest(ContractModel):
     action: Literal["enable", "disable"]
 
 
+class KeywordRolloverEventRequest(ContractModel):
+    status: Literal["generated", "error"]
+    previous_keywords: list[str] | None = None
+    next_keywords: list[str] | None = None
+    message: str = Field(max_length=300)
+
+
 class DatabaseTotals(ContractModel):
     businesses: int = Field(ge=0)
     unique_phones: int = Field(ge=0)

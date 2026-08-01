@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,7 @@ from jawnix.database import SessionLocal
 from jawnix.maintenance import expire_batch_files, purge_retained_records
 from jawnix.models import NightlyReview
 
+from jawnix.keyword_rollover import run_automatic_keyword_rollover
 from jawnix.nightly import (
     activate_scheduled_scraper_configuration,
     run_scheduled_nightly_review,
@@ -37,6 +39,19 @@ def run() -> None:
     settings = get_settings()
     cleaned_date = None
     while True:
+        if settings.scraper_ops_url:
+            try:
+                with SessionLocal.begin() as session:
+                    rollover = asyncio.run(
+                        run_automatic_keyword_rollover(session, settings)
+                    )
+                if rollover["outcome"] not in {"idle", "cooldown", "locked"}:
+                    log.info(
+                        "Automatic keyword rollover outcome: %s",
+                        rollover["outcome"],
+                    )
+            except Exception:
+                log.exception("Automatic keyword rollover check failed")
         try:
             now = datetime.now(timezone.utc)
             if now.hour >= settings.scraper_publication_hour_utc:

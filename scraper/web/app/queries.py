@@ -386,3 +386,9 @@ VALUES ('auto_keyword_rollover',$1,false,NOW())
 ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()
 RETURNING value
 """
+
+INSERT_KEYWORD_ROLLOVER_EVENT = """
+INSERT INTO keyword_rollover_events (status,previous_keywords,next_keywords,message)
+VALUES ($1,$2::jsonb,$3::jsonb,$4)
+RETURNING id
+"""

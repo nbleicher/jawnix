@@ -12,7 +12,6 @@ SERVICE_LABELS = (
     ("docker.service", "Docker engine"),
     ("gms-serve.service", "Queue API service"),
     ("gms-enqueue.service", "Enqueuer"),
-    ("gms-keyword-rollover.timer", "Keyword rollover timer"),
     ("gms-heartbeat.timer", "Telemetry timer"),
     ("gms-ship.path", "Result shipper watch"),
     ("gms-ship.timer", "Result shipper backstop"),

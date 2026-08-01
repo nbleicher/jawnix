@@ -48,6 +48,7 @@ EXPECTED_ROUTES = {
     ("POST", "/api/keywords/save"),
     ("POST", "/api/keywords/generate"),
     ("POST", "/api/keywords/rollover"),
+    ("POST", "/api/keywords/rollover/events"),
     ("GET", "/api/database"),
     ("GET", "/api/database/states/{state}"),
     ("POST", "/api/database/exports/state/{state}"),
@@ -188,6 +189,20 @@ async def test_every_control_endpoint_matches_the_shared_contract(
         KeywordRollover,
     )
     assert rollover.enabled is True
+    event = assert_contract(
+        await client.post(
+            "/api/keywords/rollover/events",
+            json={
+                "status": "generated",
+                "previous_keywords": ["Plumbers"],
+                "next_keywords": ["Plumbers", "roofers"],
+                "message": "Activated 25 automatically generated keywords",
+            },
+        ),
+        KeywordRollover,
+    )
+    assert event.last_status == "generated"
+    assert event.last_event is not None
     assert_contract(
         await client.post(
             "/api/keywords/rollover", json={"action": "disable"}
@@ -391,3 +406,27 @@ async def test_every_control_endpoint_matches_the_shared_contract(
         )
     finally:
         await connection.close()
+
+
+@pytest.mark.asyncio
+async def test_rollover_toggle_needs_no_model_credential(app_client):
+    """Enabling rollover is a control-plane write; generation is Jawnix's."""
+
+    client, settings = app_client
+    settings.openrouter_api_key = None
+
+    enabled = assert_contract(
+        await client.post(
+            "/api/keywords/rollover", json={"action": "enable"}
+        ),
+        KeywordRollover,
+    )
+    assert enabled.enabled is True
+
+    disabled = assert_contract(
+        await client.post(
+            "/api/keywords/rollover", json={"action": "disable"}
+        ),
+        KeywordRollover,
+    )
+    assert disabled.enabled is False
