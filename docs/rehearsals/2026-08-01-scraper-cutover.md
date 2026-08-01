@@ -1,23 +1,65 @@
 # Scraper Stage C cutover rehearsal — 2026-08-01
 
+> ## RETRACTED — this report's GO decision is void
+>
+> Published as a GO and retracted the same hour. **Do not schedule a cutover
+> from this artifact.** The rehearsal identified the wrong database as the
+> production acquisition store, so its backup, its history artifact, and its
+> quiescence finding all describe a database that is not production.
+>
+> The error: the worker box's `.env` names
+> `postgres://gmaps@159.195.15.51:5432/gmaps_pro`, and the rehearsal treated
+> that as the live store. It is not. Queried through the live legacy
+> dashboard, the real acquisition store holds **779,408 businesses** properly
+> distributed across PA, NC, OH, FL, SC, GA, TX, and UT. The database this
+> report backed up holds **17,650 businesses, every one with an empty
+> `state`**, its last enqueue is 2026-07-01, and the only client that
+> connected to it during the rehearsal was the rehearsal's own probe. It is a
+> stale or partial copy, not production.
+>
+> This report read that empty-`state` column as a production data-quality
+> defect and preserved it as "parity." That was the tell, and it was
+> misread. The real store's dashboard shows correct per-state counts.
+>
+> Corrected status of each blocker:
+>
+> | Blocker | Real status |
+> |---|---|
+> | 1 — acquisition backup | **Still open.** The dump is of the wrong database. The real store sits behind the Scale VPS (`51.81.184.162` / WireGuard `10.77.0.2`), which exposes only dashboard port 8090 and rejects every available SSH key. It remains unbacked-up and unreachable. |
+> | 2 — history artifact | **Still open.** Built from the wrong database; the mechanism is proven but the contents are not production. |
+> | 3 — rollover ownership | **Genuinely cleared** by PR #138, which is independent of this error. |
+>
+> What survives as valid evidence: the rollover ownership change and its
+> tests, the additive migrations applying cleanly to a restored
+> production-shaped database, the typed control service serving real data,
+> and the vendored worker starting and connecting. The import and backup
+> mechanisms are proven; only their inputs were wrong.
+>
+> Nothing was deployed and no production state was mutated. The
+> `production-20260801T030809Z` tag created for this window was deleted.
+>
+> A replacement rehearsal must first obtain operator access to the Scale VPS,
+> identify the DSN its dashboard actually uses, and re-run every data step
+> against that store.
+
 ## Decision
 
-**GO.** Every release blocker from the [2026-07-31 rehearsal](2026-07-31-scraper-cutover.md)
-is cleared with verified evidence. The production cutover window may be
-scheduled from this artifact.
+~~**GO.**~~ **Retracted — see above.** Every release blocker from the
+[2026-07-31 rehearsal](2026-07-31-scraper-cutover.md) was believed cleared;
+two of the three were not.
 
 Rehearsed Jawnix revision: `f94c06b` (`origin/main`, after PR #138).
 Production mutation: none. All production access was read-only; one
 custom-format `pg_dump` was written to the worker box and copied off-host.
 
-## Corrected production topology
+## Topology (as recorded — the acquisition-store row is wrong)
 
 Read-only inventory of all three hosts corrected the topology the previous
 rehearsal assumed:
 
 | Host | Role today |
 |---|---|
-| Application host (`159.195.15.51`, WireGuard `10.77.0.1`) | Jawnix stack **and the live `gmaps_pro` PostgreSQL 17.10** (host-level, bound publicly on 5432) |
+| Application host (`159.195.15.51`, WireGuard `10.77.0.1`) | Jawnix stack and a `gmaps_pro` PostgreSQL 17.10 (host-level, bound publicly on 5432) — **wrongly identified below as the live acquisition store; it is a stale or partial copy** |
 | Scale control VPS (`51.81.184.162`, WireGuard `10.77.0.2`) | Legacy Scale dashboard (`:8090` over WireGuard, live handshakes) and `gms-*` timers; holds the only OpenRouter key |
 | Worker box (`152.53.209.52`) | Legacy worker containers (exited since ~2026-07-01), empty `scraper-db-1` PostgreSQL with volume `scraper_gmapsdev`, spool shipper |
 
