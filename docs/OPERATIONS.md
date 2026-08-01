@@ -207,12 +207,14 @@ The PostgreSQL initialization hook enables password-authenticated replication on
 ## Scraper ownership cutover
 
 Do not schedule this window until a Stage C rehearsal report says **GO**. The
-[2026-07-31 rehearsal report](rehearsals/2026-07-31-scraper-cutover.md) is a
-**NO-GO** because the acquisition PostgreSQL database had no restorable backup,
-the available Scraper Dataset did not contain the three keyword-history source
-tables, and automatic rollover still required an acquisition-host OpenRouter
-key. A Jawnix PostgreSQL dump and Scraper Dataset snapshot do not substitute
-for an acquisition PostgreSQL backup.
+[2026-08-01 rehearsal report](rehearsals/2026-08-01-scraper-cutover.md) is a
+**GO**: it cleared the three blockers from the
+[2026-07-31 NO-GO](rehearsals/2026-07-31-scraper-cutover.md) with a verified
+off-host `gmaps_pro` backup, an exact-count idempotent keyword-history
+artifact, and Jawnix-owned automatic rollover (PR #138). It also corrected
+the production topology: the live `gmaps_pro` runs on the application host,
+the legacy Scale control VPS holds WireGuard `10.77.0.2`, and the worker box
+carries the empty `scraper-db-1` volume the new stack deploys onto.
 
 ### Required artifacts and rehearsal isolation
 
