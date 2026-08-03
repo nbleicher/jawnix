@@ -8,6 +8,8 @@ import {
   ACTIVE_REQUEST_REFRESH_MS,
   CustomerRequestsRoute,
   formatArtifactExpiry,
+  formatFileCountPreview,
+  previewFileCount,
 } from "./CustomerRequests";
 import type {
   BatchRequest,
@@ -61,6 +63,7 @@ function batchRequest(overrides: Partial<BatchRequest> = {}): BatchRequest {
   return {
     id: REQUEST_ID,
     lead_count: 750,
+    rows_per_file: 750,
     states: ["FL", "TX"],
     submitted_at: SUBMITTED,
     delivered_at: null,
@@ -96,12 +99,27 @@ function deliveredRequest(overrides: Partial<BatchRequest> = {}): BatchRequest {
     }),
     can_cancel: false,
     artifact: {
-      filename: "requests-customer_batch.csv",
+      filename: "requests-customer_batch.zip",
       row_count: 750,
+      parts: [
+        {
+          filename: "requests-customer_batch_part_001.csv",
+          row_count: 300,
+        },
+        {
+          filename: "requests-customer_batch_part_002.csv",
+          row_count: 300,
+        },
+        {
+          filename: "requests-customer_batch_part_003.csv",
+          row_count: 150,
+        },
+      ],
       expires_at: "2026-07-27T12:00:00Z",
       available: true,
       download_href: `/api/me/batch-requests/${REQUEST_ID}/artifact`,
     },
+    rows_per_file: 300,
     ...overrides,
   });
 }
@@ -181,13 +199,20 @@ async function completeQuantityStage(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Continue" }));
 }
 
+/** Quantity → scope → default one-file → review. */
+async function advanceToReview(user: ReturnType<typeof userEvent.setup>) {
+  await completeQuantityStage(user);
+  await user.click(screen.getByRole("button", { name: "Continue" }));
+  await user.click(screen.getByRole("button", { name: "Continue" }));
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe("the guided Batch Request flow", () => {
-  it("walks quantity, then scope, then review — never one long form", async () => {
+  it("walks quantity, scope, files, then review — never one long form", async () => {
     const user = userEvent.setup();
     renderRoute(workspace());
 
@@ -212,10 +237,20 @@ describe("the guided Batch Request flow", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(
+      screen.getByRole("group", { name: /How should the Batch be split/ }),
+    ).toBeVisible();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "750 at 750/file = 1 file",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(
       screen.getByRole("heading", { name: "Review your request" }),
     ).toBeVisible();
     expect(screen.getByText("750 leads")).toBeVisible();
     expect(screen.getByText("FL, TX")).toBeVisible();
+    expect(screen.getByText("One file")).toBeVisible();
     expect(screen.getByRole("button", { name: "Submit request" })).toBeVisible();
   });
 
@@ -301,8 +336,7 @@ describe("the guided Batch Request flow", () => {
     const calls = mockFetch(() => ({ created: true, request: created }));
     renderRoute(workspace());
 
-    await completeQuantityStage(user);
-    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await advanceToReview(user);
     await user.click(screen.getByRole("button", { name: "Submit request" }));
 
     await waitFor(() =>
@@ -316,6 +350,7 @@ describe("the guided Batch Request flow", () => {
       state_mode: "all_saved",
       states: [],
     });
+    expect(calls[0]).not.toHaveProperty("rows_per_file");
     expect(
       screen.getByRole("link", { name: "View this Batch Request" }),
     ).toHaveAttribute("href", `/app/requests?request=${REQUEST_ID}`);
@@ -326,8 +361,7 @@ describe("the guided Batch Request flow", () => {
     const calls = mockFetch(() => ({ created: true, request: batchRequest() }));
     renderRoute(workspace());
 
-    await completeQuantityStage(user);
-    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await advanceToReview(user);
     const submit = screen.getByRole("button", { name: "Submit request" });
     await user.dblClick(submit);
 
@@ -347,8 +381,7 @@ describe("the guided Batch Request flow", () => {
     mockFetch(() => ({ created: false, request: batchRequest() }), 200);
     renderRoute(workspace());
 
-    await completeQuantityStage(user);
-    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await advanceToReview(user);
     await user.click(screen.getByRole("button", { name: "Submit request" }));
 
     await waitFor(() =>
@@ -364,8 +397,7 @@ describe("the guided Batch Request flow", () => {
     );
     renderRoute(workspace());
 
-    await completeQuantityStage(user);
-    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await advanceToReview(user);
     await user.click(screen.getByRole("button", { name: "Submit request" }));
 
     await waitFor(() =>
@@ -373,6 +405,61 @@ describe("the guided Batch Request flow", () => {
         "These are not Licensed States on your account: NY.",
       ),
     );
+  });
+
+  it("previews file count live and freezes an explicit rows-per-file choice", async () => {
+    const user = userEvent.setup();
+    const calls = mockFetch(() => ({
+      created: true,
+      request: batchRequest({ lead_count: 750, rows_per_file: 250 }),
+    }));
+    renderRoute(workspace());
+
+    await completeQuantityStage(user);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(
+      screen.getByRole("radio", { name: /Split by rows per file/ }),
+    );
+    await user.type(
+      screen.getByRole("spinbutton", { name: /Rows per file/ }),
+      "250",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "750 at 250/file = 3 files",
+    );
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    expect(
+      screen.getByText("750 at 250/file = 3 files"),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Submit request" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Request submitted" }),
+      ).toBeVisible(),
+    );
+    expect(calls[0]).toMatchObject({
+      lead_count: 750,
+      rows_per_file: 250,
+    });
+  });
+
+  it("refuses an empty split before review", async () => {
+    const user = userEvent.setup();
+    renderRoute(workspace());
+    await completeQuantityStage(user);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(
+      screen.getByRole("radio", { name: /Split by rows per file/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Enter how many rows each file should hold.",
+    );
+    expect(
+      screen.queryByRole("heading", { name: "Review your request" }),
+    ).not.toBeInTheDocument();
   });
 
   it("offers the fix instead of the stages when the flow cannot start", () => {
@@ -605,7 +692,7 @@ describe("a Batch Request detail page", () => {
     expect(document.body).not.toHaveTextContent("status_message");
   });
 
-  it("shows the live artifact metadata, countdown, and download", () => {
+  it("shows the live artifact metadata, parts, countdown, and zip download", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-22T12:00:00Z"));
     renderRoute(workspace({ requests: [deliveredRequest()] }), {
@@ -613,11 +700,19 @@ describe("a Batch Request detail page", () => {
     });
 
     const card = screen.getByRole("region", { name: "Batch Artifact" });
-    expect(within(card).getByText("requests-customer_batch.csv")).toBeVisible();
+    expect(within(card).getByText("requests-customer_batch.zip")).toBeVisible();
     expect(within(card).getByText("750")).toBeVisible();
+    expect(
+      within(card).getByText("requests-customer_batch_part_001.csv"),
+    ).toBeVisible();
+    expect(within(card).getByText("300 rows")).toBeVisible();
+    expect(
+      within(card).getByText("requests-customer_batch_part_003.csv"),
+    ).toBeVisible();
+    expect(within(card).getByText("150 rows")).toBeVisible();
     expect(within(card).getByText("Expires in 5 days")).toBeVisible();
     expect(
-      within(card).getByRole("link", { name: "Download CSV" }),
+      within(card).getByRole("link", { name: "Download zip" }),
     ).toHaveAttribute(
       "href",
       `/api/me/batch-requests/${REQUEST_ID}/artifact`,
@@ -632,8 +727,14 @@ describe("a Batch Request detail page", () => {
         requests: [
           deliveredRequest({
             artifact: {
-              filename: "requests-customer_batch.csv",
+              filename: "requests-customer_batch.zip",
               row_count: 750,
+              parts: [
+                {
+                  filename: "requests-customer_batch_part_001.csv",
+                  row_count: 750,
+                },
+              ],
               expires_at: "2026-07-27T12:00:00Z",
               available: false,
               download_href: null,
@@ -658,6 +759,17 @@ describe("a Batch Request detail page", () => {
     expect(
       screen.getByRole("heading", { name: "Batch Request not found" }),
     ).toBeVisible();
+  });
+});
+
+describe("file-count preview", () => {
+  it("ceil-divides quantity by rows per file", () => {
+    expect(previewFileCount(50_000, 10_000)).toBe(5);
+    expect(previewFileCount(750, 250)).toBe(3);
+    expect(previewFileCount(750, 750)).toBe(1);
+    expect(
+      formatFileCountPreview(50_000, 10_000),
+    ).toBe("50,000 at 10,000/file = 5 files");
   });
 });
 
