@@ -53,6 +53,11 @@ function AuthRouteFrame({
       <main
         className="jx-auth-route__main"
         id="jx-auth-main"
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            setSceneInteracting(false);
+          }
+        }}
         onFocusCapture={() => setSceneInteracting(true)}
         tabIndex={-1}
       >

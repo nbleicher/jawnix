@@ -66,6 +66,21 @@ test.describe("Opaline authentication scene", () => {
     expect(laterFrame.equals(focusedFrame)).toBe(true);
   });
 
+  test("resumes animation once focus leaves the form", async ({ page }) => {
+    await mockCustomerAuth(page);
+    await page.goto("./sign-in");
+
+    const scene = page.locator(".jx-opaline-scene");
+    await expect(scene).toHaveAttribute("data-opaline-state", "animated");
+    await page.getByLabel("Email address (required)").focus();
+    await expect(scene).toHaveAttribute("data-opaline-paused", "true");
+
+    // Moving focus out of the form region resumes the scene; without the
+    // blur-capture reset the pause latched on the first focus forever.
+    await page.locator("body").click();
+    await expect(scene).not.toHaveAttribute("data-opaline-paused", "true");
+  });
+
   test("WebGL failure keeps the gradient fallback and invitation form usable", async ({
     page,
   }) => {
