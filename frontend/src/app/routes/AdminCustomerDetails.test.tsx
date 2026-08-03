@@ -68,6 +68,18 @@ function details(
       { id: 4, name: "Gulf Coast Agency", active: true },
       { id: 9, name: "Lakeside Agency", active: true },
     ],
+    billing: {
+      customerId: 7,
+      billingEnabled: false,
+      leadRateCentsPerThousand: null,
+      balanceCents: 0,
+      activeHoldsCents: 0,
+      availableBalanceCents: 0,
+      purchases: [],
+      ledger: [],
+    },
+    cooldown: { days: 7 },
+    nichePolicy: { rows: [] },
     ...overrides,
   };
 }

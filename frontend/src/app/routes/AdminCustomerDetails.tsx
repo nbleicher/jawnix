@@ -39,6 +39,16 @@ import {
   CustomerAvailabilitySection,
 } from "./AdminCustomerAvailability";
 import type { CustomerAvailabilityView } from "./AdminCustomerAvailability";
+import {
+  CustomerBillingSection,
+  CustomerCooldownSection,
+  CustomerNichePolicySection,
+} from "./AdminCustomerControls";
+import type {
+  CooldownWindowView,
+  CustomerBillingView,
+  NichePolicyView,
+} from "./AdminCustomerControls";
 
 import "./AdminCustomerDetails.css";
 
@@ -101,6 +111,10 @@ export interface CustomerDetailsData {
     name: string;
     active: boolean;
   }[];
+  /** Present on the Customer details route; omitted from the agency floating card. */
+  billing?: CustomerBillingView;
+  cooldown?: CooldownWindowView;
+  nichePolicy?: NichePolicyView;
   /** Cached pool availability; omitted when the details payload is reused elsewhere. */
   availability?: CustomerAvailabilityView;
 }
@@ -178,22 +192,45 @@ export async function adminCustomerDetailsLoader({
   params,
 }: LoaderFunctionArgs): Promise<CustomerDetailsData> {
   const customerId = params.customerId;
-  const [details, directory, activityTimeline, availability] =
-    await Promise.all([
-      api<Omit<CustomerDetailsData, "agencies" | "availability">>(
-        `/api/admin/customers/${customerId}/details`,
-      ),
-      api<{
-        agencies: { id: number; name: string; active: boolean }[];
-      }>("/api/admin/agencies/directory"),
-      loadEntityActivity("customer", customerId),
-      api<CustomerAvailabilityView>(
-        `/api/admin/customers/${customerId}/availability`,
-      ),
-    ]);
+  const [
+    details,
+    directory,
+    activityTimeline,
+    billing,
+    cooldown,
+    nichePolicy,
+    availability,
+  ] = await Promise.all([
+    api<
+      Omit<
+        CustomerDetailsData,
+        | "agencies"
+        | "billing"
+        | "cooldown"
+        | "nichePolicy"
+        | "availability"
+        | "activityTimeline"
+      >
+    >(`/api/admin/customers/${customerId}/details`),
+    api<{
+      agencies: { id: number; name: string; active: boolean }[];
+    }>("/api/admin/agencies/directory"),
+    loadEntityActivity("customer", customerId),
+    api<CustomerBillingView>(`/api/admin/customers/${customerId}/billing`),
+    api<CooldownWindowView>(
+      `/api/admin/customers/${customerId}/cooldown-window`,
+    ),
+    api<NichePolicyView>(`/api/admin/customers/${customerId}/niche-policy`),
+    api<CustomerAvailabilityView>(
+      `/api/admin/customers/${customerId}/availability`,
+    ),
+  ]);
   return {
     ...details,
     activityTimeline,
+    billing,
+    cooldown,
+    nichePolicy,
     availability,
     agencies: directory.agencies.map(({ id, name, active }) => ({
       id,
@@ -461,9 +498,33 @@ export function AdminCustomerDetailsRoute() {
         </Card>
       </Section>
 
+      {data.billing ? (
+        <CustomerBillingSection
+          billing={data.billing}
+          customerId={customer.id}
+          onChanged={() => revalidator.revalidate()}
+        />
+      ) : null}
+
+      {data.cooldown ? (
+        <CustomerCooldownSection
+          cooldown={data.cooldown}
+          customerId={customer.id}
+          onChanged={() => revalidator.revalidate()}
+        />
+      ) : null}
+
       {data.availability ? (
         <CustomerAvailabilitySection
           availability={data.availability}
+          customerId={customer.id}
+          onChanged={() => revalidator.revalidate()}
+        />
+      ) : null}
+
+      {data.nichePolicy ? (
+        <CustomerNichePolicySection
+          policy={data.nichePolicy}
           customerId={customer.id}
           onChanged={() => revalidator.revalidate()}
         />
