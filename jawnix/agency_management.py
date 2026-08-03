@@ -165,24 +165,63 @@ def agency_directory(
     if status not in {"all", "active", "deactivated"}:
         status = "all"
     selection = select(Agency).where(Agency.deleted_at.is_(None))
-    if term:
-        pattern = f"%{term.lower()}%"
-        selection = selection.where(
-            or_(
-                func.lower(Agency.name).like(pattern),
-                func.lower(Agency.slug).like(pattern),
-            )
-        )
     if status == "active":
         selection = selection.where(Agency.active.is_(True))
     elif status == "deactivated":
         selection = selection.where(Agency.active.is_(False))
 
-    agencies = list(
-        db.scalars(selection.order_by(Agency.name, Agency.id))
+    # The whole Customer population loads in one query and the search term
+    # matches in Python: a member hit must surface its parent Agency with the
+    # full hierarchy intact, which a SQL LIKE on Agency columns cannot do.
+    customers = list(
+        db.scalars(
+            select(Customer)
+            .where(Customer.deleted_at.is_(None))
+            .order_by(Customer.name, Customer.id)
+        )
     )
+    members_by_agency: dict[int | None, list[Customer]] = {}
+    for customer in customers:
+        members_by_agency.setdefault(customer.agency_id, []).append(customer)
+
+    normalized_term = term.lower()
+
+    def matches(value: str) -> bool:
+        return not normalized_term or normalized_term in value.lower()
+
+    def status_allows(member: Customer) -> bool:
+        return (
+            status == "all"
+            or (status == "active" and member.active)
+            or (status == "deactivated" and not member.active)
+        )
+
+    agencies = [
+        agency
+        for agency in db.scalars(
+            selection.order_by(Agency.name, Agency.id)
+        )
+        if matches(agency.name)
+        or matches(agency.slug)
+        or any(
+            matches(member.name) or matches(member.slug)
+            for member in members_by_agency.get(agency.id, [])
+        )
+    ]
+
+    def serialize_member(member: Customer) -> dict:
+        return {
+            "id": member.id,
+            "slug": member.slug,
+            "name": member.name,
+            "active": member.active,
+            "licensedStates": list(member.licensed_states or []),
+            "href": f"/app/admin/customers/{member.id}",
+        }
+
     rows = []
     for agency in agencies:
+        members = members_by_agency.get(agency.id, [])
         subjects = history_for_agency(db, agency)
         agency_activity_at = db.scalar(
             select(func.max(AuditEntry.created_at)).where(
@@ -210,15 +249,8 @@ def agency_directory(
                     ),
                     "tone": "success" if agency.active else "warning",
                 },
-                "currentMembers": int(
-                    db.scalar(
-                        select(func.count(Customer.id)).where(
-                            Customer.agency_id == agency.id,
-                            Customer.deleted_at.is_(None),
-                        )
-                    )
-                    or 0
-                ),
+                "members": [serialize_member(member) for member in members],
+                "currentMembers": len(members),
                 "sharedHistory": _history_summary(
                     db,
                     subjects=subjects,
@@ -250,6 +282,12 @@ def agency_directory(
         "total": total,
         "matched": len(rows),
         "agencies": rows,
+        "independent": [
+            serialize_member(member)
+            for member in members_by_agency.get(None, [])
+            if (matches(member.name) or matches(member.slug))
+            and status_allows(member)
+        ],
     }
 
 

@@ -29,6 +29,12 @@ import {
   loadEntityActivity,
 } from "./AdminActivity";
 import type { ActivityPage } from "./AdminActivity";
+import {
+  CustomerLifecycleAction,
+  Fact,
+  RenameCustomerAction,
+  SendPasswordResetAction,
+} from "./AdminCustomerActions";
 
 import "./AdminCustomerDetails.css";
 
@@ -126,7 +132,6 @@ type DialogName =
   | "account"
   | "assignment"
   | "cancel"
-  | "lifecycle"
   | "delete"
   | "erase";
 type FailureScope = "account" | "assignment" | "invitation" | "lifecycle";
@@ -184,17 +189,6 @@ export async function adminCustomerDetailsLoader({
       active,
     })),
   };
-}
-
-function Fact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="admin-customer-details__fact">
-      <dt>
-        <LabelText>{label}</LabelText>
-      </dt>
-      <dd>{children}</dd>
-    </div>
-  );
 }
 
 function Dependencies({ counts }: { counts: Record<string, number> }) {
@@ -352,23 +346,6 @@ export function AdminCustomerDetailsRoute() {
     });
   }
 
-  function setActive() {
-    void run("lifecycle", async () => {
-      // PATCH is a full replace: name and agency_id must be resent or the
-      // backend would clear the Agency as a side effect of deactivating.
-      await api(`/api/admin/customers/${customer.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          name: customer.name,
-          agency_id: customer.agency_id,
-          active: !customer.active,
-          reason,
-        }),
-      });
-      await revalidator.revalidate();
-    });
-  }
-
   function deleteCustomer() {
     void run("lifecycle", async () => {
       await api(`/api/admin/customers/${customer.id}`, {
@@ -435,6 +412,12 @@ export function AdminCustomerDetailsRoute() {
                 {formatAdminDate(customer.last_activity_at)}
               </Fact>
             </dl>
+            <div>
+              <RenameCustomerAction
+                customer={customer}
+                onChanged={() => revalidator.revalidate()}
+              />
+            </div>
           </Stack>
         </Card>
       </Section>
@@ -572,12 +555,17 @@ export function AdminCustomerDetailsRoute() {
                 </div>
               </Stack>
             </Card>
-          ) : data.user_account ? (
-            <div>
+          ) : null}
+          {data.user_account && !data.invitation ? (
+            <Cluster gap={3}>
               <Button variant="primary" onClick={() => open("account")}>
                 Replace User Account
               </Button>
-            </div>
+              <SendPasswordResetAction
+                account={data.user_account}
+                onChanged={() => revalidator.revalidate()}
+              />
+            </Cluster>
           ) : null}
         </Stack>
       </Section>
@@ -652,9 +640,10 @@ export function AdminCustomerDetailsRoute() {
               </Stack>
             ) : null}
             <Cluster gap={3}>
-              <Button onClick={() => open("lifecycle")}>
-                {customer.active ? "Deactivate Customer" : "Reactivate Customer"}
-              </Button>
+              <CustomerLifecycleAction
+                customer={customer}
+                onChanged={() => revalidator.revalidate()}
+              />
               <Button
                 variant="danger"
                 onClick={() => open("delete")}
@@ -857,36 +846,6 @@ export function AdminCustomerDetailsRoute() {
       >
         <Stack gap={3}>
           {failure?.scope === "invitation" ? (
-            <Text role="alert" tone="danger" size="sm">
-              {failure.message}
-            </Text>
-          ) : null}
-          <Field label="Reason" required>
-            <Input
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              autoComplete="off"
-            />
-          </Field>
-        </Stack>
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={dialog === "lifecycle"}
-        onClose={() => setDialog(null)}
-        onConfirm={setActive}
-        title={customer.active ? "Deactivate Customer" : "Reactivate Customer"}
-        consequence={
-          customer.active
-            ? "Access stops immediately. Licensed States, Agency membership, and the permanent history are kept."
-            : "Access is restored. Nothing in the permanent history changes."
-        }
-        confirmLabel={customer.active ? "Deactivate" : "Reactivate"}
-        destructive={customer.active}
-        busy={busy}
-      >
-        <Stack gap={3}>
-          {failure?.scope === "lifecycle" ? (
             <Text role="alert" tone="danger" size="sm">
               {failure.message}
             </Text>

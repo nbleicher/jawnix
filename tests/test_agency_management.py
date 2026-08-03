@@ -404,8 +404,14 @@ def test_agency_directory_details_creation_and_lifecycle_contracts(
         slug="harbor-customer",
         name="Harbor Customer",
         agency=agency,
+        licensed_states=["FL"],
     )
-    session.add_all([agency, customer])
+    independent = Customer(
+        slug="solo-customer",
+        name="Solo Customer",
+        active=False,
+    )
+    session.add_all([agency, customer, independent])
     session.commit()
     client = _admin_client(session, settings)
     try:
@@ -427,7 +433,50 @@ def test_agency_directory_details_creation_and_lifecycle_contracts(
         assert directory.json()["matched"] == 1
         row = directory.json()["agencies"][0]
         assert row["currentMembers"] == 1
+        assert row["members"] == [
+            {
+                "id": customer.id,
+                "slug": "harbor-customer",
+                "name": "Harbor Customer",
+                "active": True,
+                "licensedStates": ["FL"],
+                "href": f"/app/admin/customers/{customer.id}",
+            }
+        ]
         assert row["sharedHistory"]["customers"] == 1
+        assert directory.json()["independent"] == []
+
+        all_directory = client.get("/api/admin/agencies/directory")
+        assert all_directory.json()["independent"] == [
+            {
+                "id": independent.id,
+                "slug": "solo-customer",
+                "name": "Solo Customer",
+                "active": False,
+                "licensedStates": [],
+                "href": f"/app/admin/customers/{independent.id}",
+            }
+        ]
+        active_directory = client.get(
+            "/api/admin/agencies/directory",
+            params={"status": "active"},
+        )
+        assert active_directory.json()["independent"] == []
+        deactivated_directory = client.get(
+            "/api/admin/agencies/directory",
+            params={"status": "deactivated"},
+        )
+        assert deactivated_directory.json()["independent"][0]["id"] == (
+            independent.id
+        )
+
+        member_search = client.get(
+            "/api/admin/agencies/directory",
+            params={"q": "harbor-cus"},
+        )
+        assert member_search.json()["matched"] == 1
+        assert member_search.json()["agencies"][0]["id"] == agency.id
+        assert member_search.json()["agencies"][0]["currentMembers"] == 1
 
         details = client.get(
             f"/api/admin/agencies/{agency.id}/details"

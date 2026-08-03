@@ -5,6 +5,7 @@ import {
   useLoaderData,
   useNavigate,
   useRevalidator,
+  useSearchParams,
 } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
@@ -35,6 +36,8 @@ import {
   loadEntityActivity,
 } from "./AdminActivity";
 import type { ActivityPage } from "./AdminActivity";
+import { CustomerFloatingCard, Fact } from "./AdminCustomerActions";
+import type { CustomerDetailsData } from "./AdminCustomerDetails";
 
 import "./AdminAgencies.css";
 
@@ -44,12 +47,22 @@ interface SharedHistory {
   distributedLeads: number;
 }
 
+export interface AgencyMemberRow {
+  id: number;
+  slug: string;
+  name: string;
+  active: boolean;
+  licensedStates: string[];
+  href: string;
+}
+
 interface AgencyDirectoryRow {
   id: number;
   slug: string;
   name: string;
   active: boolean;
   status: CustomerAdminStatus;
+  members: AgencyMemberRow[];
   currentMembers: number;
   sharedHistory: SharedHistory;
   lastActivityAt: string | null;
@@ -64,6 +77,8 @@ export interface AgencyDirectoryData {
   total: number;
   matched: number;
   agencies: AgencyDirectoryRow[];
+  independent: AgencyMemberRow[];
+  openCustomer: CustomerDetailsData | null;
 }
 
 export interface AgencyDetailsData {
@@ -122,9 +137,24 @@ export async function adminAgencyDirectoryLoader({
     if (value) query.set(key, value);
   }
   const search = query.toString();
-  return api<AgencyDirectoryData>(
-    `/api/admin/agencies/directory${search ? `?${search}` : ""}`,
-  );
+  const customerId = requested.get("customer");
+  const [directory, openCustomer] = await Promise.all([
+    api<Omit<AgencyDirectoryData, "openCustomer">>(
+      `/api/admin/agencies/directory${search ? `?${search}` : ""}`,
+    ),
+    customerId
+      ? api<CustomerDetailsData>(
+          `/api/admin/customers/${encodeURIComponent(customerId)}/details`,
+        ).catch((caught: unknown) => {
+          // Removed or forbidden Customers get the in-page "unavailable"
+          // dialog; anything else is a real failure for the error boundary.
+          const status = (caught as { status?: number }).status;
+          if (status === 403 || status === 404) return null;
+          throw caught;
+        })
+      : Promise.resolve(null),
+  ]);
+  return { ...directory, openCustomer };
 }
 
 export async function adminAgencyDetailsLoader({
@@ -172,25 +202,54 @@ function AgencyCard({ row }: { row: AgencyDirectoryRow }) {
             {formatAdminDate(row.lastActivityAt)}
           </Fact>
         </dl>
+        <MemberList members={row.members} agencyActive={row.active} />
       </Stack>
     </Card>
   );
 }
 
-function Fact({
-  label,
-  children,
+function MemberList({
+  members,
+  agencyActive,
+  emptyMessage = "No Customers in this Agency.",
 }: {
-  label: string;
-  children: React.ReactNode;
+  members: AgencyMemberRow[];
+  agencyActive: boolean;
+  emptyMessage?: string;
 }) {
+  const [searchParams] = useSearchParams();
+  if (!members.length) {
+    return <Text tone="muted">{emptyMessage}</Text>;
+  }
   return (
-    <div>
-      <dt>
-        <LabelText>{label}</LabelText>
-      </dt>
-      <dd>{children}</dd>
-    </div>
+    <Stack as="ul" gap={2} className="admin-agencies__list">
+      {members.map((member) => {
+        const customerParams = new URLSearchParams(searchParams);
+        customerParams.set("customer", String(member.id));
+        const active = member.active && agencyActive;
+        return (
+          <li key={member.id}>
+            <Link
+              className="admin-agencies__member"
+              to={`?${customerParams.toString()}`}
+            >
+              <Stack gap={1}>
+                <Text weight="semibold">{member.name}</Text>
+                <Text size="sm" tone="muted">
+                  {member.slug}
+                  {member.licensedStates.length
+                    ? ` · ${member.licensedStates.join(", ")}`
+                    : ""}
+                </Text>
+              </Stack>
+              <StatusBadge tone={active ? "success" : "warning"}>
+                {active ? "Active" : "Inactive"}
+              </StatusBadge>
+            </Link>
+          </li>
+        );
+      })}
+    </Stack>
   );
 }
 
@@ -260,7 +319,15 @@ function CreateAgencyDialog({
 
 export function AdminAgenciesRoute() {
   const data = useLoaderData<AgencyDirectoryData>();
+  const revalidator = useRevalidator();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [createOpen, setCreateOpen] = useState(false);
+  const openId = searchParams.get("customer");
+  const closeCustomer = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("customer");
+    setSearchParams(next);
+  };
   useDocumentTitle("Agencies");
   return (
     <Page
@@ -315,23 +382,47 @@ export function AdminAgenciesRoute() {
             {data.total.toLocaleString()} Agencies.
           </Text>
           {data.agencies.length ? (
-            <Grid minColumnWidth="22rem">
+            <Stack gap={4}>
               {data.agencies.map((agency) => (
                 <AgencyCard key={agency.id} row={agency} />
               ))}
-            </Grid>
+            </Stack>
           ) : (
             <EmptyState
               title="No Agencies match this search"
               description="Widen the search, or create a new internal Agency."
             />
           )}
+          <Card as="article" aria-label="Independent Customers">
+            <Stack gap={4}>
+              <Heading level={3}>Independent Customers</Heading>
+              <MemberList
+                members={data.independent}
+                agencyActive
+                emptyMessage="No Independent Customers."
+              />
+            </Stack>
+          </Card>
         </Stack>
       </Section>
       <CreateAgencyDialog
         open={createOpen}
         onClose={() => setCreateOpen(false)}
       />
+      {openId && data.openCustomer ? (
+        <CustomerFloatingCard
+          details={data.openCustomer}
+          onClose={closeCustomer}
+          onChanged={() => revalidator.revalidate()}
+        />
+      ) : openId ? (
+        <Dialog
+          open
+          onClose={closeCustomer}
+          title="Customer unavailable"
+          description="This Customer could not be loaded. It may have been removed or you may no longer have access."
+        />
+      ) : null}
     </Page>
   );
 }

@@ -11,6 +11,8 @@ export interface AdminCustomersMockState {
   detailsRequests: string[];
   invitationRequests: unknown[];
   assignmentRequests: unknown[];
+  customerPatchRequests: unknown[];
+  passwordResetRequests: string[];
 }
 
 const AGENCIES = [
@@ -33,7 +35,17 @@ const AGENCY_DIRECTORY = {
         description: "Customers may be assigned to this Agency.",
         tone: "success",
       },
-      currentMembers: 3,
+      members: [
+        {
+          id: 7,
+          slug: "harbor-insurance",
+          name: "Harbor Insurance",
+          active: true,
+          licensedStates: ["FL", "TX"],
+          href: "/app/admin/customers/7",
+        },
+      ],
+      currentMembers: 1,
       sharedHistory: {
         customers: 4,
         agencies: 1,
@@ -52,7 +64,17 @@ const AGENCY_DIRECTORY = {
         description: "Customers may be assigned to this Agency.",
         tone: "success",
       },
-      currentMembers: 2,
+      members: [
+        {
+          id: 11,
+          slug: "lakeside-brokers",
+          name: "Lakeside Brokers",
+          active: true,
+          licensedStates: [],
+          href: "/app/admin/customers/11",
+        },
+      ],
+      currentMembers: 1,
       sharedHistory: {
         customers: 2,
         agencies: 1,
@@ -60,6 +82,16 @@ const AGENCY_DIRECTORY = {
       },
       lastActivityAt: "2026-07-18T12:00:00Z",
       href: "/app/admin/agencies/9",
+    },
+  ],
+  independent: [
+    {
+      id: 12,
+      slug: "independent-risk",
+      name: "Independent Risk",
+      active: true,
+      licensedStates: ["GA"],
+      href: "/app/admin/customers/12",
     },
   ],
 };
@@ -268,6 +300,8 @@ export async function mockAdminCustomers(
     detailsRequests: [],
     invitationRequests: [],
     assignmentRequests: [],
+    customerPatchRequests: [],
+    passwordResetRequests: [],
   };
 
   await page.addInitScript(() => {
@@ -320,7 +354,12 @@ export async function mockAdminCustomers(
       (agency) =>
         !term ||
         agency.name.toLowerCase().includes(term) ||
-        agency.slug.includes(term),
+        agency.slug.includes(term) ||
+        agency.members.some(
+          (member) =>
+            member.name.toLowerCase().includes(term) ||
+            member.slug.includes(term),
+        ),
     );
     return json(route, {
       ...AGENCY_DIRECTORY,
@@ -366,6 +405,19 @@ export async function mockAdminCustomers(
         },
       }),
   );
+
+  await page.route(
+    /\/api\/admin\/user-accounts\/[^/]+\/send-password-reset$/,
+    (route) => {
+      state.passwordResetRequests.push(route.request().url());
+      return json(route, { ok: true });
+    },
+  );
+
+  await page.route(/\/api\/admin\/customers\/\d+$/, (route) => {
+    state.customerPatchRequests.push(route.request().postDataJSON());
+    return json(route, { ok: true });
+  });
 
   await page.route(
     /\/api\/admin\/customers\/\d+\/agency-assignment$/,

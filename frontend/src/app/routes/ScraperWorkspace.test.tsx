@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { describe, expect, it } from "vitest";
 
@@ -41,7 +42,8 @@ function renderRoute(
 }
 
 describe("Scraper Operations workspace", () => {
-  it("explains and collects the mandatory fresh challenge", () => {
+  it("explains and collects the mandatory fresh challenge", async () => {
+    const user = userEvent.setup();
     renderRoute(
       <ScraperStepUpRoute />,
       { factors, idleExpiresIn: 900 },
@@ -58,6 +60,14 @@ describe("Scraper Operations workspace", () => {
         name: "Scraper Operations terminal",
       }),
     ).toBeVisible();
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.getByText("Jawnix primary", { exact: true })).toBeVisible();
+    expect(screen.queryByText("Jawnix backup", { exact: true })).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", {
+        name: "I cannot use my primary authenticator",
+      }),
+    );
     expect(screen.getAllByRole("radio")).toHaveLength(2);
     expect(
       screen.getByText(/closes after 15 minutes without Scraper activity/i),

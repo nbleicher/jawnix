@@ -82,6 +82,45 @@ describe("administrator MFA", () => {
     expect(formatCode("123456789")).toBe("123456");
   });
 
+  it("preselects the primary and reveals the backup on request", async () => {
+    const user = userEvent.setup();
+    renderRoute(<AdminMFAChallengeRoute />, status());
+
+    expect(screen.getByText("Jawnix primary", { exact: true })).toBeVisible();
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.queryByText("Jawnix backup", { exact: true })).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "I cannot use my primary authenticator",
+      }),
+    );
+    const radios = screen.getAllByRole("radio");
+    expect(radios).toHaveLength(2);
+    expect(radios[0]).toBeChecked();
+    expect(screen.getByText("Jawnix backup", { exact: true })).toBeVisible();
+  });
+
+  it("treats a replacement as primary when the named primary is absent", () => {
+    renderRoute(
+      <AdminMFAChallengeRoute />,
+      status({
+        factors: [
+          { ...primary, name: "Jawnix backup" },
+          {
+            ...primary,
+            id: "33333333-3333-4333-8333-333333333333",
+            name: "Jawnix replacement",
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("Jawnix replacement", { exact: true })).toBeVisible();
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.queryByText("Jawnix backup", { exact: true })).not.toBeInTheDocument();
+  });
+
   it("associates a non-revealing challenge error with the code field", async () => {
     const user = userEvent.setup();
     renderRoute(<AdminMFAChallengeRoute />, status());

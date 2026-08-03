@@ -4,14 +4,14 @@
   grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
 }
 
-.admin-customer-details__fact {
+.admin-customer-details__facts > div {
   display: flex;
   flex-direction: column;
   gap: var(--jx-space-1);
   min-width: 0;
 }
 
-.admin-customer-details__fact dd {
+.admin-customer-details__facts dd {
   color: var(--jx-color-text-strong);
   font-weight: var(--jx-weight-semibold);
 }
