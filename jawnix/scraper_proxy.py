@@ -1278,6 +1278,8 @@ async def scraper_keyword_workspace(
     )
     db.commit()
     proxy_state = _state(request, settings)
+    from .performance import keyword_outcome_analytics
+
     return KeywordWorkspace(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
@@ -1286,6 +1288,8 @@ async def scraper_keyword_workspace(
         ai_enabled=_generation_provider(request, settings).available,
         rollover=_public_rollover(workspace.rollover),
         winners=winners,
+        performance=keyword_outcome_analytics(db, keywords=workspace.current),
+        prescriptive_mode="dormant_worked_leads",
         idle_expires_in=SCRAPER_IDLE_SECONDS,
     )
 

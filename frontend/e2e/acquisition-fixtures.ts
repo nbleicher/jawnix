@@ -10,6 +10,7 @@ import type { Page, Route } from "@playwright/test";
 export const ANOMALY_ID = "11111111-1111-4111-8111-111111111111";
 export const RECOMMENDATION_ID = "33333333-3333-4333-8333-333333333333";
 export const CONFIGURATION_ID = "44444444-4444-4444-8444-444444444444";
+export const EXCLUSION_ID = "77777777-7777-4777-8777-777777777777";
 export const SCRAPE_RUN_ID = 42;
 export const EVIDENCE_CHECKSUM = "e".repeat(64);
 
@@ -28,6 +29,21 @@ function json(route: Route, value: unknown, status = 200) {
 
 export function acquisitionPayload(overrides: Record<string, unknown> = {}) {
   return {
+    exclusionLists: [
+      {
+        id: EXCLUSION_ID,
+        customerId: 17,
+        customerName: "Liberty Roofing",
+        type: "dnc",
+        filename: "liberty-dnc.csv",
+        status: "pending_confirmation",
+        acceptedRows: 248,
+        invalidRows: 2,
+        duplicateRows: 4,
+        poolImpact: 61,
+        createdAt: "2026-07-28T10:00:00Z",
+      },
+    ],
     nightlyReviews: [
       {
         id: "66666666-6666-4666-8666-666666666666",
@@ -92,6 +108,9 @@ export function acquisitionPayload(overrides: Record<string, unknown> = {}) {
         evidence: { acquisitionChanged: false },
         confirmedBy: "",
         confirmedAt: null,
+        denied: false,
+        deniedBy: "",
+        deniedAt: null,
       },
     ],
     scraperConfigurations: [
@@ -200,6 +219,8 @@ export async function mockAcquisition(
   for (const pattern of [
     /\/api\/admin\/scrape-anomalies\/[^/]+\/[^/]+$/,
     /\/api\/admin\/source-recommendations\/[^/]+\/[^/]+$/,
+    /\/api\/admin\/source-niches\/[^/]+\/[^/]+$/,
+    /\/api\/admin\/exclusion-lists\/[^/]+\/[^/]+$/,
   ]) {
     await page.route(pattern, (route) => {
       calls.push({

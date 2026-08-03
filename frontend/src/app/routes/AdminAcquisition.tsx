@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLoaderData, useRevalidator } from "react-router";
 
 import { Button } from "../../design-system/primitives/Button";
@@ -8,9 +8,9 @@ import { Field, Input, Textarea } from "../../design-system/primitives/form";
 import {
   Card,
   Cluster,
+  DisclosureSection,
   Grid,
   Page,
-  Section,
   Stack,
 } from "../../design-system/primitives/layout";
 import { StatusBadge } from "../../design-system/primitives/status";
@@ -18,7 +18,6 @@ import type { StatusTone } from "../../design-system/primitives/status";
 import { TerminalWorkspace } from "../../design-system/primitives/terminal";
 import type { TerminalDestination } from "../../design-system/primitives/terminal";
 import { Heading, Mono, Text } from "../../design-system/primitives/typography";
-import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { api } from "../auth/adminMFA";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 
@@ -88,6 +87,9 @@ export interface NicheRow {
   evidence: Record<string, unknown>;
   confirmedBy: string;
   confirmedAt: string | null;
+  denied?: boolean;
+  deniedBy?: string;
+  deniedAt?: string | null;
 }
 
 export interface ConfigurationRow {
@@ -115,6 +117,20 @@ export interface NightlyReviewRow {
   telegramDeliveryError: string;
   createdAt: string;
   reconcilable: boolean;
+}
+
+export interface ExclusionReviewRow {
+  id: string;
+  customerId: number | null;
+  customerName: string;
+  type: string;
+  filename: string;
+  status: string;
+  acceptedRows: number;
+  invalidRows: number;
+  duplicateRows: number;
+  poolImpact: number;
+  createdAt: string;
 }
 
 interface ReviewFailure {
@@ -180,6 +196,7 @@ function summaryFailures(summary: Record<string, unknown>): ReviewFailure[] {
 }
 
 export interface AcquisitionData {
+  exclusionLists?: ExclusionReviewRow[];
   nightlyReviews: NightlyReviewRow[];
   scrapeAnomalies: ScrapeAnomalyRow[];
   sourceRecommendations: RecommendationRow[];
@@ -187,8 +204,44 @@ export interface AcquisitionData {
   scraperConfigurations: ConfigurationRow[];
 }
 
+function ExclusionReviewCard({ item }: { item: ExclusionReviewRow }) {
+  return (
+    <Card as="article">
+      <Stack gap={3}>
+        <Cluster gap={2} justify="space-between">
+          <Heading level={3} size="sm">{item.customerName}</Heading>
+          <StatusBadge tone="warning">Awaiting review</StatusBadge>
+        </Cluster>
+        <Text size="sm">
+          {item.type.replaceAll("_", " ")} · {item.filename}
+        </Text>
+        <Grid minColumnWidth="9rem" gap={2}>
+          <Text size="sm"><strong>{item.acceptedRows.toLocaleString()}</strong> accepted</Text>
+          <Text size="sm"><strong>{item.poolImpact.toLocaleString()}</strong> pool impact</Text>
+          <Text size="sm" tone="muted">{item.invalidRows.toLocaleString()} invalid</Text>
+          <Text size="sm" tone="muted">{item.duplicateRows.toLocaleString()} duplicates</Text>
+        </Grid>
+        <Text size="xs" tone="muted">Uploaded {formatDate(item.createdAt)}</Text>
+        <Cluster gap={2}>
+          <Decision
+            label="Confirm globally"
+            consequence="Makes every accepted phone in this Customer upload globally ineligible. The current pool impact is recalculated at decision time."
+            endpoint={`/api/admin/exclusion-lists/${item.id}/confirm`}
+          />
+          <Decision
+            label="Deny global effect"
+            consequence="Keeps this list scoped to the uploading Customer. Its phones will not become globally ineligible."
+            endpoint={`/api/admin/exclusion-lists/${item.id}/deny`}
+            destructive
+          />
+        </Cluster>
+      </Stack>
+    </Card>
+  );
+}
+
 const DESTINATIONS: TerminalDestination[] = [
-  { label: "Acquisition review", href: "#acquisition-review", current: true },
+  { label: "Acquisition review", href: "/app/admin/acquisition", current: true },
   { label: "Scraper Operations", href: "/app/admin/acquisition/scraper" },
   // The administrator navigation deliberately omits Security, so this rail is
   // the only way to reach it. Dropping it here would strand the route.
@@ -370,10 +423,13 @@ function NicheCard({ item }: { item: NicheRow }) {
           {item.segment}
         </Heading>
         <Text size="sm" tone="muted">
-          Proposed “{item.niche || "none"}” by{" "}
-          {item.proposalSource.replaceAll("_", " ")}
+          {item.state} · {item.keyword}
         </Text>
-        <div>
+        <Text size="sm">
+          Proposed <strong>{item.niche || "none"}</strong> by{" "}
+          {item.proposalSource.replaceAll("_", " ")}.
+        </Text>
+        <Cluster gap={2}>
           <Button
             onClick={() => {
               setOpen(true);
@@ -382,9 +438,15 @@ function NicheCard({ item }: { item: NicheRow }) {
               setError("");
             }}
           >
-            Confirm Niche
+            Review and confirm
           </Button>
-        </div>
+          <Decision
+            label="Deny proposal"
+            consequence="Removes this proposal from the review queue without confirming a Niche. The Source Segment remains ineligible for automated recommendations until a later proposal is reviewed."
+            endpoint={`/api/admin/source-niches/${encodeURIComponent(item.segment)}/deny`}
+            destructive
+          />
+        </Cluster>
         <ConfirmDialog
           open={open}
           onClose={() => setOpen(false)}
@@ -419,6 +481,77 @@ function NicheCard({ item }: { item: NicheRow }) {
         </ConfirmDialog>
       </Stack>
     </Card>
+  );
+}
+
+function NicheReviewQueue({ items }: { items: NicheRow[] }) {
+  const [query, setQuery] = useState("");
+  const [index, setIndex] = useState(0);
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    return needle
+      ? items.filter((item) =>
+          [item.segment, item.state, item.keyword, item.niche].some((value) =>
+            value.toLocaleLowerCase().includes(needle),
+          ),
+        )
+      : items;
+  }, [items, query]);
+
+  useEffect(() => {
+    setIndex((current) => Math.min(current, Math.max(0, filtered.length - 1)));
+  }, [filtered.length]);
+
+  const current = filtered[index];
+  return (
+    <Stack gap={3}>
+      <Field
+        label="Find a Niche mapping"
+        description={`${filtered.length.toLocaleString()} of ${items.length.toLocaleString()} pending proposals.`}
+      >
+        <Input
+          type="search"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.currentTarget.value);
+            setIndex(0);
+          }}
+          placeholder="State, keyword, segment, or proposed Niche"
+        />
+      </Field>
+      {current ? (
+        <Stack gap={3}>
+          <Cluster gap={2} justify="space-between">
+            <Text size="sm" tone="muted" role="status" aria-live="polite">
+              Proposal {index + 1} of {filtered.length}
+            </Text>
+            <Cluster gap={2}>
+              <Button
+                variant="ghost"
+                disabled={index === 0}
+                onClick={() => setIndex((value) => value - 1)}
+              >
+                Previous mapping
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={index >= filtered.length - 1}
+                onClick={() => setIndex((value) => value + 1)}
+              >
+                Next mapping
+              </Button>
+            </Cluster>
+          </Cluster>
+          <NicheCard item={current} />
+        </Stack>
+      ) : (
+        <EmptyState
+          title="No Niche mappings match"
+          description="Clear the search to return to the pending review queue."
+          action={<Button onClick={() => setQuery("")}>Clear search</Button>}
+        />
+      )}
+    </Stack>
   );
 }
 
@@ -542,15 +675,15 @@ function RecommendationCard({ item }: { item: RecommendationRow }) {
 
 export function AdminAcquisitionRoute() {
   const data = useLoaderData<AcquisitionData>();
-  useRouteTheme("terminal", "jawnix");
   useDocumentTitle("Acquisition");
 
   const held = data.scrapeAnomalies.filter((item) => item.decidable);
   const pendingRecommendations = data.sourceRecommendations.filter(
     (item) => item.decidable,
   );
+  const pendingExclusions = data.exclusionLists ?? [];
   const unconfirmedNiches = data.nicheMappings.filter(
-    (item) => !item.confirmed,
+    (item) => !item.confirmed && !item.denied,
   );
   const status = held.length
     ? `HELD / ${held.length} AWAITING DECISION`
@@ -564,15 +697,17 @@ export function AdminAcquisitionRoute() {
       <TerminalWorkspace
         status={status}
         tone={held.length ? "warning" : "online"}
-        label="Acquisition terminal"
+        label="Acquisition workspace"
         destinations={DESTINATIONS}
       >
         <div id="acquisition-review">
           <Stack gap={6}>
             <div id="held-scrape-anomalies" />
-            <Section
+            <DisclosureSection
               title="Held Scrape Anomalies"
               description="Flagged output waits here until an administrator confirms or denies it. Nothing is committed while it waits."
+              summary={`${held.length} held`}
+              defaultOpen={held.length > 0}
             >
               {held.length ? (
                 <Grid minColumnWidth="20rem">
@@ -586,11 +721,12 @@ export function AdminAcquisitionRoute() {
                   description="A run is held when a Source Segment returns zero listings or moves more than its configured thresholds allow."
                 />
               )}
-            </Section>
+            </DisclosureSection>
 
-            <Section
+            <DisclosureSection
               title="Source Recommendations"
-              description="Evidence-based proposals. Nothing here changes acquisition until an administrator approves it."
+              description="Legacy worked-lead prescriptions are retained as dormant evidence. Existing proposals remain reviewable, but new prescriptions are not generated."
+              summary={`${pendingRecommendations.length} legacy pending`}
             >
               {pendingRecommendations.length ? (
                 <Grid minColumnWidth="20rem">
@@ -604,30 +740,49 @@ export function AdminAcquisitionRoute() {
                   description="Recommendations appear once a Source Segment has enough worked Leads, enough Quality Ratings, a confirmed Niche, and eligible same-niche peers."
                 />
               )}
-            </Section>
+            </DisclosureSection>
 
-            <Section
-              title="Niche mappings"
-              description="Recommendations stay ineligible until a Niche is confirmed, so unconfirmed mappings block optimization."
+            <DisclosureSection
+              title="Exclusion review"
+              description="Customer uploads stay Customer-scoped until an administrator confirms or denies their global effect."
+              summary={`${pendingExclusions.length} waiting`}
+              defaultOpen={pendingExclusions.length > 0}
             >
-              {unconfirmedNiches.length ? (
-                <Grid minColumnWidth="18rem">
-                  {unconfirmedNiches.map((item) => (
-                    <NicheCard item={item} key={item.segment} />
+              {pendingExclusions.length ? (
+                <Grid minColumnWidth="20rem">
+                  {pendingExclusions.map((item) => (
+                    <ExclusionReviewCard item={item} key={item.id} />
                   ))}
                 </Grid>
+              ) : (
+                <EmptyState
+                  title="No Exclusion Lists are waiting"
+                  description="Ingested Customer uploads appear here with their validation counts and current pool impact."
+                />
+              )}
+            </DisclosureSection>
+
+            <DisclosureSection
+              title="Niche mappings"
+              description="Recommendations stay ineligible until a Niche is confirmed, so unconfirmed mappings block optimization."
+              summary={`${unconfirmedNiches.length} awaiting review`}
+              defaultOpen={unconfirmedNiches.length > 0}
+            >
+              {unconfirmedNiches.length ? (
+                <NicheReviewQueue items={unconfirmedNiches} />
               ) : (
                 <EmptyState
                   title="Every Niche mapping is confirmed"
                   description="Confirmed mappings let Source Recommendations compare a segment against its same-niche peers."
                 />
               )}
-            </Section>
+            </DisclosureSection>
 
-            <Section
+            <DisclosureSection
               id="scraper-configuration-versions"
               title="Scraper Configuration versions"
               description="Versions are immutable. Creating, scheduling, running, and rolling back all select a version; none rewrites one."
+              summary={`${data.scraperConfigurations.length} versions`}
             >
               {data.scraperConfigurations.length ? (
                 <Grid minColumnWidth="18rem">
@@ -671,12 +826,13 @@ export function AdminAcquisitionRoute() {
                   description="The first version is imported from the Scraper's authoritative Source Segment contract."
                 />
               )}
-            </Section>
+            </DisclosureSection>
 
             <div id="nightly-reviews" />
-            <Section
+            <DisclosureSection
               title="Nightly Reviews"
               description="The durable record of each night's run, its segments, inventory context, failures, and Telegram delivery."
+              summary={`${data.nightlyReviews.length} recent`}
             >
               {data.nightlyReviews.length ? (
                 <Grid minColumnWidth="20rem">
@@ -741,7 +897,7 @@ export function AdminAcquisitionRoute() {
                   description="A review is written for each nightly run and preserves its evidence permanently."
                 />
               )}
-            </Section>
+            </DisclosureSection>
           </Stack>
         </div>
       </TerminalWorkspace>

@@ -19,6 +19,7 @@ import {
 import {
   Card,
   Cluster,
+  DisclosureSection,
   Grid,
   Page,
   Section,
@@ -27,7 +28,6 @@ import {
 import { StatusBadge } from "../../design-system/primitives/status";
 import { TerminalWorkspace } from "../../design-system/primitives/terminal";
 import { Text } from "../../design-system/primitives/typography";
-import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 
 import {
@@ -48,7 +48,6 @@ import type {
 
 import {
   WORKSPACE_ROOT,
-  WORKSPACE_SECTIONS,
   workspaceRail,
 } from "./scraperWorkspaceNav";
 import "./ScraperDatabase.css";
@@ -208,10 +207,11 @@ function StoredExports({
   }
 
   return (
-    <Section
+    <DisclosureSection
       id="stored-exports"
       title="Stored exports"
       description="Regeneration preserves the existing STATE.csv files and their two-column phone,title format."
+      summary={`${exports.length} files`}
     >
       <Stack gap={4}>
         <Cluster align="end">
@@ -272,7 +272,7 @@ function StoredExports({
         cancelLabel="Keep current files"
         busy={busy}
       />
-    </Section>
+    </DisclosureSection>
   );
 }
 
@@ -281,7 +281,6 @@ export function ScraperDatabaseRoute() {
   const revalidator = useRevalidator();
   const [selected, setSelected] = useState<string[]>([]);
   const [storedExports, setStoredExports] = useState(data.stored_exports);
-  useRouteTheme("terminal", "jawnix");
   useDocumentTitle("Scraper Database");
 
   if (
@@ -310,6 +309,7 @@ export function ScraperDatabaseRoute() {
   }
 
   const browse = data.browse;
+  const hasBrowseQuery = Boolean(browse.search || browse.state);
   const selectedSet = new Set(selected);
   return (
     <Page
@@ -318,9 +318,7 @@ export function ScraperDatabaseRoute() {
     >
       <TerminalWorkspace
         status="ONLINE / DATABASE"
-        destinations={workspaceRail(`${WORKSPACE_ROOT}/database`, {
-          sections: WORKSPACE_SECTIONS.database,
-        })}
+        destinations={workspaceRail(`${WORKSPACE_ROOT}/database`)}
       >
         <Stack gap={6}>
           <Grid minColumnWidth="13rem" gap={3}>
@@ -338,10 +336,11 @@ export function ScraperDatabaseRoute() {
             </Card>
           </Grid>
 
-          <Section
+          <DisclosureSection
             id="database-states"
-            title="State databases"
+            title="State exports"
             description="Select one or more states for a combined current CSV, or open a state for Niche-level context."
+            summary={`${data.states.length} states`}
           >
             <Stack gap={4}>
               <Fieldset legend="States to download">
@@ -388,12 +387,14 @@ export function ScraperDatabaseRoute() {
                 </Grid>
               </Fieldset>
             </Stack>
-          </Section>
+          </DisclosureSection>
 
-          <Section
+          <DisclosureSection
             id="database-browse"
             title="Browse records"
             description="Search the currently supported business name, phone, and website fields, with an optional state filter."
+            summary={hasBrowseQuery ? `${count(browse.total)} matches` : "Search first"}
+            defaultOpen
           >
             <Stack gap={4}>
               <Form className="database-filters" method="get">
@@ -420,28 +421,37 @@ export function ScraperDatabaseRoute() {
                   <ActionLink href={DATABASE}>Clear filters</ActionLink>
                 ) : null}
               </Form>
-              <div className="database-results__head">
-                <Text weight="bold">{count(browse.total)} matching businesses</Text>
-                <StatusBadge tone="info">
-                  Page {browse.page} of {browse.pages}
-                </StatusBadge>
-              </div>
-              <BusinessRows records={browse.records} />
-              <nav className="database-pagination" aria-label="Business results pages">
-                {browse.has_previous ? (
-                  <Link to={queryHref(browse, browse.page - 1)}>← Previous</Link>
-                ) : (
-                  <span aria-disabled="true">← Previous</span>
-                )}
-                <span>Page {browse.page}</span>
-                {browse.has_next ? (
-                  <Link to={queryHref(browse, browse.page + 1)}>Next →</Link>
-                ) : (
-                  <span aria-disabled="true">Next →</span>
-                )}
-              </nav>
+              {hasBrowseQuery ? (
+                <>
+                  <div className="database-results__head">
+                    <Text weight="bold">{count(browse.total)} matching businesses</Text>
+                    <StatusBadge tone="info">
+                      Page {browse.page} of {browse.pages}
+                    </StatusBadge>
+                  </div>
+                  <BusinessRows records={browse.records} />
+                  <nav className="database-pagination" aria-label="Business results pages">
+                    {browse.has_previous ? (
+                      <Link to={queryHref(browse, browse.page - 1)}>← Previous</Link>
+                    ) : (
+                      <span aria-disabled="true">← Previous</span>
+                    )}
+                    <span>Page {browse.page}</span>
+                    {browse.has_next ? (
+                      <Link to={queryHref(browse, browse.page + 1)}>Next →</Link>
+                    ) : (
+                      <span aria-disabled="true">Next →</span>
+                    )}
+                  </nav>
+                </>
+              ) : (
+                <EmptyState
+                  title="Search before browsing records"
+                  description="The raw record table stays out of view until you search or choose a state."
+                />
+              )}
             </Stack>
-          </Section>
+          </DisclosureSection>
 
           <StoredExports
             exports={storedExports}
@@ -529,14 +539,10 @@ export function ScraperDatabaseStateRoute() {
   const data = useLoaderData<DatabaseStateDetail>();
   const revalidator = useRevalidator();
   const [selected, setSelected] = useState<string[]>([]);
-  useRouteTheme("terminal", "jawnix");
   useDocumentTitle(`${data.state} Scraper Database`);
   const detailPath = `${WORKSPACE_ROOT}/database/states/${data.state}`;
   const destinations = workspaceRail(detailPath, {
     pageLabel: `${data.state} database`,
-    ...(data.service_state === "connected" && data.totals
-      ? { sections: WORKSPACE_SECTIONS.databaseState }
-      : {}),
   });
 
   if (data.service_state === "unavailable" || !data.totals) {

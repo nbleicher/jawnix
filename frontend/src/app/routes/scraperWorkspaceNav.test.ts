@@ -6,7 +6,6 @@ import {
   WORKSPACE_ROOT,
   WORKSPACE_ROUTE_PATTERNS,
   WORKSPACE_ROUTES,
-  WORKSPACE_SECTIONS,
   workspaceRail,
 } from "./scraperWorkspaceNav";
 
@@ -67,25 +66,17 @@ describe("the Scraper workspace rail", () => {
     }
   });
 
-  it("offers each screen's working in-page destinations and no others", () => {
-    const keywords = workspaceRail(`${WORKSPACE_ROOT}/keywords`, {
-      sections: WORKSPACE_SECTIONS.keywords,
-    }).filter((item) => item.href.startsWith("#"));
-    expect(keywords.map((item) => item.href)).toEqual([
-      "#keyword-editor",
-      "#keyword-rollover",
-      "#keyword-winners",
-    ]);
-
-    const states = workspaceRail(`${WORKSPACE_ROOT}/states`);
-    expect(states.some((item) => item.href.startsWith("#"))).toBe(false);
+  it("contains real routes rather than page-position anchors", () => {
+    for (const from of WORKSPACE_ROUTES) {
+      expect(workspaceRail(from).some((item) => item.href.startsWith("#")))
+        .toBe(false);
+    }
   });
 
   it("marks detail pages themselves current instead of their parent route", () => {
     const statePath = `${WORKSPACE_ROOT}/states/OH`;
     const stateRail = workspaceRail(statePath, {
       pageLabel: "OH coverage",
-      sections: WORKSPACE_SECTIONS.stateCoverage,
     });
     expect(stateRail.filter((item) => item.current)).toEqual([
       { label: "OH coverage", href: statePath, current: true },
@@ -95,12 +86,11 @@ describe("the Scraper workspace rail", () => {
     const databasePath = `${WORKSPACE_ROOT}/database/states/OH`;
     const databaseRail = workspaceRail(databasePath, {
       pageLabel: "OH database",
-      sections: WORKSPACE_SECTIONS.databaseState,
     });
     expect(databaseRail.filter((item) => item.current)).toEqual([
       { label: "OH database", href: databasePath, current: true },
     ]);
-    expect(databaseRail.map((item) => item.href)).toContain("#state-niches");
+    expect(databaseRail.some((item) => item.href.startsWith("#"))).toBe(false);
     expect(databaseRail.find((item) => item.label === "Database")?.current)
       .toBeUndefined();
   });

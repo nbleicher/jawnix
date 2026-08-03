@@ -53,6 +53,7 @@ export async function mockActivity(page: Page): Promise<ActivityMockState> {
     const pathType = parts[activityIndex + 1];
     const pathId = parts[activityIndex + 2];
     const actor = url.searchParams.get("actor");
+    const query = url.searchParams.get("q")?.toLocaleLowerCase() ?? "";
     const action = url.searchParams.get("action");
     const entityType = pathType ?? url.searchParams.get("entityType");
     const entityId = pathId ?? url.searchParams.get("entityId");
@@ -62,6 +63,13 @@ export async function mockActivity(page: Page): Promise<ActivityMockState> {
     const filtered = ACTIVITY_ENTRIES.filter((entry) => {
       const day = entry.recordedAt.slice(0, 10);
       return (
+        (!query || [
+          entry.action,
+          entry.entityType,
+          entry.entityId,
+          entry.actor,
+          entry.reason,
+        ].some((value) => value.toLocaleLowerCase().includes(query))) &&
         (!actor || entry.actor === actor) &&
         (!action || entry.action === action) &&
         (!entityType || entry.entityType === entityType) &&

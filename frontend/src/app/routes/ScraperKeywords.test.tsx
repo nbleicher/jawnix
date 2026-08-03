@@ -53,6 +53,21 @@ function workspace(
         last_used: "Jul 27",
       },
     ],
+    performance: [
+      {
+        keyword: "plumbers",
+        delivered: 100,
+        positive: 12,
+        positives_per_delivered: 0.12,
+      },
+      {
+        keyword: "electricians",
+        delivered: 0,
+        positive: 0,
+        positives_per_delivered: null,
+      },
+    ],
+    prescriptive_mode: "dormant_worked_leads",
     ...overrides,
   };
 }
@@ -81,11 +96,15 @@ function renderKeywords(data: KeywordWorkspace = workspace()) {
       hydrationData: { loaderData: { keywords: data } },
     },
   );
-  return render(
+  const view = render(
     <ThemeProvider>
       <RouterProvider router={router} />
     </ThemeProvider>,
   );
+  view.container.querySelectorAll("details").forEach((item) => {
+    item.open = true;
+  });
+  return view;
 }
 
 interface PlannedResponse {
@@ -147,7 +166,11 @@ describe("keyword parity", () => {
       .toHaveTextContent("Manual keyword batches");
     expect(screen.getByRole("progressbar", { name: "Current keyword coverage" }))
       .toHaveValue(60);
-    const rankings = screen.getByRole("region", { name: "Winner rankings" });
+    const analytics = screen.getByRole("region", { name: "Keyword outcome analytics" });
+    expect(analytics).toHaveTextContent("100");
+    expect(analytics).toHaveTextContent("12.0%");
+    expect(analytics).toHaveTextContent("No deliveries");
+    const rankings = screen.getByRole("region", { name: "Scraper yield reference" });
     expect(rankings).toHaveTextContent("2,480");
     expect(rankings).toHaveTextContent("4,000");
     expect(rankings).toHaveTextContent("1,000");

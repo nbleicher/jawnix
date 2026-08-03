@@ -2784,13 +2784,22 @@ def test_same_niche_recommendation_approval_versions_configuration_without_run(
                         metric="positive_response",
                     )
                 )
-    build_source_recommendations(session)
+    # Worked-lead prescriptions stay available as a decision mechanism, but
+    # issue #156 deliberately leaves their automatic generation dormant.
+    assert build_source_recommendations(session) == []
+    expand = SourceRecommendation(
+        niche="Roofing",
+        segment_key="roofing-a",
+        action="expand",
+        evidence={
+            "configurationVersion": 1,
+            "prescriptiveMode": "dormant_worked_leads",
+        },
+        evidence_checksum="f" * 64,
+        configuration_version=1,
+    )
+    session.add(expand)
     session.commit()
-    expand = session.query(SourceRecommendation).filter_by(
-        action="expand"
-    ).one()
-    assert expand.segment_key == "roofing-a"
-    assert session.query(SourceRecommendation).count() == 2
 
     def database_override():
         yield session

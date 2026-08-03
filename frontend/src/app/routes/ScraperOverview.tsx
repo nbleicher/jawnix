@@ -9,7 +9,6 @@ import { Field, Input } from "../../design-system/primitives/form";
 import { Cluster, Page, Stack } from "../../design-system/primitives/layout";
 import { TerminalWorkspace } from "../../design-system/primitives/terminal";
 import { Text, VisuallyHidden } from "../../design-system/primitives/typography";
-import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 
 import {
@@ -25,7 +24,6 @@ import type {
 import { useOperatorPresence } from "./scraperPresence";
 
 import {
-  WORKSPACE_SECTIONS,
   workspaceRail,
 } from "./scraperWorkspaceNav";
 import "./ScraperOverview.css";
@@ -159,31 +157,33 @@ function Panel({
   const data = feed?.region.data ?? null;
   const stale = feed ? !feed.live : true;
   return (
-    <section
+    <details
       className="ops-panel"
       aria-label={title}
       {...(id ? { id } : {})}
     >
-      <div className="ops-panel__head">
+      <summary className="ops-panel__head">
         <h3 className="ops-panel__title">{title}</h3>
         <span className="ops-panel__cadence">{cadence}</span>
+      </summary>
+      <div className="ops-panel__content">
+        {stale ? (
+          <p className="ops-panel__stale" role="status">
+            {data
+              ? `Not refreshing. Showing the last reading from ${clock(
+                  feed?.region.fetched_at ?? null,
+                )}.`
+              : "No reading yet."}
+          </p>
+        ) : null}
+        <div
+          className="ops-panel__body"
+          {...(live ? { "aria-live": "polite" as const } : {})}
+        >
+          {data ? children(data) : null}
+        </div>
       </div>
-      {stale ? (
-        <p className="ops-panel__stale" role="status">
-          {data
-            ? `Not refreshing. Showing the last reading from ${clock(
-                feed?.region.fetched_at ?? null,
-              )}.`
-            : "No reading yet."}
-        </p>
-      ) : null}
-      <div
-        className="ops-panel__body"
-        {...(live ? { "aria-live": "polite" as const } : {})}
-      >
-        {data ? children(data) : null}
-      </div>
-    </section>
+    </details>
   );
 }
 
@@ -338,7 +338,6 @@ function PipelineControls({
 export function ScraperOverviewRoute() {
   const snapshot = useLoaderData<MonitoringSnapshot>();
   const navigate = useNavigate();
-  useRouteTheme("terminal", "jawnix");
   useDocumentTitle("Scraper Operations");
 
   const expire = useCallback(() => {
@@ -369,10 +368,7 @@ export function ScraperOverviewRoute() {
       <TerminalWorkspace
         status={status}
         tone={tone}
-        destinations={workspaceRail(
-          "/app/admin/acquisition/scraper/workspace",
-          { sections: WORKSPACE_SECTIONS.overview },
-        )}
+        destinations={workspaceRail("/app/admin/acquisition/scraper/workspace")}
       >
         {offline ? (
           <Stack gap={4}>

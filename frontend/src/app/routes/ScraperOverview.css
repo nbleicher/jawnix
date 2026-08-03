@@ -24,19 +24,39 @@
 
 .ops-panel__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--jx-space-3);
-  border-bottom: 1px solid var(--jx-color-border);
-  padding-bottom: var(--jx-space-2);
+  min-height: var(--jx-touch-target);
+  cursor: pointer;
+  list-style: none;
+}
+
+.ops-panel__head::-webkit-details-marker {
+  display: none;
+}
+
+.ops-panel__head::after {
+  content: "+";
+  color: var(--jx-color-accent);
+  font-family: var(--jx-font-display);
+  font-size: var(--jx-text-xl);
+  line-height: 1;
+}
+
+.ops-panel[open] > .ops-panel__head::after {
+  content: "−";
+}
+
+.ops-panel__content {
+  padding-top: var(--jx-space-3);
+  border-top: 1px solid var(--jx-color-border);
 }
 
 .ops-panel__title {
-  font-family: var(--jx-font-mono);
+  font-family: var(--jx-font-display);
   font-size: var(--jx-text-sm);
   font-weight: var(--jx-weight-bold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--jx-color-text-strong);
 }
 

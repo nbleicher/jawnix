@@ -5,7 +5,7 @@ import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import "./MFA.css";
 
 export function MFAShell() {
-  useRouteTheme("jawnix");
+  useRouteTheme("opaline");
 
   return (
     <div className="jx-mfa-shell">

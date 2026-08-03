@@ -136,6 +136,9 @@ def test_one_query_filters_combines_paginates_and_backs_entity_timelines(
     assert query_activity(session, actor="admin:two")["total"] == 1
     assert query_activity(session, action="agency_updated")["total"] == 1
     assert query_activity(session, entity_type="customer")["total"] == 2
+    assert query_activity(session, query="DEACTIVATED")["total"] == 1
+    assert query_activity(session, query="admin:three")["total"] == 1
+    assert query_activity(session, query=str(customer_id))["total"] == 2
     assert query_activity(
         session,
         date_from=date(2026, 7, 22),
@@ -217,6 +220,7 @@ def test_activity_endpoints_are_admin_only_and_share_the_query(
                 "entityId": "42",
                 "dateFrom": "2026-07-23",
                 "dateTo": "2026-07-23",
+                "q": "Reason for customer_updated",
             },
         )
         timeline = client.get("/api/admin/activity/customer/42")

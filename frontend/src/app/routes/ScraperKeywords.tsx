@@ -2,14 +2,14 @@ import { useRef, useState } from "react";
 import { useLoaderData, useNavigate } from "react-router";
 
 import { Button } from "../../design-system/primitives/Button";
-import { ErrorState } from "../../design-system/primitives/feedback";
+import { EmptyState, ErrorState } from "../../design-system/primitives/feedback";
 import { Field, Input, Textarea } from "../../design-system/primitives/form";
 import {
   Card,
   Cluster,
+  DisclosureSection,
   Grid,
   Page,
-  Section,
   Stack,
 } from "../../design-system/primitives/layout";
 import { TerminalWorkspace } from "../../design-system/primitives/terminal";
@@ -17,7 +17,6 @@ import {
   Text,
   VisuallyHidden,
 } from "../../design-system/primitives/typography";
-import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 
 import {
@@ -36,7 +35,6 @@ import type {
 
 import {
   WORKSPACE_ROOT,
-  WORKSPACE_SECTIONS,
   workspaceRail,
 } from "./scraperWorkspaceNav";
 import "./ScraperKeywords.css";
@@ -202,14 +200,13 @@ export function ScraperKeywordsRoute() {
   const [outcome, setOutcome] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
 
-  useRouteTheme("terminal", "jawnix");
   useDocumentTitle("Scraper Keywords");
 
   if (workspace.service_state === "unavailable") {
     return (
       <Page
         title="Scraper Keywords"
-        description="Edit campaign inputs, review generated drafts, compare winners, and control automatic rollover."
+        description="Manage campaign inputs and evaluate Customer outcomes without turning Scraper yield into a prescription."
       >
         <TerminalWorkspace
           status="OFFLINE / KEYWORDS UNAVAILABLE"
@@ -402,13 +399,11 @@ export function ScraperKeywordsRoute() {
   return (
     <Page
       title="Scraper Keywords"
-      description="Edit campaign inputs, review generated drafts, compare winners, and control automatic rollover."
+      description="Manage campaign inputs and evaluate Customer outcomes without turning Scraper yield into a prescription."
     >
       <TerminalWorkspace
         status="KEYWORDS / PRIVILEGED"
-        destinations={workspaceRail(`${WORKSPACE_ROOT}/keywords`, {
-          sections: WORKSPACE_SECTIONS.keywords,
-        })}
+        destinations={workspaceRail(`${WORKSPACE_ROOT}/keywords`)}
       >
         <Stack gap={5}>
           {failure ? (
@@ -436,9 +431,10 @@ export function ScraperKeywordsRoute() {
             </p>
           ) : null}
 
-          <Section
+          <DisclosureSection
             title="Keyword editor"
             description={`${workspace.current.length.toLocaleString()} keywords are active. Blank lines, comments beginning with #, and case-insensitive duplicates are removed.`}
+            summary={`${workspace.current.length.toLocaleString()} active`}
           >
             <div id="keyword-editor" className="keyword-editor">
               <Stack gap={4}>
@@ -529,11 +525,12 @@ export function ScraperKeywordsRoute() {
                 )}
               </Card>
             </div>
-          </Section>
+          </DisclosureSection>
 
-          <Section
+          <DisclosureSection
             title="Automatic rollover"
             description="The Scraper advances only after the current batch reaches its existing completion conditions."
+            summary={workspace.rollover.label}
           >
             <RolloverPanel
               rollover={workspace.rollover}
@@ -541,11 +538,58 @@ export function ScraperKeywordsRoute() {
               busy={busy === "rollover"}
               onChange={() => void updateRollover()}
             />
-          </Section>
+          </DisclosureSection>
 
-          <Section
-            title="Winner rankings"
-            description="Keywords with at least 100 posted cells, ranked by phones per cell. Adjacent generation creates a review draft only."
+          <DisclosureSection
+            title="Keyword outcome analytics"
+            description="Ranked by positive Customer outcomes per delivered lead. Keywords with no delivered leads show no rate. Worked-Leads prescription is dormant."
+            summary={`${(workspace.performance ?? []).length} keywords`}
+            defaultOpen
+          >
+            {(workspace.performance ?? []).length ? (
+              <div
+                className="keyword-winners"
+                role="region"
+                aria-label="Keyword outcome results"
+                tabIndex={0}
+              >
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Keyword</th>
+                      <th>Delivered</th>
+                      <th>Positive</th>
+                      <th>Positive / delivered</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(workspace.performance ?? []).map((item) => (
+                      <tr key={item.keyword}>
+                        <td data-label="Keyword"><strong>{item.keyword}</strong></td>
+                        <td data-label="Delivered">{integer(item.delivered)}</td>
+                        <td data-label="Positive">{integer(item.positive)}</td>
+                        <td data-label="Positive / delivered">
+                          {item.positives_per_delivered === null
+                            ? "No deliveries"
+                            : rate(item.positives_per_delivered)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState
+                title="No delivered keyword outcomes yet"
+                description="Analytics appear after Google Maps leads with source attribution are delivered."
+              />
+            )}
+          </DisclosureSection>
+
+          <DisclosureSection
+            title="Scraper yield reference"
+            description="Acquisition yield by posted grid cell. This is descriptive context only and does not rank Customer outcomes. Adjacent generation creates a review draft."
+            summary={`${workspace.winners.length} yield rows`}
           >
             <div id="keyword-winners">
               {workspace.winners.length ? (
@@ -599,7 +643,7 @@ export function ScraperKeywordsRoute() {
                 <Text>No keyword has at least 100 posted cells yet.</Text>
               )}
             </div>
-          </Section>
+          </DisclosureSection>
         </Stack>
       </TerminalWorkspace>
     </Page>

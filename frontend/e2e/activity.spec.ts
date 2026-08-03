@@ -15,6 +15,7 @@ test.beforeEach(async ({ page }) => {
 test("combines filters and keeps them in the shareable URL", async ({ page }) => {
   await page.goto("./admin/activity");
 
+  await page.getByRole("searchbox", { name: "Search activity" }).fill("signed agreement");
   await page.getByRole("textbox", { name: "Actor" }).fill(
     "admin.one@example.com",
   );
@@ -28,15 +29,25 @@ test("combines filters and keeps them in the shareable URL", async ({ page }) =>
   await page.getByRole("button", { name: "Apply filters" }).click();
 
   await expect(page).toHaveURL(/actor=admin\.one%40example\.com/);
+  await expect(page).toHaveURL(/q=signed\+agreement/);
   await expect(page).toHaveURL(/action=customer_updated/);
   await expect(page).toHaveURL(/entityType=customer/);
   await expect(page).toHaveURL(/entityId=7/);
   await expect(page).toHaveURL(/dateFrom=2026-07-29/);
   await expect(page).toHaveURL(/dateTo=2026-07-29/);
   await expect(page.getByRole("article")).toHaveCount(1);
-  await expect(
-    page.getByRole("heading", { name: "Customer updated" }),
-  ).toBeVisible();
+  await expect(page.getByText("Customer updated", { exact: true })).toBeVisible();
+});
+
+test("keeps attribution and changes collapsed until the operator opens an entry", async ({
+  page,
+}) => {
+  await page.goto("./admin/activity?q=signed+agreement");
+
+  await expect(page.getByText("Harbor Coverage")).toBeHidden();
+  await page.getByText("Customer updated", { exact: true }).click();
+  await expect(page.getByText("Harbor Coverage")).toBeVisible();
+  await expect(page.getByText("Harbor Insurance", { exact: true })).toBeVisible();
 });
 
 test("paginates on the server and preserves the investigation", async ({ page }) => {
@@ -55,6 +66,7 @@ test("navigates from an entry to the entity it touched", async ({ page }) => {
     "./admin/activity?action=customer_updated&entityType=customer&entityId=7",
   );
 
+  await page.getByText("Customer updated", { exact: true }).click();
   await page.getByRole("link", { name: /Customer 7/ }).click();
 
   await expect(page).toHaveURL(/\/app\/admin\/customers\/7$/);

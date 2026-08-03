@@ -179,11 +179,16 @@ async function openKeywords(page: Page, options: OpenOptions = {}) {
   return calls;
 }
 
+async function openDisclosure(page: Page, name: string) {
+  await page.getByRole("region", { name }).locator("summary").click();
+}
+
 test.describe("Keyword editor and import", () => {
   test("previews the exact diff before a direct save and preserves enqueue", async ({
     page,
   }) => {
     const calls = await openKeywords(page);
+    await openDisclosure(page, "Keyword editor");
     const editor = page.getByRole("textbox", { name: /Keyword list/ });
     await editor.fill("Plumbers\nroofers\nROOFERS\n# skip");
     await page
@@ -216,6 +221,7 @@ test.describe("Keyword editor and import", () => {
     page,
   }) => {
     const calls = await openKeywords(page);
+    await openDisclosure(page, "Keyword editor");
     await page.getByLabel("Import a text file").setInputFiles({
       name: "campaign.txt",
       mimeType: "text/plain",
@@ -238,6 +244,7 @@ test.describe("Keyword editor and import", () => {
 
   test("invalid input stays editable and cannot be saved", async ({ page }) => {
     const calls = await openKeywords(page);
+    await openDisclosure(page, "Keyword editor");
     await page.getByRole("textbox", { name: /Keyword list/ }).fill("# only");
 
     await page.getByRole("button", { name: "Preview changes" }).click();
@@ -252,8 +259,22 @@ test.describe("Keyword editor and import", () => {
 });
 
 test.describe("AI drafts and rankings", () => {
+  test("ranks Customer outcomes by positives per delivered and marks prescriptions dormant", async ({
+    page,
+  }) => {
+    await openKeywords(page);
+
+    const analytics = page.getByRole("region", {
+      name: "Keyword outcome analytics",
+    });
+    await expect(analytics).toContainText("12.0%");
+    await expect(analytics).toContainText("No deliveries");
+    await expect(analytics).toContainText("Worked-Leads prescription is dormant");
+  });
+
   test("broad generation cannot save before human review", async ({ page }) => {
     const calls = await openKeywords(page);
+    await openDisclosure(page, "Keyword editor");
 
     await page
       .getByRole("button", { name: "Generate 25 broad keywords" })
@@ -280,7 +301,8 @@ test.describe("AI drafts and rankings", () => {
     page,
   }) => {
     const calls = await openKeywords(page);
-    const rankings = page.getByRole("region", { name: "Winner rankings" });
+    await openDisclosure(page, "Scraper yield reference");
+    const rankings = page.getByRole("region", { name: "Scraper yield reference" });
 
     await expect(rankings).toContainText("2,480");
     await expect(rankings).toContainText("4,000");
@@ -305,6 +327,7 @@ test.describe("AI drafts and rankings", () => {
     page,
   }) => {
     const calls = await openKeywords(page, { generationFailureOnce: true });
+    await openDisclosure(page, "Keyword editor");
 
     await page
       .getByRole("button", { name: "Generate 25 broad keywords" })
@@ -326,6 +349,7 @@ test.describe("AI drafts and rankings", () => {
     page,
   }) => {
     await openKeywords(page, { aiEnabled: false });
+    await openDisclosure(page, "Keyword editor");
 
     await expect(page.getByText(/AI generation is unavailable/)).toBeVisible();
     await expect(
@@ -340,6 +364,7 @@ test.describe("AI drafts and rankings", () => {
 test.describe("Rollover and concurrent changes", () => {
   test("retains automatic rollover metrics and controls", async ({ page }) => {
     const calls = await openKeywords(page);
+    await openDisclosure(page, "Automatic rollover");
     await expect(
       page.getByRole("progressbar", { name: "Current keyword coverage" }),
     ).toHaveJSProperty("value", 60);
@@ -360,6 +385,7 @@ test.describe("Rollover and concurrent changes", () => {
     page,
   }) => {
     const calls = await openKeywords(page, { conflictOnce: true });
+    await openDisclosure(page, "Keyword editor");
     const editor = page.getByRole("textbox", { name: /Keyword list/ });
     await editor.fill("Plumbers\nroofers");
     await page.getByRole("button", { name: "Preview changes" }).click();
@@ -384,6 +410,9 @@ test.describe("Rollover and concurrent changes", () => {
   test("keeps all metrics and actions reachable on mobile", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openKeywords(page);
+    await openDisclosure(page, "Keyword editor");
+    await openDisclosure(page, "Automatic rollover");
+    await openDisclosure(page, "Scraper yield reference");
 
     await expect(page.getByLabel("Import a text file")).toBeVisible();
     await expect(page.getByRole("button", { name: "Preview changes" }))

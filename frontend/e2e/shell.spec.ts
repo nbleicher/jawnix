@@ -83,10 +83,10 @@ test.describe("Customer shell", () => {
 });
 
 test.describe("Administration shell", () => {
-  test("shares the Fraunces display face without taking the Opaline palette", async ({ page }) => {
+  test("shares the customer portal's Opaline palette and Fraunces display face", async ({ page }) => {
     await page.goto("./admin/overview");
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "jawnix");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
     await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toHaveCSS(
       "font-family",
       /Fraunces Variable/,
@@ -140,6 +140,10 @@ test.describe("Administration shell", () => {
 
     await page
       .getByRole("region", { name: "Batch Requests" })
+      .locator("summary")
+      .click();
+    await page
+      .getByRole("region", { name: "Batch Requests" })
       .getByRole("link", { name: "Northstar Insurance" })
       .click();
     await expect(
@@ -171,7 +175,7 @@ test.describe("Administration shell", () => {
 
     // Administrator navigation omits Security, so this rail is its only route.
     const rail = page.getByRole("navigation", {
-      name: "Acquisition terminal sections",
+      name: "Acquisition workspace sections",
     });
     const security = rail.getByRole("link", { name: "Administrator security" });
     await expect(security).toBeVisible();
@@ -214,20 +218,20 @@ test.describe("Administration shell", () => {
     }
   });
 
-  test("the real Scraper workspace owns the terminal theme and restores administration", async ({ page }) => {
+  test("the Scraper workspace and administration share Opaline", async ({ page }) => {
     await page.goto("./admin/overview");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "jawnix");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
 
     await page.goto("./admin/acquisition/scraper");
     await expect(page.getByRole("heading", {
       level: 1,
       name: "Verify access to Scraper Operations",
     })).toBeVisible();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "terminal");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
 
     const nav = page.getByRole("navigation", { name: "Administration" });
     await nav.getByRole("link", { name: "Fulfillment" }).click();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "jawnix");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
   });
 
   test("signs the administrator out from the shell chrome", async ({ page }) => {

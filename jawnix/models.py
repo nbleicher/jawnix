@@ -1552,6 +1552,14 @@ class SourceNicheMapping(Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
+    denied_by: Mapped[str] = mapped_column(
+        String(160),
+        default="",
+        nullable=False,
+    )
+    denied_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,

@@ -104,11 +104,14 @@ function renderRoute(data: AcquisitionData) {
       hydrationData: { loaderData: { acquisition: data } },
     },
   );
-  render(
+  const view = render(
     <ThemeProvider>
       <RouterProvider router={router} />
     </ThemeProvider>,
   );
+  view.container.querySelectorAll("details").forEach((item) => {
+    item.open = true;
+  });
 }
 
 beforeEach(() => {
@@ -117,13 +120,12 @@ beforeEach(() => {
 });
 
 describe("the Acquisition workspace keeps the GMS/OPS identity", () => {
-  it("renders inside the terminal frame and applies the terminal theme", () => {
+  it("renders inside the Opaline-compatible workspace frame", () => {
     renderRoute(acquisition());
 
     expect(
-      screen.getByRole("region", { name: "Acquisition terminal" }),
+      screen.getByRole("region", { name: "Acquisition workspace" }),
     ).toBeVisible();
-    expect(document.documentElement).toHaveAttribute("data-theme", "terminal");
     expect(screen.getByText("GMS / OPS")).toBeVisible();
   });
 
@@ -332,7 +334,7 @@ describe("Niche mapping confirmation", () => {
 
     const section = screen.getByRole("region", { name: "Niche mappings" });
     await user.click(
-      within(section).getByRole("button", { name: "Confirm Niche" }),
+      within(section).getByRole("button", { name: "Review and confirm" }),
     );
     const dialog = await screen.findByRole("dialog");
     await user.click(
@@ -355,7 +357,7 @@ describe("Niche mapping confirmation", () => {
 
     const section = screen.getByRole("region", { name: "Niche mappings" });
     await user.click(
-      within(section).getByRole("button", { name: "Confirm Niche" }),
+      within(section).getByRole("button", { name: "Review and confirm" }),
     );
     const dialog = await screen.findByRole("dialog");
 

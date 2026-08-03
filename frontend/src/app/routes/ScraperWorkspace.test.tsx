@@ -57,7 +57,7 @@ describe("Scraper Operations workspace", () => {
     ).toBeVisible();
     expect(
       screen.getByRole("region", {
-        name: "Scraper Operations terminal",
+        name: "Scraper Operations workspace",
       }),
     ).toBeVisible();
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
@@ -72,10 +72,6 @@ describe("Scraper Operations workspace", () => {
     expect(
       screen.getByText(/closes after 15 minutes without Scraper activity/i),
     ).toBeVisible();
-    expect(document.documentElement).toHaveAttribute(
-      "data-theme",
-      "terminal",
-    );
   });
 
   it("fails closed without rendering operational controls", () => {

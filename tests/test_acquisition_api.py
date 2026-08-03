@@ -30,6 +30,7 @@ from jawnix.models import (
     ScrapeSegmentResult,
     ScraperConfiguration,
     ScraperRun,
+    SourceNicheMapping,
     SourceRecommendation,
     SourceSegment,
 )
@@ -432,6 +433,54 @@ class TestRecommendationsStayHumanControlled:
 
 
 class TestWorkspaceReadModel:
+    def test_niche_mapping_can_be_denied_and_then_corrected(self, session):
+        mapping = SourceNicheMapping(
+            segment_key="PA::roof repair",
+            state="PA",
+            keyword="roof repair",
+            niche="Roofing",
+            proposal_source="keyword_taxonomy",
+            proposed_evidence={"matchedTerms": ["roof"]},
+        )
+        session.add(mapping)
+        session.commit()
+        client = as_admin(session, Settings())
+        try:
+            denied = client.post(
+                "/api/admin/source-niches/PA::roof repair/deny",
+                json={"reason": "This proposal is too broad."},
+            )
+            queue = client.get("/api/admin/acquisition").json()
+            corrected = client.post(
+                "/api/admin/source-niches/PA::roof repair/confirm",
+                json={
+                    "niche": "Residential Roofing",
+                    "reason": "Use the narrower operational niche.",
+                },
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+        assert denied.status_code == 200
+        assert denied.json()["denied"] is True
+        queued = next(
+            item
+            for item in queue["nicheMappings"]
+            if item["segment"] == mapping.segment_key
+        )
+        assert queued["denied"] is True
+        assert queued["deniedBy"] == str(ADMIN_ID)
+        assert corrected.status_code == 200
+        session.refresh(mapping)
+        assert mapping.confirmed is True
+        assert mapping.niche == "Residential Roofing"
+        assert mapping.denied_at is None
+        assert session.scalar(
+            select(AuditEntry).where(
+                AuditEntry.action == "source_niche_denied"
+            )
+        ) is not None
+
     def test_the_workspace_gathers_the_acquisition_record(
         self, session, tmp_path, monkeypatch
     ):
@@ -447,6 +496,7 @@ class TestWorkspaceReadModel:
             "scrapeAnomalies",
             "sourceRecommendations",
             "nicheMappings",
+            "exclusionLists",
             "scraperConfigurations",
         ):
             assert key in body, key

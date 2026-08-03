@@ -23,6 +23,13 @@ export interface KeywordWinner {
   last_used: string;
 }
 
+export interface KeywordOutcomePerformance {
+  keyword: string;
+  delivered: number;
+  positive: number;
+  positives_per_delivered: number | null;
+}
+
 export interface KeywordWorkspace {
   service_state: "connected" | "unavailable";
   last_successful_at: string | null;
@@ -31,6 +38,8 @@ export interface KeywordWorkspace {
   ai_enabled: boolean;
   rollover: KeywordRollover;
   winners: KeywordWinner[];
+  performance?: KeywordOutcomePerformance[];
+  prescriptive_mode?: "dormant_worked_leads";
   idle_expires_in: number;
 }
 

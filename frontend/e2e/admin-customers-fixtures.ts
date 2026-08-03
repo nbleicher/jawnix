@@ -19,6 +19,7 @@ export interface AdminCustomersMockState {
   nichePolicyPutRequests: unknown[];
   nichePolicyPreviewRequests: unknown[];
   availabilityRefreshRequests: number;
+  nicheAssignmentImports: string[];
 }
 
 const AGENCIES = [
@@ -359,6 +360,7 @@ export async function mockAdminCustomers(
     nichePolicyPutRequests: [],
     nichePolicyPreviewRequests: [],
     availabilityRefreshRequests: 0,
+    nicheAssignmentImports: [],
   };
 
   const billing = structuredClone(BILLING);
@@ -428,6 +430,28 @@ export async function mockAdminCustomers(
       invitation: options.pendingInvitation ? PENDING_INVITATION : null,
     });
   });
+
+  await page.route(
+    /\/api\/admin\/customers\/\d+\/exclusion-lists$/,
+    (route) => json(route, [
+      {
+        id: "abababab-abab-4bab-8bab-abababababab",
+        type: "dnc",
+        filename: "harbor-dnc.csv",
+        status: "active",
+        totalRows: 250,
+        acceptedRows: 248,
+        invalidRows: 2,
+        duplicateRows: 4,
+        poolImpact: 61,
+        global: false,
+        error: "",
+        createdAt: "2026-07-28T10:00:00Z",
+        ingestedAt: "2026-07-28T10:05:00Z",
+        decidedAt: null,
+      },
+    ]),
+  );
 
   await page.route(/\/api\/admin\/agencies\/directory(?:\?.*)?$/, (route) => {
     const url = new URL(route.request().url());
@@ -536,6 +560,46 @@ export async function mockAdminCustomers(
       pageSize: 25,
       total: 0,
       pages: 1,
+    }),
+  );
+
+  await page.route(/\/api\/admin\/niche-assignments\/export$/, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/csv",
+      headers: {
+        "Content-Disposition": 'attachment; filename="unmapped-inventory.csv"',
+      },
+      body: "phone,title,state\n2155550101,Buckeye Roofing,PA\n",
+    }),
+  );
+
+  await page.route(/\/api\/admin\/niche-assignments$/, (route) => {
+    state.nicheAssignmentImports.push(route.request().postData() ?? "");
+    return json(route, {
+      id: "99999999-9999-4999-8999-999999999999",
+      filename: "assignments.csv",
+      status: "complete",
+      totalRows: 2,
+      acceptedRows: 1,
+      invalidRows: 0,
+      duplicateRows: 0,
+      skippedMappedRows: 1,
+      error: "",
+    }, 202);
+  });
+
+  await page.route(/\/api\/admin\/niche-assignments\/[0-9a-f-]+$/, (route) =>
+    json(route, {
+      id: "99999999-9999-4999-8999-999999999999",
+      filename: "assignments.csv",
+      status: "complete",
+      totalRows: 2,
+      acceptedRows: 1,
+      invalidRows: 0,
+      duplicateRows: 0,
+      skippedMappedRows: 1,
+      error: "",
     }),
   );
 

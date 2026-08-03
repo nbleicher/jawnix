@@ -11,6 +11,7 @@ import { Field, Input, Select } from "../../design-system/primitives/form";
 import {
   Card,
   Cluster,
+  DisclosureSection,
   Grid,
   Page,
   Section,
@@ -117,6 +118,20 @@ export interface CustomerDetailsData {
   nichePolicy?: NichePolicyView;
   /** Cached pool availability; omitted when the details payload is reused elsewhere. */
   availability?: CustomerAvailabilityView;
+  exclusionLists?: CustomerExclusionListView[];
+}
+
+interface CustomerExclusionListView {
+  id: string;
+  type: string;
+  filename: string;
+  status: string;
+  acceptedRows: number;
+  invalidRows: number;
+  duplicateRows: number;
+  poolImpact: number;
+  global: boolean;
+  createdAt: string;
 }
 
 interface AgencyAssignmentPreview {
@@ -200,6 +215,7 @@ export async function adminCustomerDetailsLoader({
     cooldown,
     nichePolicy,
     availability,
+    exclusionLists,
   ] = await Promise.all([
     api<
       Omit<
@@ -209,6 +225,7 @@ export async function adminCustomerDetailsLoader({
         | "cooldown"
         | "nichePolicy"
         | "availability"
+        | "exclusionLists"
         | "activityTimeline"
       >
     >(`/api/admin/customers/${customerId}/details`),
@@ -224,6 +241,9 @@ export async function adminCustomerDetailsLoader({
     api<CustomerAvailabilityView>(
       `/api/admin/customers/${customerId}/availability`,
     ),
+    api<CustomerExclusionListView[]>(
+      `/api/admin/customers/${customerId}/exclusion-lists`,
+    ),
   ]);
   return {
     ...details,
@@ -232,12 +252,64 @@ export async function adminCustomerDetailsLoader({
     cooldown,
     nichePolicy,
     availability,
+    exclusionLists,
     agencies: directory.agencies.map(({ id, name, active }) => ({
       id,
       name,
       active,
     })),
   };
+}
+
+function CustomerExclusionLists({
+  items,
+}: {
+  items: CustomerExclusionListView[];
+}) {
+  return (
+    <DisclosureSection
+      title="Customer Exclusion Lists"
+      description="Lists uploaded by this Customer remain scoped to this Customer unless their global effect is separately confirmed in Acquisition."
+      summary={`${items.length.toLocaleString()} list${items.length === 1 ? "" : "s"}`}
+    >
+      {items.length ? (
+        <Grid minColumnWidth="16rem">
+          {items.map((item) => (
+            <Card as="article" key={item.id}>
+              <Stack gap={2}>
+                <Cluster gap={2} justify="space-between">
+                  <Heading level={3} size="sm">
+                    {item.filename}
+                  </Heading>
+                  <StatusBadge
+                    tone={item.status === "active" ? "success" : "info"}
+                  >
+                    {item.status.replaceAll("_", " ")}
+                  </StatusBadge>
+                </Cluster>
+                <Text size="sm">{item.type.replaceAll("_", " ")}</Text>
+                <Text size="sm">
+                  <strong>{item.acceptedRows.toLocaleString()}</strong> accepted
+                  {" · "}
+                  {item.poolImpact.toLocaleString()} pool impact
+                </Text>
+                <Text size="xs" tone="muted">
+                  {item.invalidRows.toLocaleString()} invalid ·{" "}
+                  {item.duplicateRows.toLocaleString()} duplicates ·{" "}
+                  {item.global ? "Global" : "Customer-scoped"}
+                </Text>
+              </Stack>
+            </Card>
+          ))}
+        </Grid>
+      ) : (
+        <EmptyState
+          title="No Customer Exclusion Lists"
+          description="Lists uploaded by this Customer will appear here with ingestion and pool-impact status."
+        />
+      )}
+    </DisclosureSection>
+  );
 }
 
 function Dependencies({ counts }: { counts: Record<string, number> }) {
@@ -360,13 +432,13 @@ export function AdminCustomerDetailsRoute() {
     setFailure(null);
     void (async () => {
       try {
-      const query = assignmentDestination
-        ? `?agency_id=${encodeURIComponent(assignmentDestination)}`
-        : "";
-      const preview = await api<AgencyAssignmentPreview>(
-        `/api/admin/customers/${customer.id}/agency-assignment-preview${query}`,
-      );
-      setAssignmentPreview(preview);
+        const query = assignmentDestination
+          ? `?agency_id=${encodeURIComponent(assignmentDestination)}`
+          : "";
+        const preview = await api<AgencyAssignmentPreview>(
+          `/api/admin/customers/${customer.id}/agency-assignment-preview${query}`,
+        );
+        setAssignmentPreview(preview);
       } catch (caught) {
         setFailure({
           scope: "assignment",
@@ -528,6 +600,10 @@ export function AdminCustomerDetailsRoute() {
           customerId={customer.id}
           onChanged={() => revalidator.revalidate()}
         />
+      ) : null}
+
+      {data.exclusionLists ? (
+        <CustomerExclusionLists items={data.exclusionLists} />
       ) : null}
 
       <Section

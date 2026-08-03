@@ -15,7 +15,6 @@ import { Cluster, Page, Stack } from "../../design-system/primitives/layout";
 import { StatusBadge } from "../../design-system/primitives/status";
 import { TerminalWorkspace } from "../../design-system/primitives/terminal";
 import { Text, VisuallyHidden } from "../../design-system/primitives/typography";
-import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 
 import {
@@ -39,7 +38,6 @@ import { useOperatorPresence } from "./scraperPresence";
 
 import {
   WORKSPACE_ROOT,
-  WORKSPACE_SECTIONS,
   workspaceRail,
 } from "./scraperWorkspaceNav";
 import "./ScraperCoverage.css";
@@ -218,7 +216,6 @@ function StateCard({ item }: { item: StateCoverageCard }) {
 export function ScraperStateCoverageRoute() {
   const snapshot = useLoaderData<StateCoverageSnapshot>();
   const navigate = useNavigate();
-  useRouteTheme("terminal", "jawnix");
   useDocumentTitle("States · Scraper Operations");
 
   const expire = useCallback(() => {
@@ -587,7 +584,6 @@ function CellButton({
 export function ScraperStateDetailRoute() {
   const snapshot = useLoaderData<StateCoverageDetail>();
   const navigate = useNavigate();
-  useRouteTheme("terminal", "jawnix");
   useDocumentTitle(`${snapshot.state} coverage · Scraper Operations`);
 
   const expire = useCallback(() => {
@@ -641,7 +637,6 @@ export function ScraperStateDetailRoute() {
         }
         destinations={workspaceRail(detailPath, {
           pageLabel: `${snapshot.state} coverage`,
-          sections: WORKSPACE_SECTIONS.stateCoverage,
         })}
       >
         <Stack gap={6}>

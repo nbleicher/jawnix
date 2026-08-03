@@ -38,7 +38,9 @@ test.describe("Reaching a Lead Report from the workspace", () => {
       "Eligibility Holds",
       "Suppressed Leads",
     ]) {
-      await expect(page.getByRole("region", { name: section })).toBeVisible();
+      const region = page.getByRole("region", { name: section });
+      await expect(region).toBeVisible();
+      await region.locator("summary").click();
     }
 
     await expect(
@@ -51,6 +53,10 @@ test.describe("Reaching a Lead Report from the workspace", () => {
   test("opening a report lands on its record", async ({ page }) => {
     await page.goto("./admin/fulfillment");
 
+    await page
+      .getByRole("region", { name: "Lead Reports" })
+      .locator("summary")
+      .click();
     await page
       .getByRole("region", { name: "Lead Reports" })
       .getByRole("link", { name: "Wrong number" })
@@ -225,6 +231,7 @@ test.describe("Restoring is not a promise of allocation", () => {
     await page.goto("./admin/fulfillment");
 
     const suppressed = page.getByRole("region", { name: "Suppressed Leads" });
+    await suppressed.locator("summary").click();
     await expect(suppressed.getByText(RESTORE_NOTICE)).toBeVisible();
     await expect(
       suppressed.getByRole("button", { name: "Restore" }),
@@ -237,6 +244,7 @@ test.describe("Restoring is not a promise of allocation", () => {
     await page.goto("./admin/fulfillment");
 
     const suppressed = page.getByRole("region", { name: "Suppressed Leads" });
+    await suppressed.locator("summary").click();
     await suppressed.getByRole("button", { name: "Restore" }).click();
     const dialog = page.getByRole("dialog");
 

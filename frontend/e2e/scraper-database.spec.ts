@@ -158,9 +158,8 @@ test.describe("Scraper database browsing and exports", () => {
     ).toBeVisible();
     await expect(page.getByLabel("All businesses")).toContainText("9,244,326");
     await expect(page.getByLabel("Exportable phones")).toContainText("2,305,025");
-    await expect(page.getByText("Buckeye Plumbing")).toBeVisible();
-    await expect(page.getByText("plumbers", { exact: true })).toBeVisible();
-    await expect(page.getByText("51 matching businesses")).toBeVisible();
+    await expect(page.getByText("Buckeye Plumbing")).toHaveCount(0);
+    await expect(page.getByText("Search before browsing records")).toBeVisible();
 
     await page.getByRole("searchbox", { name: "Search records" }).fill("buckeye.example");
     await page.getByRole("combobox", {
@@ -168,6 +167,9 @@ test.describe("Scraper database browsing and exports", () => {
       exact: true,
     }).selectOption("OH");
     await page.getByRole("button", { name: "Search" }).click();
+    await expect(page.getByText("Buckeye Plumbing")).toBeVisible();
+    await expect(page.getByText("plumbers", { exact: true })).toBeVisible();
+    await expect(page.getByText("51 matching businesses")).toBeVisible();
     await expect.poll(() => calls.browseRequests.length).toBe(2);
     expect(calls.browseRequests.at(-1)?.get("search")).toBe("buckeye.example");
     expect(calls.browseRequests.at(-1)?.get("state")).toBe("OH");
@@ -195,6 +197,7 @@ test.describe("Scraper database browsing and exports", () => {
     await mockDatabase(page);
     await page.goto(DATABASE);
 
+    await page.getByRole("region", { name: "State exports" }).locator("summary").click();
     await page.getByRole("checkbox", { name: "Select OH" }).check();
     await page.getByRole("checkbox", { name: "Select PA" }).check();
     const bulkPromise = page.waitForEvent("download");
@@ -207,6 +210,7 @@ test.describe("Scraper database browsing and exports", () => {
       + "PA Business,5550000000,PA\n",
     );
 
+    await page.getByRole("region", { name: "Stored exports" }).locator("summary").click();
     const storedPromise = page.waitForEvent("download");
     await page.getByRole("link", { name: "Download stored export" }).first().click();
     const stored = await storedPromise;
@@ -247,6 +251,7 @@ test.describe("Scraper database browsing and exports", () => {
     const state = await mockDatabase(page);
     await page.goto(DATABASE);
 
+    await page.getByRole("region", { name: "Stored exports" }).locator("summary").click();
     await page.getByRole("button", { name: "Regenerate stored exports" }).click();
     const dialog = page.getByRole("dialog", {
       name: "Regenerate stored exports?",

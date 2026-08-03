@@ -267,6 +267,7 @@ def admin_operations_overview(
 
 @app.get("/api/admin/activity")
 def admin_activity(
+    q: str | None = None,
     actor: str | None = None,
     action: str | None = None,
     entity_type: str | None = Query(default=None, alias="entityType"),
@@ -294,6 +295,7 @@ def admin_activity(
         date_to=date_to,
         page=page,
         page_size=page_size,
+        query=q,
     )
 
 
@@ -863,6 +865,25 @@ def admin_exclusion_list_status(
     if item is None:
         raise HTTPException(status_code=404, detail="Exclusion List was not found.")
     return exclusion_list_status(item, db)
+
+
+@app.get("/api/admin/customers/{customer_id}/exclusion-lists")
+def admin_customer_exclusion_lists(
+    customer_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    customer = db.get(Customer, customer_id)
+    if customer is None or customer.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Customer was not found.")
+    return [
+        exclusion_list_status(item, db)
+        for item in db.scalars(
+            select(ExclusionList)
+            .where(ExclusionList.customer_id == customer_id)
+            .order_by(ExclusionList.created_at.desc(), ExclusionList.id)
+        )
+    ]
 
 
 @app.post("/api/admin/exclusion-lists/{exclusion_list_id}/{action}")
@@ -2041,6 +2062,8 @@ def confirm_source_niche(
         }
     mapping.niche = next_niche
     mapping.confirmed = True
+    mapping.denied_by = ""
+    mapping.denied_at = None
     mapping.confirmed_by = str(principal.user_id)
     mapping.confirmed_at = utcnow()
     mapping.updated_at = mapping.confirmed_at
@@ -2064,6 +2087,60 @@ def confirm_source_niche(
         "segment": mapping.segment_key,
         "niche": mapping.niche,
         "confirmed": True,
+    }
+
+
+@app.post("/api/admin/source-niches/{segment_key}/deny")
+def deny_source_niche(
+    segment_key: str,
+    payload: ActionReason,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    mapping = db.scalar(
+        select(SourceNicheMapping)
+        .where(SourceNicheMapping.segment_key == segment_key)
+        .with_for_update()
+    )
+    if mapping is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Source Segment Niche mapping was not found.",
+        )
+    if mapping.confirmed:
+        raise HTTPException(
+            status_code=409,
+            detail="A confirmed Source Niche mapping cannot be denied.",
+        )
+    if mapping.denied_at is not None:
+        return {
+            "segment": mapping.segment_key,
+            "niche": mapping.niche,
+            "confirmed": False,
+            "denied": True,
+        }
+    mapping.denied_by = str(principal.user_id)
+    mapping.denied_at = utcnow()
+    mapping.updated_at = mapping.denied_at
+    record_activity(
+        db,
+        action="source_niche_denied",
+        target_type="source_segment",
+        target_id=mapping.segment_key,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "niche": mapping.niche,
+            "proposalSource": mapping.proposal_source,
+            "confirmed": False,
+        },
+    )
+    db.commit()
+    return {
+        "segment": mapping.segment_key,
+        "niche": mapping.niche,
+        "confirmed": False,
+        "denied": True,
     }
 
 

@@ -189,11 +189,15 @@ function renderOverview(data: MonitoringSnapshot) {
       hydrationData: { loaderData: { scraper: data } },
     },
   );
-  return render(
+  const view = render(
     <ThemeProvider>
       <RouterProvider router={router} />
     </ThemeProvider>,
   );
+  view.container.querySelectorAll("details").forEach((item) => {
+    item.open = true;
+  });
+  return view;
 }
 
 function mockPipeline(response: unknown, ok = true) {
@@ -228,7 +232,7 @@ describe("every monitoring read survives the rebuild", () => {
       "Pipeline alerts",
       "Top states",
     ]) {
-      expect(screen.getByRole("region", { name })).toBeVisible();
+      expect(screen.getByRole("group", { name })).toBeVisible();
     }
     expect(screen.getByRole("region", { name: "Overall status" })).toBeVisible();
   });
@@ -245,25 +249,25 @@ describe("every monitoring read survives the rebuild", () => {
   it("keeps host telemetry, services, totals, activity, fleet, alerts and states", () => {
     renderOverview(snapshot());
 
-    const stack = screen.getByRole("region", { name: "Host and stack" });
+    const stack = screen.getByRole("group", { name: "Host and stack" });
     expect(stack).toHaveTextContent("42.5%");
     expect(stack).toHaveTextContent("11d 0h");
     expect(within(stack).getByRole("list", { name: "Host services" })).toHaveTextContent("Enqueuer");
 
-    expect(screen.getByRole("region", { name: "Headline totals" })).toHaveTextContent("9,244,326");
+    expect(screen.getByRole("group", { name: "Headline totals" })).toHaveTextContent("9,244,326");
     // Projected/day is derived from the hourly rate, as upstream does.
-    expect(screen.getByRole("region", { name: "Headline totals" })).toHaveTextContent("101,160");
+    expect(screen.getByRole("group", { name: "Headline totals" })).toHaveTextContent("101,160");
 
-    const activity = screen.getByRole("region", { name: "Pipeline activity" });
+    const activity = screen.getByRole("group", { name: "Pipeline activity" });
     expect(activity).toHaveTextContent("812");
     expect(activity).toHaveTextContent("dentist");
 
-    expect(screen.getByRole("region", { name: "Workers" })).toHaveTextContent("2/8 reporting");
-    expect(screen.getByRole("region", { name: "Workers" })).toHaveTextContent("gms-worker-2");
-    expect(screen.getByRole("region", { name: "Pipeline alerts" })).toHaveTextContent(
+    expect(screen.getByRole("group", { name: "Workers" })).toHaveTextContent("2/8 reporting");
+    expect(screen.getByRole("group", { name: "Workers" })).toHaveTextContent("gms-worker-2");
+    expect(screen.getByRole("group", { name: "Pipeline alerts" })).toHaveTextContent(
       "Queue depth exceeds its warning threshold",
     );
-    expect(screen.getByRole("region", { name: "Top states" })).toHaveTextContent("TX");
+    expect(screen.getByRole("group", { name: "Top states" })).toHaveTextContent("TX");
   });
 
   it("labels every trend bar so the charts are not colour-only", () => {
@@ -277,8 +281,8 @@ describe("every monitoring read survives the rebuild", () => {
   it("states each region's refresh cadence", () => {
     renderOverview(snapshot());
 
-    expect(screen.getByRole("region", { name: "Database activity" })).toHaveTextContent("2s");
-    expect(screen.getByRole("region", { name: "Performance trends" })).toHaveTextContent("60s");
+    expect(screen.getByRole("group", { name: "Database activity" })).toHaveTextContent("2s");
+    expect(screen.getByRole("group", { name: "Performance trends" })).toHaveTextContent("60s");
   });
 });
 
@@ -292,12 +296,12 @@ describe("partial failure, staleness and outage", () => {
       }),
     );
 
-    const workers = screen.getByRole("region", { name: "Workers" });
+    const workers = screen.getByRole("group", { name: "Workers" });
     expect(workers).toHaveTextContent("Not refreshing");
     // The last safe context is still on screen.
     expect(workers).toHaveTextContent("gms-worker-1");
     // And no other panel is affected.
-    expect(screen.getByRole("region", { name: "Top states" })).not.toHaveTextContent(
+    expect(screen.getByRole("group", { name: "Top states" })).not.toHaveTextContent(
       "Not refreshing",
     );
   });
@@ -313,7 +317,7 @@ describe("partial failure, staleness and outage", () => {
       }),
     );
 
-    expect(screen.getByRole("region", { name: "Performance trends" })).toHaveTextContent(
+    expect(screen.getByRole("group", { name: "Performance trends" })).toHaveTextContent(
       "No reading yet.",
     );
   });
