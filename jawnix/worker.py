@@ -378,6 +378,15 @@ def process_job(job_id: int) -> None:
                     session,
                     uuid.UUID(str(job.payload["exclusion_list_id"])),
                 )
+            elif job.kind == "ingest_niche_assignments":
+                from .niche_policy import ingest_niche_assignments
+
+                ingest_niche_assignments(
+                    session,
+                    uuid.UUID(
+                        str(job.payload["niche_assignment_upload_id"])
+                    ),
+                )
             elif job.kind in {
                 "notify_scrape_anomaly",
                 "update_scrape_anomaly_notification",
