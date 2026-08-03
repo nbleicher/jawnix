@@ -499,3 +499,77 @@ def test_agency_directory_details_creation_and_lifecycle_contracts(
         assert "preview" in bypass.json()["detail"].lower()
     finally:
         app.dependency_overrides.clear()
+
+
+def test_history_lead_counts_persist_and_refresh_only_at_scale(
+    session,
+    monkeypatch,
+):
+    from jawnix import agency_management as am
+    from jawnix.models import SharedHistoryLeadCount, utcnow
+
+    agency = Agency(slug="cached", name="Cached Agency")
+    member = Customer(slug="cached-member", name="Cached Member", agency=agency)
+    session.add_all([agency, member])
+    session.flush()
+    old = datetime.now(timezone.utc) - timedelta(days=30)
+    leads = [
+        Lead(phone=f"214555200{n}", title=f"Lead {n}", state="TX")
+        for n in range(3)
+    ]
+    session.add_all(leads)
+    session.flush()
+    session.add_all(
+        DistributionEvent(
+            lead_id=lead.id,
+            agent_id=member.id,
+            agency_id=agency.id,
+            customer_name=member.name,
+            agency_name=agency.name,
+            delivered_at=old,
+            source="test",
+        )
+        for lead in leads
+    )
+    session.commit()
+
+    subjects = am.history_for_agency(session, agency)
+    key = am._history_subject_key(subjects)
+
+    # Below the production-scale threshold nothing persists: the count is
+    # always computed live and a foreign row is ignored.
+    assert am._history_lead_count(session, subjects) == 3
+    assert session.get(SharedHistoryLeadCount, key) is None
+    session.add(
+        SharedHistoryLeadCount(
+            subject_key=key, lead_count=7, computed_at=utcnow()
+        )
+    )
+    session.commit()
+    assert am._history_lead_count(session, subjects) == 3
+    session.delete(session.get(SharedHistoryLeadCount, key))
+    session.commit()
+
+    monkeypatch.setattr(am, "_HISTORY_LEAD_COUNT_CACHE_THRESHOLD", 1)
+    refreshes: list[str] = []
+    monkeypatch.setattr(
+        am,
+        "_refresh_history_lead_count",
+        lambda key, subjects: refreshes.append(key),
+    )
+
+    # At scale the first computation persists, and a fresh row is served
+    # without recounting.
+    assert am._history_lead_count(session, subjects) == 3
+    row = session.get(SharedHistoryLeadCount, key)
+    assert row is not None and row.lead_count == 3
+    row.lead_count = 9
+    session.commit()
+    assert am._history_lead_count(session, subjects) == 9
+    assert refreshes == []
+
+    # A stale row is still served, but schedules a background refresh.
+    row.computed_at = utcnow() - timedelta(hours=2)
+    session.commit()
+    assert am._history_lead_count(session, subjects) == 9
+    assert refreshes == [key]
