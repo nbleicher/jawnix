@@ -184,7 +184,12 @@ export function CustomerBillingSection({
               Credit Ledger
             </Heading>
             {billing.ledger.length ? (
-              <div className="admin-customer-details__ledger" role="table" aria-label="Credit Ledger">
+              <div
+                className="admin-customer-details__ledger"
+                role="table"
+                aria-label="Credit Ledger"
+                tabIndex={0}
+              >
                 <div className="admin-customer-details__ledger-row admin-customer-details__ledger-row--head" role="row">
                   <span role="columnheader">When</span>
                   <span role="columnheader">Kind</span>

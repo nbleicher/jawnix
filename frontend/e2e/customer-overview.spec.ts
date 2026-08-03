@@ -59,7 +59,7 @@ test.describe("Customer Overview attention queue", () => {
     await page.keyboard.press("Enter");
     const download = await downloadPromise;
 
-    expect(download.suggestedFilename()).toBe("requests-customer_batch.csv");
+    expect(download.suggestedFilename()).toBe("requests-customer_batch.zip");
     expect(state.artifactDownloads).toEqual([READY_REQUEST_ID]);
   });
 
