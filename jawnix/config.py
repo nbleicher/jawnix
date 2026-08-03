@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        arbitrary_types_allowed=True,
+    )
 
     database_url: str = "sqlite:///./jawnix-dev.db"
     session_secret: str = Field(default="development-only-change-me", alias="JAWNIX_SESSION_SECRET")
@@ -47,6 +52,12 @@ class Settings(BaseSettings):
 
     resend_api_key: str = Field(default="", alias="RESEND_API_KEY")
     resend_webhook_secret: str = Field(default="", alias="RESEND_WEBHOOK_SECRET")
+    stripe_secret_key: str = Field(default="", alias="STRIPE_SECRET_KEY")
+    stripe_webhook_secret: str = Field(default="", alias="STRIPE_WEBHOOK_SECRET")
+    # Injectable Stripe client seam. Production leaves this unset so
+    # get_stripe_client builds HttpStripeClient from the secrets above; tests
+    # assign a fake. Not loaded from the environment.
+    stripe_client: Any | None = Field(default=None, exclude=True, repr=False)
     batch_from_email: str = Field(default="Jawnix <hai@jawnix.com>", alias="JAWNIX_BATCH_FROM_EMAIL")
     # The address a Customer is pointed at when a Batch Request needs a human.
     support_email: str = Field(default="hai@jawnix.com", alias="JAWNIX_SUPPORT_EMAIL")
