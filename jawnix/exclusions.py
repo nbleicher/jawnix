@@ -31,8 +31,8 @@ class ExclusionDecisionError(Exception):
     pass
 
 
-def exclusion_list_status(item: ExclusionList) -> dict[str, object]:
-    return {
+def exclusion_list_status(item: ExclusionList, session: Session | None = None) -> dict[str, object]:
+    payload: dict[str, object] = {
         "id": str(item.id),
         "type": item.exclusion_type,
         "filename": item.filename,
@@ -48,6 +48,13 @@ def exclusion_list_status(item: ExclusionList) -> dict[str, object]:
         "ingestedAt": item.ingested_at,
         "decidedAt": item.decided_at,
     }
+    if session is not None:
+        from .pool_analytics import customer_availability_preview
+
+        payload["customerAvailability"] = customer_availability_preview(
+            session, item.customer_id
+        )
+    return payload
 
 
 def _phone_column(rows: list[list[str]]) -> tuple[int, list[list[str]]]:

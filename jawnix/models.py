@@ -2021,6 +2021,45 @@ class SharedHistoryLeadCount(Base):
     )
 
 
+class PoolBreakdownSnapshot(Base):
+    """Cached eligible-inventory composition by state × Niche for Fulfillment.
+
+    A single row (id=1) holds the latest cells. Administrators refresh on
+    demand; page loads only read this snapshot and its as-of timestamp.
+    """
+
+    __tablename__ = "pool_breakdown_snapshots"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cells: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
+class CustomerAvailabilitySnapshot(Base):
+    """Cached per-Customer deliverable count and 14-day cooldown forecast.
+
+    Honors Licensed States, Niche Policy, no-repeat history, Cooldown Window,
+    and exclusions at compute time. Served with a visible as-of; never
+    recomputed as a side effect of loading Customer details.
+    """
+
+    __tablename__ = "customer_availability_snapshots"
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    available: Mapped[int] = mapped_column(Integer, nullable=False)
+    forecast: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
 class AuditEntry(Base):
     __tablename__ = "audit_entries"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

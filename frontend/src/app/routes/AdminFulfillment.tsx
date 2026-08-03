@@ -245,6 +245,20 @@ export interface WorkspaceData {
   leadReports?: LeadReportSummary[];
   eligibilityHolds?: EligibilityHold[];
   suppressedLeads?: SuppressedLead[];
+  /** Loaded separately from the workspace aggregate so page loads never
+   *  trigger a live recount — only the cached snapshot is shown. */
+  poolBreakdown?: PoolBreakdownData;
+}
+
+export interface PoolBreakdownCell {
+  state: string;
+  niche: string;
+  count: number;
+}
+
+export interface PoolBreakdownData {
+  asOf: string | null;
+  cells: PoolBreakdownCell[];
 }
 
 export interface ArtifactState {
@@ -354,7 +368,11 @@ export function reportStatusTone(status: string): StatusTone {
 }
 
 export async function fulfillmentLoader(): Promise<WorkspaceData> {
-  return api<WorkspaceData>("/api/admin/fulfillment");
+  const [workspace, poolBreakdown] = await Promise.all([
+    api<Omit<WorkspaceData, "poolBreakdown">>("/api/admin/fulfillment"),
+    api<PoolBreakdownData>("/api/admin/pool-breakdown"),
+  ]);
+  return { ...workspace, poolBreakdown };
 }
 
 export async function fulfillmentRequestLoader({
@@ -729,6 +747,72 @@ function SuppressedLeadCard({ item }: { item: SuppressedLead }) {
   );
 }
 
+function PoolBreakdownSection({
+  breakdown,
+}: {
+  breakdown: PoolBreakdownData | undefined;
+}) {
+  const revalidator = useRevalidator();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const data = breakdown ?? { asOf: null, cells: [] };
+
+  async function refresh() {
+    setBusy(true);
+    setError("");
+    try {
+      await api("/api/admin/pool-breakdown/refresh", {
+        method: "POST",
+        body: "{}",
+      });
+      revalidator.revalidate();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section
+      title="Eligible pool by state and Niche"
+      description="Inventory composition for Fulfillment. Unmapped Leads are their own Niche bucket. Counts come from a cached snapshot with a visible as-of time."
+    >
+      <Card>
+        <Stack gap={4} align="flex-start">
+          {error ? (
+            <Text size="sm" tone="danger" role="alert">
+              {error}
+            </Text>
+          ) : null}
+          <Text size="sm" tone="muted">
+            As of: {data.asOf ? formatDate(data.asOf) : "Not computed yet"}
+          </Text>
+          {data.cells.length ? (
+            <ul aria-label="Pool breakdown">
+              {data.cells.map((cell) => (
+                <li key={`${cell.state}-${cell.niche}`}>
+                  <Text>
+                    {cell.state} · {cell.niche}: {cell.count.toLocaleString()}
+                  </Text>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <EmptyState
+              title="No pool snapshot yet"
+              description="Refresh to compute eligible inventory by state and Niche. Opening this page never runs the count."
+            />
+          )}
+          <Button variant="primary" busy={busy} onClick={() => void refresh()}>
+            Refresh pool breakdown
+          </Button>
+        </Stack>
+      </Card>
+    </Section>
+  );
+}
+
 export function AdminFulfillmentRoute() {
   const data = useLoaderData<WorkspaceData>();
   useDocumentTitle("Fulfillment");
@@ -745,6 +829,8 @@ export function AdminFulfillmentRoute() {
       description="Review Batch Requests, Inventory Conflicts, and delivery failures, and take the actions each one currently allows."
     >
       <Stack gap={6}>
+        <PoolBreakdownSection breakdown={data.poolBreakdown} />
+
         <Section
           title="Batch Requests"
           description="Requests still moving through Fulfillment Rotation."

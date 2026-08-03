@@ -13,6 +13,7 @@ export interface AdminCustomersMockState {
   assignmentRequests: unknown[];
   customerPatchRequests: unknown[];
   passwordResetRequests: string[];
+  availabilityRefreshRequests: number;
 }
 
 const AGENCIES = [
@@ -302,6 +303,29 @@ export async function mockAdminCustomers(
     assignmentRequests: [],
     customerPatchRequests: [],
     passwordResetRequests: [],
+    availabilityRefreshRequests: 0,
+  };
+
+  const availability = {
+    asOf: "2026-08-03T12:00:00Z",
+    available: 412,
+    forecast: [
+      { offset: 0, date: "2026-08-03", count: 412 },
+      { offset: 1, date: "2026-08-04", count: 18 },
+      { offset: 2, date: "2026-08-05", count: 0 },
+      { offset: 3, date: "2026-08-06", count: 7 },
+      { offset: 4, date: "2026-08-07", count: 0 },
+      { offset: 5, date: "2026-08-08", count: 0 },
+      { offset: 6, date: "2026-08-09", count: 0 },
+      { offset: 7, date: "2026-08-10", count: 0 },
+      { offset: 8, date: "2026-08-11", count: 0 },
+      { offset: 9, date: "2026-08-12", count: 0 },
+      { offset: 10, date: "2026-08-13", count: 0 },
+      { offset: 11, date: "2026-08-14", count: 0 },
+      { offset: 12, date: "2026-08-15", count: 0 },
+      { offset: 13, date: "2026-08-16", count: 0 },
+      { offset: 14, date: "2026-08-17", count: 0 },
+    ],
   };
 
   await page.addInitScript(() => {
@@ -455,6 +479,24 @@ export async function mockAdminCustomers(
       total: 0,
       pages: 1,
     }),
+  );
+
+  await page.route(
+    /\/api\/admin\/customers\/\d+\/availability(?:\/refresh)?$/,
+    (route) => {
+      if (route.request().method() === "POST") {
+        state.availabilityRefreshRequests += 1;
+        availability.asOf = "2026-08-03T15:30:00Z";
+        availability.available = 420;
+        availability.forecast[0] = {
+          offset: 0,
+          date: "2026-08-03",
+          count: 420,
+        };
+        return json(route, availability);
+      }
+      return json(route, availability);
+    },
   );
 
   return state;

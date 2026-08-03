@@ -35,6 +35,10 @@ import {
   RenameCustomerAction,
   SendPasswordResetAction,
 } from "./AdminCustomerActions";
+import {
+  CustomerAvailabilitySection,
+} from "./AdminCustomerAvailability";
+import type { CustomerAvailabilityView } from "./AdminCustomerAvailability";
 
 import "./AdminCustomerDetails.css";
 
@@ -97,6 +101,8 @@ export interface CustomerDetailsData {
     name: string;
     active: boolean;
   }[];
+  /** Cached pool availability; omitted when the details payload is reused elsewhere. */
+  availability?: CustomerAvailabilityView;
 }
 
 interface AgencyAssignmentPreview {
@@ -171,18 +177,24 @@ function blockingDependencies(error: unknown): Record<string, number> | null {
 export async function adminCustomerDetailsLoader({
   params,
 }: LoaderFunctionArgs): Promise<CustomerDetailsData> {
-  const [details, directory, activityTimeline] = await Promise.all([
-    api<Omit<CustomerDetailsData, "agencies">>(
-      `/api/admin/customers/${params.customerId}/details`,
-    ),
-    api<{
-      agencies: { id: number; name: string; active: boolean }[];
-    }>("/api/admin/agencies/directory"),
-    loadEntityActivity("customer", params.customerId),
-  ]);
+  const customerId = params.customerId;
+  const [details, directory, activityTimeline, availability] =
+    await Promise.all([
+      api<Omit<CustomerDetailsData, "agencies" | "availability">>(
+        `/api/admin/customers/${customerId}/details`,
+      ),
+      api<{
+        agencies: { id: number; name: string; active: boolean }[];
+      }>("/api/admin/agencies/directory"),
+      loadEntityActivity("customer", customerId),
+      api<CustomerAvailabilityView>(
+        `/api/admin/customers/${customerId}/availability`,
+      ),
+    ]);
   return {
     ...details,
     activityTimeline,
+    availability,
     agencies: directory.agencies.map(({ id, name, active }) => ({
       id,
       name,
@@ -448,6 +460,14 @@ export function AdminCustomerDetailsRoute() {
           </Stack>
         </Card>
       </Section>
+
+      {data.availability ? (
+        <CustomerAvailabilitySection
+          availability={data.availability}
+          customerId={customer.id}
+          onChanged={() => revalidator.revalidate()}
+        />
+      ) : null}
 
       <Section
         title="Permanent history"

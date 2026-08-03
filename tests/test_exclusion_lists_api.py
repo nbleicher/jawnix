@@ -113,6 +113,7 @@ def test_customer_upload_is_ingested_in_the_background_and_status_is_visible(
             "createdAt": status.json()["createdAt"],
             "ingestedAt": status.json()["ingestedAt"],
             "decidedAt": None,
+            "customerAvailability": None,
         }
         listed = client.get("/api/me/exclusion-lists")
         assert listed.status_code == 200
