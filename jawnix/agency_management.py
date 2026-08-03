@@ -150,8 +150,38 @@ def _history_summary(
     return {
         "customers": len(subjects.customer_ids),
         "agencies": len(subjects.agency_ids),
-        "distributedLeads": len(_history_lead_ids(db, subjects)),
+        "distributedLeads": _history_lead_count(db, subjects),
     }
+
+
+def _history_lead_count(db: Session, subjects: HistorySubjects) -> int:
+    # Counted in SQL: materializing the ids (as assignment_preview must for
+    # its set algebra) ships millions of rows per Agency and took ~30s per
+    # directory load in production.
+    clauses = _history_lead_clauses(subjects)
+    if not clauses:
+        return 0
+    return int(
+        db.scalar(
+            select(
+                func.count(func.distinct(DistributionEvent.lead_id))
+            ).where(or_(*clauses))
+        )
+        or 0
+    )
+
+
+def _history_lead_clauses(subjects: HistorySubjects) -> list:
+    clauses = []
+    if subjects.customer_ids:
+        clauses.append(
+            DistributionEvent.agent_id.in_(subjects.customer_ids)
+        )
+    if subjects.agency_ids:
+        clauses.append(
+            DistributionEvent.agency_id.in_(subjects.agency_ids)
+        )
+    return clauses
 
 
 def agency_directory(
@@ -460,15 +490,7 @@ def _history_lead_ids(
     db: Session,
     subjects: HistorySubjects,
 ) -> set[int]:
-    clauses = []
-    if subjects.customer_ids:
-        clauses.append(
-            DistributionEvent.agent_id.in_(subjects.customer_ids)
-        )
-    if subjects.agency_ids:
-        clauses.append(
-            DistributionEvent.agency_id.in_(subjects.agency_ids)
-        )
+    clauses = _history_lead_clauses(subjects)
     if not clauses:
         return set()
     return set(
