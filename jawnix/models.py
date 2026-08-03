@@ -550,6 +550,59 @@ def _credit_ledger_is_append_only(*_args) -> None:
     raise ValueError("Credit Ledger entries are append-only.")
 
 
+class CreditPurchase(Base):
+    """A Stripe Checkout top-up that stays processing until the webhook lands."""
+
+    __tablename__ = "credit_purchases"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16),
+        default="processing",
+        index=True,
+        nullable=False,
+    )
+    stripe_checkout_session_id: Mapped[str] = mapped_column(
+        String(255),
+        unique=True,
+        nullable=False,
+    )
+    ledger_entry_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("credit_ledger_entries.id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "amount_cents >= 100 AND amount_cents % 100 = 0",
+            name="ck_credit_purchase_whole_dollars",
+        ),
+        CheckConstraint(
+            "status IN ('processing', 'completed')",
+            name="ck_credit_purchase_status",
+        ),
+        Index(
+            "ix_credit_purchase_customer_created",
+            "customer_id",
+            "created_at",
+        ),
+    )
+
+
 class BatchHold(Base):
     """A billed Batch Request's reservation before distribution commits."""
 

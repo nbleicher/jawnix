@@ -774,6 +774,12 @@ class CreditAdjustmentCreate(BaseModel):
         return value
 
 
+class CreditPurchaseCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount_dollars: int = Field(ge=1)
+
+
 class LeadCorrectionApply(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

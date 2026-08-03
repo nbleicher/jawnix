@@ -1,0 +1,92 @@
+"""Add Credit Purchase rows for Stripe Checkout top-ups."""
+
+from __future__ import annotations
+
+import sqlalchemy as sa
+from alembic import op
+
+
+revision = "20260803_0038"
+down_revision = "20260803_0037"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.create_table(
+        "credit_purchases",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("customer_id", sa.BigInteger(), nullable=False),
+        sa.Column("amount_cents", sa.Integer(), nullable=False),
+        sa.Column(
+            "status",
+            sa.String(length=16),
+            nullable=False,
+            server_default="processing",
+        ),
+        sa.Column(
+            "stripe_checkout_session_id",
+            sa.String(length=255),
+            nullable=False,
+        ),
+        sa.Column("ledger_entry_id", sa.Uuid(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.CheckConstraint(
+            "amount_cents >= 100 AND amount_cents % 100 = 0",
+            name="ck_credit_purchase_whole_dollars",
+        ),
+        sa.CheckConstraint(
+            "status IN ('processing', 'completed')",
+            name="ck_credit_purchase_status",
+        ),
+        sa.ForeignKeyConstraint(
+            ["customer_id"],
+            ["agents.id"],
+            ondelete="RESTRICT",
+        ),
+        sa.ForeignKeyConstraint(
+            ["ledger_entry_id"],
+            ["credit_ledger_entries.id"],
+            ondelete="RESTRICT",
+        ),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("stripe_checkout_session_id"),
+        sa.UniqueConstraint("ledger_entry_id"),
+    )
+    op.create_index(
+        "ix_credit_purchases_customer_id",
+        "credit_purchases",
+        ["customer_id"],
+    )
+    op.create_index(
+        "ix_credit_purchases_status",
+        "credit_purchases",
+        ["status"],
+    )
+    op.create_index(
+        "ix_credit_purchases_created_at",
+        "credit_purchases",
+        ["created_at"],
+    )
+    op.create_index(
+        "ix_credit_purchase_customer_created",
+        "credit_purchases",
+        ["customer_id", "created_at"],
+    )
+
+
+def downgrade() -> None:
+    op.drop_index(
+        "ix_credit_purchase_customer_created",
+        table_name="credit_purchases",
+    )
+    op.drop_index("ix_credit_purchases_created_at", table_name="credit_purchases")
+    op.drop_index("ix_credit_purchases_status", table_name="credit_purchases")
+    op.drop_index("ix_credit_purchases_customer_id", table_name="credit_purchases")
+    op.drop_table("credit_purchases")

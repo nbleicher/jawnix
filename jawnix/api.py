@@ -32,13 +32,16 @@ from .auth import Principal, clear_session, issue_session, require_admin, requir
 from .admin_mfa_api import router as admin_mfa_router
 from .billing import (
     BillingError,
+    complete_credit_purchase_for_session,
     configure_customer_billing,
     place_batch_hold,
     post_admin_adjustment,
     prepare_submission,
+    start_credit_purchase,
     wallet_view,
 )
 from .config import Settings, get_settings
+from .stripe_client import StripeClientError, get_stripe_client
 from .customer_accounts import (
     ProvisionResult,
     UserAccountConflict,
@@ -151,6 +154,7 @@ from .schemas import (
     AgencyUpdate,
     ActionReason,
     CreditAdjustmentCreate,
+    CreditPurchaseCreate,
     CustomerBillingUpdate,
     CooldownWindowUpdate,
     LeadCorrectionApply,
@@ -899,6 +903,104 @@ def get_my_billing(
     if profile.customer is None:
         raise HTTPException(status_code=404, detail="Customer was not found.")
     return wallet_view(db, profile.customer)
+
+
+@app.post("/api/me/billing/purchases", status_code=201)
+def create_credit_purchase(
+    payload: CreditPurchaseCreate,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    profile = _current_customer_profile(db, principal)
+    customer = profile.customer
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer was not found.")
+    stripe = get_stripe_client(settings)
+    base = settings.public_base_url.rstrip("/")
+    try:
+        purchase, checkout_url = start_credit_purchase(
+            db,
+            customer=customer,
+            amount_dollars=payload.amount_dollars,
+            customer_email=profile.email,
+            stripe=stripe,
+            success_url=f"{base}/account?purchase=success",
+            cancel_url=f"{base}/account?purchase=cancelled",
+        )
+    except BillingError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from None
+    db.commit()
+    wallet = wallet_view(db, customer)
+    purchase_view = next(
+        item for item in wallet["purchases"] if item["id"] == str(purchase.id)
+    )
+    return {
+        "checkoutUrl": checkout_url,
+        "purchase": purchase_view,
+    }
+
+
+@app.post("/api/billing/stripe/webhook")
+async def stripe_billing_webhook(
+    request: Request,
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    if not settings.stripe_webhook_secret and settings.stripe_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Stripe webhook verification is not configured.",
+        )
+    body = await request.body()
+    signature = request.headers.get("Stripe-Signature", "")
+    stripe = get_stripe_client(settings)
+    try:
+        event = stripe.verify_webhook_signature(body, signature)
+    except (ValueError, StripeClientError):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Stripe webhook signature.",
+        ) from None
+    event_id = str(event.get("id") or "").strip()
+    if not event_id:
+        raise HTTPException(status_code=400, detail="Stripe event id is required.")
+    try:
+        with db.begin_nested():
+            db.add(WebhookReceipt(provider="stripe", event_key=event_id))
+            db.flush()
+    except IntegrityError:
+        return {"ok": True, "duplicate": True}
+
+    event_type = str(event.get("type") or "")
+    if event_type != "checkout.session.completed":
+        db.commit()
+        return {"ok": True, "ignored": True}
+
+    session_payload = (event.get("data") or {}).get("object") or {}
+    checkout_session_id = str(session_payload.get("id") or "").strip()
+    if not checkout_session_id:
+        db.commit()
+        return {"ok": True, "ignored": True}
+
+    try:
+        purchase = complete_credit_purchase_for_session(
+            db,
+            stripe_checkout_session_id=checkout_session_id,
+        )
+    except BillingError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from None
+    if purchase is None:
+        db.commit()
+        return {"ok": True, "ignored": True}
+    db.commit()
+    return {"ok": True}
 
 
 @app.get("/api/me/licensed-states", response_model=LicensedStateWorkspace)
