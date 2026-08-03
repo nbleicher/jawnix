@@ -195,29 +195,16 @@ jobs:
       - name: Build image
         run: docker build -t jawnix-ci .
 
-      - name: Feature flag off by default keeps /app absent
-        run: |
-          docker run -d --name jawnix-off -p 18001:8001 \
-            -e JAWNIX_SESSION_SECRET=ci-secret-at-least-long-enough \
-            -e JAWNIX_COOKIE_SECURE=false jawnix-ci
-          for _ in $(seq 1 30); do
-            sleep 1
-            curl -fsS -o /dev/null http://127.0.0.1:18001/api/healthz && break
-          done
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18001/app/)" = "404"
-          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18001/api/healthz)" = "200"
-          docker rm -f jawnix-off
-
-      - name: Feature flag on serves the shell and its hashed assets
+      - name: The image serves the shell and its hashed assets
         run: |
           docker run -d --name jawnix-on -p 18002:8001 \
-            -e JAWNIX_ENABLE_NEW_UI=true \
             -e JAWNIX_SESSION_SECRET=ci-secret-at-least-long-enough \
             -e JAWNIX_COOKIE_SECURE=false jawnix-ci
           for _ in $(seq 1 30); do
             sleep 1
             curl -fsS -o /dev/null http://127.0.0.1:18002/app/ && break
           done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18002/api/healthz)" = "200"
           # Deep links must survive a hard load, not just client-side routing.
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18002/app/admin/fulfillment)" = "200"
           asset="$(curl -s http://127.0.0.1:18002/app/ | grep -o '/app/assets/[^"]*\.js' | head -1)"

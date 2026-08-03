@@ -81,7 +81,6 @@ def workspace_settings(settings) -> Settings:
         JAWNIX_BATCH_DIR=settings.batch_dir,
         JAWNIX_COOKIE_SECURE=False,
         JAWNIX_SESSION_SECRET=settings.session_secret,
-        JAWNIX_ENABLE_NEW_UI=True,
         JAWNIX_SCRAPER_OPS_URL="http://10.77.0.2:8090",
         JAWNIX_SCRAPER_OPS_USER="scraper-admin",
         JAWNIX_SCRAPER_OPS_PASSWORD="upstream-secret",
