@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 
 import { AppShell } from "../shell/AppShell";
 import type { NavigationDestination } from "../shell/Navigation";
-import { signOutCustomer } from "../auth/customerAuth";
+import { signOut } from "../auth/customerAuth";
 import {
   ActionLink,
   Button,
@@ -25,11 +25,11 @@ export function CustomerShell() {
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
 
-  async function signOut() {
+  async function handleSignOut() {
     if (signingOut) return;
     setSigningOut(true);
     try {
-      await signOutCustomer();
+      await signOut();
     } finally {
       navigate("/sign-in", { replace: true });
     }
@@ -48,7 +48,7 @@ export function CustomerShell() {
             variant="ghost"
             busy={signingOut}
             busyLabel="Signing out…"
-            onClick={signOut}
+            onClick={handleSignOut}
           >
             Sign out
           </Button>

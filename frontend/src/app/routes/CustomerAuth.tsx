@@ -31,19 +31,38 @@ const SIGN_IN_ERROR =
 const INVITATION_ERROR =
   "This invitation cannot be used. Ask your administrator for a new invitation, or sign in if you already set your password.";
 
-function AuthRouteFrame({
-  children,
-  scenePaused = false,
-}: {
-  children: ReactNode;
-  scenePaused?: boolean;
-}) {
+// The scene stays live when a field is merely focused — clicking an input must
+// not freeze it. It calms only during active typing: WebGL and credential entry
+// compete for the main thread (starkly so on software-rendered GL), so pausing
+// while keys are flowing keeps input responsive. It resumes shortly after the
+// last keystroke, and immediately when focus leaves the form.
+const TYPING_PAUSE_MS = 1500;
+
+function AuthRouteFrame({ children }: { children: ReactNode }) {
   useRouteTheme("opaline");
-  const [sceneInteracting, setSceneInteracting] = useState(false);
+  const [typing, setTyping] = useState(false);
+  const resumeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+
+  useEffect(() => () => clearTimeout(resumeTimer.current), []);
+
+  function noteKeystroke() {
+    setTyping(true);
+    clearTimeout(resumeTimer.current);
+    resumeTimer.current = setTimeout(() => setTyping(false), TYPING_PAUSE_MS);
+  }
+
+  function resumeIfFocusLeft(event: React.FocusEvent<HTMLElement>) {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      clearTimeout(resumeTimer.current);
+      setTyping(false);
+    }
+  }
 
   return (
     <div className="jx-auth-route">
-      <OpalineScene paused={scenePaused || sceneInteracting} />
+      <OpalineScene paused={typing} />
       <a className="jx-auth-route__skip-link" href="#jx-auth-main">
         Skip to main content
       </a>
@@ -53,12 +72,8 @@ function AuthRouteFrame({
       <main
         className="jx-auth-route__main"
         id="jx-auth-main"
-        onBlurCapture={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget)) {
-            setSceneInteracting(false);
-          }
-        }}
-        onFocusCapture={() => setSceneInteracting(true)}
+        onBlurCapture={resumeIfFocusLeft}
+        onKeyDownCapture={noteKeystroke}
         tabIndex={-1}
       >
         {children}
@@ -117,7 +132,7 @@ export function SignInRoute() {
   }
 
   return (
-    <AuthRouteFrame scenePaused={busy}>
+    <AuthRouteFrame>
       <AuthPanel
         title="Sign in"
         description="Use the email address and password for your Customer account."
@@ -237,7 +252,7 @@ export function AcceptInvitationRoute() {
   }
 
   return (
-    <AuthRouteFrame scenePaused={busy}>
+    <AuthRouteFrame>
       <AuthPanel
         title="Create your password"
         description="Finish accepting your invitation. Your administrator cannot see or set this password."

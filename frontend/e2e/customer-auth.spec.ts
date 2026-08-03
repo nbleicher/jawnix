@@ -49,38 +49,23 @@ test.describe("Opaline authentication scene", () => {
     });
   });
 
-  test("pauses animation while the form has keyboard focus", async ({ page }) => {
+  test("keeps animating while a field is focused", async ({ page }) => {
     await mockCustomerAuth(page);
     await page.goto("./sign-in");
 
     const scene = page.locator(".jx-opaline-scene");
     const canvas = scene.locator("canvas");
     await expect(scene).toHaveAttribute("data-opaline-state", "animated");
+
+    // Focusing a field must not freeze the scene: it stays live throughout
+    // credential entry, so two frames captured while the email field holds
+    // focus differ.
     await page.getByLabel("Email address (required)").focus();
-    await expect(scene).toHaveAttribute("data-opaline-paused", "true");
-
-    await page.waitForTimeout(200);
-    const focusedFrame = await canvas.screenshot();
-    await page.waitForTimeout(200);
-    const laterFrame = await canvas.screenshot();
-    expect(laterFrame.equals(focusedFrame)).toBe(true);
-  });
-
-  test("resumes animation once focus leaves the form", async ({ page }) => {
-    await mockCustomerAuth(page);
-    await page.goto("./sign-in");
-
-    const scene = page.locator(".jx-opaline-scene");
-    await expect(scene).toHaveAttribute("data-opaline-state", "animated");
-    await page.getByLabel("Email address (required)").focus();
-    await expect(scene).toHaveAttribute("data-opaline-paused", "true");
-
-    // Moving focus out of the form region resumes the scene; without the
-    // blur-capture reset the pause latched on the first focus forever.
-    // Blur the active field directly — the centred card covers the viewport,
-    // so a background click would land back inside the form and keep focus.
-    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await expect(scene).not.toHaveAttribute("data-opaline-paused", "true");
+    const firstFrame = await canvas.screenshot();
+    await page.waitForTimeout(300);
+    const laterFrame = await canvas.screenshot();
+    expect(laterFrame.equals(firstFrame)).toBe(false);
   });
 
   test("WebGL failure keeps the gradient fallback and invitation form usable", async ({

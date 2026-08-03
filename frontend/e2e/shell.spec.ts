@@ -229,6 +229,20 @@ test.describe("Administration shell", () => {
     await nav.getByRole("link", { name: "Fulfillment" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "jawnix");
   });
+
+  test("signs the administrator out from the shell chrome", async ({ page }) => {
+    await page.goto("./admin/overview");
+
+    await page
+      .getByRole("banner")
+      .getByRole("button", { name: "Sign out" })
+      .click();
+
+    await expect(page).toHaveURL(/\/app\/sign-in$/);
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Sign in" }),
+    ).toBeVisible();
+  });
 });
 
 test.describe("Direct navigation", () => {
