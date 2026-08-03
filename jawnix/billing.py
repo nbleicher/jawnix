@@ -10,14 +10,17 @@ from .activity import record_activity
 from .models import (
     BatchHold,
     CreditLedgerEntry,
+    CreditPurchase,
     Customer,
     LeadRequest,
     utcnow,
 )
+from .stripe_client import StripeClient, StripeClientError
 
 
 MIN_LEAD_RATE_CENTS_PER_THOUSAND = 100
 MAX_LEAD_RATE_CENTS_PER_THOUSAND = 2_000
+MIN_PURCHASE_CENTS = 100
 
 
 class BillingError(Exception):
@@ -69,6 +72,16 @@ def _wallet_totals(db: Session, customer_id: int) -> tuple[int, int, int]:
     return balance, active_holds, balance - active_holds
 
 
+def _purchase_view(purchase: CreditPurchase) -> dict[str, object]:
+    return {
+        "id": str(purchase.id),
+        "amountCents": purchase.amount_cents,
+        "status": purchase.status,
+        "createdAt": purchase.created_at,
+        "completedAt": purchase.completed_at,
+    }
+
+
 def wallet_view(db: Session, customer: Customer) -> dict[str, object]:
     balance, active_holds, available = _wallet_totals(db, customer.id)
     entries = db.scalars(
@@ -77,6 +90,14 @@ def wallet_view(db: Session, customer: Customer) -> dict[str, object]:
         .order_by(
             CreditLedgerEntry.created_at.desc(),
             CreditLedgerEntry.id.desc(),
+        )
+    )
+    purchases = db.scalars(
+        select(CreditPurchase)
+        .where(CreditPurchase.customer_id == customer.id)
+        .order_by(
+            CreditPurchase.created_at.desc(),
+            CreditPurchase.id.desc(),
         )
     )
     return {
@@ -88,6 +109,7 @@ def wallet_view(db: Session, customer: Customer) -> dict[str, object]:
         "balanceCents": balance,
         "activeHoldsCents": active_holds,
         "availableBalanceCents": available,
+        "purchases": [_purchase_view(purchase) for purchase in purchases],
         "ledger": [
             {
                 "id": str(entry.id),
@@ -105,6 +127,99 @@ def wallet_view(db: Session, customer: Customer) -> dict[str, object]:
             for entry in entries
         ],
     }
+
+
+def start_credit_purchase(
+    db: Session,
+    *,
+    customer: Customer,
+    amount_dollars: int,
+    customer_email: str | None,
+    stripe: StripeClient,
+    success_url: str,
+    cancel_url: str,
+) -> tuple[CreditPurchase, str]:
+    """Open a Stripe Checkout session and record a processing Credit Purchase."""
+
+    if amount_dollars < 1:
+        raise BillingError(
+            "Credit Purchases must be whole dollars with a $1 floor.",
+            422,
+        )
+    amount_cents = amount_dollars * 100
+    purchase_id = uuid.uuid4()
+    try:
+        checkout = stripe.create_checkout_session(
+            amount_cents=amount_cents,
+            customer_email=customer_email,
+            metadata={
+                "purchase_id": str(purchase_id),
+                "customer_id": str(customer.id),
+            },
+            success_url=success_url,
+            cancel_url=cancel_url,
+        )
+    except StripeClientError as exc:
+        raise BillingError(str(exc), 503) from exc
+    purchase = CreditPurchase(
+        id=purchase_id,
+        customer_id=customer.id,
+        amount_cents=amount_cents,
+        status="processing",
+        stripe_checkout_session_id=checkout.id,
+    )
+    db.add(purchase)
+    db.flush()
+    return purchase, checkout.url
+
+
+def complete_credit_purchase_for_session(
+    db: Session,
+    *,
+    stripe_checkout_session_id: str,
+) -> CreditPurchase | None:
+    """Credit the wallet for a Checkout session exactly once.
+
+    Returns ``None`` when no matching purchase exists for the session id.
+    """
+
+    purchase = db.scalar(
+        select(CreditPurchase)
+        .where(
+            CreditPurchase.stripe_checkout_session_id
+            == stripe_checkout_session_id
+        )
+        .with_for_update()
+    )
+    if purchase is None:
+        return None
+    if purchase.status == "completed":
+        return purchase
+    if purchase.status != "processing":
+        raise BillingError(
+            f"Credit Purchase {purchase.id} cannot be completed from status "
+            f"{purchase.status}."
+        )
+    if purchase.amount_cents < MIN_PURCHASE_CENTS:
+        raise BillingError(
+            "Credit Purchases must be whole dollars with a $1 floor.",
+            422,
+        )
+    entry = CreditLedgerEntry(
+        customer_id=purchase.customer_id,
+        kind="purchase",
+        amount_cents=purchase.amount_cents,
+        reason=(
+            f"Credit Purchase {purchase.id} completed via Stripe Checkout."
+        ),
+        actor_user_id="system:stripe",
+    )
+    db.add(entry)
+    db.flush()
+    purchase.ledger_entry_id = entry.id
+    purchase.status = "completed"
+    purchase.completed_at = utcnow()
+    return purchase
 
 
 def prepare_submission(
