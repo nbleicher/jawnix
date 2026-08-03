@@ -46,3 +46,27 @@
   min-height: var(--jx-touch-target);
   color: var(--jx-color-text-strong);
 }
+
+.admin-customer-details__ledger {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-2);
+  width: 100%;
+  overflow-x: auto;
+}
+
+.admin-customer-details__ledger-row {
+  display: grid;
+  gap: var(--jx-space-3);
+  grid-template-columns: minmax(7rem, 1.1fr) minmax(7rem, 1fr) minmax(5rem, 0.7fr) minmax(10rem, 2fr);
+  align-items: start;
+  padding-block: var(--jx-space-2);
+  border-bottom: 1px solid var(--jx-color-border);
+  font-size: var(--jx-font-size-sm);
+}
+
+.admin-customer-details__ledger-row--head {
+  color: var(--jx-color-text-muted);
+  font-weight: var(--jx-weight-semibold);
+  border-bottom-width: 2px;
+}

@@ -13,6 +13,12 @@ export interface AdminCustomersMockState {
   assignmentRequests: unknown[];
   customerPatchRequests: unknown[];
   passwordResetRequests: string[];
+  billingPutRequests: unknown[];
+  adjustmentRequests: unknown[];
+  cooldownPutRequests: unknown[];
+  nichePolicyPutRequests: unknown[];
+  nichePolicyPreviewRequests: unknown[];
+  availabilityRefreshRequests: number;
 }
 
 const AGENCIES = [
@@ -275,6 +281,51 @@ const PENDING_INVITATION = {
   },
 };
 
+const BILLING = {
+  customerId: 7,
+  billingEnabled: false,
+  leadRateCentsPerThousand: null as number | null,
+  balanceCents: 2500,
+  activeHoldsCents: 500,
+  availableBalanceCents: 2000,
+  purchases: [] as {
+    id: string;
+    amountCents: number;
+    status: string;
+    createdAt: string;
+    completedAt: string | null;
+  }[],
+  ledger: [
+    {
+      id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      kind: "admin_adjustment",
+      amountCents: 2500,
+      reason: "Opening credit",
+      actor: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      batchRequestId: null as string | null,
+      createdAt: "2026-07-01T12:00:00Z",
+    },
+  ],
+};
+
+const COOLDOWN = { days: 7 };
+
+const NICHE_POLICY: {
+  rows: {
+    state: string | null;
+    mode: "exclude" | "only";
+    niches: string[];
+  }[];
+} = {
+  rows: [
+    {
+      state: null,
+      mode: "exclude",
+      niches: ["roofing"],
+    },
+  ],
+};
+
 function json(route: Route, value: unknown, status = 200) {
   return route.fulfill({
     status,
@@ -302,6 +353,37 @@ export async function mockAdminCustomers(
     assignmentRequests: [],
     customerPatchRequests: [],
     passwordResetRequests: [],
+    billingPutRequests: [],
+    adjustmentRequests: [],
+    cooldownPutRequests: [],
+    nichePolicyPutRequests: [],
+    nichePolicyPreviewRequests: [],
+    availabilityRefreshRequests: 0,
+  };
+
+  const billing = structuredClone(BILLING);
+  const cooldown = structuredClone(COOLDOWN);
+  const nichePolicy = structuredClone(NICHE_POLICY);
+  const availability = {
+    asOf: "2026-08-03T12:00:00Z",
+    available: 412,
+    forecast: [
+      { offset: 0, date: "2026-08-03", count: 412 },
+      { offset: 1, date: "2026-08-04", count: 18 },
+      { offset: 2, date: "2026-08-05", count: 0 },
+      { offset: 3, date: "2026-08-06", count: 7 },
+      { offset: 4, date: "2026-08-07", count: 0 },
+      { offset: 5, date: "2026-08-08", count: 0 },
+      { offset: 6, date: "2026-08-09", count: 0 },
+      { offset: 7, date: "2026-08-10", count: 0 },
+      { offset: 8, date: "2026-08-11", count: 0 },
+      { offset: 9, date: "2026-08-12", count: 0 },
+      { offset: 10, date: "2026-08-13", count: 0 },
+      { offset: 11, date: "2026-08-14", count: 0 },
+      { offset: 12, date: "2026-08-15", count: 0 },
+      { offset: 13, date: "2026-08-16", count: 0 },
+      { offset: 14, date: "2026-08-17", count: 0 },
+    ],
   };
 
   await page.addInitScript(() => {
@@ -455,6 +537,104 @@ export async function mockAdminCustomers(
       total: 0,
       pages: 1,
     }),
+  );
+
+  await page.route(/\/api\/admin\/customers\/\d+\/billing$/, (route) => {
+    if (route.request().method() === "GET") {
+      return json(route, billing);
+    }
+    const body = route.request().postDataJSON() as {
+      billing_enabled: boolean;
+      lead_rate_cents_per_thousand: number | null;
+      reason: string;
+    };
+    state.billingPutRequests.push(body);
+    billing.billingEnabled = body.billing_enabled;
+    billing.leadRateCentsPerThousand = body.lead_rate_cents_per_thousand;
+    return json(route, billing);
+  });
+
+  await page.route(
+    /\/api\/admin\/customers\/\d+\/billing\/adjustments$/,
+    (route) => {
+      const body = route.request().postDataJSON() as {
+        amount_cents: number;
+        reason: string;
+      };
+      state.adjustmentRequests.push(body);
+      billing.balanceCents += body.amount_cents;
+      billing.availableBalanceCents =
+        billing.balanceCents - billing.activeHoldsCents;
+      billing.ledger.unshift({
+        id: `adjustment-${state.adjustmentRequests.length}`,
+        kind: "admin_adjustment",
+        amountCents: body.amount_cents,
+        reason: body.reason,
+        actor: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        batchRequestId: null,
+        createdAt: "2026-07-28T12:00:00Z",
+      });
+      return json(route, billing, 201);
+    },
+  );
+
+  await page.route(/\/api\/admin\/customers\/\d+\/cooldown-window$/, (route) => {
+    if (route.request().method() === "GET") {
+      return json(route, cooldown);
+    }
+    const body = route.request().postDataJSON() as {
+      days: number;
+      reason: string;
+    };
+    state.cooldownPutRequests.push(body);
+    cooldown.days = body.days;
+    return json(route, cooldown);
+  });
+
+  await page.route(/\/api\/admin\/customers\/\d+\/niche-policy$/, (route) => {
+    if (route.request().method() === "GET") {
+      return json(route, nichePolicy);
+    }
+    const body = route.request().postDataJSON() as {
+      rows: {
+        state: string | null;
+        mode: "exclude" | "only";
+        niches: string[];
+      }[];
+      reason: string;
+    };
+    state.nichePolicyPutRequests.push(body);
+    nichePolicy.rows = body.rows;
+    return json(route, nichePolicy);
+  });
+
+  await page.route(
+    /\/api\/admin\/customers\/\d+\/niche-policy\/projected-availability$/,
+    (route) => {
+      state.nichePolicyPreviewRequests.push(route.request().postDataJSON());
+      return json(route, {
+        available: 128,
+        asOf: "2026-08-03T15:00:00Z",
+      });
+    },
+  );
+
+  await page.route(
+    /\/api\/admin\/customers\/\d+\/availability(?:\/refresh)?$/,
+    (route) => {
+      if (route.request().method() === "POST") {
+        state.availabilityRefreshRequests += 1;
+        availability.asOf = "2026-08-03T15:30:00Z";
+        availability.available = 420;
+        availability.forecast[0] = {
+          offset: 0,
+          date: "2026-08-03",
+          count: 420,
+        };
+        return json(route, availability);
+      }
+      return json(route, availability);
+    },
   );
 
   return state;

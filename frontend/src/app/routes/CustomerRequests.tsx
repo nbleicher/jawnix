@@ -53,17 +53,20 @@ import type {
 import "./CustomerRequests.css";
 
 /**
- * The three guided stages.
+ * The guided stages.
  *
- * Quantity and scope are separate because each has its own rule, and a rule
- * that can be broken has to be answerable before the Customer is asked to
- * confirm anything. Review is the only stage with a Submit button.
+ * Quantity, scope, and files each carry their own rule, and a rule that can be
+ * broken has to be answerable before the Customer is asked to confirm anything.
+ * Review is the only stage with a Submit button.
  */
 const STAGES = [
   { key: "quantity", title: "Quantity" },
   { key: "scope", title: "Licensed States" },
+  { key: "files", title: "Files" },
   { key: "review", title: "Review" },
 ] as const;
+
+const MAX_ROWS_PER_FILE = 100_000;
 
 function formatCount(value: number): string {
   return value.toLocaleString();
@@ -71,6 +74,25 @@ function formatCount(value: number): string {
 
 function formatStates(states: string[]): string {
   return states.join(", ");
+}
+
+/** How many CSV parts a frozen rows-per-file choice yields. */
+export function previewFileCount(
+  leadCount: number,
+  rowsPerFile: number,
+): number {
+  if (leadCount < 1 || rowsPerFile < 1) return 0;
+  return Math.ceil(leadCount / rowsPerFile);
+}
+
+/** Live preview copy matching the submission freeze ("50,000 at 10,000/file = 5 files"). */
+export function formatFileCountPreview(
+  leadCount: number,
+  rowsPerFile: number,
+): string {
+  const files = previewFileCount(leadCount, rowsPerFile);
+  const fileWord = files === 1 ? "file" : "files";
+  return `${formatCount(leadCount)} at ${formatCount(rowsPerFile)}/file = ${formatCount(files)} ${fileWord}`;
 }
 
 export const ACTIVE_REQUEST_REFRESH_MS = 10_000;
@@ -191,22 +213,36 @@ function RequestFlow({
   const [quantity, setQuantity] = useState("");
   const [wholeScope, setWholeScope] = useState(true);
   const [chosenStates, setChosenStates] = useState<string[]>([]);
+  const [oneFile, setOneFile] = useState(true);
+  const [rowsPerFile, setRowsPerFile] = useState("");
   const [quantityError, setQuantityError] = useState("");
   const [scopeError, setScopeError] = useState("");
+  const [filesError, setFilesError] = useState("");
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
   const [receipt, setReceipt] = useState<BatchRequestReceipt | null>(null);
   const quantityRef = useRef<HTMLInputElement>(null);
   const scopeRef = useRef<HTMLInputElement>(null);
+  const filesRef = useRef<HTMLInputElement>(null);
   const failureRef = useRef<HTMLDivElement>(null);
 
   // Selected scope can only ever contain Licensed States, so an unlicensed
   // request is not something the Customer can express and then be told off for.
   const states = wholeScope ? limits.licensed_states : chosenStates;
-
   const leadCount = /^\d+$/.test(quantity.trim())
     ? Number(quantity.trim())
     : null;
+  const splitRows = Number(rowsPerFile.trim());
+  const previewRows = oneFile
+    ? (leadCount ?? 0)
+    : Number.isFinite(splitRows) && splitRows >= 1
+      ? splitRows
+      : 0;
+  const filePreview =
+    leadCount != null && leadCount >= 1 && previewRows >= 1
+      ? formatFileCountPreview(leadCount, previewRows)
+      : null;
+
   const holdCents =
     billing?.leadRateCentsPerThousand != null && leadCount != null
       ? batchCostCents(leadCount, billing.leadRateCentsPerThousand)
@@ -220,6 +256,7 @@ function RequestFlow({
     if (receipt) return;
     if (stage === 0) quantityRef.current?.focus();
     if (stage === 1) scopeRef.current?.focus();
+    if (stage === 2) filesRef.current?.focus();
   }, [stage, receipt]);
 
   useEffect(() => {
@@ -259,6 +296,31 @@ function RequestFlow({
     return true;
   }
 
+  function validFiles(): boolean {
+    if (oneFile) {
+      setFilesError("");
+      return true;
+    }
+    const trimmed = rowsPerFile.trim();
+    if (!trimmed) {
+      setFilesError("Enter how many rows each file should hold.");
+      return false;
+    }
+    if (!/^\d+$/.test(trimmed)) {
+      setFilesError("Enter a whole number of rows per file.");
+      return false;
+    }
+    const value = Number(trimmed);
+    if (value < 1 || value > MAX_ROWS_PER_FILE) {
+      setFilesError(
+        `Enter between 1 and ${formatCount(MAX_ROWS_PER_FILE)} rows per file.`,
+      );
+      return false;
+    }
+    setFilesError("");
+    return true;
+  }
+
   function toggleState(state: string) {
     setScopeError("");
     setChosenStates((current) =>
@@ -280,6 +342,9 @@ function RequestFlow({
         await submitBatchRequest({
           idempotency_key: submissionKey,
           lead_count: Number(quantity.trim()),
+          ...(oneFile
+            ? {}
+            : { rows_per_file: Number(rowsPerFile.trim()) }),
           state_mode: wholeScope ? "all_saved" : "selected",
           states: wholeScope ? [] : chosenStates,
         }),
@@ -307,6 +372,10 @@ function RequestFlow({
       return;
     }
     if (stage === 2) {
+      if (validFiles()) setStage(3);
+      return;
+    }
+    if (stage === 3) {
       if (insufficient) return;
       void send();
     }
@@ -318,8 +387,11 @@ function RequestFlow({
     setQuantity("");
     setWholeScope(true);
     setChosenStates([]);
+    setOneFile(true);
+    setRowsPerFile("");
     setQuantityError("");
     setScopeError("");
+    setFilesError("");
     setFailure("");
     setStage(0);
   }
@@ -429,6 +501,78 @@ function RequestFlow({
             ) : null}
 
             {stage === 2 ? (
+              <Stack gap={4}>
+                <Fieldset
+                  legend="How should the Batch be split into files?"
+                  description="This choice is frozen when you submit. Delivery is one zip either way."
+                >
+                  <Stack gap={2}>
+                    <label className="request-flow__choice">
+                      <input
+                        ref={filesRef}
+                        type="radio"
+                        name="request-files"
+                        checked={oneFile}
+                        onChange={() => {
+                          setOneFile(true);
+                          setFilesError("");
+                        }}
+                      />
+                      <Text as="span" weight="semibold">
+                        One file
+                      </Text>
+                    </label>
+                    <label className="request-flow__choice">
+                      <input
+                        type="radio"
+                        name="request-files"
+                        checked={!oneFile}
+                        onChange={() => {
+                          setOneFile(false);
+                          setFilesError("");
+                        }}
+                      />
+                      <Text as="span" weight="semibold">
+                        Split by rows per file
+                      </Text>
+                    </label>
+                  </Stack>
+                </Fieldset>
+                {oneFile ? null : (
+                  <Field
+                    label="Rows per file"
+                    description={`Any whole number from 1 to ${formatCount(MAX_ROWS_PER_FILE)}. Remainder rows land in the last file.`}
+                    required
+                    {...(filesError ? { error: filesError } : {})}
+                  >
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={MAX_ROWS_PER_FILE}
+                      step={1}
+                      value={rowsPerFile}
+                      onChange={(event) => {
+                        setRowsPerFile(event.currentTarget.value);
+                        setFilesError("");
+                      }}
+                    />
+                  </Field>
+                )}
+                {filePreview ? (
+                  <Text
+                    size="sm"
+                    tone="muted"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {filePreview}
+                  </Text>
+                ) : null}
+              </Stack>
+            ) : null}
+
+            {stage === 3 ? (
               <Stack gap={3}>
                 <Heading level={3}>Review your request</Heading>
                 <dl className="request-flow__review">
@@ -443,6 +587,19 @@ function RequestFlow({
                       <LabelText>Licensed States</LabelText>
                     </dt>
                     <dd>{formatStates(states)}</dd>
+                  </div>
+                  <div>
+                    <dt>
+                      <LabelText>Files</LabelText>
+                    </dt>
+                    <dd>
+                      {oneFile
+                        ? "One file"
+                        : formatFileCountPreview(
+                            Number(quantity.trim()),
+                            Number(rowsPerFile.trim()),
+                          )}
+                    </dd>
                   </div>
                   {billing && holdCents != null && billing.leadRateCentsPerThousand != null ? (
                     <>
@@ -506,9 +663,9 @@ function RequestFlow({
                 variant="primary"
                 busy={busy}
                 busyLabel="Submitting…"
-                disabled={stage === 2 && insufficient}
+                disabled={stage === 3 && insufficient}
               >
-                {stage === 2 ? "Submit request" : "Continue"}
+                {stage === 3 ? "Submit request" : "Continue"}
               </Button>
             </Cluster>
           </Stack>
@@ -540,6 +697,7 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
     : live && artifact?.expires_at
       ? formatArtifactExpiry(artifact.expires_at, now)
       : "Unavailable — contact us";
+  const parts = artifact?.parts ?? [];
 
   return (
     <section
@@ -556,7 +714,8 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
               Batch Artifact
             </Heading>
             <Text size="sm" tone="muted">
-              The exact CSV created for this Batch Request.
+              The exact zip created for this Batch Request, with one CSV part
+              per file choice.
             </Text>
           </Stack>
           <Text
@@ -573,27 +732,47 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
         </Cluster>
 
         {artifact ? (
-          <dl className="request-artifact__metadata">
-            <div>
-              <dt>
-                <LabelText>Filename</LabelText>
-              </dt>
-              <dd>
-                <Mono>{artifact.filename}</Mono>
-              </dd>
-            </div>
-            <div>
-              <dt>
-                <LabelText>Rows</LabelText>
-              </dt>
-              <dd>{formatCount(artifact.row_count)}</dd>
-            </div>
-          </dl>
+          <Stack gap={4}>
+            <dl className="request-artifact__metadata">
+              <div>
+                <dt>
+                  <LabelText>Filename</LabelText>
+                </dt>
+                <dd>
+                  <Mono>{artifact.filename}</Mono>
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  <LabelText>Rows</LabelText>
+                </dt>
+                <dd>{formatCount(artifact.row_count)}</dd>
+              </div>
+            </dl>
+            {parts.length ? (
+              <div>
+                <LabelText id="batch-artifact-parts-label">Parts</LabelText>
+                <ul
+                  className="request-artifact__parts"
+                  aria-labelledby="batch-artifact-parts-label"
+                >
+                  {parts.map((part) => (
+                    <li key={part.filename} className="request-artifact__part">
+                      <Mono>{part.filename}</Mono>
+                      <Text as="span" size="sm" tone="muted">
+                        {`${formatCount(part.row_count)} ${part.row_count === 1 ? "row" : "rows"}`}
+                      </Text>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </Stack>
         ) : null}
 
         {live && artifact?.download_href ? (
           <ActionLink href={artifact.download_href} variant="primary">
-            Download CSV
+            Download zip
           </ActionLink>
         ) : (
           <Text size="sm">
@@ -835,7 +1014,7 @@ export function CustomerRequestsRoute() {
     >
       <Section
         title="Request a Batch"
-        description="Three short stages: how many leads, which Licensed States, then review."
+        description="Ask for an exact Batch — quantity, Licensed States, file split — then review."
       >
         {workspace.blocker ? (
           <EmptyState

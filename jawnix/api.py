@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import re
 import shutil
@@ -13,7 +14,7 @@ import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -95,6 +96,14 @@ from .licensed_states import (
     workspace as licensed_state_workspace,
 )
 from .milestone_emails import enqueue_milestone_email
+from .niche_policy import (
+    NichePolicyError,
+    load_policy,
+    normalize_policy_rows,
+    replace_policy,
+    unmapped_inventory_query,
+    upload_status as niche_assignment_upload_status,
+)
 from .recommendations import (
     RecommendationDecisionError,
     decide_recommendation,
@@ -122,6 +131,7 @@ from .models import (
     ListingObservation,
     LeadRequest,
     NightlyReview,
+    NicheAssignmentUpload,
     PerformanceSuggestionNote,
     RequestStatus,
     ScrapeSegmentResult,
@@ -146,6 +156,7 @@ from .schemas import (
     CreditAdjustmentCreate,
     CreditPurchaseCreate,
     CustomerBillingUpdate,
+    CooldownWindowUpdate,
     LeadCorrectionApply,
     LeadReportCreate,
     LeadReportCorrect,
@@ -154,6 +165,8 @@ from .schemas import (
     CustomerUpdate,
     CustomerCreate,
     CustomerDelete,
+    NichePolicyDraft,
+    NichePolicyUpdate,
     CustomerDetailsOut,
     CustomerDirectoryOut,
     DeleteConfirmation,
@@ -741,7 +754,7 @@ def upload_customer_exclusion_list(
         },
     )
     db.commit()
-    return exclusion_list_status(item)
+    return exclusion_list_status(item, db)
 
 
 @app.get("/api/me/exclusion-lists/{exclusion_list_id}")
@@ -759,7 +772,7 @@ def customer_exclusion_list_status(
     )
     if item is None:
         raise HTTPException(status_code=404, detail="Exclusion List was not found.")
-    return exclusion_list_status(item)
+    return exclusion_list_status(item, db)
 
 
 @app.get("/api/me/exclusion-lists")
@@ -769,7 +782,7 @@ def list_customer_exclusion_lists(
 ):
     profile = _current_customer_profile(db, principal)
     return [
-        exclusion_list_status(item)
+        exclusion_list_status(item, db)
         for item in db.scalars(
             select(ExclusionList)
             .where(ExclusionList.customer_id == profile.customer_id)
@@ -837,7 +850,7 @@ def upload_admin_exclusion_list(
         },
     )
     db.commit()
-    return exclusion_list_status(item)
+    return exclusion_list_status(item, db)
 
 
 @app.get("/api/admin/exclusion-lists/{exclusion_list_id}")
@@ -849,7 +862,7 @@ def admin_exclusion_list_status(
     item = db.get(ExclusionList, exclusion_list_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Exclusion List was not found.")
-    return exclusion_list_status(item)
+    return exclusion_list_status(item, db)
 
 
 @app.post("/api/admin/exclusion-lists/{exclusion_list_id}/{action}")
@@ -873,7 +886,7 @@ def admin_decide_exclusion_list(
     except ExclusionDecisionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
     db.commit()
-    return exclusion_list_status(item)
+    return exclusion_list_status(item, db)
 
 
 @app.get("/api/me/profile", response_model=ProfileOut)
@@ -2594,6 +2607,235 @@ def admin_customer_details(
     if customer is None or customer.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Customer was not found.")
     return build_customer_details(db, customer=customer)
+
+
+def _allocation_customer(db: Session, customer_id: int) -> Customer:
+    customer = db.get(Customer, customer_id)
+    if customer is None or customer.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Customer was not found.")
+    return customer
+
+
+@app.get("/api/admin/customers/{customer_id}/cooldown-window")
+def get_cooldown_window(
+    customer_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    customer = _allocation_customer(db, customer_id)
+    return {"days": customer.cooldown_window_days}
+
+
+@app.put("/api/admin/customers/{customer_id}/cooldown-window")
+def update_cooldown_window(
+    customer_id: int,
+    payload: CooldownWindowUpdate,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    customer = _allocation_customer(db, customer_id)
+    customer.cooldown_window_days = payload.days
+    record_activity(
+        db,
+        action="cooldown_window_updated",
+        target_type="customer",
+        target_id=customer.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={"days": payload.days},
+    )
+    db.commit()
+    return {"days": customer.cooldown_window_days}
+
+
+@app.get("/api/admin/customers/{customer_id}/niche-policy")
+def get_niche_policy(
+    customer_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _allocation_customer(db, customer_id)
+    return {"rows": load_policy(db, customer_id)}
+
+
+@app.put("/api/admin/customers/{customer_id}/niche-policy")
+def update_niche_policy(
+    customer_id: int,
+    payload: NichePolicyUpdate,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    customer = _allocation_customer(db, customer_id)
+    try:
+        rows = replace_policy(
+            db, customer_id, [row.model_dump() for row in payload.rows]
+        )
+    except NichePolicyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    record_activity(
+        db,
+        action="niche_policy_updated",
+        target_type="customer",
+        target_id=customer.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={"rows": rows},
+    )
+    db.commit()
+    return {"rows": rows}
+
+
+@app.post("/api/admin/customers/{customer_id}/niche-policy/projected-availability")
+def projected_niche_policy_availability(
+    customer_id: int,
+    payload: NichePolicyDraft,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    customer = _allocation_customer(db, customer_id)
+    draft = [row.model_dump() for row in payload.rows]
+    try:
+        normalize_policy_rows(draft)
+    except NichePolicyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    from .pool_analytics import project_customer_availability
+
+    return project_customer_availability(
+        db,
+        customer,
+        settings,
+        niche_policy_rows=draft,
+    )
+
+
+@app.get("/api/admin/pool-breakdown")
+def get_pool_breakdown(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from .pool_analytics import read_pool_breakdown
+
+    return read_pool_breakdown(db)
+
+
+@app.post("/api/admin/pool-breakdown/refresh")
+def refresh_pool_breakdown_endpoint(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from .pool_analytics import refresh_pool_breakdown
+
+    payload = refresh_pool_breakdown(db)
+    db.commit()
+    return payload
+
+
+@app.get("/api/admin/customers/{customer_id}/availability")
+def get_customer_availability(
+    customer_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _allocation_customer(db, customer_id)
+    from .pool_analytics import read_customer_availability
+
+    return read_customer_availability(db, customer_id)
+
+
+@app.post("/api/admin/customers/{customer_id}/availability/refresh")
+def refresh_customer_availability_endpoint(
+    customer_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    customer = _allocation_customer(db, customer_id)
+    from .pool_analytics import refresh_customer_availability
+
+    payload = refresh_customer_availability(db, customer, settings)
+    db.commit()
+    return payload
+
+
+def _store_niche_assignment_upload(
+    upload: UploadFile, *, upload_id: uuid.UUID, settings: Settings
+) -> Path:
+    directory = Path(settings.batch_dir) / "niche-assignments"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{upload_id}.csv"
+    with path.open("xb") as stream:
+        shutil.copyfileobj(upload.file, stream)
+    return path
+
+
+@app.get("/api/admin/niche-assignments/export")
+def export_unmapped_niche_inventory(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    output = io.StringIO()
+    output.write("phone,title,state\r\n")
+    for lead in db.scalars(unmapped_inventory_query()):
+        output.write(f'"{lead.phone}","{lead.title.replace(chr(34), chr(34) * 2)}","{lead.state}"\r\n')
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="unmapped-inventory.csv"'},
+    )
+
+
+@app.post("/api/admin/niche-assignments", status_code=202)
+def upload_niche_assignments(
+    file: UploadFile = File(...),
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    if not file.filename or not file.filename.casefold().endswith(".csv"):
+        raise HTTPException(status_code=422, detail="Upload a CSV file.")
+    item = NicheAssignmentUpload(
+        uploaded_by=str(principal.user_id),
+        filename=Path(file.filename).name,
+        storage_path="",
+    )
+    db.add(item)
+    db.flush()
+    try:
+        item.storage_path = str(
+            _store_niche_assignment_upload(file, upload_id=item.id, settings=settings)
+        )
+    except OSError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503, detail="The Niche Assignment CSV could not be stored."
+        ) from exc
+    enqueue_job(
+        db, "ingest_niche_assignments", payload={"niche_assignment_upload_id": str(item.id)}
+    )
+    record_activity(
+        db,
+        action="niche_assignment_uploaded",
+        target_type="niche_assignment_upload",
+        target_id=item.id,
+        actor_id=principal.user_id,
+        reason="Administrator uploaded Niche Assignments",
+        details={"filename": item.filename},
+    )
+    db.commit()
+    return niche_assignment_upload_status(item)
+
+
+@app.get("/api/admin/niche-assignments/{upload_id}")
+def niche_assignment_status(
+    upload_id: uuid.UUID,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    item = db.get(NicheAssignmentUpload, upload_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Niche Assignment upload was not found.")
+    return niche_assignment_upload_status(item)
 
 
 @app.get("/api/admin/customers/{customer_id}/billing")

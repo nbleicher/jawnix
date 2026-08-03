@@ -73,6 +73,9 @@ class Agent(Base):
         nullable=False,
     )
     lead_rate_cents_per_thousand: Mapped[int | None] = mapped_column(Integer)
+    cooldown_window_days: Mapped[int] = mapped_column(
+        Integer, default=7, nullable=False
+    )
     permanent_history_key: Mapped[str] = mapped_column(
         String(64),
         default=lambda: str(uuid.uuid4()),
@@ -97,6 +100,10 @@ class Agent(Base):
                 "lead_rate_cents_per_thousand BETWEEN 100 AND 2000"
             ),
             name="ck_agent_lead_rate_range",
+        ),
+        CheckConstraint(
+            "cooldown_window_days >= 1",
+            name="ck_agent_cooldown_window_days",
         ),
     )
 
@@ -740,6 +747,65 @@ class ExclusionPhone(Base):
         primary_key=True,
     )
     phone: Mapped[str] = mapped_column(String(10), primary_key=True, index=True)
+
+
+class NichePolicyRow(Base):
+    """One normalized Niche membership in a Customer's state policy."""
+
+    __tablename__ = "niche_policy_rows"
+    id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # Null is the all-states default.  A state policy replaces, rather than
+    # augments, the default policy.
+    state: Mapped[str | None] = mapped_column(String(2), index=True)
+    mode: Mapped[str] = mapped_column(String(8), nullable=False)
+    niche: Mapped[str] = mapped_column(String(160), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("mode IN ('exclude', 'only')", name="ck_niche_policy_rows_mode"),
+        UniqueConstraint(
+            "customer_id", "state", "mode", "niche",
+            name="uq_niche_policy_row",
+        ),
+    )
+
+
+class NicheAssignment(Base):
+    """Administrator-provided Niche for inventory without a mapped source."""
+
+    __tablename__ = "niche_assignments"
+    phone: Mapped[str] = mapped_column(String(10), primary_key=True)
+    niche: Mapped[str] = mapped_column(String(160), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
+class NicheAssignmentUpload(Base):
+    """Durable asynchronous import of manual Niche Assignments."""
+
+    __tablename__ = "niche_assignment_uploads"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    uploaded_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), default="queued", index=True, nullable=False
+    )
+    total_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    accepted_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    invalid_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    duplicate_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    skipped_mapped_rows: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+    error: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True, nullable=False
+    )
+    ingested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class LeadSource(Base):
@@ -1948,6 +2014,45 @@ class SharedHistoryLeadCount(Base):
     __tablename__ = "shared_history_lead_counts"
     subject_key: Mapped[str] = mapped_column(Text, primary_key=True)
     lead_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
+class PoolBreakdownSnapshot(Base):
+    """Cached eligible-inventory composition by state × Niche for Fulfillment.
+
+    A single row (id=1) holds the latest cells. Administrators refresh on
+    demand; page loads only read this snapshot and its as-of timestamp.
+    """
+
+    __tablename__ = "pool_breakdown_snapshots"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cells: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
+class CustomerAvailabilitySnapshot(Base):
+    """Cached per-Customer deliverable count and 14-day cooldown forecast.
+
+    Honors Licensed States, Niche Policy, no-repeat history, Cooldown Window,
+    and exclusions at compute time. Served with a visible as-of; never
+    recomputed as a side effect of loading Customer details.
+    """
+
+    __tablename__ = "customer_availability_snapshots"
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    available: Mapped[int] = mapped_column(Integer, nullable=False)
+    forecast: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,

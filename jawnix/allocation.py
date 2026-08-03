@@ -34,9 +34,16 @@ from .models import (
     LeadCorrectionEvent,
     LeadRequest,
     ListingObservation,
+    NicheAssignment,
     RequestStatus,
     ScraperConfiguration,
     ScraperRun,
+    SourceNicheMapping,
+)
+from .niche_policy import (
+    effective_niche_expression,
+    policy_clause,
+    policy_clause_for_rows,
 )
 from .states import truncate_utf8
 
@@ -81,8 +88,14 @@ def _same_recipient_clause(request: LeadRequest):
     )
 
 
-def eligible_query(request: LeadRequest, settings: Settings):
-    cutoff = datetime.now(timezone.utc) - timedelta(days=settings.global_cooldown_days)
+def eligible_query(
+    request: LeadRequest,
+    settings: Settings,
+    *,
+    niche_policy_rows: list[dict] | None = None,
+):
+    cooldown_days = max(1, int(request.customer.cooldown_window_days or 7))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=cooldown_days)
     previously_sent = exists(
         select(DistributionEvent.id).where(
             DistributionEvent.lead_id == Lead.id,
@@ -109,8 +122,22 @@ def eligible_query(request: LeadRequest, settings: Settings):
             ),
         )
     )
+    niche = effective_niche_expression()
+    if niche_policy_rows is None:
+        niche_filter = policy_clause(request.customer_id, niche)
+    else:
+        niche_filter = policy_clause_for_rows(niche_policy_rows, niche)
     return (
         select(Lead)
+        .outerjoin(
+            ListingObservation,
+            ListingObservation.id == Lead.current_listing_observation_id,
+        )
+        .outerjoin(
+            SourceNicheMapping,
+            SourceNicheMapping.segment_key == ListingObservation.source,
+        )
+        .outerjoin(NicheAssignment, NicheAssignment.phone == Lead.phone)
         .where(
             Lead.state.in_(request.states_snapshot),
             Lead.suppressed.is_(False),
@@ -118,13 +145,29 @@ def eligible_query(request: LeadRequest, settings: Settings):
             ~previously_sent,
             ~actively_held,
             ~excluded_phone,
+            niche_filter,
         )
         .order_by(nullsfirst(Lead.last_distributed_at), Lead.id)
     )
 
 
-def inventory_count(session: Session, request: LeadRequest, settings: Settings) -> int:
-    eligible_ids = eligible_query(request, settings).with_only_columns(Lead.id).order_by(None).subquery()
+def inventory_count(
+    session: Session,
+    request: LeadRequest,
+    settings: Settings,
+    *,
+    niche_policy_rows: list[dict] | None = None,
+) -> int:
+    eligible_ids = (
+        eligible_query(
+            request,
+            settings,
+            niche_policy_rows=niche_policy_rows,
+        )
+        .with_only_columns(Lead.id)
+        .order_by(None)
+        .subquery()
+    )
     return int(session.scalar(select(func.count()).select_from(eligible_ids)) or 0)
 
 

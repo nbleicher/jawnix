@@ -27,7 +27,7 @@ interface ChangedActionProps {
   onChanged: () => Promise<void> | void;
 }
 
-function useActionDialog(onChanged: ChangedActionProps["onChanged"]) {
+export function useActionDialog(onChanged: ChangedActionProps["onChanged"]) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");

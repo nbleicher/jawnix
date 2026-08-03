@@ -203,6 +203,7 @@ test.describe("Billed request submission", () => {
     await page.getByRole("spinbutton", { name: /How many leads/ }).fill("750");
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
 
     await expect(
       page.getByRole("heading", { name: "Review your request" }),
@@ -228,6 +229,7 @@ test.describe("Billed request submission", () => {
     await page.goto("./requests");
 
     await page.getByRole("spinbutton", { name: /How many leads/ }).fill("750");
+    await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("button", { name: "Continue" }).click();
 

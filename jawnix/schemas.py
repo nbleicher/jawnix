@@ -165,6 +165,34 @@ class CustomerUpdate(BaseModel):
     )
 
 
+class CooldownWindowUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    days: int = Field(ge=1)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class NichePolicyRowInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: str | None = Field(default=None, min_length=2, max_length=2)
+    mode: Literal["exclude", "only"]
+    niches: list[str] = Field(min_length=1)
+
+
+class NichePolicyUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[NichePolicyRowInput] = Field(default_factory=list)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class NichePolicyDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[NichePolicyRowInput] = Field(default_factory=list)
+
+
 class DeleteConfirmation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
