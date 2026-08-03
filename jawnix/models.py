@@ -618,6 +618,12 @@ class DistributionEvent(Base):
         # Covering indexes so shared-history Lead counts stay index-only.
         Index("ix_distribution_events_agency_lead", "agency_id", "lead_id"),
         Index("ix_distribution_events_agent_lead", "agent_id", "lead_id"),
+        # Serves the per-Customer first/last delivered bounds as index probes.
+        Index(
+            "ix_distribution_events_agent_delivered",
+            "agent_id",
+            "delivered_at",
+        ),
     )
 
     @property
