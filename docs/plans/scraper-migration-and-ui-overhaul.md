@@ -39,7 +39,7 @@ epic #46; the Scraper migration ADR lands as 0017 in step S1's wake.
 | 6 | S8–S9 Scraper Stage C (rehearsal + cutover) | Scraper | S6–S7 | |
 | 7 | P8 Static-page retirement | UI Phase 0 close-out | 0.3 + explicit approval | |
 | 8 | S10 Scale remnant removal | Scraper | S9 + 7-day rollback window | |
-| later | X1 Admin-phase overhaul spec | UI Phase 2 | #116 shipped | |
+| later | X1 Admin-phase overhaul spec | UI Phase 2 | #116 shipped | spec filed as #156 (2026-08-03); #116 closed as delivered |
 
 Steps marked ∥ run in parallel workspaces; the two tracks are code-disjoint
 (backend/acquisition vs. `frontend/` customer portal), so only production

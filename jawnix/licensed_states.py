@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .billing import release_batch_hold
 from .activity import record_activity
 from .config import Settings
 from .customer_overview import build_customer_overview, customer_request_status
@@ -273,6 +274,7 @@ def _apply_request_impact(
             "Customer's Licensed States."
         )
         item.closed_at = utcnow()
+        release_batch_hold(db, item)
     enqueue_job(
         db,
         "licensed_states_changed",

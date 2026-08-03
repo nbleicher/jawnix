@@ -497,11 +497,19 @@ class CustomerRequestAction(BaseModel):
     href: str
 
 
+class CustomerBatchArtifactPart(BaseModel):
+    """One CSV entry inside a Batch Artifact zip."""
+
+    filename: str
+    row_count: int
+
+
 class CustomerBatchArtifact(BaseModel):
     """The safe Customer projection of one delivered Batch Artifact."""
 
     filename: str
     row_count: int
+    parts: list[CustomerBatchArtifactPart]
     expires_at: datetime | None
     available: bool
     download_href: str | None
@@ -512,6 +520,7 @@ class CustomerRequestDetail(BaseModel):
 
     id: uuid.UUID
     lead_count: int
+    rows_per_file: int
     states: list[str]
     submitted_at: datetime
     delivered_at: datetime | None
@@ -555,6 +564,7 @@ class CustomerRequestCreate(BaseModel):
     # request that already exists instead of creating a second one.
     idempotency_key: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9._:-]+$")
     lead_count: int = Field(ge=1, le=100_000)
+    rows_per_file: int | None = Field(default=None, ge=1, le=100_000)
     state_mode: Literal["all_saved", "selected"] = "all_saved"
     states: list[str] = Field(default_factory=list)
 
@@ -700,6 +710,40 @@ class ActionReason(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: str = Field(min_length=1, max_length=2000)
+
+
+class CustomerBillingUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    billing_enabled: bool
+    lead_rate_cents_per_thousand: int | None = Field(
+        default=None,
+        ge=100,
+        le=2_000,
+    )
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def enabled_requires_lead_rate(self):
+        if self.billing_enabled and self.lead_rate_cents_per_thousand is None:
+            raise ValueError(
+                "A Lead Rate is required when billing is enabled."
+            )
+        return self
+
+
+class CreditAdjustmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount_cents: int
+    reason: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("amount_cents")
+    @classmethod
+    def nonzero_amount(cls, value: int) -> int:
+        if value == 0:
+            raise ValueError("An adjustment must change the wallet balance.")
+        return value
 
 
 class LeadCorrectionApply(BaseModel):

@@ -364,6 +364,7 @@ def _summarize_request(
         "agency": item.customer.agency.name if item.customer.agency else "",
         "email": item.delivery_email,
         "leadCount": item.lead_count,
+        "rowsPerFile": item.rows_per_file,
         "states": item.states_snapshot,
         "stateMode": item.state_mode,
         "status": item.status,
@@ -397,6 +398,13 @@ def describe_request(
                 {
                     "filename": artifact.filename,
                     "rowCount": artifact.row_count,
+                    "parts": [
+                        {
+                            "filename": part["filename"],
+                            "rowCount": part["row_count"],
+                        }
+                        for part in artifact.parts
+                    ],
                     "sha256": artifact.sha256,
                     "deliveryStatus": artifact.delivery_status,
                     "deliveryAttempts": artifact.delivery_attempts,

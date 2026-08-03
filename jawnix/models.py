@@ -4,7 +4,7 @@ import enum
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, event, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -67,6 +67,12 @@ class Agent(Base):
     )
     agency_id: Mapped[int | None] = mapped_column(ForeignKey("agencies.id", ondelete="SET NULL"), index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    billing_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+    lead_rate_cents_per_thousand: Mapped[int | None] = mapped_column(Integer)
     permanent_history_key: Mapped[str] = mapped_column(
         String(64),
         default=lambda: str(uuid.uuid4()),
@@ -79,6 +85,20 @@ class Agent(Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agency: Mapped[Agency | None] = relationship()
+
+    __table_args__ = (
+        CheckConstraint(
+            "NOT billing_enabled OR lead_rate_cents_per_thousand IS NOT NULL",
+            name="ck_agent_billing_rate_required",
+        ),
+        CheckConstraint(
+            (
+                "lead_rate_cents_per_thousand IS NULL OR "
+                "lead_rate_cents_per_thousand BETWEEN 100 AND 2000"
+            ),
+            name="ck_agent_lead_rate_range",
+        ),
+    )
 
 
 # Canonical domain type. The legacy class/table name remains only as an
@@ -391,11 +411,25 @@ class LeadRequest(Base):
             "idempotency_key",
             unique=True,
         ),
+        CheckConstraint(
+            (
+                "NOT is_billed OR "
+                "(lead_rate_cents_per_thousand IS NOT NULL AND "
+                "billing_amount_cents IS NOT NULL AND "
+                "billing_amount_cents >= 0)"
+            ),
+            name="ck_lead_request_frozen_billing",
+        ),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("customer_profiles.user_id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="RESTRICT"), index=True)
     lead_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    rows_per_file: Mapped[int] = mapped_column(
+        Integer,
+        default=lambda context: context.get_current_parameters()["lead_count"],
+        nullable=False,
+    )
     state_mode: Mapped[str] = mapped_column(String(20), default="all_saved", nullable=False)
     states_snapshot: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     delivery_email: Mapped[str] = mapped_column(String(320), nullable=False)
@@ -412,9 +446,22 @@ class LeadRequest(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Supplied by the Customer application, once per guided submission.
     idempotency_key: Mapped[str | None] = mapped_column(String(64))
+    # Billing terms are copied from the Customer at submission. Later toggle
+    # or Lead Rate changes therefore cannot reprice in-flight work.
+    is_billed: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+    lead_rate_cents_per_thousand: Mapped[int | None] = mapped_column(Integer)
+    billing_amount_cents: Mapped[int | None] = mapped_column(Integer)
     profile: Mapped[CustomerProfile] = relationship()
     agent: Mapped[Agent] = relationship()
     artifact: Mapped[BatchArtifact | None] = relationship(back_populates="request", uselist=False)
+    billing_hold: Mapped[BatchHold | None] = relationship(
+        back_populates="request",
+        uselist=False,
+    )
 
     @property
     def customer_id(self) -> int:
@@ -431,6 +478,117 @@ class LeadRequest(Base):
     @customer.setter
     def customer(self, value: Customer) -> None:
         self.agent = value
+
+
+class CreditLedgerEntry(Base):
+    """One immutable change to a Customer's Credit Wallet."""
+
+    __tablename__ = "credit_ledger_entries"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    actor_user_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    batch_request_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("lead_requests.id", ondelete="RESTRICT"),
+        unique=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('purchase', 'batch_charge', 'admin_adjustment')",
+            name="ck_credit_ledger_kind",
+        ),
+        CheckConstraint(
+            "kind != 'purchase' OR amount_cents > 0",
+            name="ck_credit_purchase_positive",
+        ),
+        CheckConstraint(
+            "kind != 'batch_charge' OR amount_cents <= 0",
+            name="ck_credit_batch_charge_nonpositive",
+        ),
+        CheckConstraint(
+            "kind != 'batch_charge' OR batch_request_id IS NOT NULL",
+            name="ck_credit_batch_charge_request",
+        ),
+        CheckConstraint(
+            (
+                "kind != 'admin_adjustment' OR "
+                "(amount_cents != 0 AND length(trim(reason)) > 0)"
+            ),
+            name="ck_credit_adjustment_reason",
+        ),
+        Index(
+            "ix_credit_ledger_customer_created",
+            "customer_id",
+            "created_at",
+        ),
+    )
+
+
+@event.listens_for(CreditLedgerEntry, "before_update", propagate=True)
+@event.listens_for(CreditLedgerEntry, "before_delete", propagate=True)
+def _credit_ledger_is_append_only(*_args) -> None:
+    raise ValueError("Credit Ledger entries are append-only.")
+
+
+class BatchHold(Base):
+    """A billed Batch Request's reservation before distribution commits."""
+
+    __tablename__ = "batch_holds"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    request_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("lead_requests.id", ondelete="RESTRICT"),
+        unique=True,
+        nullable=False,
+    )
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+    amount_cents: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16),
+        default="active",
+        index=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+    captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    request: Mapped[LeadRequest] = relationship(back_populates="billing_hold")
+
+    __table_args__ = (
+        CheckConstraint(
+            "amount_cents >= 0",
+            name="ck_batch_hold_amount_nonnegative",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'captured', 'released')",
+            name="ck_batch_hold_status",
+        ),
+        Index(
+            "ix_batch_hold_customer_status",
+            "customer_id",
+            "status",
+        ),
+    )
 
 
 class Lead(Base):
@@ -473,6 +631,62 @@ class Lead(Base):
     last_distributed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
     __table_args__ = (Index("lead_inventory_state_age_idx", "state", "last_distributed_at", "id"),)
+
+
+class ExclusionList(Base):
+    """One typed Customer or administrator upload and its decision state."""
+
+    __tablename__ = "exclusion_lists"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    uploaded_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    exclusion_type: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), default="queued", index=True, nullable=False
+    )
+    global_effective: Mapped[bool] = mapped_column(
+        Boolean, default=False, index=True, nullable=False
+    )
+    total_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    accepted_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    invalid_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    duplicate_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    pool_impact: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    error: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    decision_actor: Mapped[str] = mapped_column(String(160), default="", nullable=False)
+    decision_reason: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    nightly_review_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("nightly_reviews.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True, nullable=False
+    )
+    ingested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            "exclusion_type IN ('landline', 'dnc', 'tcpa_litigator')",
+            name="ck_exclusion_lists_type",
+        ),
+    )
+
+
+class ExclusionPhone(Base):
+    """A normalized phone protected by one Exclusion List."""
+
+    __tablename__ = "exclusion_phones"
+    exclusion_list_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("exclusion_lists.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    phone: Mapped[str] = mapped_column(String(10), primary_key=True, index=True)
 
 
 class LeadSource(Base):
@@ -863,6 +1077,7 @@ class BatchArtifact(Base):
     path: Mapped[str] = mapped_column(Text, nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    parts: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     byte_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     delivery_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)

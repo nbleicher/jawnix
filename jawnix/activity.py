@@ -72,6 +72,7 @@ _ENTITY_DESTINATIONS = {
         "/app/admin/acquisition/scraper/workspace/runtime"
     ),
     "source_recommendation": "/app/admin/acquisition",
+    "exclusion_list": "/app/admin/acquisition",
     "source_segment": "/app/admin/acquisition",
     "user_account": "/app/admin/customers",
 }

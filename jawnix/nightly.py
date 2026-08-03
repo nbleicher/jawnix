@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from .activity import record_activity
 from .config import Settings
 from .jobs import enqueue_job
+from .exclusions import refresh_pool_impact
 from .keyword_generation import (
     KeywordGenerationError,
     build_generation_provider,
@@ -20,8 +21,10 @@ from .keyword_generation import (
     try_generation_lock,
 )
 from .models import (
+    Customer,
     DatasetPublication,
     DistributionEvent,
+    ExclusionList,
     InventoryConflict,
     InventorySyncAttempt,
     Lead,
@@ -743,6 +746,19 @@ def run_scheduled_nightly_review(
         }
         for item in created_recommendations
     ]
+    pending_exclusion_lists = list(
+        session.scalars(
+            select(ExclusionList)
+            .where(
+                ExclusionList.status == "pending_confirmation",
+                ExclusionList.nightly_review_id.is_(None),
+            )
+            .order_by(ExclusionList.created_at, ExclusionList.id)
+        )
+    )
+    for item in pending_exclusion_lists:
+        item.nightly_review_id = review.id
+        refresh_pool_impact(session, item)
     review.status = "complete"
     configuration = session.scalar(
         select(ScraperConfiguration)
@@ -872,6 +888,23 @@ def run_scheduled_nightly_review(
             "actionableCount": pending_recommendations,
         },
         "recommendations": recommendations,
+        "exclusionLists": [
+            {
+                "id": str(item.id),
+                "customerId": item.customer_id,
+                "customer": (
+                    session.get(Customer, item.customer_id).name
+                    if item.customer_id is not None
+                    else "Administrator"
+                ),
+                "type": item.exclusion_type,
+                "filename": item.filename,
+                "acceptedRows": item.accepted_rows,
+                "poolImpact": item.pool_impact,
+                "status": item.status,
+            }
+            for item in pending_exclusion_lists
+        ],
         "scraperOperations": _scraper_health(settings),
         "failures": review_failures,
     }

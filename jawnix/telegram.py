@@ -26,10 +26,12 @@ ACTION_PREFIX = "jawnix"
 ANOMALY_PREFIX = "jawnix-a"
 CONFLICT_PREFIX = "jawnix-c"
 RECOMMENDATION_PREFIX = "jawnix-r"
+EXCLUSION_PREFIX = "jawnix-e"
 ALLOWED_ACTIONS = {"approve", "reject", "retry", "retry_delivery"}
 ALLOWED_ANOMALY_ACTIONS = {"confirm", "deny"}
 ALLOWED_CONFLICT_ACTIONS = {"confirm", "deny"}
 ALLOWED_RECOMMENDATION_ACTIONS = {"approve", "deny"}
+ALLOWED_EXCLUSION_ACTIONS = {"confirm", "deny"}
 
 
 def verify_telegram_secret(provided: str, expected: str) -> bool:
@@ -102,6 +104,29 @@ def parse_conflict_callback_data(value: str) -> tuple[str, uuid.UUID]:
     ):
         raise ValueError("Unsupported Telegram conflict callback data.")
     return action, conflict_id
+
+
+def exclusion_callback_data(
+    action: str,
+    exclusion_list_id: uuid.UUID,
+) -> str:
+    if action not in ALLOWED_EXCLUSION_ACTIONS:
+        raise ValueError(f"Unsupported Exclusion List action: {action}")
+    value = f"{EXCLUSION_PREFIX}:{action}:{exclusion_list_id}"
+    if len(value.encode("utf-8")) > 64:
+        raise ValueError("Telegram callback data exceeds 64 bytes.")
+    return value
+
+
+def parse_exclusion_callback_data(value: str) -> tuple[str, uuid.UUID]:
+    try:
+        prefix, action, raw_list_id = value.split(":", 2)
+        exclusion_list_id = uuid.UUID(raw_list_id)
+    except (ValueError, AttributeError):
+        raise ValueError("Malformed Telegram exclusion callback data.") from None
+    if prefix != EXCLUSION_PREFIX or action not in ALLOWED_EXCLUSION_ACTIONS:
+        raise ValueError("Unsupported Telegram exclusion callback data.")
+    return action, exclusion_list_id
 
 
 def recommendation_callback_data(
@@ -301,6 +326,7 @@ class TelegramClient:
         waiting = review.summary.get("waitingRequests") or []
         conflicts = review.summary.get("inventoryConflicts") or []
         recommendations = review.summary.get("recommendations") or []
+        exclusion_lists = review.summary.get("exclusionLists") or []
         failures = review.summary.get("failures") or []
         text = "\n".join(
             [
@@ -316,7 +342,19 @@ class TelegramClient:
                 f"Waiting requests: {len(waiting):,}",
                 f"Inventory conflicts: {len(conflicts):,}",
                 f"Recommendations: {len(recommendations):,}",
+                f"Exclusion lists: {len(exclusion_lists):,}",
                 f"Failures: {len(failures):,}",
+                *[
+                    (
+                        f"{item.get('customer') or 'Customer'} "
+                        f"{str(item.get('type') or '').replace('_', ' ')}: "
+                        f"removes {int(item.get('poolImpact', 0)):,} "
+                        f"currently-available "
+                        f"{'lead' if int(item.get('poolImpact', 0)) == 1 else 'leads'}"
+                    )
+                    for item in exclusion_lists
+                    if item.get("status") == "pending_confirmation"
+                ],
                 "",
                 f"Review: {self.settings.public_base_url}/app/admin/acquisition#nightly-reviews",
             ]
@@ -381,6 +419,26 @@ class TelegramClient:
                                 is not None
                                 else None
                             ),
+                        ),
+                    },
+                ]
+            )
+        for item in exclusion_lists:
+            if item.get("status") != "pending_confirmation":
+                continue
+            exclusion_list_id = uuid.UUID(str(item["id"]))
+            keyboard_rows.append(
+                [
+                    {
+                        "text": "Confirm Global Exclusion",
+                        "callback_data": exclusion_callback_data(
+                            "confirm", exclusion_list_id
+                        ),
+                    },
+                    {
+                        "text": "Deny",
+                        "callback_data": exclusion_callback_data(
+                            "deny", exclusion_list_id
                         ),
                     },
                 ]

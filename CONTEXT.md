@@ -1,11 +1,11 @@
 # Jawnix Lead Platform
 
-Jawnix supplies customers with approved batches of leads by maintaining lead inventory and enforcing distribution rules. The active domain spans lead acquisition through batch delivery; billing and finance are outside the current product.
+Jawnix supplies customers with approved batches of leads by maintaining lead inventory and enforcing distribution rules. The active domain spans lead acquisition through batch delivery and prepaid credit billing; legacy invoicing and financial reporting remain outside the current product.
 
 ## Language
 
 **Jawnix Platform**:
-The active product that turns acquired lead data into approved lead batches delivered to customers. Billing, invoicing, payments, and financial reporting are legacy concerns outside this context.
+The active product that turns acquired lead data into approved lead batches delivered to customers, paid for by Billed Customers through prepaid credits. Legacy invoicing and financial reporting remain outside this context.
 _Avoid_: Lead tracker, lead-to-cash platform
 
 **Administrator Assurance**:
@@ -128,6 +128,14 @@ _Avoid_: Active customer, hard deletion
 The Customer-maintained set of states where the Customer is authorized to operate. Removing a state automatically narrows unallocated requests with notification, while additions apply only to future requests and historical distributions never change.
 _Avoid_: Preferred states, administrator-assigned states
 
+**Niche Policy**:
+An administrator-set rule set for one Customer built of per-state rows, each either excluding listed Niches or restricting allocation to only them; a state's row fully overrides the all-states default row rather than merging with it. A Lead without a Niche passes exclusion rows but never satisfies an only-row.
+_Avoid_: Customer preference, category filter, title prefix
+
+**Niche Assignment**:
+An administrator-supplied Niche stamp for inventory that no Source Segment mapping covers, maintained through bulk export of unmapped Leads and re-upload. A segment-derived Niche always wins over a manual stamp.
+_Avoid_: Source Segment mapping, title stamping
+
 **User Account**:
 A replaceable authentication identity used to access Jawnix on behalf of a Customer. Each Customer has exactly one active User Account, enforced in persistence rather than by any screen, and replacing it never creates a new Customer or resets distribution history. Administrators provision it only through a User Account Invitation and never set or view its password.
 _Avoid_: Customer, agent
@@ -152,13 +160,21 @@ _Avoid_: Deleted agency, active agency
 An immutable record created when a Lead's allocation and batch generation commit, snapshotting the Customer, Agency, delivered phone, title, state, and the Listing Observation or Lead Correction used. Later account, Agency, inventory, or delivery-status changes never rewrite the event.
 _Avoid_: Current customer membership, email delivery
 
-**Global Cooldown**:
-The seven-day period after a Lead's latest Distribution Event during which it is ineligible for every other Customer. Afterward it may become eligible for unrelated Customers but never again for the same Customer or Agency.
-_Avoid_: Permanent no-repeat, customer cooldown
+**Cooldown Window**:
+The administrator-set minimum age (default seven days, minimum one) that a Lead's latest Distribution Event must reach before a given Customer may draw that Lead. The window belongs to the drawing Customer, so a delivered Lead's effective exclusivity equals the smallest window among other Customers; a Lead is never again eligible for the same Customer or Agency.
+_Avoid_: Global cooldown, guaranteed exclusivity, permanent no-repeat
 
 **Lead Suppression**:
 A reversible internal state that makes a Lead ineligible without deleting its Listing Observations or Distribution Events. Only an administrator may change it, with a required reason and immutable audit entry; removing it restores normal eligibility rules rather than guaranteeing allocation.
-_Avoid_: Lead deletion, quarantine
+_Avoid_: Lead deletion, quarantine, exclusion list
+
+**Exclusion List**:
+A Customer-uploaded, typed set of phone numbers (landline, DNC, or TCPA litigator) that immediately and permanently protects the uploader's own allocations from those phones, regardless of any later administrator decision about it.
+_Avoid_: Lead Suppression, scrub file, DNC registry
+
+**Global Exclusion**:
+The pool-wide standing effect of an Exclusion List once an administrator confirms it through the Nightly Review: matching phones — whether already in inventory or acquired later — are barred from every Customer's allocations by phone number. Administrator-uploaded lists take global effect immediately without confirmation, and every confirmation records its pool impact.
+_Avoid_: Lead Suppression, automatic suppression, customer-triggered suppression
 
 **Lead Report**:
 A Customer's immutable quality report about a Lead received in a specific Distribution Event. It has one reason—invalid phone, wrong business or title, wrong state, duplicate received, do-not-contact or legal concern, or other—plus an optional note. Invalid Phone, Wrong Business, and Do Not Contact dispositions create a non-duplicated matching report automatically.
@@ -218,9 +234,33 @@ A Batch Request withdrawn before any Distribution Event commits. Cancellation is
 _Avoid_: Voided batch, delivery failure
 
 **Batch Artifact**:
-The exact CSV materialization of a fulfilled Batch Request. The Customer retrieves the live file self-serve from the portal, while email notifies of delivery rather than carrying it. Its file expires after 30 days while its internal history remains permanent; an administrator may regenerate the exact file through an audited action, starting a new 30-day retention period.
+The exact materialization of a fulfilled Batch Request: one download containing one or more CSV parts sized by the rows-per-file choice frozen at submission. The Customer retrieves the live file self-serve from the portal, while email notifies of delivery rather than carrying it. Its file expires after 30 days while its internal history remains permanent; an administrator may regenerate the identical file through an audited action, starting a new 30-day retention period.
 _Avoid_: Batch request, distribution history, email delivery
 
 **Inventory Conflict**:
 A situation where an older Batch Request cannot be fulfilled but a newer request could consume Leads eligible for both requests. One pending operator decision may authorize one attempt against the current inventory snapshot; denial or silence keeps the newer request waiting, and the conflict may recur only after a material change.
 _Avoid_: Automatic queue bypass, inventory shortage
+
+**Billed Customer**:
+A Customer whose Batch Requests must be paid from their Credit Wallet, switched per Customer by an administrator with no Agency-level pooling. Each request's billed-or-free status is frozen at submission and never repriced by later toggle changes.
+_Avoid_: Paid tier, subscriber, agency billing
+
+**Credit Wallet**:
+A Billed Customer's prepaid dollar balance, derived entirely from the Credit Ledger and spendable only inside Jawnix on Batch Requests. The balance persists invisibly while a Customer's billing is switched off.
+_Avoid_: Lead credits, balance column, stored payment method
+
+**Credit Ledger**:
+The append-only dollar record whose entries — Credit Purchases, Batch Charges, and administrator adjustments with a required reason and audit entry — sum to the Credit Wallet. Jawnix never pushes money back to a card; card refunds happen in Stripe and reconcile here as adjustments.
+_Avoid_: Mutable balance, refund processor, invoice history
+
+**Credit Purchase**:
+An arbitrary whole-dollar Credit Wallet top-up through Stripe Checkout, credited only when the verified completion webhook arrives and shown as processing until it does.
+_Avoid_: Invoice, subscription, redirect-confirmed payment
+
+**Lead Rate**:
+The administrator-set flat per-lead price for one Billed Customer, required when billing is switched on. No global default rate exists, and the rate may carry sub-cent precision.
+_Avoid_: Global price, tiered pricing, per-batch price
+
+**Batch Hold**:
+The reservation of a billed request's full cost — exact quantity times Lead Rate — placed at submission and counted against available balance, refusing submission it cannot cover. It captures as a Batch Charge in the same transaction that commits distribution and releases on rejection or cancellation without ever touching the Credit Ledger.
+_Avoid_: Charge, pending payment, overdraft

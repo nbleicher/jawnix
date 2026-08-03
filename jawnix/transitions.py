@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .activity import record_activity
+from .billing import release_batch_hold
 from .fulfillment import RequestActionContext, available_action_names
 from .jobs import enqueue_job
 from .milestone_emails import enqueue_milestone_email
@@ -86,6 +87,7 @@ def transition_request(
         item.closed_at = utcnow()
         enqueue_milestone_email(db, item)
         enqueue_job(db, "update_notification", item.id)
+        release_batch_hold(db, item)
     elif action == "cancel":
         # A Canceled Request is withdrawn before any Distribution Event
         # commits. The table's precondition checks that under the request's row
@@ -95,6 +97,7 @@ def transition_request(
         item.status = RequestStatus.canceled.value
         item.status_message = "Canceled by admin."
         enqueue_job(db, "update_notification", item.id)
+        release_batch_hold(db, item)
     else:  # pragma: no cover - the table and this branch list are one commit apart
         raise TransitionError(f"Action {action} is not valid while request is {item.status}.")
     record_activity(

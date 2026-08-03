@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import io
 import json
 import os
 import tempfile
 import uuid
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,6 +15,7 @@ from pathlib import Path
 from sqlalchemy import and_, exists, func, nullsfirst, or_, select
 from sqlalchemy.orm import Session
 
+from .billing import capture_batch_hold
 from .activity import record_activity
 from .config import Settings
 from .jobs import enqueue_job
@@ -24,6 +27,8 @@ from .models import (
     DatasetPublication,
     DistributionEvent,
     EligibilityHold,
+    ExclusionList,
+    ExclusionPhone,
     InventoryConflict,
     Lead,
     LeadCorrectionEvent,
@@ -90,6 +95,20 @@ def eligible_query(request: LeadRequest, settings: Settings):
             EligibilityHold.active.is_(True),
         )
     )
+    excluded_phone = exists(
+        select(ExclusionPhone.phone)
+        .join(
+            ExclusionList,
+            ExclusionList.id == ExclusionPhone.exclusion_list_id,
+        )
+        .where(
+            ExclusionPhone.phone == Lead.phone,
+            or_(
+                ExclusionList.global_effective.is_(True),
+                ExclusionList.customer_id == request.customer_id,
+            ),
+        )
+    )
     return (
         select(Lead)
         .where(
@@ -98,6 +117,7 @@ def eligible_query(request: LeadRequest, settings: Settings):
             or_(Lead.last_distributed_at.is_(None), Lead.last_distributed_at <= cutoff),
             ~previously_sent,
             ~actively_held,
+            ~excluded_phone,
         )
         .order_by(nullsfirst(Lead.last_distributed_at), Lead.id)
     )
@@ -109,13 +129,41 @@ def inventory_count(session: Session, request: LeadRequest, settings: Settings) 
 
 
 def _artifact_path(settings: Settings, request: LeadRequest) -> tuple[Path, str]:
-    date_text = datetime.now(timezone.utc).date().isoformat()
+    date_text = request.created_at.date().isoformat()
     filename = (
-        f"{request.customer.slug}_batch_{request.id}_{date_text}.csv"
+        f"{request.customer.slug}_batch_{request.id}_{date_text}.zip"
     )
     directory = Path(settings.batch_dir) / date_text
     directory.mkdir(parents=True, exist_ok=True)
     return directory / filename, filename
+
+
+_ZIP_ENTRY_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+
+
+def _csv_bytes(rows: list[Lead] | list[DistributionEvent]) -> bytes:
+    stream = io.StringIO(newline="")
+    writer = csv.DictWriter(
+        stream,
+        fieldnames=["phone", "title"],
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(
+            {"phone": row.phone, "title": truncate_utf8(row.title)}
+        )
+    return stream.getvalue().encode("utf-8")
+
+
+def _part_rows(
+    rows: list[Lead] | list[DistributionEvent],
+    rows_per_file: int,
+) -> list[list[Lead] | list[DistributionEvent]]:
+    return [
+        rows[offset : offset + rows_per_file]
+        for offset in range(0, len(rows), rows_per_file)
+    ]
 
 
 def _listing_snapshot(
@@ -215,27 +263,79 @@ def generate_artifact(
     rows: list[Lead] | list[DistributionEvent],
     settings: Settings,
 ) -> BatchArtifact:
-    final_path, filename = _artifact_path(settings, request)
-    descriptor, temp_name = tempfile.mkstemp(prefix=f".{request.id}-", suffix=".csv", dir=final_path.parent)
+    artifact = session.scalar(
+        select(BatchArtifact).where(BatchArtifact.request_id == request.id)
+    )
+    if artifact is None:
+        final_path, filename = _artifact_path(settings, request)
+    else:
+        filename = artifact.filename
+        final_path = Path(artifact.path)
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+    legacy_csv = artifact is not None and filename.lower().endswith(".csv")
+    parts = (
+        [rows]
+        if legacy_csv
+        else _part_rows(rows, request.rows_per_file)
+    )
+    part_names = (
+        [part["filename"] for part in artifact.parts]
+        if artifact is not None and len(artifact.parts) == len(parts)
+        else [filename]
+        if legacy_csv
+        else [
+            f"{Path(filename).stem}_part_{index:03d}.csv"
+            for index in range(1, len(parts) + 1)
+        ]
+    )
+    part_metadata = [
+        {"filename": part_name, "row_count": len(part)}
+        for part_name, part in zip(part_names, parts, strict=True)
+    ]
+    descriptor, temp_name = tempfile.mkstemp(
+        prefix=f".{request.id}-",
+        suffix=".csv" if legacy_csv else ".zip",
+        dir=final_path.parent,
+    )
     os.close(descriptor)
     temp_path = Path(temp_name)
     try:
-        with temp_path.open("w", encoding="utf-8", newline="") as stream:
-            writer = csv.DictWriter(stream, fieldnames=["phone", "title"], lineterminator="\n")
-            writer.writeheader()
-            for row in rows:
-                writer.writerow({"phone": row.phone, "title": truncate_utf8(row.title)})
+        if legacy_csv:
+            temp_path.write_bytes(_csv_bytes(rows))
+        else:
+            with zipfile.ZipFile(
+                temp_path,
+                "w",
+                compression=zipfile.ZIP_DEFLATED,
+                compresslevel=9,
+            ) as archive:
+                for part_name, part in zip(
+                    part_names, parts, strict=True
+                ):
+                    entry = zipfile.ZipInfo(
+                        filename=part_name,
+                        date_time=_ZIP_ENTRY_TIMESTAMP,
+                    )
+                    entry.compress_type = zipfile.ZIP_DEFLATED
+                    entry.create_system = 3
+                    entry.external_attr = 0o600 << 16
+                    archive.writestr(
+                        entry,
+                        _csv_bytes(part),
+                        compress_type=zipfile.ZIP_DEFLATED,
+                        compresslevel=9,
+                    )
         os.replace(temp_path, final_path)
     finally:
         temp_path.unlink(missing_ok=True)
     digest = hashlib.sha256(final_path.read_bytes()).hexdigest()
-    artifact = session.scalar(select(BatchArtifact).where(BatchArtifact.request_id == request.id))
     if artifact is None:
         artifact = BatchArtifact(
             request_id=request.id,
             path=str(final_path),
             filename=filename,
             row_count=len(rows),
+            parts=part_metadata,
             byte_count=final_path.stat().st_size,
             sha256=digest,
             expires_at=(
@@ -248,6 +348,7 @@ def generate_artifact(
         artifact.path = str(final_path)
         artifact.filename = filename
         artifact.row_count = len(rows)
+        artifact.parts = part_metadata
         artifact.byte_count = final_path.stat().st_size
         artifact.sha256 = digest
         artifact.created_at = datetime.now(timezone.utc)
@@ -297,6 +398,7 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
         request.status_message = "Batch generated; portal notification is queued."
         enqueue_job(session, "deliver_request", request.id)
         enqueue_job(session, "update_notification", request.id)
+        capture_batch_hold(session, request)
         return AllocationResult(
             request.status,
             len(existing_events),
@@ -365,6 +467,7 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
     request.status_message = "Batch generated; portal notification is queued."
     enqueue_job(session, "deliver_request", request.id)
     enqueue_job(session, "update_notification", request.id)
+    capture_batch_hold(session, request)
     session.flush()
     return AllocationResult(request.status, len(candidates), len(candidates), artifact.id)
 
