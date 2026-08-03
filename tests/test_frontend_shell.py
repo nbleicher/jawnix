@@ -29,10 +29,9 @@ def dist_dir(tmp_path):
     return dist
 
 
-def build_client(dist_dir, *, enabled: bool) -> TestClient:
+def build_client(dist_dir) -> TestClient:
     def override() -> Settings:
         return Settings(
-            JAWNIX_ENABLE_NEW_UI=enabled,
             JAWNIX_FRONTEND_DIST_DIR=dist_dir,
             JAWNIX_SESSION_SECRET="test-secret-at-least-long-enough",
         )
@@ -43,19 +42,11 @@ def build_client(dist_dir, *, enabled: bool) -> TestClient:
     return TestClient(app)
 
 
-# --- Feature flag off: the shell must be absent, not merely hidden -----------
-
-
-@pytest.mark.parametrize("path", ["/app/", "/app/overview", "/app/assets/index-abc123.js"])
-def test_disabled_flag_hides_every_shell_path(dist_dir, path):
-    assert build_client(dist_dir, enabled=False).get(path).status_code == 404
-
-
 # --- The shell document -----------------------------------------------------
 
 
 def test_serves_the_compiled_document(dist_dir):
-    response = build_client(dist_dir, enabled=True).get("/app/")
+    response = build_client(dist_dir).get("/app/")
 
     assert response.status_code == 200
     assert 'id="root"' in response.text
@@ -76,20 +67,20 @@ def test_serves_the_compiled_document(dist_dir):
 )
 def test_direct_navigation_to_any_application_route_serves_the_shell(dist_dir, path):
     """Deep links must work on a hard refresh, not just via the client router."""
-    response = build_client(dist_dir, enabled=True).get(path, follow_redirects=True)
+    response = build_client(dist_dir).get(path, follow_redirects=True)
 
     assert response.status_code == 200
     assert 'id="root"' in response.text
 
 
 def test_document_is_revalidated_so_a_deploy_is_picked_up(dist_dir):
-    response = build_client(dist_dir, enabled=True).get("/app/")
+    response = build_client(dist_dir).get("/app/")
 
     assert "no-store" in response.headers["cache-control"]
 
 
 def test_document_is_not_indexed(dist_dir):
-    response = build_client(dist_dir, enabled=True).get("/app/")
+    response = build_client(dist_dir).get("/app/")
 
     assert "noindex" in response.headers["x-robots-tag"]
 
@@ -98,14 +89,14 @@ def test_document_is_not_indexed(dist_dir):
 
 
 def test_serves_a_hashed_asset(dist_dir):
-    response = build_client(dist_dir, enabled=True).get("/app/assets/index-abc123.js")
+    response = build_client(dist_dir).get("/app/assets/index-abc123.js")
 
     assert response.status_code == 200
     assert response.text == "console.log('shell')"
 
 
 def test_hashed_assets_are_cached_immutably(dist_dir):
-    response = build_client(dist_dir, enabled=True).get("/app/assets/index-def456.css")
+    response = build_client(dist_dir).get("/app/assets/index-def456.css")
 
     cache_control = response.headers["cache-control"]
     assert "immutable" in cache_control
@@ -115,7 +106,7 @@ def test_hashed_assets_are_cached_immutably(dist_dir):
 def test_missing_asset_is_not_found_rather_than_the_shell(dist_dir):
     """An asset 404 must stay a 404: returning index.html would make a stale
     bundle reference surface as an unreadable MIME-type error."""
-    response = build_client(dist_dir, enabled=True).get("/app/assets/index-gone.js")
+    response = build_client(dist_dir).get("/app/assets/index-gone.js")
 
     assert response.status_code == 404
     assert "root" not in response.text
@@ -135,7 +126,7 @@ def test_traversal_outside_the_build_directory_is_refused(dist_dir, path):
     secret = dist_dir.parent / "secret.txt"
     secret.write_text("do-not-serve-this", encoding="utf-8")
 
-    response = build_client(dist_dir, enabled=True).get(path)
+    response = build_client(dist_dir).get(path)
 
     assert response.status_code == 404
     assert "do-not-serve-this" not in response.text
@@ -147,7 +138,7 @@ def test_a_symlink_escaping_the_build_directory_is_refused(dist_dir):
     secret.write_text("do-not-serve-this", encoding="utf-8")
     (dist_dir / "assets" / "escape.txt").symlink_to(secret)
 
-    response = build_client(dist_dir, enabled=True).get("/app/assets/escape.txt")
+    response = build_client(dist_dir).get("/app/assets/escape.txt")
 
     assert response.status_code == 404
     assert "do-not-serve-this" not in response.text
@@ -159,7 +150,7 @@ def test_a_symlink_escaping_the_build_directory_is_refused(dist_dir):
 def test_absent_build_reports_unavailable_rather_than_crashing(tmp_path):
     """The flag can be on before the build artefact is present; that must be a
     clean 503, not a 500 traceback."""
-    response = build_client(tmp_path / "absent", enabled=True).get("/app/")
+    response = build_client(tmp_path / "absent").get("/app/")
 
     assert response.status_code == 503
 

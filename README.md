@@ -23,15 +23,14 @@ Only Caddy publishes ports. PostgreSQL, the API, worker, and schedulers remain o
 ## Redesigned UI
 
 The rebuilt React interface lives in [`frontend/`](frontend/README.md) and is served by FastAPI at
-`/app` behind `JAWNIX_ENABLE_NEW_UI`. Keep it `false` until the controlled cutover: while the flag is
-off the prefix returns 404 and the current static pages are the only UI. The Docker image builds the
-bundle in a separate Node stage and always ships it, so enabling the flag needs no rebuild.
+`/app`. It is the only UI — the legacy static pages were retired in P8, and Caddy redirects their
+former URLs to `/app`. The Docker image builds the bundle in a separate Node stage and ships it.
 
-Supabase Auth's allowed redirect URLs must include both
-`$JAWNIX_PUBLIC_BASE_URL/portal-accept.html` and
-`$JAWNIX_PUBLIC_BASE_URL/app/accept-invitation` during the transition. The
-feature flag selects which address new invitations and password-recovery emails
-use; keeping both allow-listed preserves rollback until the controlled cutover.
+Supabase Auth's allowed redirect URLs must include
+`$JAWNIX_PUBLIC_BASE_URL/app/accept-invitation`, which is where new invitations
+and password-recovery emails now point. The legacy
+`$JAWNIX_PUBLIC_BASE_URL/portal-accept.html` entry can be removed once every
+invitation issued before the cutover has been accepted or expired.
 
 ## Local verification
 

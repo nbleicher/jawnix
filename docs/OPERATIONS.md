@@ -712,6 +712,10 @@ The VPS migration is additive. Rollback does not overwrite or delete old Supabas
 
 ## UI cutover (#71)
 
+> **Historical.** The `JAWNIX_ENABLE_NEW_UI` flag described below was retired
+> after P8: the React shell is now the only UI and there is no flag to flip.
+> This section is kept as the record of how the 2026-07-31 cutover was performed.
+
 Activates the redesigned React shell (`/app`) as the production UI and retires
 the legacy static pages. This is a flag flip, not a data migration: the #61
 User Account migration is not run (see #70/#71 — ~10 people are invited
@@ -771,9 +775,9 @@ environment and the React shell still reads `window.JAWNIX_CONFIG`.
 
 Still pending, and deliberately **not** part of that change: remove
 `$JAWNIX_PUBLIC_BASE_URL/portal-accept.html` from the Supabase Auth redirect
-allow-list. New invitations already redirect to `/app/accept-invitation`
-(the `new_ui_enabled` branch of `_customer_invitation_redirect`), but
-outstanding unaccepted invitations still carry `/portal-accept.html` links,
-and Supabase validates `redirect_to` against the allow-list **before** the
-Caddy 302 can run. Remove that entry only once every invitation issued before
+allow-list. New invitations always redirect to `/app/accept-invitation`
+(`_customer_invitation_redirect`), but outstanding unaccepted invitations still
+carry `/portal-accept.html` links, and Supabase validates `redirect_to` against
+the allow-list **before** the Caddy 302 can run. Remove that entry only once
+every invitation issued before
 cutover has been accepted or expired, or those links will fail at Supabase.

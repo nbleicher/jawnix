@@ -7,7 +7,7 @@ import uuid
 
 import httpx
 import pytest
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 
@@ -82,6 +82,17 @@ def isolated_session_client(
         path=MOUNT_PREFIX,
     )
     return client, csrf
+
+
+async def _require_admin_without_mfa(principal, settings, db) -> Principal:
+    # The primary-origin handoff calls require_admin() directly (not via
+    # Depends), and require_admin enforces admin MFA. These tests exercise the
+    # handoff mechanics, not the MFA boundary (covered by test_admin_mfa and
+    # test_scraper_mount_requires_admin_session), so they authenticate through
+    # the session cookie and skip the factor check.
+    if principal.role != "admin" or principal.audience != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required.")
+    return principal
 
 
 def configure_proxy(
@@ -287,8 +298,9 @@ def test_scraper_static_css_paths_remain_inside_mount():
         clear_proxy()
 
 
-def test_primary_origin_hands_admin_off_without_contacting_upstream():
+def test_primary_origin_hands_admin_off_without_contacting_upstream(monkeypatch):
     settings = proxy_settings()
+    monkeypatch.setattr("jawnix.api.require_admin", _require_admin_without_mfa)
     calls = []
 
     def upstream(request: httpx.Request) -> httpx.Response:
@@ -311,8 +323,9 @@ def test_primary_origin_hands_admin_off_without_contacting_upstream():
         clear_proxy()
 
 
-def test_signed_handoff_creates_isolated_session_and_opens_dashboard():
+def test_signed_handoff_creates_isolated_session_and_opens_dashboard(monkeypatch):
     settings = proxy_settings()
+    monkeypatch.setattr("jawnix.api.require_admin", _require_admin_without_mfa)
     calls = []
 
     def upstream(request: httpx.Request) -> httpx.Response:
@@ -371,8 +384,9 @@ def test_isolated_scraper_session_cannot_authenticate_native_admin_api():
         clear_proxy()
 
 
-def test_scraper_logout_clears_isolated_session():
+def test_scraper_logout_clears_isolated_session(monkeypatch):
     settings = proxy_settings()
+    monkeypatch.setattr("jawnix.api.require_admin", _require_admin_without_mfa)
     configure_proxy(
         settings,
         lambda _: httpx.Response(200, text="ready"),

@@ -39,11 +39,6 @@ from .schemas import (
 router = APIRouter(prefix="/api/auth/admin-mfa", tags=["administrator-mfa"])
 
 
-def _enabled(settings: Settings) -> None:
-    if not settings.new_ui_enabled:
-        raise HTTPException(status_code=404, detail="Not found.")
-
-
 def _state(db: Session, user_id: uuid.UUID) -> AdminMFAState:
     # Serialize challenge counters and enrollment transitions per account.  A
     # concurrent pair of failures must not both observe the same old count.
@@ -251,7 +246,6 @@ async def admin_mfa_status(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    _enabled(settings)
     state = _state(db, principal.user_id)
     provider = get_mfa_provider(settings)
     factors = await _factors(provider, principal)
@@ -292,7 +286,6 @@ async def admin_mfa_access(
 ):
     """A cheap loader target that exercises the real administrator boundary."""
 
-    _enabled(settings)
     return {"ok": True}
 
 
@@ -303,7 +296,6 @@ async def start_admin_mfa_enrollment(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    _enabled(settings)
     provider = get_mfa_provider(settings)
     _, claims = await _identity_for_token(
         provider,
@@ -401,7 +393,6 @@ async def verify_admin_mfa_enrollment(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    _enabled(settings)
     state = _state(db, principal.user_id)
     throttled, locked_until = _throttle_status(state, settings)
     if throttled:
@@ -532,7 +523,6 @@ async def challenge_admin_mfa(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    _enabled(settings)
     state = _state(db, principal.user_id)
     throttled, _ = _throttle_status(state, settings)
     if throttled:
@@ -631,7 +621,6 @@ async def cancel_admin_mfa_enrollment(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    _enabled(settings)
     provider = get_mfa_provider(settings)
     user, _ = await _identity_for_token(
         provider,
@@ -681,7 +670,6 @@ async def start_admin_mfa_replacement(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    _enabled(settings)
     provider = get_mfa_provider(settings)
     _, claims = await _identity_for_token(
         provider,
@@ -747,7 +735,6 @@ async def logout_admin_everywhere(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    _enabled(settings)
     provider = get_mfa_provider(settings)
     await _identity_for_token(provider, principal, payload.access_token)
     provider_failed = False

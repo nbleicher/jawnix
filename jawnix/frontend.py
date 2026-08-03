@@ -39,16 +39,6 @@ def _headers(cache_control: str) -> dict[str, str]:
     }
 
 
-def _require_enabled(settings: Settings) -> None:
-    """The shell is non-public until cutover.
-
-    A disabled flag yields 404 rather than 403 so the surface is not merely
-    protected but undiscoverable.
-    """
-    if not settings.new_ui_enabled:
-        raise HTTPException(status_code=404, detail="Not found.")
-
-
 def register_frontend_shell(app: FastAPI) -> None:
     """Register the shell routes on ``app``."""
 
@@ -57,8 +47,6 @@ def register_frontend_shell(app: FastAPI) -> None:
         asset_path: str,
         settings: Settings = Depends(get_settings),
     ) -> Response:
-        _require_enabled(settings)
-
         assets_root = (settings.frontend_dist_dir / ASSETS_SEGMENT).resolve()
         candidate = (assets_root / asset_path).resolve()
 
@@ -83,12 +71,10 @@ def register_frontend_shell(app: FastAPI) -> None:
         such as ``/app/admin/fulfillment`` must return the same document rather
         than 404.
         """
-        _require_enabled(settings)
-
         index: Path = settings.frontend_dist_dir / "index.html"
         if not index.is_file():
-            # The flag can legitimately be switched on before the build artefact
-            # ships. Report that as a dependency being unavailable, not as a bug.
+            # The image can start before the build artefact ships. Report that
+            # as a dependency being unavailable, not as a bug.
             raise HTTPException(
                 status_code=503,
                 detail="The Jawnix application is not available. Try again shortly.",

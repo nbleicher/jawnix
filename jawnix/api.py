@@ -212,8 +212,7 @@ async def redact_sensitive_validation_error(
         )
     return await request_validation_exception_handler(request, exc)
 
-# The redesigned shell at /app, behind JAWNIX_ENABLE_NEW_UI. Off by default, so
-# the current static UI is the only surface until the cutover in #71.
+# The React shell at /app is the only UI (legacy static pages retired in P8).
 register_frontend_shell(app)
 
 
@@ -475,8 +474,8 @@ async def create_session(
     if payload.requested_next == "/admin.html" and role != "admin":
         raise HTTPException(status_code=403, detail="Sign in with noah@jawnix.com to access administration.")
     session_kwargs: dict = {}
-    admin_next = "/admin.html"
-    if role == "admin" and settings.new_ui_enabled:
+    admin_next = "/app/admin/overview"
+    if role == "admin":
         state = db.get(AdminMFAState, uuid.UUID(str(user["id"])))
         if state is None:
             state = AdminMFAState(
@@ -600,7 +599,7 @@ async def create_session(
     db.commit()
     if principal.role == "admin":
         next_path = admin_next
-    elif settings.new_ui_enabled:
+    else:
         requested = payload.requested_next or ""
         next_path = (
             requested
@@ -609,8 +608,6 @@ async def create_session(
             and not requested.startswith("//")
             else "/app/overview"
         )
-    else:
-        next_path = "/portal.html"
     return {
         "ok": True,
         "role": principal.role,
@@ -3863,12 +3860,7 @@ async def _supabase_admin(settings: Settings, method: str, path: str, payload: d
 
 
 def _customer_invitation_redirect(settings: Settings) -> str:
-    path = (
-        "/app/accept-invitation"
-        if settings.new_ui_enabled
-        else "/portal-accept.html"
-    )
-    return f"{settings.public_base_url.rstrip('/')}{path}"
+    return f"{settings.public_base_url.rstrip('/')}/app/accept-invitation"
 
 
 async def _dispatch_invitation(settings: Settings, payload) -> uuid.UUID:

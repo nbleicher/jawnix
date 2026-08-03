@@ -156,7 +156,6 @@ def mfa_settings(settings):
         JAWNIX_BATCH_DIR=settings.batch_dir,
         JAWNIX_COOKIE_SECURE=False,
         JAWNIX_SESSION_SECRET=settings.session_secret,
-        JAWNIX_ENABLE_NEW_UI=True,
         JAWNIX_SUPABASE_URL="https://project.supabase.co",
         JAWNIX_SUPABASE_ANON_KEY="anon-key",
         SUPABASE_SERVICE_ROLE_KEY="service-role",
