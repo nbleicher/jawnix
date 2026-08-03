@@ -312,6 +312,30 @@ export async function mockFulfillment(page: Page): Promise<RecordedCall[]> {
     }),
   );
 
+  let poolBreakdown = {
+    asOf: "2026-08-03T12:00:00Z",
+    cells: [
+      { state: "FL", niche: "Dental", count: 120 },
+      { state: "TX", niche: "Dental", count: 340 },
+      { state: "TX", niche: "unmapped", count: 18 },
+    ],
+  };
+
+  await page.route(/\/api\/admin\/pool-breakdown(?:\/refresh)?$/, (route) => {
+    if (route.request().method() === "POST") {
+      poolBreakdown = {
+        asOf: "2026-08-03T15:00:00Z",
+        cells: [
+          { state: "FL", niche: "Dental", count: 121 },
+          { state: "TX", niche: "Dental", count: 341 },
+          { state: "TX", niche: "unmapped", count: 18 },
+        ],
+      };
+      return json(route, poolBreakdown);
+    }
+    return json(route, poolBreakdown);
+  });
+
   await page.route(/\/api\/admin\/inventory-conflicts\/[^/]+$/, (route) => {
     if (route.request().method() === "GET") {
       return json(route, CONFLICT);

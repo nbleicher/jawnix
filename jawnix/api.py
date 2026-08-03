@@ -754,7 +754,7 @@ def upload_customer_exclusion_list(
         },
     )
     db.commit()
-    return exclusion_list_status(item)
+    return exclusion_list_status(item, db)
 
 
 @app.get("/api/me/exclusion-lists/{exclusion_list_id}")
@@ -772,7 +772,7 @@ def customer_exclusion_list_status(
     )
     if item is None:
         raise HTTPException(status_code=404, detail="Exclusion List was not found.")
-    return exclusion_list_status(item)
+    return exclusion_list_status(item, db)
 
 
 @app.get("/api/me/exclusion-lists")
@@ -782,7 +782,7 @@ def list_customer_exclusion_lists(
 ):
     profile = _current_customer_profile(db, principal)
     return [
-        exclusion_list_status(item)
+        exclusion_list_status(item, db)
         for item in db.scalars(
             select(ExclusionList)
             .where(ExclusionList.customer_id == profile.customer_id)
@@ -850,7 +850,7 @@ def upload_admin_exclusion_list(
         },
     )
     db.commit()
-    return exclusion_list_status(item)
+    return exclusion_list_status(item, db)
 
 
 @app.get("/api/admin/exclusion-lists/{exclusion_list_id}")
@@ -862,7 +862,7 @@ def admin_exclusion_list_status(
     item = db.get(ExclusionList, exclusion_list_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Exclusion List was not found.")
-    return exclusion_list_status(item)
+    return exclusion_list_status(item, db)
 
 
 @app.post("/api/admin/exclusion-lists/{exclusion_list_id}/{action}")
@@ -886,7 +886,7 @@ def admin_decide_exclusion_list(
     except ExclusionDecisionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
     db.commit()
-    return exclusion_list_status(item)
+    return exclusion_list_status(item, db)
 
 
 @app.get("/api/me/profile", response_model=ProfileOut)
@@ -2699,27 +2699,63 @@ def projected_niche_policy_availability(
         normalize_policy_rows(draft)
     except NichePolicyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    from .allocation import inventory_count
-    from .models import LeadRequest, RequestStatus
+    from .pool_analytics import project_customer_availability
 
-    projection = LeadRequest(
-        agent=customer,
-        agent_id=customer.id,
-        user_id=uuid.uuid4(),
-        lead_count=1,
-        states_snapshot=list(customer.licensed_states),
-        state_mode="all_saved",
-        delivery_email="projection@invalid",
-        status=RequestStatus.approved.value,
+    return project_customer_availability(
+        db,
+        customer,
+        settings,
+        niche_policy_rows=draft,
     )
-    return {
-        "available": inventory_count(
-            db,
-            projection,
-            settings,
-            niche_policy_rows=draft,
-        )
-    }
+
+
+@app.get("/api/admin/pool-breakdown")
+def get_pool_breakdown(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from .pool_analytics import read_pool_breakdown
+
+    return read_pool_breakdown(db)
+
+
+@app.post("/api/admin/pool-breakdown/refresh")
+def refresh_pool_breakdown_endpoint(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    from .pool_analytics import refresh_pool_breakdown
+
+    payload = refresh_pool_breakdown(db)
+    db.commit()
+    return payload
+
+
+@app.get("/api/admin/customers/{customer_id}/availability")
+def get_customer_availability(
+    customer_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _allocation_customer(db, customer_id)
+    from .pool_analytics import read_customer_availability
+
+    return read_customer_availability(db, customer_id)
+
+
+@app.post("/api/admin/customers/{customer_id}/availability/refresh")
+def refresh_customer_availability_endpoint(
+    customer_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    customer = _allocation_customer(db, customer_id)
+    from .pool_analytics import refresh_customer_availability
+
+    payload = refresh_customer_availability(db, customer, settings)
+    db.commit()
+    return payload
 
 
 def _store_niche_assignment_upload(

@@ -312,7 +312,9 @@ def test_only_rule_hides_unmapped_leads_and_projected_availability(
             json=draft,
         )
         assert preview.status_code == 200, preview.text
-        assert preview.json() == {"available": 1}
+        body = preview.json()
+        assert body["available"] == 1
+        assert body["asOf"] is not None
         # Draft must not persist.
         assert client.get(
             f"/api/admin/customers/{customer.id}/niche-policy"
