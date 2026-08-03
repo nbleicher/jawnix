@@ -912,8 +912,8 @@ def create_credit_purchase(
             amount_dollars=payload.amount_dollars,
             customer_email=profile.email,
             stripe=stripe,
-            success_url=f"{base}/account?purchase=success",
-            cancel_url=f"{base}/account?purchase=cancelled",
+            success_url=f"{base}/app/account?purchase=success",
+            cancel_url=f"{base}/app/account?purchase=cancelled",
         )
     except BillingError as exc:
         raise HTTPException(

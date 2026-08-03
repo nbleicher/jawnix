@@ -1,0 +1,49 @@
+.credit-wallet-widget {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-3);
+  padding: var(--jx-space-1) var(--jx-space-2) var(--jx-space-1) var(--jx-space-3);
+  border: 1px solid var(--jx-color-border);
+  border-radius: var(--jx-radius-md);
+  background: var(--jx-color-surface-strong);
+  min-width: 0;
+}
+
+.credit-wallet-widget__balance {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.credit-wallet-widget__label {
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-bold);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
+  color: var(--jx-color-text-muted);
+}
+
+.credit-wallet-widget__amount {
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-semibold);
+  color: var(--jx-color-text-strong);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.credit-wallet-widget .jx-status {
+  margin-top: 0.125rem;
+}
+
+@media (max-width: 40rem) {
+  .credit-wallet-widget {
+    gap: var(--jx-space-2);
+    padding-inline: var(--jx-space-2);
+  }
+
+  .credit-wallet-widget__label {
+    display: none;
+  }
+}

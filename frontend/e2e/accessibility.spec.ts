@@ -12,6 +12,7 @@ import {
   CUSTOMER_ACCOUNT_IDENTITY,
   LICENSED_STATE_ACCOUNT,
 } from "./customer-account-fixtures";
+import { BILLED_CUSTOMER_WALLET } from "./customer-billing-fixtures";
 import { mockFeedback } from "./customer-feedback-fixtures";
 import { mockCustomerAuth } from "./customer-auth-fixtures";
 import {
@@ -179,6 +180,44 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
       page.getByRole("heading", {
         name: "Customer mapping needs confirmation",
       }),
+    ).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_AA_TAGS)
+      .analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("Billed Customer Account with Credit Wallet has no accessibility violations", async ({
+    page,
+  }) => {
+    await mockCustomerAuth(page, {
+      billing: { wallet: BILLED_CUSTOMER_WALLET },
+    });
+    await page.goto("./account");
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Credit Ledger" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Credit Wallet summary")).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_AA_TAGS)
+      .analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("Buy credits dialog has no accessibility violations", async ({
+    page,
+  }) => {
+    await mockCustomerAuth(page, {
+      billing: { wallet: BILLED_CUSTOMER_WALLET },
+    });
+    await page.goto("./overview");
+    await page.getByRole("button", { name: "Buy credits" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Buy credits" }),
     ).toBeVisible();
 
     const results = await new AxeBuilder({ page })

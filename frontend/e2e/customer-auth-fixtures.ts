@@ -6,6 +6,11 @@ import {
   CUSTOMER_ACCOUNT_IDENTITY,
   LICENSED_STATE_ACCOUNT,
 } from "./customer-account-fixtures";
+import {
+  FREE_CUSTOMER_WALLET,
+  mockCustomerBilling,
+} from "./customer-billing-fixtures";
+import type { CustomerBillingMockOptions } from "./customer-billing-fixtures";
 
 export interface CustomerAuthMockOptions {
   signInAccepted?: boolean;
@@ -16,6 +21,8 @@ export interface CustomerAuthMockOptions {
   batchRequests?: unknown | (() => unknown);
   licensedStates?: unknown | (() => unknown);
   profile?: unknown | (() => unknown);
+  /** Defaults to a Free Customer wallet so billing chrome stays hidden. */
+  billing?: CustomerBillingMockOptions;
 }
 
 export interface CustomerAuthMockState {
@@ -202,6 +209,13 @@ export async function mockCustomerAuth(
   await page.route(/\/api\/auth\/logout$/, (route) => {
     state.jawnixLogoutCalls += 1;
     return json(route, { ok: true });
+  });
+
+  // Free Customer by default so existing specs stay free of Credit Wallet UI.
+  // Specs that exercise billing pass `billing` or layer mockCustomerBilling.
+  await mockCustomerBilling(page, {
+    wallet: FREE_CUSTOMER_WALLET,
+    ...settings.billing,
   });
 
   return state;
