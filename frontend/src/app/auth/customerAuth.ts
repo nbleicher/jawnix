@@ -160,7 +160,9 @@ export async function customerAccessLoader({
   return response.json() as Promise<CustomerOverviewData>;
 }
 
-export async function signOutCustomer(): Promise<void> {
+// Shared by the Customer and Administration shells: clears the Jawnix session
+// cookie and then the provider session. The endpoint is role-agnostic.
+export async function signOut(): Promise<void> {
   try {
     await fetch("/api/auth/logout", {
       method: "POST",

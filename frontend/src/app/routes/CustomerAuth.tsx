@@ -31,36 +31,19 @@ const SIGN_IN_ERROR =
 const INVITATION_ERROR =
   "This invitation cannot be used. Ask your administrator for a new invitation, or sign in if you already set your password.";
 
-function AuthRouteFrame({
-  children,
-  scenePaused = false,
-}: {
-  children: ReactNode;
-  scenePaused?: boolean;
-}) {
+function AuthRouteFrame({ children }: { children: ReactNode }) {
   useRouteTheme("opaline");
-  const [sceneInteracting, setSceneInteracting] = useState(false);
 
   return (
     <div className="jx-auth-route">
-      <OpalineScene paused={scenePaused || sceneInteracting} />
+      <OpalineScene />
       <a className="jx-auth-route__skip-link" href="#jx-auth-main">
         Skip to main content
       </a>
       <header className="jx-auth-route__banner">
         <span className="jx-auth-route__brand">Jawnix</span>
       </header>
-      <main
-        className="jx-auth-route__main"
-        id="jx-auth-main"
-        onBlurCapture={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget)) {
-            setSceneInteracting(false);
-          }
-        }}
-        onFocusCapture={() => setSceneInteracting(true)}
-        tabIndex={-1}
-      >
+      <main className="jx-auth-route__main" id="jx-auth-main" tabIndex={-1}>
         {children}
       </main>
     </div>
@@ -117,7 +100,7 @@ export function SignInRoute() {
   }
 
   return (
-    <AuthRouteFrame scenePaused={busy}>
+    <AuthRouteFrame>
       <AuthPanel
         title="Sign in"
         description="Use the email address and password for your Customer account."
@@ -237,7 +220,7 @@ export function AcceptInvitationRoute() {
   }
 
   return (
-    <AuthRouteFrame scenePaused={busy}>
+    <AuthRouteFrame>
       <AuthPanel
         title="Create your password"
         description="Finish accepting your invitation. Your administrator cannot see or set this password."
