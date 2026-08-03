@@ -2,7 +2,10 @@ import type { Page, Route } from "@playwright/test";
 
 import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
 import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
-import { LICENSED_STATE_ACCOUNT } from "./customer-account-fixtures";
+import {
+  CUSTOMER_ACCOUNT_IDENTITY,
+  LICENSED_STATE_ACCOUNT,
+} from "./customer-account-fixtures";
 
 export interface CustomerAuthMockOptions {
   signInAccepted?: boolean;
@@ -12,6 +15,7 @@ export interface CustomerAuthMockOptions {
   overview?: unknown | (() => unknown);
   batchRequests?: unknown | (() => unknown);
   licensedStates?: unknown | (() => unknown);
+  profile?: unknown | (() => unknown);
 }
 
 export interface CustomerAuthMockState {
@@ -86,6 +90,7 @@ export async function mockCustomerAuth(
     overview: CUSTOMER_OVERVIEW,
     batchRequests: BATCH_REQUEST_WORKSPACE,
     licensedStates: LICENSED_STATE_ACCOUNT,
+    profile: CUSTOMER_ACCOUNT_IDENTITY,
     ...options,
   };
   const current = (value: unknown | (() => unknown)) =>
@@ -188,6 +193,10 @@ export async function mockCustomerAuth(
 
   await page.route(/\/api\/me\/licensed-states$/, (route) =>
     json(route, current(settings.licensedStates)),
+  );
+
+  await page.route(/\/api\/me\/profile$/, (route) =>
+    json(route, current(settings.profile)),
   );
 
   await page.route(/\/api\/auth\/logout$/, (route) => {

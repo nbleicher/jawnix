@@ -1,11 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { createOpalineScene } from "./createOpalineScene";
 
 type SceneState = "animated" | "fallback" | "loading" | "static";
 
-export function OpalineScene() {
+export function OpalineScene({ paused = false }: { paused?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const controllerRef = useRef<
+    ReturnType<typeof createOpalineScene> | undefined
+  >(undefined);
+  const initialPausedRef = useRef(paused);
   const [sceneState, setSceneState] = useState<SceneState>("loading");
 
   useEffect(() => {
@@ -16,10 +20,8 @@ export function OpalineScene() {
       "(prefers-reduced-motion: reduce)",
     ).matches;
     let active = true;
-    let controller: ReturnType<typeof createOpalineScene> | undefined;
-
     try {
-      controller = createOpalineScene(canvas, {
+      const controller = createOpalineScene(canvas, {
         reducedMotion,
         onFailure: () => {
           if (active) setSceneState("fallback");
@@ -28,20 +30,28 @@ export function OpalineScene() {
           if (active) setSceneState(reducedMotion ? "static" : "animated");
         },
       });
+      controller.setPaused(initialPausedRef.current);
+      controllerRef.current = controller;
     } catch {
       setSceneState("fallback");
     }
 
     return () => {
       active = false;
-      controller?.dispose();
+      controllerRef.current?.dispose();
+      controllerRef.current = undefined;
     };
   }, []);
+
+  useLayoutEffect(() => {
+    controllerRef.current?.setPaused(paused);
+  }, [paused]);
 
   return (
     <div
       aria-hidden="true"
       className="jx-opaline-scene"
+      data-opaline-paused={paused || undefined}
       data-opaline-state={sceneState}
     >
       <canvas id="scene" ref={canvasRef} />

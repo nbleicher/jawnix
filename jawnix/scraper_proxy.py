@@ -23,6 +23,7 @@ from fastapi.responses import (
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from .activity import record_activity
 from .admin_mfa_api import (
@@ -40,6 +41,21 @@ from .admin_mfa_api import (
 from .auth import Principal, require_admin
 from .config import Settings, get_settings
 from .database import get_db
+from .keyword_history import observe_keyword_history
+from .keyword_generation import (
+    GenerationErrorCode,
+    GenerationProvider,
+    KeywordGenerationError,
+    accept_generation_draft,
+    build_generation_provider,
+    create_generation_draft,
+    exclusion_metrics,
+    generation_error,
+    keyword_history_terms,
+    purge_generation_drafts,
+    try_generation_lock,
+    valid_generation_draft,
+)
 from .mfa_provider import MFAProviderError, get_mfa_provider
 from .models import ScraperRuntimeConfigurationRevision
 from .schemas import AdminMFAChallenge
@@ -1141,30 +1157,6 @@ def _mark_operations_success(request: Request, settings: Settings) -> None:
     _state(request, settings).last_success = _workspace_now(request)
 
 
-_SAFE_GENERATION_ERRORS = (
-    "Unsupported generation mode",
-    "The selected winner is unavailable",
-    "AI generation is not configured",
-    "The AI provider ",
-    "The OpenRouter ",
-    "OpenRouter ",
-    "The DeepSeek ",
-    "DeepSeek ",
-    "AI generation failed",
-    "AI could not produce ",
-    "Another keyword generation ",
-    "Choose a winner ",
-)
-
-
-def _safe_generation_error(message: str | None) -> str:
-    if message and len(message) <= 240 and message.startswith(
-        _SAFE_GENERATION_ERRORS
-    ):
-        return message
-    return "AI keyword generation failed; try again."
-
-
 def _audit_keyword_failure(
     db: Session,
     *,
@@ -1195,6 +1187,27 @@ def _scraper_operations(
     return HTTPScraperOperations(
         settings,
         transport=getattr(request.app.state, "scraper_proxy_transport", None),
+    )
+
+
+def _generation_provider(
+    request: Request,
+    settings: Settings,
+) -> GenerationProvider:
+    override = getattr(
+        request.app.state,
+        "keyword_generation_provider",
+        None,
+    )
+    if override is not None:
+        return override
+    return build_generation_provider(
+        settings,
+        transport=getattr(
+            request.app.state,
+            "keyword_generation_transport",
+            None,
+        ),
     )
 
 
@@ -1236,6 +1249,7 @@ async def scraper_keyword_workspace(
     response: Response,
     principal: Principal = Depends(require_admin),
     settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
 ):
     """Project every current keyword read without moving ownership to Jawnix."""
 
@@ -1249,13 +1263,27 @@ async def scraper_keyword_workspace(
     except ScraperOperationsError:
         return _keyword_workspace_unavailable(request, settings)
     _mark_operations_success(request, settings)
+    observed_at = _workspace_now(request)
+    observe_keyword_history(
+        db,
+        workspace.current,
+        origin="active_list",
+        observed_at=observed_at,
+    )
+    observe_keyword_history(
+        db,
+        (winner.keyword for winner in winners),
+        origin="winner",
+        observed_at=observed_at,
+    )
+    db.commit()
     proxy_state = _state(request, settings)
     return KeywordWorkspace(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
         current=workspace.current,
         version=workspace.version,
-        ai_enabled=workspace.ai_enabled,
+        ai_enabled=_generation_provider(request, settings).available,
         rollover=_public_rollover(workspace.rollover),
         winners=winners,
         idle_expires_in=SCRAPER_IDLE_SECONDS,
@@ -1347,15 +1375,27 @@ async def save_scraper_keywords(
             status_code=422,
             detail="Preview these keyword changes again before saving.",
         )
-    generation_id: str | None = None
+    generation_id: uuid.UUID | None = None
+    generation_draft = None
     if payload.generation_id:
         try:
-            generation_id = str(uuid.UUID(payload.generation_id))
+            generation_id = uuid.UUID(payload.generation_id)
         except ValueError as error:
             raise HTTPException(
                 status_code=422,
                 detail="Invalid keyword generation.",
             ) from error
+        generation_draft = valid_generation_draft(
+            db,
+            generation_id,
+            administrator_id=principal.user_id,
+            now=_workspace_now(request),
+        )
+        if generation_draft is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Invalid keyword generation.",
+            )
 
     async with KEYWORD_WRITE_LOCK:
         operations = _scraper_operations(request, settings)
@@ -1402,7 +1442,7 @@ async def save_scraper_keywords(
         upstream_payload = payload.model_copy(
             update={
                 "text": "\n".join(diff.proposed),
-                "generation_id": generation_id,
+                "generation_id": None,
             }
         )
         try:
@@ -1437,6 +1477,17 @@ async def save_scraper_keywords(
 
         _mark_operations_success(request, settings)
         next_version = keyword_version(diff.proposed)
+        observe_keyword_history(
+            db,
+            diff.proposed,
+            origin="accepted_save",
+            observed_at=_workspace_now(request),
+        )
+        if generation_draft is not None:
+            accept_generation_draft(
+                generation_draft,
+                now=_workspace_now(request),
+            )
         record_activity(
             db,
             action="scraper_keywords_saved",
@@ -1457,7 +1508,7 @@ async def save_scraper_keywords(
                 "removedCount": len(diff.removed),
                 "unchangedCount": len(diff.unchanged),
                 "enqueueRequested": payload.enqueue,
-                "generationAccepted": generation_id is not None,
+                "generationAccepted": generation_draft is not None,
             },
         )
         db.commit()
@@ -1481,73 +1532,189 @@ async def generate_scraper_keywords(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    """Ask the Scraper generator for a review-only draft."""
+    """Create a Jawnix-owned, review-only keyword draft."""
 
     _require_scraper_grant(request, response, principal, settings)
-    try:
-        draft = await _scraper_operations(
-            request,
-            settings,
-        ).generate_keywords(payload)
-    except ScraperOperationsError as error:
-        if error.status_code is None:
-            details = {
-                "mode": payload.mode,
-                "seedKeyword": payload.seed_keyword,
-                "outcome": "upstream_unavailable",
-                "transportError": error.transport_error,
-            }
-            _audit_keyword_failure(
-                db,
-                principal=principal,
-                action="scraper_keyword_generation_failed",
-                reason="Scraper keyword generator could not be reached",
-                details=details,
-            )
-            return _native_unavailable(_state(request, settings))
-        message = _safe_generation_error(error.detail)
+    provider = _generation_provider(request, settings)
+    if not provider.available:
+        error = generation_error(GenerationErrorCode.NOT_CONFIGURED)
         _audit_keyword_failure(
             db,
             principal=principal,
             action="scraper_keyword_generation_failed",
-            reason="Scraper keyword generator returned no review draft",
+            reason="Jawnix keyword generation returned no review draft",
             details={
                 "mode": payload.mode,
                 "seedKeyword": payload.seed_keyword,
-                "outcome": message,
+                "outcome": error.code.value,
             },
         )
-        status_code = (
-            409
-            if message.startswith("Another keyword generation")
-            else 422
-            if message in {
-                "The selected winner is unavailable",
-                "AI generation is not configured",
-                "Choose a winner before generating adjacent keywords",
-            }
-            else 503
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.message,
         )
-        raise HTTPException(status_code=status_code, detail=message) from None
+    if not try_generation_lock(db):
+        error = generation_error(GenerationErrorCode.CONFLICT)
+        _audit_keyword_failure(
+            db,
+            principal=principal,
+            action="scraper_keyword_generation_failed",
+            reason="Jawnix keyword generation was already in progress",
+            details={
+                "mode": payload.mode,
+                "seedKeyword": payload.seed_keyword,
+                "outcome": error.code.value,
+            },
+        )
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.message,
+        )
+    try:
+        operations = _scraper_operations(request, settings)
+        workspace, winners = await asyncio.gather(
+            operations.list_keywords(),
+            operations.keyword_winners(),
+        )
+    except ScraperOperationsError as error:
+        _audit_keyword_failure(
+            db,
+            principal=principal,
+            action="scraper_keyword_generation_failed",
+            reason="Keyword exclusions could not be read from Scraper Operations",
+            details={
+                "mode": payload.mode,
+                "seedKeyword": payload.seed_keyword,
+                "outcome": "upstream_unavailable",
+                "transportError": error.transport_error,
+            },
+        )
+        return _native_unavailable(_state(request, settings))
 
     _mark_operations_success(request, settings)
+    if payload.mode == "adjacent" and (
+        not payload.seed_keyword
+        or payload.seed_keyword.casefold()
+        not in {winner.keyword.casefold() for winner in winners}
+    ):
+        error = generation_error(GenerationErrorCode.INVALID_SEED)
+        _audit_keyword_failure(
+            db,
+            principal=principal,
+            action="scraper_keyword_generation_failed",
+            reason="Jawnix keyword generation returned no review draft",
+            details={
+                "mode": payload.mode,
+                "seedKeyword": payload.seed_keyword,
+                "outcome": error.code.value,
+            },
+        )
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.message,
+        )
+
+    history = keyword_history_terms(db)
+    observed_at = _workspace_now(request)
+    observe_keyword_history(
+        db,
+        workspace.current,
+        origin="active_list",
+        observed_at=observed_at,
+    )
+    observe_keyword_history(
+        db,
+        (winner.keyword for winner in winners),
+        origin="winner",
+        observed_at=observed_at,
+    )
+    exclusions, exclusion_counts = exclusion_metrics(
+        active=workspace.current,
+        winners=(winner.keyword for winner in winners),
+        history=history,
+    )
+    try:
+        result = await run_in_threadpool(
+            provider.generate_keywords,
+            mode=payload.mode,
+            excluded_keywords=exclusions,
+            seed_keyword=payload.seed_keyword,
+        )
+        if len(result.terms) != 25:
+            error = generation_error(
+                GenerationErrorCode.INSUFFICIENT_CANDIDATES
+            )
+            error.metrics = {
+                **result.candidate_metrics,
+                "acceptedCount": len(result.terms),
+            }
+            raise error
+    except KeywordGenerationError as error:
+        _audit_keyword_failure(
+            db,
+            principal=principal,
+            action="scraper_keyword_generation_failed",
+            reason="Jawnix keyword generation returned no review draft",
+            details={
+                "mode": payload.mode,
+                "seedKeyword": payload.seed_keyword,
+                "outcome": error.code.value,
+                "statusCode": error.status_code,
+                "candidateMetrics": error.metrics,
+            },
+        )
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.message,
+        ) from None
+
+    now = _workspace_now(request)
+    purge_generation_drafts(db, now=now)
+    draft = create_generation_draft(
+        db,
+        administrator_id=principal.user_id,
+        mode=payload.mode,
+        seed_keyword=payload.seed_keyword,
+        model=provider.model,
+        result=result,
+        exclusion_metrics=exclusion_counts,
+        now=now,
+    )
+    label = (
+        f"keywords adjacent to {payload.seed_keyword}"
+        if payload.mode == "adjacent"
+        else "broad local-business keywords"
+    )
+    notice = (
+        f"Draft ready: 25 {label}. Review below; nothing has been saved or "
+        f"enqueued. {result.excluded_count} candidates were filtered."
+    )
     record_activity(
         db,
         action="scraper_keyword_generation_created",
         target_type="scraper_keyword_generation",
-        target_id=draft.generation_id,
+        target_id=draft.id,
         actor_id=principal.user_id,
         reason="Generated Scraper keywords for human review",
         details={
             "mode": payload.mode,
             "seedKeyword": payload.seed_keyword,
-            "keywordCount": len(draft.keywords),
-            "excludedCount": draft.excluded_count,
+            "keywordCount": len(result.terms),
+            "excludedCount": result.excluded_count,
+            "exclusionMetrics": exclusion_counts,
+            "candidateMetrics": result.candidate_metrics,
             "activeConfigurationChanged": False,
         },
     )
     db.commit()
-    return draft
+    return KeywordGenerationDraft(
+        generation_id=str(draft.id),
+        mode=payload.mode,
+        seed_keyword=payload.seed_keyword,
+        keywords=result.terms,
+        excluded_count=result.excluded_count,
+        notice=notice,
+    )
 
 
 @native_router.post(
@@ -1563,6 +1730,24 @@ async def control_scraper_keyword_rollover(
     db: Session = Depends(get_db),
 ):
     _require_scraper_grant(request, response, principal, settings)
+    if (
+        payload.action == "enable"
+        and not _generation_provider(request, settings).available
+    ):
+        _audit_keyword_failure(
+            db,
+            principal=principal,
+            action="scraper_keyword_rollover_failed",
+            reason="Automatic Scraper keyword rollover could not be changed",
+            details={
+                "requestedAction": payload.action,
+                "outcome": "not_configured",
+            },
+        )
+        raise HTTPException(
+            status_code=422,
+            detail="AI generation is not configured.",
+        )
     try:
         rollover = await _scraper_operations(
             request,
@@ -1579,11 +1764,6 @@ async def control_scraper_keyword_rollover(
                 "upstreamStatus": error.status_code,
             },
         )
-        if error.status_code == 422:
-            raise HTTPException(
-                status_code=422,
-                detail="AI generation is not configured.",
-            )
         return _native_unavailable(_state(request, settings))
     rollover = _public_rollover(rollover)
     _mark_operations_success(request, settings)

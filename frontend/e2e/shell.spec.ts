@@ -28,6 +28,24 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("Customer shell", () => {
+  test("keeps email support in the shell chrome across destinations", async ({
+    page,
+  }) => {
+    await page.goto("./overview");
+
+    const support = page.getByRole("banner").getByRole("link", {
+      name: "Support",
+    });
+    await expect(support).toBeVisible();
+    await expect(support).toHaveAttribute("href", "mailto:hai@jawnix.com");
+
+    await page
+      .getByRole("navigation", { name: "Customer" })
+      .getByRole("link", { name: "Account" })
+      .click();
+    await expect(support).toBeVisible();
+  });
+
   test("lands on Overview and reaches every primary destination", async ({ page }) => {
     await page.goto("./");
 
@@ -210,6 +228,20 @@ test.describe("Administration shell", () => {
     const nav = page.getByRole("navigation", { name: "Administration" });
     await nav.getByRole("link", { name: "Fulfillment" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "jawnix");
+  });
+
+  test("signs the administrator out from the shell chrome", async ({ page }) => {
+    await page.goto("./admin/overview");
+
+    await page
+      .getByRole("banner")
+      .getByRole("button", { name: "Sign out" })
+      .click();
+
+    await expect(page).toHaveURL(/\/app\/sign-in$/);
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Sign in" }),
+    ).toBeVisible();
   });
 });
 

@@ -49,6 +49,25 @@ test.describe("Opaline authentication scene", () => {
     });
   });
 
+  test("keeps animating while a field is focused", async ({ page }) => {
+    await mockCustomerAuth(page);
+    await page.goto("./sign-in");
+
+    const scene = page.locator(".jx-opaline-scene");
+    const canvas = scene.locator("canvas");
+    await expect(scene).toHaveAttribute("data-opaline-state", "animated");
+
+    // Focusing a field must not freeze the scene: it stays live throughout
+    // credential entry, so two frames captured while the email field holds
+    // focus differ.
+    await page.getByLabel("Email address (required)").focus();
+    await expect(scene).not.toHaveAttribute("data-opaline-paused", "true");
+    const firstFrame = await canvas.screenshot();
+    await page.waitForTimeout(300);
+    const laterFrame = await canvas.screenshot();
+    expect(laterFrame.equals(firstFrame)).toBe(false);
+  });
+
   test("WebGL failure keeps the gradient fallback and invitation form usable", async ({
     page,
   }) => {

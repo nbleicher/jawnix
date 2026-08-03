@@ -157,29 +157,6 @@ RestartSec=10
 WantedBy=multi-user.target
 UNIT
 
-cat > /etc/systemd/system/gms-keyword-rollover.service <<UNIT
-[Unit]
-Description=Generate the next keyword batch after campaign completion
-After=gms-enqueue.service network-online.target
-[Service]
-Type=oneshot
-User=${APP_USER}
-EnvironmentFile=${ENV_FILE}
-WorkingDirectory=${APP_DIR}
-ExecStart=${APP_DIR}/venv/bin/python ${APP_DIR}/control/keyword_rollover.py
-UNIT
-cat > /etc/systemd/system/gms-keyword-rollover.timer <<UNIT
-[Unit]
-Description=Check for completed keyword batches every minute
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=1min
-AccuracySec=10s
-Persistent=true
-[Install]
-WantedBy=timers.target
-UNIT
-
 # Daily global-combine export + campaign rollover (08:00 UTC)
 cat > /etc/systemd/system/gms-export.service <<UNIT
 [Unit]
@@ -252,7 +229,7 @@ ufw --force enable || true
 
 systemctl daemon-reload
 systemctl enable --now gms-serve.service gms-enqueue.service \
-  gms-export.timer gms-alert.timer gms-keyword-rollover.timer enqueue-trigger.path || \
+  gms-export.timer gms-alert.timer enqueue-trigger.path || \
   echo "  (enable services after confirming the binary subcommands)"
 
 echo

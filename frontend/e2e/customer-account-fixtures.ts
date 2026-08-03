@@ -35,6 +35,16 @@ export const LICENSED_STATE_ACCOUNT = {
   ],
 };
 
+export const CUSTOMER_ACCOUNT_IDENTITY = {
+  user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  email: "river@northstar.example",
+  first_name: "River",
+  last_name: "Morgan",
+  phone: "(215) 555-0142",
+  customer_id: 7,
+  mapping_confirmed_at: "2026-07-28T12:00:00Z",
+};
+
 const IMPACTS = [
   {
     request_id: "11111111-1111-4111-8111-111111111111",

@@ -81,7 +81,6 @@ def workspace_settings(settings) -> Settings:
         JAWNIX_BATCH_DIR=settings.batch_dir,
         JAWNIX_COOKIE_SECURE=False,
         JAWNIX_SESSION_SECRET=settings.session_secret,
-        JAWNIX_ENABLE_NEW_UI=True,
         JAWNIX_SCRAPER_OPS_URL="http://10.77.0.2:8090",
         JAWNIX_SCRAPER_OPS_USER="scraper-admin",
         JAWNIX_SCRAPER_OPS_PASSWORD="upstream-secret",
@@ -89,6 +88,7 @@ def workspace_settings(settings) -> Settings:
             "test-scraper-control-token-0000000000000000"
         ),
         JAWNIX_SCRAPER_OPS_TIMEOUT_SECONDS=1,
+        OPENROUTER_API_KEY="test-openrouter-key",
     )
 
 
@@ -149,6 +149,8 @@ def workspace_client(
             "scraper_proxy_transport",
             "scraper_proxy_state",
             "scraper_operations",
+            "keyword_generation_provider",
+            "keyword_generation_transport",
         ):
             if hasattr(app.state, attribute):
                 delattr(app.state, attribute)

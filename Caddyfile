@@ -45,55 +45,34 @@
 ` 200
 	}
 
-	# Redesigned React shell. FastAPI owns the whole prefix so it can apply the
-	# feature flag, serve content-hashed assets immutably, and return the shell
-	# document for direct navigation to any application route. While the flag is
-	# off this answers 404, keeping the surface non-public before cutover (#71).
+	# Redesigned React shell. FastAPI owns the whole prefix so it can serve
+	# content-hashed assets immutably and return the shell document for direct
+	# navigation to any application route.
 	handle /app* {
 		reverse_proxy api:8001
 	}
 
-	# UI cutover (#71): with JAWNIX_ENABLE_NEW_UI=true the legacy static pages
-	# hand their URLs to the React shell. `{$VAR}` is substituted when Caddy
-	# parses the config, so flipping the flag means restarting this container
-	# (and api) with the new env — which is also the whole rollback: set it
-	# false again and the static UI below answers untouched. 302, not 308, so
-	# no browser caches a redirect across a rollback. portal-accept keeps its
-	# query string because invitation links may carry `?code=`; Supabase hash
-	# fragments survive any redirect on their own.
-	@newui_root {
-		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
-		path / /index.html
-	}
-	redir @newui_root /app/ 302
-	@newui_login {
-		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
-		path /login.html /login
-	}
-	redir @newui_login /app/sign-in?{query} 302
-	@newui_portal {
-		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
-		path /portal.html /portal
-	}
-	redir @newui_portal /app/ 302
-	@newui_accept {
-		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
-		path /portal-accept.html
-	}
-	redir @newui_accept /app/accept-invitation?{query} 302
-	@newui_admin {
-		expression `"{$JAWNIX_ENABLE_NEW_UI:false}" == "true"`
-		path /admin.html
-	}
-	redir @newui_admin /app/admin 302
+	# Static-page retirement (P8, after #71 stabilization). The legacy static
+	# pages are gone from the image and Compose mounts; only the React shell
+	# remains. Their URLs redirect unconditionally to the shell, preserving
+	# query strings — invitation `?code=` and sign-in `?next=` values; Supabase
+	# hash fragments survive any redirect on their own. 302, not 308, so no
+	# browser caches these permanently. The `handle` catch-all sends every other
+	# non-shell path to the shell too, so no old bookmark 404s.
+	@legacy_login path /login.html /login
+	redir @legacy_login /app/sign-in?{query} 302
+	@legacy_accept path /portal-accept.html
+	redir @legacy_accept /app/accept-invitation?{query} 302
+	@legacy_admin path /admin.html
+	redir @legacy_admin /app/admin?{query} 302
+	@legacy_portal path /portal.html /portal
+	redir @legacy_portal /app/?{query} 302
+	@legacy_root path / /index.html
+	redir @legacy_root /app/?{query} 302
 
-	redir / /login.html 302
-	redir /index.html /login.html 302
-	redir /login /login.html 308
-	redir /portal /portal.html 308
-
-	root * /srv/static
-	file_server
+	handle {
+		redir * /app/?{query} 302
+	}
 
 	header {
 		X-Content-Type-Options nosniff

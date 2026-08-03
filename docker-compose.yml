@@ -84,23 +84,17 @@ services:
       # Rendered into /config.js by the Caddyfile. Both are public by design.
       JAWNIX_SUPABASE_URL: ${JAWNIX_SUPABASE_URL:?set JAWNIX_SUPABASE_URL}
       JAWNIX_SUPABASE_ANON_KEY: ${JAWNIX_SUPABASE_ANON_KEY:?set JAWNIX_SUPABASE_ANON_KEY}
-      # admin.html reads this on sign-out to terminate the Scraper session.
       JAWNIX_SCRAPER_OPS_ORIGIN: ${JAWNIX_SCRAPER_OPS_ORIGIN:-}
       JAWNIX_ENABLE_BILLING: ${JAWNIX_ENABLE_BILLING:-false}
-      # UI cutover (#71): when true, Caddy 302s the legacy page URLs to /app.
-      # The api container reads the same flag from .env to serve the shell.
-      JAWNIX_ENABLE_NEW_UI: ${JAWNIX_ENABLE_NEW_UI:-false}
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
     volumes:
+      # Static-page retirement (P8): the legacy customer/admin HTML pages are
+      # gone; Caddy redirects their URLs to the React shell unconditionally, so
+      # there is nothing left to mount into /srv/static.
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./admin.html:/srv/static/admin.html:ro
-      - ./login.html:/srv/static/login.html:ro
-      - ./portal.html:/srv/static/portal.html:ro
-      - ./portal-accept.html:/srv/static/portal-accept.html:ro
-      - ./theme.css:/srv/static/theme.css:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:

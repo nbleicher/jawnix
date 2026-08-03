@@ -60,6 +60,59 @@ browser-public values: the Supabase URL and publishable/anon key, the Scraper
 Operations origin, and the billing flag. Service-role, Telegram, Resend,
 PostgreSQL, and Restic secrets remain server-side.
 
+## Deploying the application host
+
+`ops/deploy.sh` is the only sanctioned path for updating the application tree
+at `/srv/jawnix/app`. Do not copy a hand-picked file set or run `scp` or a
+separate `rsync` command against that directory. The host has no Git checkout,
+so every deployment originates from a clean local checkout of a tagged commit
+on `origin/main`.
+
+Create and push the release tag from an up-to-date `main`, then check out that
+exact tag. Run the deploy script interactively with the SSH destination in
+`JAWNIX_DEPLOY_TARGET`:
+
+```sh
+git fetch origin main --tags
+git switch --detach production-YYYYMMDDTHHMMSSZ
+JAWNIX_DEPLOY_TARGET=root@159.195.15.51 \
+  ops/deploy.sh production-YYYYMMDDTHHMMSSZ
+```
+
+The script refuses a dirty checkout, a tag that is absent from `origin`, a
+checkout that does not exactly match the requested tag, or a tagged commit that
+is not on the freshly fetched `origin/main`. It builds the rsync source from the
+tagged commit rather than from ignored local files. It always prints an
+itemized `rsync --dry-run` first and requires the exact confirmation shown in
+the prompt before repeating the same sync without `--dry-run`.
+
+The sync uses `--delete`, but its pinned excludes protect the production
+`.env`, `config.js`, `batches/`, `backups/`, `invoices/`, `monitoring/`,
+`restic-repository/`, `migration/`, and `user-account-migration/`. These paths
+contain host-owned configuration, datasets, generated invoices, monitoring
+state, backup material, or migration evidence and must never be removed or
+replaced by an application deploy. The backup, monitoring, and migration
+directories are normally siblings of `/srv/jawnix/app`; keeping them excluded
+also protects legacy or accidentally nested copies.
+
+`config.js` is gitignored and therefore absent from the deploy source, so
+`--delete` would remove the host's copy. Caddy has rendered `/config.js` from
+the environment since #103 and the on-disk file is no longer read, but it
+holds real Supabase credentials and is host-owned, so the deploy leaves it
+alone rather than destroying it as a side effect.
+
+The excludes also cover build artifacts that exist only on the host —
+`.venv/`, `jawnix_vps.egg-info/`, and a stray `jawnix-dev.db`. Nothing
+references them (the application runs from the Compose images), and syncing
+them adds thousands of lines of irrelevant churn to the dry-run diff that an
+operator must review, which is how a genuinely dangerous deletion gets missed.
+
+After the source sync, connect to the host, confirm that `.env` still sets
+`COMPOSE_FILE=docker-compose.yml:docker-compose.edge.yml`, and use the normal
+Compose sequence for the release: build, run migrations, recreate the intended
+services, and verify `/api/healthz`, `/api/readyz`, container health/logs, and a
+current Restic snapshot.
+
 ## Administrator MFA break-glass recovery
 
 Break-glass Recovery is for an administrator who has lost both the Primary and
@@ -129,6 +182,12 @@ Use the verified Scale release
 production image and source revision have been recorded for rollback as required
 by Jawnix issue #29.
 
+This pin remains the deployment source only until the Scraper ownership cutover
+below passes. At that point it becomes a rollback reference for seven days;
+Jawnix's tagged `main` revision becomes the production source for
+`scraper-control`, the worker, migrations, and schedules. Do not delete the
+Scale tag or stopped stack while it is the rollback path.
+
 1. Assign a private WireGuard address to each host (the examples use Jawnix
    `10.77.0.1` and Scraper `10.77.0.2`) and configure each as the other's only
    peer.
@@ -156,6 +215,183 @@ link. Native Jawnix administration, feedback, and analytics routes do not
 depend on the Scraper connection.
 
 The PostgreSQL initialization hook enables password-authenticated replication only for physical backups on the private Docker network. If attaching this stack to an already-initialized PostgreSQL volume, add the equivalent `host replication` rule to `pg_hba.conf` and reload PostgreSQL before forcing the first base backup.
+
+## Scraper ownership cutover
+
+Do not schedule this window until a Stage C rehearsal report says **GO**. The
+[2026-08-02 report](rehearsals/2026-08-02-scraper-cutover.md) is a standing
+**GO**: all three blockers are cleared against the real acquisition store,
+with an off-host dump that reconciles exactly, a 4,603,285-row history import
+that reruns idempotently, and Jawnix-owned rollover proven with no model
+credential on the control service. It supersedes the
+[2026-07-31 NO-GO](rehearsals/2026-07-31-scraper-cutover.md) and the
+[retracted 2026-08-01 GO](rehearsals/2026-08-01-scraper-cutover.md).
+
+### The acquisition store
+
+The live store is a **loopback-bound Docker PostgreSQL 16.14 on the Scale
+control VPS itself** (`51.81.184.162`, WireGuard `10.77.0.2`), container
+`gms-scale-db-1`, `postgresql://postgres@127.0.0.1:5432/gmaps_pro`. It
+publishes no port beyond loopback, so it is invisible from the application
+host and the worker box.
+
+Access is `ubuntu@51.81.184.162` with passwordless sudo — the OVH Ubuntu image
+disables root login, so `root@` attempts always fail regardless of the
+password. The operator key is `~/.ssh/scale_vps`.
+
+The database on the application host that a worker `.env` names as `gmaps_pro`
+is a stale partial copy (17,650 businesses, all with an empty `state`). **Do
+not treat a DSN found in any `.env` as authoritative.** Cross-check a
+candidate database's row counts and per-state distribution against the live
+dashboard's `/api/dashboard` and `/database` before backing anything up; a
+2026-08-01 rehearsal backed up the wrong database and had to retract a GO.
+
+**The pipeline is live.** Eight worker containers plus `gms-serve`,
+`gms-enqueue`, and nine timers run continuously on the control VPS; the window
+must stop them deliberately. There are **no pending additive migrations** —
+the store's `scale_migrations` ledger already matches this repository through
+`20260727000000-dataset-publications.sql`.
+
+### Required artifacts and rehearsal isolation
+
+Before the maintenance window, produce and retain all of these as one change
+record:
+
+- a custom-format dump of acquisition database `gmaps_pro`, its SHA-256, a
+  successful `pg_restore --list`, and a successful restore into a disposable
+  PostgreSQL instance;
+- the immutable SQLite keyword-history import artifact containing
+  `enqueue_log`, `keyword_history`, and `businesses`, plus its SHA-256 and the
+  row count of each table;
+- the latest Jawnix custom-format dump and Scraper Dataset snapshot, with their
+  existing Restic snapshot IDs and checksums;
+- the current legacy Scale image, source revision, service/timer state, and
+  configuration digest; and
+- the tagged Jawnix `main` revision and image digests that will be deployed.
+
+Until acquisition backup automation is installed, create the acquisition dump
+on its host and copy it into encrypted storage before stopping anything:
+
+```sh
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+dump="/root/acquisition-gmaps_pro-$timestamp.dump"
+docker exec scraper-db-1 pg_dump \
+  --username postgres --dbname gmaps_pro \
+  --format=custom --no-owner --no-acl >"$dump"
+sha256sum "$dump"
+docker exec -i scraper-db-1 pg_restore --list <"$dump" >/dev/null
+```
+
+This host-local file is not a backup until it has been copied off the
+acquisition host into encrypted storage and the copy's digest matches. Record
+the storage snapshot or object identifier. Do not proceed when the dump, copy,
+or restore verification is missing.
+
+The rehearsal must be incapable of resolving production database names or
+addresses. Use unique Compose project and volume names, keep PostgreSQL
+unpublished or bind it only to loopback, and inspect every proposed host port
+before startup:
+
+```sh
+lsof -nP -iTCP -sTCP:LISTEN
+docker compose -p scraper-cutover-rehearsal \
+  -f scraper/docker-compose.box.yml config
+```
+
+Existing SSH tunnels can occupy otherwise plausible rehearsal ports. Exercise
+service calls by Docker-internal service name on the rehearsal network, not by
+a host port. Confirm container project labels, mounts, networks, and database
+DSNs before the first request. Stop immediately if any value names a production
+host.
+
+Restore the acquisition dump into a disposable `gmaps_pro`, then run the
+migrations from the tagged cutover revision and verify both migration ledgers:
+
+```sh
+docker compose -p scraper-cutover-rehearsal \
+  -f scraper/docker-compose.box.yml up -d db
+docker compose -p scraper-cutover-rehearsal \
+  -f scraper/docker-compose.box.yml exec -T db \
+  pg_restore --username postgres --dbname gmaps_pro \
+  --clean --if-exists --no-owner --no-acl <acquisition-gmaps_pro.dump
+docker compose -p scraper-cutover-rehearsal \
+  -f scraper/docker-compose.box.yml run --rm migrate
+docker compose -p scraper-cutover-rehearsal \
+  -f scraper/docker-compose.box.yml exec -T db \
+  psql --username postgres --dbname gmaps_pro \
+  --command='TABLE scraper_migrations' \
+  --command='TABLE scale_migrations'
+```
+
+Verify the immutable keyword-history source before importing it into the
+restored Jawnix database:
+
+```sh
+history=/restore/acquisition-history.db
+sha256sum "$history"
+sqlite3 -readonly "$history" \
+  "SELECT 'enqueue_log', count(*) FROM enqueue_log
+   UNION ALL SELECT 'keyword_history', count(*) FROM keyword_history
+   UNION ALL SELECT 'businesses', count(*) FROM businesses;"
+docker compose run --rm -v /restore:/restore:ro api \
+  python -m jawnix_data import-keyword-history "$history" \
+  --expected-sha256 REPLACE_WITH_VERIFIED_SHA256
+```
+
+Require the command's `sourceRowsByTable` to equal the three source counts and
+its `checksum` to equal the verified file digest. Rerun it and require
+`skipped: true`, `inserted: 0`, and `updated: 0` before accepting idempotency.
+
+### Maintenance-window sequence
+
+1. Announce the acquisition maintenance window. Pause new acquisition work in
+   Jawnix, then stop the legacy Scale workers and timers; keep the legacy
+   database and dashboard available for rollback.
+2. Create and verify fresh acquisition, Jawnix, and Scraper Dataset backups as
+   described above. Record the legacy image/source and every stopped unit.
+3. Deploy the tagged Jawnix source to both hosts without starting the new
+   worker, timers, or public control path. Build the vendored worker image and
+   record its digest.
+4. Apply only the additive acquisition and Jawnix migrations. Verify every
+   migration ledger and reconcile the pre-migration row counts.
+5. Run the full keyword-history import with its verified checksum. Reconcile
+   all three source counts, the normalized union count, persisted import count,
+   and idempotent rerun.
+6. Start `scraper-control` on the acquisition host's WireGuard address. Run the
+   typed contract suite and authenticated health, reads, exports, monitoring,
+   saves, enqueue trigger, pipeline, runtime, rollover, and schedule checks
+   against the restored/current data.
+7. Install `OPENROUTER_API_KEY` only on the Jawnix application host. Automatic
+   rollover must enable and disable successfully without that secret on the
+   acquisition host; failure is an immediate rollback condition.
+8. From the tagged Jawnix source revision, build the application services, run
+   `docker compose run --rm migrate`, and recreate `api`, `worker`, `scheduler`,
+   `backup`, and `caddy` with `docker compose up -d`. Point Jawnix at the typed
+   control endpoint and exercise generation, reads, CSV exports, monitoring,
+   keyword preview/save/enqueue, pipeline pause/resume, runtime preview/save,
+   rollover, and scheduled controls. Verify audit entries and accepted
+   generation-draft state.
+9. Start the new workers and timers, verify heartbeats and queue movement, then
+   disable the legacy Scale dashboard. Record timings and outputs for every
+   step.
+10. Once the complete smoke passes, retire
+    `scraper-source-baseline-2026-07-27-v4` as the production deployment source.
+    Keep its stopped stack, image, tag, configuration, and backups intact for
+    the seven-day rollback window. Jawnix's tagged `main` revision is now the
+    sole deployment source.
+
+### Seven-day Scraper rollback
+
+1. Pause acquisition in Jawnix and stop the new workers, timers, and
+   `scraper-control`.
+2. Restore the prior tagged Jawnix image and its legacy Scraper endpoint
+   settings.
+3. Restart the recorded Scale dashboard, workers, and timers against the
+   existing acquisition database. Do not downgrade additive migrations.
+4. Confirm legacy `/healthz`, Dashboard, Database, History, exports, queue
+   movement, and worker heartbeats; then re-enable acquisition.
+5. Preserve the failed-cutover databases, logs, import report, and image
+   digests for reconciliation. Do not delete or automatically merge data.
 
 ## Production deployment record
 
@@ -476,6 +712,10 @@ The VPS migration is additive. Rollback does not overwrite or delete old Supabas
 
 ## UI cutover (#71)
 
+> **Historical.** The `JAWNIX_ENABLE_NEW_UI` flag described below was retired
+> after P8: the React shell is now the only UI and there is no flag to flip.
+> This section is kept as the record of how the 2026-07-31 cutover was performed.
+
 Activates the redesigned React shell (`/app`) as the production UI and retires
 the legacy static pages. This is a flag flip, not a data migration: the #61
 User Account migration is not run (see #70/#71 — ~10 people are invited
@@ -507,14 +747,37 @@ Cutover:
    service; `/app` hard-refresh on a deep route.
 4. Monitor per the cutover-monitoring section for 48 hours.
 
-Rollback (available through the stabilization period):
+Rollback — the flag-flip rollback below applied **only until static-page
+retirement (P8, 2026-08-03)**. It is no longer available: the static pages are
+deleted and the Caddy redirects are unconditional, so setting
+`JAWNIX_ENABLE_NEW_UI=false` now takes the site down (every legacy URL still
+302s to `/app`, which the api would stop serving). UI rollback after
+retirement is a redeploy of the previous release tag through `ops/deploy.sh`,
+not a flag flip.
+
+The historical flag-flip rollback was:
 
 1. Set `JAWNIX_ENABLE_NEW_UI=false` in `/srv/jawnix/.env`.
-2. `docker compose up -d api caddy`. The static pages answer again at their
-   original URLs; `/app` returns 404. All redirects were 302, so no browser
-   has cached the cutover.
+2. `docker compose up -d api caddy`. The static pages answered again at their
+   original URLs; `/app` returned 404. All redirects were 302, so no browser
+   cached the cutover.
 
-Retirement of the static pages (deleting them from the image and Compose bind
-mounts, and removing `/portal-accept.html` from Supabase) happens only after
-the stabilization criteria in #71 are met and explicitly approved — it is a
-separate change, not part of the flip.
+## Static-page retirement (P8, completed 2026-08-03)
+
+Done after #71 stabilization was declared and retirement was explicitly
+approved. Deleted `index.html`, `login.html`, `portal.html`,
+`portal-accept.html`, `admin.html`, and `theme.css` from the image; removed
+their `/srv/static` bind mounts from `docker-compose.yml`; and rewrote the
+Caddyfile so the legacy-URL redirects are unconditional (no longer gated on
+`JAWNIX_ENABLE_NEW_UI`) with a catch-all sending every other non-shell path to
+`/app`. `/config.js` is untouched — it is rendered by Caddy from the
+environment and the React shell still reads `window.JAWNIX_CONFIG`.
+
+Still pending, and deliberately **not** part of that change: remove
+`$JAWNIX_PUBLIC_BASE_URL/portal-accept.html` from the Supabase Auth redirect
+allow-list. New invitations always redirect to `/app/accept-invitation`
+(`_customer_invitation_redirect`), but outstanding unaccepted invitations still
+carry `/portal-accept.html` links, and Supabase validates `redirect_to` against
+the allow-list **before** the Caddy 302 can run. Remove that entry only once
+every invitation issued before
+cutover has been accepted or expired, or those links will fail at Supabase.

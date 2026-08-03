@@ -27,14 +27,11 @@ scraper_changes/worker-build.patch
 control/alert.py
 control/enqueue.py
 control/export_leads.py
-control/keyword_rollover.py
 control/uptime_probe.py
 worker/heartbeat.py
 worker/shipper.py
 systemd/gms-alert.service
 systemd/gms-heartbeat.service
-systemd/gms-keyword-rollover.service
-systemd/gms-keyword-rollover.timer
 systemd/gms-uptime.service
 systemd/gms-uptime.timer
 web/Dockerfile

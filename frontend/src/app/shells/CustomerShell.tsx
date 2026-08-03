@@ -3,8 +3,11 @@ import { useNavigate } from "react-router";
 
 import { AppShell } from "../shell/AppShell";
 import type { NavigationDestination } from "../shell/Navigation";
-import { signOutCustomer } from "../auth/customerAuth";
-import { Button } from "../../design-system/primitives/Button";
+import { signOut } from "../auth/customerAuth";
+import {
+  ActionLink,
+  Button,
+} from "../../design-system/primitives/Button";
 import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 
 /** Customer-facing navigation, matching the Customer's jobs rather than the
@@ -22,11 +25,11 @@ export function CustomerShell() {
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
 
-  async function signOut() {
+  async function handleSignOut() {
     if (signingOut) return;
     setSigningOut(true);
     try {
-      await signOutCustomer();
+      await signOut();
     } finally {
       navigate("/sign-in", { replace: true });
     }
@@ -37,14 +40,19 @@ export function CustomerShell() {
       audience="Customer"
       destinations={DESTINATIONS}
       headerActions={
-        <Button
-          variant="ghost"
-          busy={signingOut}
-          busyLabel="Signing out…"
-          onClick={signOut}
-        >
-          Sign out
-        </Button>
+        <>
+          <ActionLink href="mailto:hai@jawnix.com" variant="ghost">
+            Support
+          </ActionLink>
+          <Button
+            variant="ghost"
+            busy={signingOut}
+            busyLabel="Signing out…"
+            onClick={handleSignOut}
+          >
+            Sign out
+          </Button>
+        </>
       }
     />
   );

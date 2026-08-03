@@ -318,7 +318,7 @@ class TelegramClient:
                 f"Recommendations: {len(recommendations):,}",
                 f"Failures: {len(failures):,}",
                 "",
-                f"Review: {self.settings.public_base_url}/admin.html#nightly-{review.id}",
+                f"Review: {self.settings.public_base_url}/app/admin/acquisition#nightly-reviews",
             ]
         )
         keyboard_rows: list[list[dict[str, str]]] = []

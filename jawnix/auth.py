@@ -151,11 +151,6 @@ async def require_admin(
 ) -> Principal:
     if principal.role != "admin" or principal.audience != "admin":
         raise HTTPException(status_code=403, detail="Admin access required.")
-    # The redesigned security boundary ships with the redesigned shell.  Until
-    # that feature flag is enabled the legacy surface retains its prior behavior.
-    if not settings.new_ui_enabled:
-        return principal
-
     state = db.get(AdminMFAState, principal.user_id)
     if state is None or principal.session_generation != state.session_generation:
         raise HTTPException(

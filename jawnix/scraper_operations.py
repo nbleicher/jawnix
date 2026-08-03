@@ -26,9 +26,8 @@ from .scraper_database import (
 )
 from .scraper_keywords import (
     KeywordDiff,
-    KeywordGenerateRequest,
-    KeywordGenerationDraft,
     KeywordRollover,
+    KeywordRolloverEventRequest,
     KeywordRolloverRequest,
     KeywordSaveRequest,
     KeywordSaveResult,
@@ -98,14 +97,14 @@ class ScraperOperations(Protocol):
 
     async def save_keywords(self, payload: KeywordSaveRequest) -> KeywordSaveResult: ...
 
-    async def generate_keywords(
-        self,
-        payload: KeywordGenerateRequest,
-    ) -> KeywordGenerationDraft: ...
-
     async def set_keyword_rollover(
         self,
         payload: KeywordRolloverRequest,
+    ) -> KeywordRollover: ...
+
+    async def record_keyword_rollover_event(
+        self,
+        payload: KeywordRolloverEventRequest,
     ) -> KeywordRollover: ...
 
     async def database_workspace(
@@ -187,9 +186,6 @@ class HTTPScraperOperations:
         self._base_url = settings.scraper_ops_url.rstrip("/")
         self._token = settings.scraper_control_token
         self._timeout = settings.scraper_ops_timeout_seconds
-        self._generation_timeout = (
-            settings.scraper_ops_generation_timeout_seconds
-        )
         self._transport = transport
 
     async def workspace_summary(self) -> ScraperWorkspaceSummary:
@@ -288,19 +284,9 @@ class HTTPScraperOperations:
             "POST",
             "/api/keywords/save",
             KeywordSaveResult,
-            payload=payload.model_dump(exclude={"review_token"}),
-        )
-
-    async def generate_keywords(
-        self,
-        payload: KeywordGenerateRequest,
-    ) -> KeywordGenerationDraft:
-        return await self._request(
-            "POST",
-            "/api/keywords/generate",
-            KeywordGenerationDraft,
-            payload=payload.model_dump(),
-            timeout=self._generation_timeout,
+            payload=payload.model_dump(
+                exclude={"review_token", "generation_id"}
+            ),
         )
 
     async def set_keyword_rollover(
@@ -310,6 +296,17 @@ class HTTPScraperOperations:
         return await self._request(
             "POST",
             "/api/keywords/rollover",
+            KeywordRollover,
+            payload=payload.model_dump(),
+        )
+
+    async def record_keyword_rollover_event(
+        self,
+        payload: KeywordRolloverEventRequest,
+    ) -> KeywordRollover:
+        return await self._request(
+            "POST",
+            "/api/keywords/rollover/events",
             KeywordRollover,
             payload=payload.model_dump(),
         )

@@ -37,6 +37,7 @@ from .contracts import (
     KeywordGenerateRequest,
     KeywordGenerationDraft,
     KeywordRollover,
+    KeywordRolloverEventRequest,
     KeywordRolloverRequest,
     KeywordSaveRequest,
     KeywordSaveResult,
@@ -293,12 +294,27 @@ async def generate_keywords(payload: KeywordGenerateRequest, request: Request):
 
 @router.post("/keywords/rollover", response_model=KeywordRollover)
 async def set_keyword_rollover(payload: KeywordRolloverRequest, request: Request):
-    if payload.action == "enable" and not request.app.state.settings.keyword_ai_enabled:
-        raise HTTPException(status_code=422, detail="AI generation is not configured.")
     await fetchval(
         request,
         queries.SET_AUTO_KEYWORD_ROLLOVER,
         "true" if payload.action == "enable" else "false",
+        rw=True,
+    )
+    return await _keyword_rollover(request)
+
+
+@router.post("/keywords/rollover/events", response_model=KeywordRollover)
+async def record_keyword_rollover_event(
+    payload: KeywordRolloverEventRequest,
+    request: Request,
+):
+    await fetchval(
+        request,
+        queries.INSERT_KEYWORD_ROLLOVER_EVENT,
+        payload.status,
+        json.dumps(payload.previous_keywords) if payload.previous_keywords is not None else None,
+        json.dumps(payload.next_keywords) if payload.next_keywords is not None else None,
+        payload.message,
         rw=True,
     )
     return await _keyword_rollover(request)

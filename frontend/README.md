@@ -8,8 +8,6 @@ Router Data Mode. Established by [#47]; later slices fill in the screens.
 The shell is built to `/app/` and served by FastAPI (`jawnix/frontend.py`), not
 by the static file server. FastAPI owns the whole `/app` prefix so it can:
 
-- apply the `JAWNIX_ENABLE_NEW_UI` feature flag — while it is off the prefix
-  answers **404**, so the shell is undiscoverable rather than merely protected;
 - cache content-hashed assets immutably while always revalidating
   `index.html`, which names the current hashes;
 - return the shell document for direct navigation to any application route, so

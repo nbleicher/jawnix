@@ -40,7 +40,6 @@ def client():
 
     def override() -> Settings:
         return Settings(
-            JAWNIX_ENABLE_NEW_UI=True,
             JAWNIX_FRONTEND_DIST_DIR=DIST_DIR,
             JAWNIX_SESSION_SECRET="test-secret-at-least-long-enough",
         )
@@ -107,23 +106,6 @@ def test_direct_navigation_serves_the_shell(client, path):
 
     assert response.status_code == 200
     assert 'id="root"' in response.text
-
-
-def test_the_flag_gates_the_real_build_too():
-    """With the flag off the prefix is absent even though the build exists."""
-
-    def override() -> Settings:
-        return Settings(
-            JAWNIX_ENABLE_NEW_UI=False,
-            JAWNIX_FRONTEND_DIST_DIR=DIST_DIR,
-            JAWNIX_SESSION_SECRET="test-secret-at-least-long-enough",
-        )
-
-    app.dependency_overrides[get_settings] = override
-    with TestClient(app) as client:
-        assert client.get(f"{MOUNT_PREFIX}/").status_code == 404
-        assert client.get(f"{MOUNT_PREFIX}/overview").status_code == 404
-    app.dependency_overrides.pop(get_settings, None)
 
 
 def test_the_legacy_static_pages_are_not_shadowed(client):

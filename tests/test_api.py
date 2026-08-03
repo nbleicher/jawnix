@@ -1157,19 +1157,13 @@ def test_admin_can_send_recipient_password_reset(session, settings, monkeypatch)
         app.dependency_overrides.clear()
 
 
-def test_customer_invitation_redirect_follows_the_ui_feature_flag(settings):
+def test_customer_invitation_redirect_targets_the_shell(settings):
     settings = settings.model_copy(
         update={"public_base_url": "https://jawnix.example/"}
     )
 
     assert (
         _customer_invitation_redirect(settings)
-        == "https://jawnix.example/portal-accept.html"
-    )
-    assert (
-        _customer_invitation_redirect(
-            settings.model_copy(update={"new_ui_enabled": True})
-        )
         == "https://jawnix.example/app/accept-invitation"
     )
 
@@ -1912,7 +1906,6 @@ def test_creating_a_customer_invites_access_and_never_takes_a_password(
     invited_user_id = uuid.uuid4()
     settings = settings.model_copy(
         update={
-            "new_ui_enabled": True,
             "public_base_url": "https://jawnix.example",
         }
     )
@@ -2845,9 +2838,14 @@ def test_admin_session_does_not_create_customer_profile(session, settings, monke
     def database_override():
         yield session
 
+    class _NoFactors:
+        async def list_factors(self, _user_id):
+            return []
+
     app.dependency_overrides[get_db] = database_override
     app.dependency_overrides[get_settings] = lambda: settings
     monkeypatch.setattr("jawnix.api.verify_supabase_token", fake_verify)
+    monkeypatch.setattr("jawnix.api.get_mfa_provider", lambda _settings: _NoFactors())
     try:
         client = TestClient(app)
         response = client.post(
@@ -2856,7 +2854,9 @@ def test_admin_session_does_not_create_customer_profile(session, settings, monke
         )
         assert response.status_code == 200
         assert response.json()["role"] == "admin"
-        assert response.json()["next"] == "/admin.html"
+        # An admin with no enrolled factors is routed to MFA enrollment in the
+        # shell, never to a legacy page. The profile guard still holds.
+        assert response.json()["next"] == "/app/admin/mfa/enroll"
         assert session.get(CustomerProfile, admin_id) is None
     finally:
         app.dependency_overrides.clear()
@@ -2898,7 +2898,6 @@ def test_active_customer_session_uses_safe_react_destination_when_enabled(
     monkeypatch,
 ):
     customer_id = uuid.uuid4()
-    settings = settings.model_copy(update={"new_ui_enabled": True})
 
     async def fake_verify(_token, _settings):
         return {

@@ -208,6 +208,23 @@ export const BLOCKED_BATCH_REQUEST_WORKSPACE = {
   requests: [],
 } as const;
 
+export const MAPPING_BLOCKED_BATCH_REQUEST_WORKSPACE = {
+  ...BATCH_REQUEST_WORKSPACE,
+  blocker: {
+    reason: "mapping_unconfirmed",
+    label: "Your account is still being set up",
+    description:
+      "An administrator is confirming your Customer mapping. "
+      + "You can request a Batch as soon as that is done.",
+    action: {
+      kind: "review_account",
+      label: "Review Account",
+      description: "Check the account details we have for you.",
+      href: "/app/account",
+    },
+  },
+} as const;
+
 export interface BatchRequestMockOptions {
   workspace?: unknown;
   /** Successive aggregate reads, holding on the last value once exhausted. */

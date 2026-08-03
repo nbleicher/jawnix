@@ -1013,6 +1013,134 @@ class ScraperRuntimeConfigurationRevision(Base):
     )
 
 
+class KeywordHistory(Base):
+    """One normalized keyword observed through one provenance path."""
+
+    __tablename__ = "keyword_history"
+    id: Mapped[int] = mapped_column(
+        ID_TYPE,
+        primary_key=True,
+        autoincrement=True,
+    )
+    term: Mapped[str] = mapped_column(String(320), index=True, nullable=False)
+    origin: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+        nullable=False,
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "term",
+            "origin",
+            name="uq_keyword_history_term_origin",
+        ),
+        CheckConstraint(
+            "origin IN ('legacy_enqueue_log', 'legacy_keyword_history', "
+            "'legacy_businesses', 'active_list', 'winner', "
+            "'accepted_save')",
+            name="ck_keyword_history_origin",
+        ),
+        CheckConstraint(
+            "first_seen_at <= last_seen_at",
+            name="ck_keyword_history_seen_range",
+        ),
+    )
+
+
+class KeywordHistoryImport(Base):
+    """Durable proof that one exact legacy snapshot was imported."""
+
+    __tablename__ = "keyword_history_imports"
+    id: Mapped[int] = mapped_column(
+        ID_TYPE,
+        primary_key=True,
+        autoincrement=True,
+    )
+    source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    checksum: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        nullable=False,
+    )
+    report: Mapped[dict] = mapped_column(JSON, nullable=False)
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
+class KeywordGenerationDraftRecord(Base):
+    """A Jawnix-owned, review-only keyword generation draft."""
+
+    __tablename__ = "keyword_generation_drafts"
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    administrator_id: Mapped[uuid.UUID] = mapped_column(
+        index=True,
+        nullable=False,
+    )
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    seed_keyword: Mapped[str | None] = mapped_column(String(200))
+    model: Mapped[str] = mapped_column(String(200), nullable=False)
+    terms: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    exclusion_metrics: Mapped[dict] = mapped_column(JSON, nullable=False)
+    candidate_metrics: Mapped[dict] = mapped_column(JSON, nullable=False)
+    excluded_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    acceptance_status: Mapped[str] = mapped_column(
+        String(16),
+        default="pending",
+        index=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+        nullable=False,
+    )
+    accepted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "mode IN ('broad', 'adjacent')",
+            name="ck_keyword_generation_drafts_mode",
+        ),
+        CheckConstraint(
+            "acceptance_status IN ('pending', 'accepted')",
+            name="ck_keyword_generation_drafts_acceptance_status",
+        ),
+        CheckConstraint(
+            "excluded_count >= 0",
+            name="ck_keyword_generation_drafts_excluded_count",
+        ),
+        CheckConstraint(
+            "created_at < expires_at",
+            name="ck_keyword_generation_drafts_expiry",
+        ),
+    )
+
+
 class SourceSegment(Base):
     __tablename__ = "source_segments"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
