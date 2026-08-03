@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import csv
+import hashlib
+import io
 import uuid
+import zipfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,7 +14,9 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from jawnix.api import app
-from jawnix.auth import Principal, require_principal
+from jawnix.allocation import allocate_request
+from jawnix.auth import Principal, require_admin, require_principal
+from jawnix.config import get_settings
 from jawnix.customer_requests import build_milestones
 from jawnix.database import get_db
 from jawnix.models import (
@@ -19,6 +26,7 @@ from jawnix.models import (
     BatchArtifact,
     CustomerProfile,
     Job,
+    Lead,
     LeadRequest,
     RequestStatus,
     UserAccount,
@@ -89,6 +97,7 @@ def _request(
     status: str,
     states: list[str] | None = None,
     lead_count: int = 500,
+    rows_per_file: int | None = None,
     approved_at: datetime | None = None,
     processed_at: datetime | None = None,
     delivered_at: datetime | None = None,
@@ -98,6 +107,7 @@ def _request(
         user_id=user_id,
         agent=customer,
         lead_count=lead_count,
+        rows_per_file=rows_per_file or lead_count,
         state_mode="all_saved",
         states_snapshot=states or ["TX"],
         delivery_email="customer@example.com",
@@ -120,14 +130,18 @@ def _artifact(
     *,
     expires_at: datetime,
 ) -> tuple[BatchArtifact, bytes]:
-    contents = b"phone,title\n2145550100,Portal Lead\n"
-    path = tmp_path / f"{request.id}.csv"
-    path.write_bytes(contents)
+    csv_contents = b"phone,title\n2145550100,Portal Lead\n"
+    part_name = "customer_batch_part_001.csv"
+    path = tmp_path / f"{request.id}.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(part_name, csv_contents)
+    contents = path.read_bytes()
     artifact = BatchArtifact(
         request_id=request.id,
         path=str(path),
-        filename="customer_batch.csv",
+        filename="customer_batch.zip",
         row_count=1,
+        parts=[{"filename": part_name, "row_count": 1}],
         byte_count=len(contents),
         sha256="a" * 64,
         delivery_status="sent",
@@ -513,8 +527,14 @@ def test_delivered_request_projects_only_customer_safe_artifact_metadata(
 
     artifact = body["artifact"]
     assert artifact == {
-        "filename": "customer_batch.csv",
+        "filename": "customer_batch.zip",
         "row_count": 1,
+        "parts": [
+            {
+                "filename": "customer_batch_part_001.csv",
+                "row_count": 1,
+            }
+        ],
         "expires_at": artifact["expires_at"],
         "available": True,
         "download_href": f"/api/me/batch-requests/{item.id}/artifact",
@@ -523,6 +543,164 @@ def test_delivered_request_projects_only_customer_safe_artifact_metadata(
     serialized = str(artifact)
     assert "path" not in serialized
     assert "sha256" not in serialized
+
+
+def test_delivered_artifact_exposes_contiguous_csv_parts_with_a_last_remainder(
+    session,
+    settings,
+):
+    user_id, customer, _ = _customer(session, licensed_states=["TX"])
+    item = _request(
+        session,
+        user_id,
+        customer,
+        status=RequestStatus.approved.value,
+        lead_count=5,
+        rows_per_file=2,
+    )
+    session.add_all(
+        [
+            Lead(
+                phone=f"214555010{index}",
+                title=f"Lead {index}",
+                state="TX",
+            )
+            for index in range(1, 6)
+        ]
+    )
+    allocate_request(session, item.id, settings)
+    item.status = RequestStatus.delivered.value
+    item.delivered_at = datetime.now(timezone.utc)
+    session.commit()
+    client = _authenticate(session, user_id)
+
+    workspace = client.get("/api/me/batch-requests").json()
+    artifact = workspace["requests"][0]["artifact"]
+    download = client.get(artifact["download_href"])
+
+    assert download.status_code == 200
+    assert download.headers["content-type"].startswith("application/zip")
+    assert [part["row_count"] for part in artifact["parts"]] == [2, 2, 1]
+    with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
+        assert archive.namelist() == [
+            part["filename"] for part in artifact["parts"]
+        ]
+        rows_by_part = [
+            list(
+                csv.DictReader(
+                    io.StringIO(archive.read(part["filename"]).decode())
+                )
+            )
+            for part in artifact["parts"]
+        ]
+    assert [len(rows) for rows in rows_by_part] == [2, 2, 1]
+    assert [
+        row["phone"] for rows in rows_by_part for row in rows
+    ] == [f"214555010{index}" for index in range(1, 6)]
+
+
+def test_default_artifact_still_contains_one_csv_part(session, settings):
+    user_id, customer, _ = _customer(session, licensed_states=["TX"])
+    item = _request(
+        session,
+        user_id,
+        customer,
+        status=RequestStatus.approved.value,
+        lead_count=3,
+    )
+    session.add_all(
+        [
+            Lead(
+                phone=f"214555020{index}",
+                title=f"Default {index}",
+                state="TX",
+            )
+            for index in range(1, 4)
+        ]
+    )
+    allocate_request(session, item.id, settings)
+    item.status = RequestStatus.delivered.value
+    item.delivered_at = datetime.now(timezone.utc)
+    session.commit()
+    client = _authenticate(session, user_id)
+
+    artifact = client.get("/api/me/batch-requests").json()["requests"][0][
+        "artifact"
+    ]
+    download = client.get(artifact["download_href"])
+
+    assert artifact["parts"] == [
+        {"filename": artifact["parts"][0]["filename"], "row_count": 3}
+    ]
+    with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
+        assert archive.namelist() == [artifact["parts"][0]["filename"]]
+
+
+def test_zip_download_and_regeneration_have_one_stable_sha256(
+    session,
+    settings,
+):
+    user_id, customer, _ = _customer(session, licensed_states=["TX"])
+    item = _request(
+        session,
+        user_id,
+        customer,
+        status=RequestStatus.approved.value,
+        lead_count=3,
+        rows_per_file=2,
+    )
+    session.add_all(
+        [
+            Lead(
+                phone=f"214555030{index}",
+                title=f"Stable {index}",
+                state="TX",
+            )
+            for index in range(1, 4)
+        ]
+    )
+    allocate_request(session, item.id, settings)
+    item.status = RequestStatus.delivered.value
+    item.delivered_at = datetime.now(timezone.utc)
+    session.commit()
+    client = _authenticate(session, user_id)
+
+    first = client.get(f"/api/me/batch-requests/{item.id}/artifact")
+    second = client.get(f"/api/me/batch-requests/{item.id}/artifact")
+    first_hash = hashlib.sha256(first.content).hexdigest()
+
+    assert hashlib.sha256(second.content).hexdigest() == first_hash
+    artifact = session.scalar(
+        select(BatchArtifact).where(BatchArtifact.request_id == item.id)
+    )
+    assert artifact is not None
+    assert artifact.sha256 == first_hash
+    with zipfile.ZipFile(io.BytesIO(first.content)) as archive:
+        assert {entry.date_time for entry in archive.infolist()} == {
+            (1980, 1, 1, 0, 0, 0)
+        }
+
+    artifact.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+    Path(artifact.path).unlink()
+    session.commit()
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    app.dependency_overrides[get_settings] = lambda: settings
+
+    regenerated = client.post(
+        f"/api/admin/requests/{item.id}/artifact/regenerate",
+        json={"reason": "Customer requested the expired Batch Artifact."},
+    )
+    redownload = client.get(f"/api/me/batch-requests/{item.id}/artifact")
+
+    assert regenerated.status_code == 200
+    assert regenerated.json()["sha256"] == first_hash
+    assert redownload.content == first.content
+    assert hashlib.sha256(redownload.content).hexdigest() == first_hash
 
 
 # --- Customer Batch Artifact download --------------------------------------
@@ -552,8 +730,8 @@ def test_customer_downloads_their_live_artifact_and_the_download_is_audited(
 
     assert response.status_code == 200
     assert response.content == contents
-    assert response.headers["content-type"].startswith("text/csv")
-    assert "customer_batch.csv" in response.headers["content-disposition"]
+    assert response.headers["content-type"].startswith("application/zip")
+    assert "customer_batch.zip" in response.headers["content-disposition"]
     assert response.headers["cache-control"] == "private, no-store"
     assert response.headers["x-content-type-options"] == "nosniff"
     audit = session.scalar(
@@ -703,6 +881,52 @@ def test_a_reviewed_request_lands_on_a_receipt_linked_to_the_batch_request(
     assert body["request"]["can_cancel"] is True
 
 
+def test_omitting_rows_per_file_freezes_the_request_as_one_file(session):
+    user_id, _, _ = _customer(session, licensed_states=["TX"])
+    client = _authenticate(session, user_id)
+
+    response = client.post("/api/me/batch-requests", json=_payload())
+
+    assert response.status_code == 201
+    assert response.json()["request"]["rows_per_file"] == 500
+    request = session.scalar(select(LeadRequest))
+    assert request is not None
+    assert request.rows_per_file == 500
+
+
+def test_submission_freezes_an_explicit_rows_per_file_choice(session):
+    user_id, _, _ = _customer(session, licensed_states=["TX"])
+    client = _authenticate(session, user_id)
+
+    response = client.post(
+        "/api/me/batch-requests",
+        json=_payload(rows_per_file=200),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["request"]["rows_per_file"] == 200
+    request = session.scalar(select(LeadRequest))
+    assert request is not None
+    assert request.rows_per_file == 200
+
+
+@pytest.mark.parametrize("rows_per_file", [0, -1, 100_001])
+def test_invalid_rows_per_file_is_refused_before_anything_is_created(
+    session,
+    rows_per_file,
+):
+    user_id, _, _ = _customer(session, licensed_states=["TX"])
+    client = _authenticate(session, user_id)
+
+    response = client.post(
+        "/api/me/batch-requests",
+        json=_payload(rows_per_file=rows_per_file),
+    )
+
+    assert response.status_code == 422
+    assert session.scalar(select(func.count(LeadRequest.id))) == 0
+
+
 def test_replaying_a_submission_key_never_creates_a_second_request(session):
     user_id, _, _ = _customer(session, licensed_states=["TX"])
     client = _authenticate(session, user_id)
@@ -730,11 +954,16 @@ def test_a_replay_is_not_a_way_to_change_the_request_it_returns(session):
 
     replay = client.post(
         "/api/me/batch-requests",
-        json=_payload(lead_count=99_000, states=["FL"]),
+        json=_payload(
+            lead_count=99_000,
+            rows_per_file=10_000,
+            states=["FL"],
+        ),
     )
 
     assert replay.status_code == 200
     assert replay.json()["request"]["lead_count"] == 500
+    assert replay.json()["request"]["rows_per_file"] == 500
     assert replay.json()["request"]["states"] == ["TX"]
 
 

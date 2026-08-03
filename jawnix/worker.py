@@ -43,6 +43,7 @@ TELEGRAM_DECISION_JOB_KINDS = frozenset(
         "telegram_anomaly_action",
         "telegram_inventory_conflict_action",
         "telegram_recommendation_action",
+        "telegram_exclusion_action",
     }
 )
 
@@ -53,6 +54,7 @@ def _telegram_action_label(job: Job) -> str:
         "telegram_anomaly_action": "Scrape Anomaly",
         "telegram_inventory_conflict_action": "Inventory Conflict",
         "telegram_recommendation_action": "Source Recommendation",
+        "telegram_exclusion_action": "Exclusion List",
     }.get(job.kind, "Jawnix")
     action = str(job.payload.get("action") or "requested").replace("_", " ")
     return f"{target} {action}"
@@ -369,6 +371,13 @@ def process_job(job_id: int) -> None:
                     settings,
                     int(job.payload["dataset_version"]),
                 )
+            elif job.kind == "ingest_exclusion_list":
+                from .exclusions import ingest_exclusion_list
+
+                ingest_exclusion_list(
+                    session,
+                    uuid.UUID(str(job.payload["exclusion_list_id"])),
+                )
             elif job.kind in {
                 "notify_scrape_anomaly",
                 "update_scrape_anomaly_notification",
@@ -485,6 +494,28 @@ def process_job(job_id: int) -> None:
                 except RecommendationDecisionError as exc:
                     log.info(
                         "Telegram recommendation decision ignored: %s",
+                        exc,
+                    )
+            elif job.kind == "telegram_exclusion_action":
+                from .exclusions import (
+                    ExclusionDecisionError,
+                    decide_exclusion_list,
+                )
+
+                try:
+                    decide_exclusion_list(
+                        session,
+                        uuid.UUID(str(job.payload["exclusion_list_id"])),
+                        str(job.payload["action"]),
+                        actor_id=(
+                            "telegram:"
+                            + str(job.payload["approver_user_id"])
+                        ),
+                        reason="Telegram Exclusion List decision",
+                    )
+                except ExclusionDecisionError as exc:
+                    log.info(
+                        "Telegram exclusion decision ignored: %s",
                         exc,
                     )
             elif job.kind == "deliver_request":

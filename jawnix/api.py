@@ -3,12 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 import uuid
 from datetime import date, datetime, timezone
+from pathlib import Path
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
@@ -27,6 +29,14 @@ from .agency_management import (
 )
 from .auth import Principal, clear_session, issue_session, require_admin, require_principal, verify_supabase_token
 from .admin_mfa_api import router as admin_mfa_router
+from .billing import (
+    BillingError,
+    configure_customer_billing,
+    place_batch_hold,
+    post_admin_adjustment,
+    prepare_submission,
+    wallet_view,
+)
 from .config import Settings, get_settings
 from .customer_accounts import (
     ProvisionResult,
@@ -61,6 +71,12 @@ from .eligibility import (
     suppress_from_report,
 )
 from .feedback import apply_disposition_controls
+from .exclusions import (
+    EXCLUSION_TYPES,
+    ExclusionDecisionError,
+    decide_exclusion_list,
+    exclusion_list_status,
+)
 from .frontend import register_frontend_shell
 from .jobs import enqueue_job
 from .licensed_states import (
@@ -91,6 +107,7 @@ from .models import (
     DailySourcePerformance,
     DistributionEvent,
     EligibilityHold,
+    ExclusionList,
     InventoryConflict,
     LeadDispositionState,
     LeadDispositionTransition,
@@ -123,6 +140,8 @@ from .schemas import (
     AgencyCreate,
     AgencyUpdate,
     ActionReason,
+    CreditAdjustmentCreate,
+    CustomerBillingUpdate,
     LeadCorrectionApply,
     LeadReportCreate,
     LeadReportCorrect,
@@ -171,6 +190,7 @@ from .telegram import (
     parse_anomaly_callback_data,
     parse_callback_data,
     parse_conflict_callback_data,
+    parse_exclusion_callback_data,
     parse_recommendation_callback_data,
     verify_telegram_secret,
 )
@@ -648,9 +668,224 @@ def _current_customer_profile(
     return profile
 
 
+def _store_exclusion_upload(
+    upload: UploadFile,
+    *,
+    exclusion_list_id: uuid.UUID,
+    settings: Settings,
+) -> Path:
+    directory = Path(settings.batch_dir) / "exclusion-lists"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{exclusion_list_id}.csv"
+    with path.open("xb") as stream:
+        shutil.copyfileobj(upload.file, stream)
+    return path
+
+
+@app.post("/api/me/exclusion-lists", status_code=202)
+def upload_customer_exclusion_list(
+    file: UploadFile = File(...),
+    exclusion_type: str = Form(..., alias="type"),
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    profile = _current_customer_profile(db, principal)
+    normalized_type = exclusion_type.strip().casefold()
+    if normalized_type not in EXCLUSION_TYPES:
+        raise HTTPException(status_code=422, detail="Unknown Exclusion List type.")
+    if not file.filename or not file.filename.casefold().endswith(".csv"):
+        raise HTTPException(status_code=422, detail="Upload a CSV file.")
+    item = ExclusionList(
+        customer_id=profile.customer_id,
+        uploaded_by=str(principal.user_id),
+        exclusion_type=normalized_type,
+        filename=Path(file.filename).name,
+        storage_path="",
+    )
+    db.add(item)
+    db.flush()
+    try:
+        item.storage_path = str(
+            _store_exclusion_upload(
+                file, exclusion_list_id=item.id, settings=settings
+            )
+        )
+    except OSError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="The Exclusion List could not be stored.",
+        ) from exc
+    enqueue_job(
+        db,
+        "ingest_exclusion_list",
+        payload={"exclusion_list_id": str(item.id)},
+    )
+    record_activity(
+        db,
+        action="exclusion_list_uploaded",
+        target_type="exclusion_list",
+        target_id=item.id,
+        actor_id=principal.user_id,
+        reason="Customer uploaded an Exclusion List",
+        details={
+            "customerId": profile.customer_id,
+            "type": item.exclusion_type,
+            "filename": item.filename,
+            "global": False,
+        },
+    )
+    db.commit()
+    return exclusion_list_status(item)
+
+
+@app.get("/api/me/exclusion-lists/{exclusion_list_id}")
+def customer_exclusion_list_status(
+    exclusion_list_id: uuid.UUID,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    profile = _current_customer_profile(db, principal)
+    item = db.scalar(
+        select(ExclusionList).where(
+            ExclusionList.id == exclusion_list_id,
+            ExclusionList.customer_id == profile.customer_id,
+        )
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Exclusion List was not found.")
+    return exclusion_list_status(item)
+
+
+@app.get("/api/me/exclusion-lists")
+def list_customer_exclusion_lists(
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    profile = _current_customer_profile(db, principal)
+    return [
+        exclusion_list_status(item)
+        for item in db.scalars(
+            select(ExclusionList)
+            .where(ExclusionList.customer_id == profile.customer_id)
+            .order_by(ExclusionList.created_at.desc(), ExclusionList.id)
+        )
+    ]
+
+
+@app.post("/api/admin/exclusion-lists", status_code=202)
+def upload_admin_exclusion_list(
+    file: UploadFile = File(...),
+    exclusion_type: str = Form(..., alias="type"),
+    reason: str = Form(...),
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    normalized_type = exclusion_type.strip().casefold()
+    normalized_reason = reason.strip()
+    if normalized_type not in EXCLUSION_TYPES:
+        raise HTTPException(status_code=422, detail="Unknown Exclusion List type.")
+    if not normalized_reason:
+        raise HTTPException(status_code=422, detail="An upload reason is required.")
+    if not file.filename or not file.filename.casefold().endswith(".csv"):
+        raise HTTPException(status_code=422, detail="Upload a CSV file.")
+    item = ExclusionList(
+        customer_id=None,
+        uploaded_by=str(principal.user_id),
+        exclusion_type=normalized_type,
+        filename=Path(file.filename).name,
+        storage_path="",
+        decision_reason=normalized_reason,
+    )
+    db.add(item)
+    db.flush()
+    try:
+        item.storage_path = str(
+            _store_exclusion_upload(
+                file, exclusion_list_id=item.id, settings=settings
+            )
+        )
+    except OSError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="The Exclusion List could not be stored.",
+        ) from exc
+    enqueue_job(
+        db,
+        "ingest_exclusion_list",
+        payload={"exclusion_list_id": str(item.id)},
+    )
+    record_activity(
+        db,
+        action="exclusion_list_uploaded",
+        target_type="exclusion_list",
+        target_id=item.id,
+        actor_id=principal.user_id,
+        reason=normalized_reason,
+        details={
+            "customerId": None,
+            "type": item.exclusion_type,
+            "filename": item.filename,
+            "globalOnIngestion": True,
+        },
+    )
+    db.commit()
+    return exclusion_list_status(item)
+
+
+@app.get("/api/admin/exclusion-lists/{exclusion_list_id}")
+def admin_exclusion_list_status(
+    exclusion_list_id: uuid.UUID,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    item = db.get(ExclusionList, exclusion_list_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Exclusion List was not found.")
+    return exclusion_list_status(item)
+
+
+@app.post("/api/admin/exclusion-lists/{exclusion_list_id}/{action}")
+def admin_decide_exclusion_list(
+    exclusion_list_id: uuid.UUID,
+    action: str,
+    payload: ActionReason,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        item = decide_exclusion_list(
+            db,
+            exclusion_list_id,
+            action,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    except ExclusionDecisionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+    db.commit()
+    return exclusion_list_status(item)
+
+
 @app.get("/api/me/profile", response_model=ProfileOut)
 def get_profile(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
     return _current_customer_profile(db, principal)
+
+
+@app.get("/api/me/billing")
+def get_my_billing(
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    profile = _current_customer_profile(db, principal)
+    if profile.customer is None:
+        raise HTTPException(status_code=404, detail="Customer was not found.")
+    return wallet_view(db, profile.customer)
 
 
 @app.get("/api/me/licensed-states", response_model=LicensedStateWorkspace)
@@ -842,6 +1077,7 @@ def download_batch_artifact(
             "requestId": str(item.id),
             "filename": artifact.filename,
             "rowCount": artifact.row_count,
+            "parts": artifact.parts,
             "expiresAt": (
                 artifact.expires_at.isoformat()
                 if artifact.expires_at is not None
@@ -852,7 +1088,11 @@ def download_batch_artifact(
     db.commit()
     return FileResponse(
         artifact.path,
-        media_type="text/csv",
+        media_type=(
+            "application/zip"
+            if artifact.filename.lower().endswith(".zip")
+            else "text/csv"
+        ),
         filename=artifact.filename,
         content_disposition_type="attachment",
         headers={
@@ -1822,6 +2062,17 @@ def create_request(
     states = saved_states if payload.state_mode == "all_saved" else payload.states
     if not set(states).issubset(saved_states):
         raise HTTPException(status_code=422, detail="Request states must be selected from your saved profile states.")
+    try:
+        billing = prepare_submission(
+            db,
+            customer_id=profile.customer_id,
+            lead_count=payload.lead_count,
+        )
+    except BillingError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from None
     request = LeadRequest(
         user_id=principal.user_id,
         agent_id=profile.customer_id,
@@ -1833,6 +2084,7 @@ def create_request(
         status_message="Awaiting Telegram approval.",
     )
     db.add(request)
+    place_batch_hold(db, request=request, billing=billing)
     db.flush()
     enqueue_job(db, "notify_request", request.id)
     db.commit()
@@ -1861,6 +2113,7 @@ def _request_dict(item: LeadRequest) -> dict:
         "email": item.delivery_email,
         "customerIdentity": item.customer.name,
         "leadCount": item.lead_count,
+        "rowsPerFile": item.rows_per_file,
         "states": item.states_snapshot,
         "status": item.status,
         "availableCount": item.available_count,
@@ -2239,6 +2492,91 @@ def admin_customer_details(
     if customer is None or customer.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Customer was not found.")
     return build_customer_details(db, customer=customer)
+
+
+@app.get("/api/admin/customers/{customer_id}/billing")
+def admin_customer_billing(
+    customer_id: int,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    customer = db.get(Customer, customer_id)
+    if customer is None or customer.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Customer was not found.")
+    result = wallet_view(db, customer)
+    record_activity(
+        db,
+        action="credit_wallet_viewed",
+        target_type="customer",
+        target_id=customer.id,
+        actor_id=principal.user_id,
+        reason="Administrator viewed the Credit Wallet and Credit Ledger.",
+        details={
+            "balanceCents": result["balanceCents"],
+            "ledgerEntries": len(result["ledger"]),
+        },
+    )
+    db.commit()
+    return result
+
+
+@app.put("/api/admin/customers/{customer_id}/billing")
+@app.patch(
+    "/api/admin/customers/{customer_id}/billing",
+    include_in_schema=False,
+)
+def update_customer_billing(
+    customer_id: int,
+    payload: CustomerBillingUpdate,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        customer = configure_customer_billing(
+            db,
+            customer_id=customer_id,
+            billing_enabled=payload.billing_enabled,
+            lead_rate_cents_per_thousand=(
+                payload.lead_rate_cents_per_thousand
+            ),
+            actor_id=principal.user_id,
+            reason=payload.reason,
+        )
+    except BillingError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from None
+    db.commit()
+    return wallet_view(db, customer)
+
+
+@app.post(
+    "/api/admin/customers/{customer_id}/billing/adjustments",
+    status_code=201,
+)
+def create_credit_adjustment(
+    customer_id: int,
+    payload: CreditAdjustmentCreate,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        post_admin_adjustment(
+            db,
+            customer_id=customer_id,
+            amount_cents=payload.amount_cents,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+        )
+    except BillingError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+        ) from None
+    customer = db.get(Customer, customer_id)
+    db.commit()
+    return wallet_view(db, customer)
 
 
 @app.get("/api/admin/scraper-configurations")
@@ -4281,20 +4619,26 @@ async def telegram_webhook(
                 target_kind = "conflict"
             except ValueError:
                 try:
-                    (
-                        action,
-                        target_id,
-                        target_configuration_version,
-                        target_evidence_checksum,
-                    ) = parse_recommendation_callback_data(
+                    action, target_id = parse_exclusion_callback_data(
                         callback_value
                     )
-                    target_kind = "recommendation"
+                    target_kind = "exclusion"
                 except ValueError:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Malformed Telegram callback.",
-                    ) from None
+                    try:
+                        (
+                            action,
+                            target_id,
+                            target_configuration_version,
+                            target_evidence_checksum,
+                        ) = parse_recommendation_callback_data(
+                            callback_value
+                        )
+                        target_kind = "recommendation"
+                    except ValueError:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Malformed Telegram callback.",
+                        ) from None
 
     telegram = TelegramClient(settings)
     if user_id not in settings.telegram_approvers or chat_id != settings.telegram_chat_id:
@@ -4336,6 +4680,17 @@ async def telegram_webhook(
             payload={
                 "action": action,
                 "conflict_id": str(target_id),
+                "callback_query_id": callback_query_id,
+                "approver_user_id": user_id,
+            },
+        )
+    elif target_kind == "exclusion":
+        enqueue_job(
+            db,
+            "telegram_exclusion_action",
+            payload={
+                "action": action,
+                "exclusion_list_id": str(target_id),
                 "callback_query_id": callback_query_id,
                 "approver_user_id": user_id,
             },

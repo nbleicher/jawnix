@@ -24,6 +24,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .billing import (
+    BillingError,
+    place_batch_hold,
+    prepare_submission,
+    release_batch_hold,
+)
 from .config import get_settings
 from .customer_overview import customer_request_status
 from .fulfillment import artifact_available
@@ -331,6 +337,7 @@ def request_detail(item: LeadRequest) -> CustomerRequestDetail:
         customer_artifact = CustomerBatchArtifact(
             filename=artifact.filename,
             row_count=artifact.row_count,
+            parts=artifact.parts,
             expires_at=artifact.expires_at,
             available=available,
             download_href=(
@@ -343,6 +350,7 @@ def request_detail(item: LeadRequest) -> CustomerRequestDetail:
     return CustomerRequestDetail(
         id=item.id,
         lead_count=item.lead_count,
+        rows_per_file=item.rows_per_file,
         states=normalize_states(item.states_snapshot),
         submitted_at=item.created_at,
         delivered_at=item.delivered_at,
@@ -462,10 +470,23 @@ def submit_request(
     licensed_states = normalize_states(profile.licensed_states)
     states = _requested_states(payload, licensed_states)
 
+    try:
+        billing = prepare_submission(
+            db,
+            customer_id=profile.customer_id,
+            lead_count=payload.lead_count,
+        )
+    except BillingError as exc:
+        raise RequestSubmissionError(
+            exc.detail,
+            status_code=exc.status_code,
+        ) from None
+
     item = LeadRequest(
         user_id=user_id,
         agent_id=profile.customer_id,
         lead_count=payload.lead_count,
+        rows_per_file=payload.rows_per_file or payload.lead_count,
         state_mode=payload.state_mode,
         states_snapshot=states,
         delivery_email=profile.email,
@@ -474,6 +495,7 @@ def submit_request(
         idempotency_key=payload.idempotency_key,
     )
     db.add(item)
+    place_batch_hold(db, request=item, billing=billing)
     try:
         db.flush()
     except IntegrityError:
@@ -520,6 +542,7 @@ def cancel_request(
     item.status = RequestStatus.canceled.value
     item.status_message = message
     item.closed_at = utcnow()
+    release_batch_hold(db, item)
     enqueue_job(db, "update_notification", item.id)
     db.commit()
     db.refresh(item)

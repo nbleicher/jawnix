@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import csv
+import io
+import zipfile
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
@@ -39,8 +41,17 @@ def test_exact_allocation_and_csv(session, settings):
     assert request.status == RequestStatus.generated.value
     artifact = session.scalar(select(BatchArtifact).where(BatchArtifact.request_id == request.id))
     assert artifact is not None and artifact.row_count == 2 and len(artifact.sha256) == 64
-    with open(artifact.path, newline="", encoding="utf-8") as stream:
-        rows = list(csv.DictReader(stream))
+    assert artifact.parts == [
+        {"filename": artifact.parts[0]["filename"], "row_count": 2}
+    ]
+    with zipfile.ZipFile(artifact.path) as archive:
+        rows = list(
+            csv.DictReader(
+                io.StringIO(
+                    archive.read(artifact.parts[0]["filename"]).decode()
+                )
+            )
+        )
     assert list(rows[0]) == ["phone", "title"]
     assert len(rows) == 2
     assert len({row["phone"] for row in rows}) == 2
@@ -164,7 +175,10 @@ def test_allocation_snapshots_customer_agency_and_delivered_listing(session, set
     request.status = RequestStatus.approved.value
     allocate_request(session, request.id, settings)
     session.commit()
-    with open(artifact.path, newline="", encoding="utf-8") as stream:
+    with zipfile.ZipFile(artifact.path) as archive:
+        stream = io.StringIO(
+            archive.read(artifact.parts[0]["filename"]).decode()
+        )
         assert list(csv.DictReader(stream)) == [
             {"phone": "2145553001", "title": "Original Listing"}
         ]
