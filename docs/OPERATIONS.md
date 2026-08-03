@@ -743,14 +743,37 @@ Cutover:
    service; `/app` hard-refresh on a deep route.
 4. Monitor per the cutover-monitoring section for 48 hours.
 
-Rollback (available through the stabilization period):
+Rollback — the flag-flip rollback below applied **only until static-page
+retirement (P8, 2026-08-03)**. It is no longer available: the static pages are
+deleted and the Caddy redirects are unconditional, so setting
+`JAWNIX_ENABLE_NEW_UI=false` now takes the site down (every legacy URL still
+302s to `/app`, which the api would stop serving). UI rollback after
+retirement is a redeploy of the previous release tag through `ops/deploy.sh`,
+not a flag flip.
+
+The historical flag-flip rollback was:
 
 1. Set `JAWNIX_ENABLE_NEW_UI=false` in `/srv/jawnix/.env`.
-2. `docker compose up -d api caddy`. The static pages answer again at their
-   original URLs; `/app` returns 404. All redirects were 302, so no browser
-   has cached the cutover.
+2. `docker compose up -d api caddy`. The static pages answered again at their
+   original URLs; `/app` returned 404. All redirects were 302, so no browser
+   cached the cutover.
 
-Retirement of the static pages (deleting them from the image and Compose bind
-mounts, and removing `/portal-accept.html` from Supabase) happens only after
-the stabilization criteria in #71 are met and explicitly approved — it is a
-separate change, not part of the flip.
+## Static-page retirement (P8, completed 2026-08-03)
+
+Done after #71 stabilization was declared and retirement was explicitly
+approved. Deleted `index.html`, `login.html`, `portal.html`,
+`portal-accept.html`, `admin.html`, and `theme.css` from the image; removed
+their `/srv/static` bind mounts from `docker-compose.yml`; and rewrote the
+Caddyfile so the legacy-URL redirects are unconditional (no longer gated on
+`JAWNIX_ENABLE_NEW_UI`) with a catch-all sending every other non-shell path to
+`/app`. `/config.js` is untouched — it is rendered by Caddy from the
+environment and the React shell still reads `window.JAWNIX_CONFIG`.
+
+Still pending, and deliberately **not** part of that change: remove
+`$JAWNIX_PUBLIC_BASE_URL/portal-accept.html` from the Supabase Auth redirect
+allow-list. New invitations already redirect to `/app/accept-invitation`
+(the `new_ui_enabled` branch of `_customer_invitation_redirect`), but
+outstanding unaccepted invitations still carry `/portal-accept.html` links,
+and Supabase validates `redirect_to` against the allow-list **before** the
+Caddy 302 can run. Remove that entry only once every invitation issued before
+cutover has been accepted or expired, or those links will fail at Supabase.
