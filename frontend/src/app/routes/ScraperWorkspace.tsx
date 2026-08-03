@@ -28,7 +28,6 @@ import {
 } from "../../design-system/primitives/layout";
 import { TerminalWorkspace } from "../../design-system/primitives/terminal";
 import { Text } from "../../design-system/primitives/typography";
-import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { defaultFactorId, FactorChooser } from "../auth/factorChoice";
 
 interface ScraperFactor {
@@ -121,7 +120,6 @@ export function ScraperStepUpRoute() {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useRouteTheme("terminal", "jawnix");
   useDocumentTitle("Verify access to Scraper Operations");
 
   async function submit(event: React.FormEvent) {
@@ -217,7 +215,6 @@ export function ScraperStepUpRoute() {
 export function ScraperWorkspaceRoute() {
   const data = useLoaderData<ScraperWorkspaceData>();
   const revalidator = useRevalidator();
-  useRouteTheme("terminal", "jawnix");
   useDocumentTitle("Scraper Operations");
 
   return (

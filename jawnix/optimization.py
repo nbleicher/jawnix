@@ -28,6 +28,7 @@ MIN_RATED = 30
 MIN_PEERS = 2
 WINDOW_DAYS = 90
 Z_95 = 1.959963984540054
+WORKED_LEADS_PRESCRIPTIVE_ENABLED = False
 
 
 def materialize_source_identity(keyword: str, state: str) -> str:
@@ -300,9 +301,17 @@ def _segment_counts(
 
 def _rates(counts: dict) -> dict:
     worked = int(counts["worked"])
+    delivered = int(counts["delivered"])
     rated = int(counts["rated"])
     return {
-        "positiveResponse": counts["positive"] / worked if worked else 0.0,
+        # Retained for the dormant Worked-Leads prescription contract.
+        "positiveResponse": (
+            counts["positive"] / worked if worked else 0.0
+        ),
+        # Active descriptive analytics use the delivered denominator.
+        "positivesPerDelivered": (
+            counts["positive"] / delivered if delivered else None
+        ),
         "appointmentBooked": counts["booked"] / worked if worked else 0.0,
         "appointmentCanceled": counts["canceled"] / worked if worked else 0.0,
         "appointmentNoShow": counts["no_show"] / worked if worked else 0.0,
@@ -332,6 +341,14 @@ def _note_text(
     counts: dict,
     analysis: dict,
 ) -> tuple[str, str]:
+    if not WORKED_LEADS_PRESCRIPTIVE_ENABLED:
+        return (
+            "prescriptive_dormant",
+            f"{segment_key}: Worked-Leads prescription is dormant. "
+            f"Retained evidence: {counts['worked']} worked Leads and "
+            f"{counts['rated']} Quality Ratings. Active keyword analytics "
+            "uses positive outcomes per delivered lead.",
+        )
     eligibility = analysis["eligibility"]
     action = analysis.get("action")
     if action:
@@ -466,8 +483,12 @@ def analyze_nightly_performance(
                 "rates": rates,
                 "trend": {
                     key: (
-                        value - float(previous.rates.get(key, 0.0))
-                        if previous is not None
+                        value - float(previous.rates[key])
+                        if (
+                            previous is not None
+                            and value is not None
+                            and previous.rates.get(key) is not None
+                        )
                         else None
                     )
                     for key, value in rates.items()
@@ -502,6 +523,11 @@ def analyze_nightly_performance(
             "counts": draft["counts"],
             "rates": draft["rates"],
             "analysis": analysis,
+            "prescriptiveMode": (
+                "active"
+                if WORKED_LEADS_PRESCRIPTIVE_ENABLED
+                else "dormant_worked_leads"
+            ),
             "configurationVersion": (
                 latest_configuration.version
                 if latest_configuration is not None
@@ -532,7 +558,11 @@ def analyze_nightly_performance(
             },
             trend=draft["trend"],
             eligibility=analysis["eligibility"],
-            action_state=analysis.get("action") or "notes_only",
+            action_state=(
+                analysis.get("action") or "notes_only"
+                if WORKED_LEADS_PRESCRIPTIVE_ENABLED
+                else "prescriptive_dormant"
+            ),
             evidence_checksum=_checksum(evidence),
         )
         session.add(snapshot)
@@ -554,7 +584,11 @@ def analyze_nightly_performance(
                 ),
             )
         )
-        action = analysis.get("action")
+        action = (
+            analysis.get("action")
+            if WORKED_LEADS_PRESCRIPTIVE_ENABLED
+            else None
+        )
         if action:
             denied = session.scalar(
                 select(SourceRecommendation)

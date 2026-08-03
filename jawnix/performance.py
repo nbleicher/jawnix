@@ -15,6 +15,60 @@ from .models import (
 )
 
 
+def keyword_outcome_analytics(
+    session: Session,
+    *,
+    keywords: list[str] | None = None,
+) -> list[dict[str, object]]:
+    """Customer outcome analytics by keyword, never Scraper yield.
+
+    Positive outcomes are divided by every delivered lead. A keyword with no
+    delivery receives ``None`` rather than a misleading zero-percent score.
+    """
+
+    snapshot = source_performance_snapshot(session)
+    rows: dict[str, dict[str, object]] = {}
+    for cohort in snapshot["cohorts"]:
+        keyword = str(cohort["segment"]).partition("::")[2] or str(
+            cohort["segment"]
+        )
+        key = keyword.casefold()
+        row = rows.setdefault(
+            key,
+            {"keyword": keyword, "delivered": 0, "positive": 0},
+        )
+        row["delivered"] = int(row["delivered"]) + int(cohort["delivered"])
+        row["positive"] = int(row["positive"]) + int(
+            cohort["positiveResponses"]
+        )
+    for keyword in keywords or []:
+        rows.setdefault(
+            keyword.casefold(),
+            {"keyword": keyword, "delivered": 0, "positive": 0},
+        )
+    result = []
+    for row in rows.values():
+        delivered = int(row["delivered"])
+        positive = int(row["positive"])
+        result.append(
+            {
+                **row,
+                "positives_per_delivered": (
+                    positive / delivered if delivered else None
+                ),
+            }
+        )
+    return sorted(
+        result,
+        key=lambda row: (
+            row["positives_per_delivered"] is None,
+            -(float(row["positives_per_delivered"] or 0)),
+            -int(row["delivered"]),
+            str(row["keyword"]).casefold(),
+        ),
+    )
+
+
 def source_performance_snapshot(session: Session) -> dict:
     events = list(
         session.scalars(
@@ -165,6 +219,13 @@ def source_performance_snapshot(session: Session) -> dict:
 
 
 def build_source_recommendations(session: Session) -> list[SourceRecommendation]:
+    # The worked-lead prescriptive engine is intentionally dormant. Its code
+    # and evidence stay available for an explicit future product decision, but
+    # this entry point cannot create recommendations while dormant.
+    from .optimization import WORKED_LEADS_PRESCRIPTIVE_ENABLED
+
+    if not WORKED_LEADS_PRESCRIPTIVE_ENABLED:
+        return []
     snapshot = source_performance_snapshot(session)
     by_niche: dict[str, list[dict]] = defaultdict(list)
     for cohort in snapshot["cohorts"]:

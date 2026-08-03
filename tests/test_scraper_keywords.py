@@ -13,10 +13,15 @@ from jawnix.keyword_generation import (
     generation_error,
 )
 from jawnix.models import (
+    Agent,
     AuditEntry,
+    DistributionEvent,
     KeywordGenerationDraftRecord,
     KeywordHistory,
+    Lead,
+    LeadOutcome,
 )
+from jawnix.performance import keyword_outcome_analytics
 from jawnix.scraper_keywords import keyword_version
 from scraper_fake import GenerationFake, KEYWORDS, ScraperFake
 from test_scraper_workspace import (  # noqa: F401 — shared fixtures
@@ -46,6 +51,65 @@ def privileged(workspace_client, fake: ScraperFake | None = None):
     return client, csrf, fake
 
 
+def test_keyword_analytics_uses_every_delivered_lead_as_the_denominator(
+    session,
+):
+    customer = Agent(slug="keyword-analytics", name="Keyword Analytics")
+    session.add(customer)
+    session.flush()
+    events = []
+    for index in range(2):
+        lead = Lead(
+            phone=f"21555501{index:02d}",
+            title=f"Roof repair {index}",
+            state="PA",
+        )
+        session.add(lead)
+        session.flush()
+        event = DistributionEvent(
+            lead_id=lead.id,
+            agent_id=customer.id,
+            customer_name=customer.name,
+            phone=lead.phone,
+            title=lead.title,
+            state="PA",
+            source_kind="google_maps",
+            source_segment_key="PA::roof repair",
+            source_niche="Roofing",
+            distribution_period="2026-08",
+            delivered_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            source="keyword-analytics-test",
+        )
+        session.add(event)
+        session.flush()
+        events.append(event)
+    session.add(
+        LeadOutcome(
+            distribution_event_id=events[0].id,
+            customer_id=customer.id,
+            kind="positive_response",
+            metric="positive_response",
+        )
+    )
+    session.flush()
+
+    rows = keyword_outcome_analytics(
+        session,
+        keywords=["roof repair", "plumbers"],
+    )
+
+    roof = next(row for row in rows if row["keyword"] == "roof repair")
+    plumbers = next(row for row in rows if row["keyword"] == "plumbers")
+    assert roof == {
+        "keyword": "roof repair",
+        "delivered": 2,
+        "positive": 1,
+        "positives_per_delivered": 0.5,
+    }
+    assert plumbers["delivered"] == 0
+    assert plumbers["positives_per_delivered"] is None
+
+
 def post(client, csrf, path, body):
     return client.post(
         path,
@@ -67,6 +131,21 @@ def test_keyword_workspace_projects_editor_rankings_and_rollover(
     assert body["current"] == KEYWORDS
     assert body["version"] == keyword_version(KEYWORDS)
     assert body["ai_enabled"] is True
+    assert body["performance"] == [
+        {
+            "keyword": "electricians",
+            "delivered": 0,
+            "positive": 0,
+            "positives_per_delivered": None,
+        },
+        {
+            "keyword": "plumbers",
+            "delivered": 0,
+            "positive": 0,
+            "positives_per_delivered": None,
+        },
+    ]
+    assert body["prescriptive_mode"] == "dormant_worked_leads"
     assert body["rollover"] == {
         "enabled": False,
         "state": "off",
@@ -744,5 +823,7 @@ def test_keyword_workspace_degrades_in_place_when_upstream_is_unavailable(
             "last_event": None,
         },
         "winners": [],
+        "performance": [],
+        "prescriptive_mode": "dormant_worked_leads",
         "idle_expires_in": 900,
     }

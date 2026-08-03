@@ -5,6 +5,7 @@ import { AppShell } from "../shell/AppShell";
 import type { NavigationDestination } from "../shell/Navigation";
 import { signOut } from "../auth/customerAuth";
 import { Button } from "../../design-system/primitives/Button";
+import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 
 /** Administrator navigation follows domain work, not the record hierarchy. */
 const DESTINATIONS: NavigationDestination[] = [
@@ -16,6 +17,10 @@ const DESTINATIONS: NavigationDestination[] = [
 ];
 
 export function AdminShell() {
+  // Administration shares the Customer portal's Opaline product language.
+  // Privileged Scraper screens keep their operational frame, but no longer
+  // replace the application theme with a separate terminal palette.
+  useRouteTheme("opaline");
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
 

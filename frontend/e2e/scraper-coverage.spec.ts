@@ -83,7 +83,7 @@ test.describe("Scraper state coverage", () => {
     ).toBeVisible();
     await expect(
       page.getByRole("navigation", {
-        name: "Scraper Operations terminal sections",
+        name: "Scraper Operations workspace sections",
       }).getByRole("link", { name: "Overview" }),
     ).toBeVisible();
   });

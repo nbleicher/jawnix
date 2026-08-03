@@ -7,7 +7,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from .models import AuditEntry
@@ -152,6 +152,7 @@ def query_activity(
     date_to: date | None = None,
     page: int = 1,
     page_size: int = ACTIVITY_PAGE_SIZE,
+    query: str | None = None,
 ) -> dict[str, object]:
     """Read global Activity and entity timelines through one query seam."""
 
@@ -161,6 +162,17 @@ def query_activity(
         max(1, page_size),
     )
     filters = []
+    if query and query.strip():
+        term = f"%{query.strip()}%"
+        filters.append(
+            or_(
+                AuditEntry.action.ilike(term),
+                AuditEntry.target_type.ilike(term),
+                AuditEntry.target_id.ilike(term),
+                AuditEntry.actor_user_id.ilike(term),
+                AuditEntry.reason.ilike(term),
+            )
+        )
     if actor and actor.strip():
         filters.append(AuditEntry.actor_user_id == actor.strip())
     if action and action.strip():

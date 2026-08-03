@@ -199,6 +199,7 @@ test.describe("Artifact regeneration is reachable", () => {
     const expired = page.getByRole("region", {
       name: "Expired Batch Artifacts",
     });
+    await expired.locator("summary").click();
     await expect(expired.getByText("Harbor Point")).toBeVisible();
 
     await expired.getByRole("button", { name: "Regenerate artifact" }).click();
@@ -305,6 +306,7 @@ test.describe("Telegram-originated state", () => {
     await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
 
     const activity = page.getByRole("region", { name: "Activity" });
+    await activity.locator("summary").first().click();
     await expect(activity.getByText(/telegram:12345/)).toBeVisible();
     await expect(activity.getByText("pending")).toBeVisible();
     await expect(activity.getByText("approved")).toBeVisible();
@@ -353,7 +355,7 @@ test.describe("Mobile operation", () => {
   }) => {
     await page.goto("./admin/fulfillment");
 
-    // All three areas of work are present, not collapsed away on small screens.
+    // All three areas of work remain reachable on small screens.
     for (const section of [
       "Batch Requests",
       "Inventory Conflicts",
@@ -362,6 +364,10 @@ test.describe("Mobile operation", () => {
       await expect(page.getByRole("region", { name: section })).toBeVisible();
     }
 
+    await page
+      .getByRole("region", { name: "Batch Requests" })
+      .locator("summary")
+      .click();
     const approve = page
       .getByRole("region", { name: "Batch Requests" })
       .getByRole("button", { name: "Approve" })
@@ -378,6 +384,10 @@ test.describe("Mobile operation", () => {
   test("a delivery failure shows the exact provider error", async ({ page }) => {
     await page.goto("./admin/fulfillment");
 
+    await page
+      .getByRole("region", { name: "Delivery failures" })
+      .locator("summary")
+      .click();
     await expect(
       page
         .getByRole("region", { name: "Delivery failures" })

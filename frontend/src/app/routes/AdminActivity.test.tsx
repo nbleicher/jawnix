@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -36,7 +37,8 @@ afterEach(() => {
 });
 
 describe("administrator Activity", () => {
-  it("shows attribution, entity navigation, safe changes, and pagination", () => {
+  it("keeps log detail collapsed until requested, then shows attribution and safe changes", async () => {
+    const user = userEvent.setup();
     const router = createMemoryRouter(
       [
         {
@@ -63,9 +65,9 @@ describe("administrator Activity", () => {
       "customer",
     );
     const entry = screen.getByRole("article");
-    expect(
-      within(entry).getByRole("heading", { name: "Customer updated" }),
-    ).toBeVisible();
+    expect(within(entry).getByText("Customer updated")).toBeVisible();
+    expect(within(entry).getByText("North Shore")).not.toBeVisible();
+    await user.click(within(entry).getByText("Customer updated"));
     expect(within(entry).getByText("admin@example.com")).toBeVisible();
     expect(
       within(entry).getByRole("link", { name: /Customer 42/ }),
@@ -92,12 +94,13 @@ describe("administrator Activity", () => {
 
     await adminActivityLoader({
       request: new Request(
-        "https://jawnix.test/app/admin/activity?actor=admin%40example.com&action=customer_updated&entityType=customer&entityId=42&dateFrom=2026-07-20&dateTo=2026-07-23&page=2&ignored=secret",
+        "https://jawnix.test/app/admin/activity?q=durable&actor=admin%40example.com&action=customer_updated&entityType=customer&entityId=42&dateFrom=2026-07-20&dateTo=2026-07-23&page=2&ignored=secret",
       ),
       params: {},
     } as Parameters<typeof adminActivityLoader>[0]);
 
     const requested = String(fetch.mock.calls[0]?.[0]);
+    expect(requested).toContain("q=durable");
     expect(requested).toContain("actor=admin%40example.com");
     expect(requested).toContain("action=customer_updated");
     expect(requested).toContain("entityType=customer");

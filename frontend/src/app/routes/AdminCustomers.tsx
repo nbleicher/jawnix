@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Form, Link, useLoaderData, useNavigate } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
@@ -11,6 +11,7 @@ import { Field, Input, Select } from "../../design-system/primitives/form";
 import {
   Card,
   Cluster,
+  DisclosureSection,
   Grid,
   Page,
   Section,
@@ -85,6 +86,18 @@ interface CreatedCustomer {
   slug: string;
   userId: string;
   mappingConfirmed: boolean;
+}
+
+interface NicheAssignmentUploadStatus {
+  id: string;
+  filename: string;
+  status: "queued" | "ingesting" | "complete" | "failed";
+  totalRows: number;
+  acceptedRows: number;
+  invalidRows: number;
+  duplicateRows: number;
+  skippedMappedRows: number;
+  error: string;
 }
 
 const FILTER_KEYS = ["q", "status", "agency_id", "state", "problems_only"] as const;
@@ -293,6 +306,123 @@ function CreateCustomerDialog({
   );
 }
 
+function NicheAssignmentTransfer() {
+  const [file, setFile] = useState<File | null>(null);
+  const [upload, setUpload] = useState<NicheAssignmentUploadStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState("");
+
+  useEffect(() => {
+    if (!upload || !["queued", "ingesting"].includes(upload.status)) return;
+    const timer = window.setTimeout(() => {
+      void api<NicheAssignmentUploadStatus>(
+        `/api/admin/niche-assignments/${upload.id}`,
+      )
+        .then(setUpload)
+        .catch((caught: unknown) => setFailure(errorMessage(caught)));
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [upload]);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!file) {
+      setFailure("Choose a Niche Assignment CSV.");
+      return;
+    }
+    setBusy(true);
+    setFailure("");
+    const body = new FormData();
+    body.append("file", file);
+    try {
+      setUpload(
+        await api<NicheAssignmentUploadStatus>(
+          "/api/admin/niche-assignments",
+          { method: "POST", body },
+        ),
+      );
+    } catch (caught) {
+      setFailure(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const tone = upload?.status === "complete"
+    ? "success"
+    : upload?.status === "failed"
+      ? "danger"
+      : "info";
+
+  return (
+    <DisclosureSection
+      title="Niche Assignment transfer"
+      description="Export inventory that has no source-derived Niche, assign a Niche in CSV, then import the reviewed assignments. Source mappings always retain precedence."
+      summary="Export / import CSV"
+    >
+      <Grid minColumnWidth="18rem">
+        <Card>
+          <Stack gap={3} align="flex-start">
+            <Heading level={3} size="sm">1. Export unmapped inventory</Heading>
+            <Text size="sm" tone="muted">
+              Downloads phone, title, and state so the working file can be reviewed outside Jawnix.
+            </Text>
+            <ActionLink
+              href="/api/admin/niche-assignments/export"
+              variant="primary"
+            >
+              Export unmapped inventory
+            </ActionLink>
+          </Stack>
+        </Card>
+        <Card>
+          <form onSubmit={(event) => void submit(event)}>
+            <Stack gap={3} align="flex-start">
+              <Heading level={3} size="sm">2. Import reviewed assignments</Heading>
+              <Field
+                label="Niche Assignment CSV"
+                description="CSV with phone and niche headers. Rows with a source-derived Niche are safely skipped."
+                required
+              >
+                <Input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={(event) => {
+                    setFile(event.currentTarget.files?.[0] ?? null);
+                    setFailure("");
+                  }}
+                />
+              </Field>
+              <Button type="submit" variant="primary" busy={busy} disabled={!file}>
+                Import assignments
+              </Button>
+            </Stack>
+          </form>
+        </Card>
+      </Grid>
+      {failure ? <Text role="alert" tone="danger">{failure}</Text> : null}
+      {upload ? (
+        <Card as="article" aria-label="Niche Assignment import status">
+          <Stack gap={3}>
+            <Cluster gap={2} justify="space-between">
+              <Heading level={3} size="sm">{upload.filename}</Heading>
+              <StatusBadge tone={tone}>{upload.status}</StatusBadge>
+            </Cluster>
+            {upload.error ? <Text tone="danger">{upload.error}</Text> : null}
+            <Grid minColumnWidth="9rem" gap={2}>
+              <Text size="sm"><strong>{upload.totalRows.toLocaleString()}</strong> rows</Text>
+              <Text size="sm"><strong>{upload.acceptedRows.toLocaleString()}</strong> assigned</Text>
+              <Text size="sm"><strong>{upload.skippedMappedRows.toLocaleString()}</strong> source-mapped skipped</Text>
+              <Text size="sm" tone="muted">{upload.invalidRows.toLocaleString()} invalid</Text>
+              <Text size="sm" tone="muted">{upload.duplicateRows.toLocaleString()} duplicates</Text>
+            </Grid>
+          </Stack>
+        </Card>
+      ) : null}
+    </DisclosureSection>
+  );
+}
+
 export function AdminCustomersRoute() {
   const data = useLoaderData<CustomerDirectoryData>();
   const [createOpen, setCreateOpen] = useState(false);
@@ -405,6 +535,8 @@ export function AdminCustomersRoute() {
           )}
         </Stack>
       </Section>
+
+      <NicheAssignmentTransfer />
 
       <CreateCustomerDialog
         open={createOpen}

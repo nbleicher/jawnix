@@ -18,6 +18,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import (
+    Customer,
+    ExclusionList,
     NightlyReview,
     ScrapeAnomaly,
     ScrapeSegmentResult,
@@ -125,6 +127,9 @@ def niche_dict(item: SourceNicheMapping) -> dict[str, object]:
         "evidence": item.proposed_evidence,
         "confirmedBy": item.confirmed_by,
         "confirmedAt": item.confirmed_at,
+        "denied": item.denied_at is not None,
+        "deniedBy": item.denied_by,
+        "deniedAt": item.denied_at,
     }
 
 
@@ -142,6 +147,23 @@ def _review_dict(review: NightlyReview) -> dict[str, object]:
         # Only an unknown delivery is reconcilable; the endpoint refuses the
         # rest with a 409, so the workspace must not offer it for them.
         "reconcilable": review.telegram_delivery_state == "unknown",
+    }
+
+
+def _exclusion_dict(db: Session, item: ExclusionList) -> dict[str, object]:
+    customer = db.get(Customer, item.customer_id) if item.customer_id else None
+    return {
+        "id": str(item.id),
+        "customerId": item.customer_id,
+        "customerName": customer.name if customer is not None else "Administrator",
+        "type": item.exclusion_type,
+        "filename": item.filename,
+        "status": item.status,
+        "acceptedRows": item.accepted_rows,
+        "invalidRows": item.invalid_rows,
+        "duplicateRows": item.duplicate_rows,
+        "poolImpact": item.pool_impact,
+        "createdAt": item.created_at,
     }
 
 
@@ -212,6 +234,14 @@ def workspace(db: Session) -> dict[str, object]:
     ]
 
     return {
+        "exclusionLists": [
+            _exclusion_dict(db, item)
+            for item in db.scalars(
+                select(ExclusionList)
+                .where(ExclusionList.status == "pending_confirmation")
+                .order_by(ExclusionList.created_at.desc(), ExclusionList.id)
+            )
+        ],
         "nightlyReviews": [
             _review_dict(review)
             for review in db.scalars(

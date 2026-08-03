@@ -11,7 +11,6 @@ import { Field, Input, Select } from "../../design-system/primitives/form";
 import { Cluster, Page, Stack } from "../../design-system/primitives/layout";
 import { TerminalWorkspace } from "../../design-system/primitives/terminal";
 import { VisuallyHidden } from "../../design-system/primitives/typography";
-import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 
 import {
@@ -61,7 +60,6 @@ export function ScraperCampaignHistoryRoute() {
   const first = useRef(true);
   const requestNumber = useRef(0);
 
-  useRouteTheme("terminal", "jawnix");
   useDocumentTitle("Scraper Campaign History");
 
   async function load() {

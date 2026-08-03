@@ -16,10 +16,8 @@ import type { TerminalDestination } from "../../design-system/primitives/termina
  * 0024: five parallel slices independently inventing something that should exist
  * once.
  *
- * Routed destinations are shared. In-page destinations are deliberately supplied
- * by the screen that owns their target, so Keywords keeps its editor/rollover/
- * winners shortcuts, Database keeps its browse/export shortcuts, and state detail
- * screens keep their page-local shortcuts without leaking dead anchors elsewhere.
+ * Every destination is a real route. Dense regions use native disclosure in
+ * their owning screen instead of pretending page-position anchors are tabs.
  */
 
 export const WORKSPACE_ROOT = "/app/admin/acquisition/scraper/workspace";
@@ -27,8 +25,6 @@ export const WORKSPACE_ROOT = "/app/admin/acquisition/scraper/workspace";
 interface WorkspaceRailOptions {
   /** Add an exact routed item for a detail page beneath a shared parent route. */
   pageLabel?: string;
-  /** In-page destinations whose targets are rendered by this screen. */
-  sections?: readonly TerminalDestination[];
 }
 
 const DESTINATIONS: TerminalDestination[] = [
@@ -41,32 +37,6 @@ const DESTINATIONS: TerminalDestination[] = [
   { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
 ];
 
-export const WORKSPACE_SECTIONS = {
-  overview: [
-    { label: "Status", href: "#scraper-status" },
-    { label: "Pipeline", href: "#scraper-pipeline" },
-    { label: "Throughput", href: "#scraper-throughput" },
-    { label: "Fleet", href: "#scraper-fleet" },
-  ],
-  keywords: [
-    { label: "Keyword editor", href: "#keyword-editor" },
-    { label: "Automatic rollover", href: "#keyword-rollover" },
-    { label: "Winner rankings", href: "#keyword-winners" },
-  ],
-  database: [
-    { label: "State exports", href: "#database-states" },
-    { label: "Browse records", href: "#database-browse" },
-    { label: "Stored exports", href: "#stored-exports" },
-  ],
-  databaseState: [
-    { label: "Niches", href: "#state-niches" },
-  ],
-  stateCoverage: [
-    { label: "State keywords", href: "#state-keywords" },
-    { label: "Grid cells", href: "#state-grid" },
-  ],
-} as const;
-
 /**
  * The rail for one workspace screen.
  *
@@ -78,7 +48,6 @@ export function workspaceRail(
   currentHref: string,
   {
     pageLabel,
-    sections = [],
   }: WorkspaceRailOptions = {},
 ): TerminalDestination[] {
   const exit = DESTINATIONS.at(-1);
@@ -92,7 +61,6 @@ export function workspaceRail(
   );
   const local: TerminalDestination[] = [
     ...(pageLabel ? [{ label: pageLabel, href: currentHref }] : []),
-    ...sections,
   ];
   const items = [...routes];
   items.splice(ownerIndex + 1, 0, ...local);

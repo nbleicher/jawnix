@@ -11,6 +11,7 @@ import { Field, Textarea } from "../../design-system/primitives/form";
 import {
   Card,
   Cluster,
+  DisclosureSection,
   Grid,
   Page,
   Section,
@@ -774,9 +775,13 @@ function PoolBreakdownSection({
   }
 
   return (
-    <Section
-      title="Eligible pool by state and Niche"
+    <DisclosureSection
+      title="Pool analytics"
       description="Inventory composition for Fulfillment. Unmapped Leads are their own Niche bucket. Counts come from a cached snapshot with a visible as-of time."
+      summary={data.cells.length
+        ? `${data.cells.reduce((total, cell) => total + cell.count, 0).toLocaleString()} eligible`
+        : "Not computed"}
+      defaultOpen
     >
       <Card>
         <Stack gap={4} align="flex-start">
@@ -789,15 +794,17 @@ function PoolBreakdownSection({
             As of: {data.asOf ? formatDate(data.asOf) : "Not computed yet"}
           </Text>
           {data.cells.length ? (
-            <ul aria-label="Pool breakdown">
+            <Grid minColumnWidth="12rem" gap={3} aria-label="Pool breakdown">
               {data.cells.map((cell) => (
-                <li key={`${cell.state}-${cell.niche}`}>
-                  <Text>
-                    {cell.state} · {cell.niche}: {cell.count.toLocaleString()}
-                  </Text>
-                </li>
+                <Card as="article" padding={3} key={`${cell.state}-${cell.niche}`}>
+                  <Stack gap={1}>
+                    <Text size="sm" tone="muted">{cell.state}</Text>
+                    <Heading level={3} size="sm">{cell.niche}</Heading>
+                    <Text weight="bold">{cell.count.toLocaleString()} eligible</Text>
+                  </Stack>
+                </Card>
               ))}
-            </ul>
+            </Grid>
           ) : (
             <EmptyState
               title="No pool snapshot yet"
@@ -807,9 +814,12 @@ function PoolBreakdownSection({
           <Button variant="primary" busy={busy} onClick={() => void refresh()}>
             Refresh pool breakdown
           </Button>
+          <ActionLink href="/app/admin/customers" variant="ghost">
+            Open Customers for per-Customer availability and cooldown forecasts
+          </ActionLink>
         </Stack>
       </Card>
-    </Section>
+    </DisclosureSection>
   );
 }
 
@@ -831,9 +841,10 @@ export function AdminFulfillmentRoute() {
       <Stack gap={6}>
         <PoolBreakdownSection breakdown={data.poolBreakdown} />
 
-        <Section
+        <DisclosureSection
           title="Batch Requests"
           description="Requests still moving through Fulfillment Rotation."
+          summary={`${data.batchRequests.length} active`}
         >
           {data.batchRequests.length ? (
             <Grid minColumnWidth="20rem">
@@ -847,11 +858,12 @@ export function AdminFulfillmentRoute() {
               description="Every request has been delivered, rejected, or canceled. New requests appear here once a Customer submits one."
             />
           )}
-        </Section>
+        </DisclosureSection>
 
-        <Section
+        <DisclosureSection
           title="Inventory Conflicts"
           description="Each decision authorizes one allocation attempt against the current inventory snapshot."
+          summary={`${data.inventoryConflicts.length} waiting`}
         >
           {data.inventoryConflicts.length ? (
             <Grid minColumnWidth="20rem">
@@ -865,11 +877,12 @@ export function AdminFulfillmentRoute() {
               description="A conflict appears when a newer Batch Request could consume Leads an older waiting request also needs."
             />
           )}
-        </Section>
+        </DisclosureSection>
 
-        <Section
+        <DisclosureSection
           title="Lead Reports"
           description="What Customers reported about Leads they received. Each report is evidence and is never edited; the decisions act on the Lead."
+          summary={`${leadReports.length} open`}
         >
           {leadReports.length ? (
             <Grid minColumnWidth="20rem">
@@ -883,11 +896,12 @@ export function AdminFulfillmentRoute() {
               description="A Lead Report appears here when a Customer reports a Lead they were delivered. Resolving one never changes what was delivered."
             />
           )}
-        </Section>
+        </DisclosureSection>
 
-        <Section
+        <DisclosureSection
           title="Eligibility Holds"
           description="Leads withheld from distribution while a Lead Report is open."
+          summary={`${eligibilityHolds.length} active`}
         >
           {eligibilityHolds.length ? (
             <Grid minColumnWidth="20rem">
@@ -901,11 +915,12 @@ export function AdminFulfillmentRoute() {
               description="A hold is placed when a Lead Report is filed and is released only by resolving that report. A Customer cannot release one."
             />
           )}
-        </Section>
+        </DisclosureSection>
 
-        <Section
+        <DisclosureSection
           title="Suppressed Leads"
           description="Leads withheld from every future Batch Request. Restoring one requires a reason and does not promise it will be allocated."
+          summary={`${suppressedLeads.length} suppressed`}
         >
           {suppressedLeads.length ? (
             <Grid minColumnWidth="20rem">
@@ -919,11 +934,12 @@ export function AdminFulfillmentRoute() {
               description="Suppressing a Lead removes it from future distribution without deleting what was already delivered."
             />
           )}
-        </Section>
+        </DisclosureSection>
 
-        <Section
+        <DisclosureSection
           title="Delivery failures"
           description="Batches that generated successfully but did not reach the Customer."
+          summary={`${data.deliveryFailures.length} failed`}
         >
           {data.deliveryFailures.length ? (
             <Grid minColumnWidth="20rem">
@@ -959,11 +975,12 @@ export function AdminFulfillmentRoute() {
               description="Every generated batch reached its Customer. Failures appear here with the exact error the provider reported."
             />
           )}
-        </Section>
+        </DisclosureSection>
 
-        <Section
+        <DisclosureSection
           title="Expired Batch Artifacts"
           description="Delivered batches whose file has passed its 30-day retention. The history stays permanent and the exact file can be rebuilt."
+          summary={`${data.expiredArtifacts.length} expired`}
         >
           {data.expiredArtifacts.length ? (
             <Grid minColumnWidth="20rem">
@@ -977,7 +994,7 @@ export function AdminFulfillmentRoute() {
               description="A delivered batch's file expires 30 days after it is generated. Expired ones appear here so the exact file can be regenerated on request."
             />
           )}
-        </Section>
+        </DisclosureSection>
       </Stack>
     </Page>
   );

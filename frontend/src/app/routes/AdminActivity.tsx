@@ -104,37 +104,41 @@ function ActivityCard({ entry }: { entry: ActivityEntry }) {
   return (
     <li>
       <Card as="article">
-        <Stack gap={3}>
-          <Cluster gap={2} justify="space-between">
-            <Heading level={3} size="sm">
-              {words(entry.action)}
-            </Heading>
-            <Text size="sm" tone="muted">
+        <details className="jx-activity-entry">
+          <summary>
+            <span className="jx-activity-entry__summary">
+              <span className="jx-activity-entry__action">
+                {words(entry.action)}
+              </span>
+              <span className="jx-activity-entry__reason">{entry.reason}</span>
+            </span>
+            <span className="jx-activity-entry__date">
               {formatDate(entry.recordedAt)}
-            </Text>
-          </Cluster>
-          <Text>{entry.reason}</Text>
-          <DetailList
-            label="Activity attribution"
-            items={[
-              { term: "Actor", description: <Mono>{entry.actor}</Mono> },
-              {
-                term: "Entity",
-                description: (
-                  <a href={entry.entityHref}>
-                    {words(entry.entityType)} <Mono>{entry.entityId}</Mono>
-                  </a>
-                ),
-              },
-            ]}
-          />
-          {before !== undefined || after !== undefined ? (
-            <Grid minColumnWidth="14rem" gap={3}>
-              <Change label="Before" value={before} />
-              <Change label="After" value={after} />
-            </Grid>
-          ) : null}
-        </Stack>
+            </span>
+          </summary>
+          <Stack gap={3} className="jx-activity-entry__details">
+            <DetailList
+              label="Activity attribution"
+              items={[
+                { term: "Actor", description: <Mono>{entry.actor}</Mono> },
+                {
+                  term: "Entity",
+                  description: (
+                    <a href={entry.entityHref}>
+                      {words(entry.entityType)} <Mono>{entry.entityId}</Mono>
+                    </a>
+                  ),
+                },
+              ]}
+            />
+            {before !== undefined || after !== undefined ? (
+              <Grid minColumnWidth="14rem" gap={3}>
+                <Change label="Before" value={before} />
+                <Change label="After" value={after} />
+              </Grid>
+            ) : null}
+          </Stack>
+        </details>
       </Card>
     </li>
   );
@@ -178,6 +182,7 @@ export function loadEntityActivity(
 function allowedSearch(search: URLSearchParams): URLSearchParams {
   const result = new URLSearchParams();
   for (const key of [
+    "q",
     "actor",
     "action",
     "entityType",
@@ -217,12 +222,20 @@ export function AdminActivityRoute() {
     >
       <Stack gap={6}>
         <Section
-          title="Filters"
-          description="Filters are combined and applied on the server."
+          title="Search and filters"
+          description="Search scans action, actor, entity, identifier, and reason. Filters are combined and applied on the server."
         >
           <Card>
             <Form method="get" className="jx-activity-filters">
               <Grid minColumnWidth="13rem" gap={3}>
+                <Field label="Search activity">
+                  <Input
+                    type="search"
+                    name="q"
+                    defaultValue={search.get("q") ?? ""}
+                    placeholder="Action, actor, entity, or reason"
+                  />
+                </Field>
                 <Field label="Actor">
                   <Input name="actor" defaultValue={search.get("actor") ?? ""} />
                 </Field>

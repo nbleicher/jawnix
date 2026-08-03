@@ -63,8 +63,8 @@ test.describe("Scraper monitoring", () => {
   test("keeps every dashboard region and its cadence", async ({ page }) => {
     await openWorkspace(page);
 
+    await expect(page.getByRole("region", { name: "Overall status" })).toBeVisible();
     for (const name of [
-      "Overall status",
       "Host and stack",
       "Pipeline activity",
       "Headline totals",
@@ -74,19 +74,20 @@ test.describe("Scraper monitoring", () => {
       "Pipeline alerts",
       "Top states",
     ]) {
-      await expect(page.getByRole("region", { name })).toBeVisible();
+      await expect(page.getByRole("group", { name })).toBeVisible();
+      await page.getByRole("group", { name }).getByRole("heading", { name }).click();
     }
 
     await expect(page.getByRole("region", { name: "Overall status" })).toContainText(
       "Attention needed",
     );
-    await expect(page.getByRole("region", { name: "Headline totals" })).toContainText(
+    await expect(page.getByRole("group", { name: "Headline totals" })).toContainText(
       "9,244,326",
     );
-    await expect(page.getByRole("region", { name: "Workers" })).toContainText(
+    await expect(page.getByRole("group", { name: "Workers" })).toContainText(
       "gms-worker-1",
     );
-    await expect(page.getByRole("region", { name: "Database activity" })).toContainText(
+    await expect(page.getByRole("group", { name: "Database activity" })).toContainText(
       "2s",
     );
   });
@@ -97,7 +98,7 @@ test.describe("Scraper monitoring", () => {
     await openWorkspace(page);
 
     await expect(page.getByText("GMS / OPS")).toBeVisible();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "terminal");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
     await expect(page.locator("body")).not.toContainText("river_job");
     await expect(page.locator("body")).not.toContainText("10.77.0.2");
   });
@@ -118,10 +119,11 @@ test.describe("Scraper monitoring", () => {
       snapshot: monitoringSnapshot({}, ["workers"]),
     });
 
-    const workers = page.getByRole("region", { name: "Workers" });
+    const workers = page.getByRole("group", { name: "Workers" });
+    await workers.getByRole("heading", { name: "Workers" }).click();
     await expect(workers).toContainText("Not refreshing");
     await expect(workers).toContainText("gms-worker-1");
-    await expect(page.getByRole("region", { name: "Top states" })).not.toContainText(
+    await expect(page.getByRole("group", { name: "Top states" })).not.toContainText(
       "Not refreshing",
     );
   });

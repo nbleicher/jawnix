@@ -12,7 +12,6 @@ import {
   Stack,
 } from "../../design-system/primitives/layout";
 import { TerminalWorkspace } from "../../design-system/primitives/terminal";
-import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 
 import {
@@ -264,7 +263,6 @@ export function ScraperRuntimeConfigurationRoute() {
   const [failure, setFailure] = useState("");
   const [outcome, setOutcome] = useState("");
 
-  useRouteTheme("terminal", "jawnix");
   useDocumentTitle("Scraper Runtime Configuration");
 
   const reviewed =

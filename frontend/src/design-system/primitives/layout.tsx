@@ -158,3 +158,42 @@ export function Section({ id, title, description, children }: SectionProps) {
     </section>
   );
 }
+
+export interface DisclosureSectionProps extends SectionProps {
+  /** Short operational value shown without opening the dense content. */
+  summary?: ReactNode;
+  defaultOpen?: boolean;
+}
+
+/**
+ * A dense workspace region that stays scannable until the operator chooses to
+ * inspect it. Native details/summary preserves keyboard and screen-reader
+ * behavior without inventing a tab that merely scrolls somewhere else.
+ */
+export function DisclosureSection({
+  id,
+  title,
+  description,
+  summary,
+  defaultOpen = false,
+  children,
+}: DisclosureSectionProps) {
+  return (
+    <section className="jx-section jx-disclosure-section" aria-label={title}>
+      <details id={id} open={defaultOpen}>
+        <summary className="jx-disclosure-section__summary">
+          <span className="jx-disclosure-section__copy">
+            <span className="jx-section__title">{title}</span>
+            {description ? (
+              <span className="jx-section__description">{description}</span>
+            ) : null}
+          </span>
+          {summary ? (
+            <span className="jx-disclosure-section__value">{summary}</span>
+          ) : null}
+        </summary>
+        <div className="jx-disclosure-section__body">{children}</div>
+      </details>
+    </section>
+  );
+}

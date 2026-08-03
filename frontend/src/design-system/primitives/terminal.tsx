@@ -24,12 +24,17 @@ export interface TerminalWorkspaceProps {
 }
 
 const SCRAPER_DESTINATIONS: TerminalDestination[] = [
-  { label: "Secure access", href: "#scraper-access" },
+  {
+    label: "Scraper Operations",
+    href: "/app/admin/acquisition/scraper",
+    current: true,
+  },
   { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
 ];
 
 /**
- * GMS/OPS frame for native acquisition screens.
+ * GMS/OPS frame for native acquisition screens, inheriting the Opaline app
+ * theme while retaining a compact operational identity.
  *
  * The rail only links to working destinations, so an outage or an early
  * foundation never exposes partial controls.
@@ -37,7 +42,7 @@ const SCRAPER_DESTINATIONS: TerminalDestination[] = [
 export function TerminalWorkspace({
   status,
   tone = "online",
-  label = "Scraper Operations terminal",
+  label = "Scraper Operations workspace",
   destinations = SCRAPER_DESTINATIONS,
   children,
 }: TerminalWorkspaceProps) {

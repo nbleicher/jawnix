@@ -76,6 +76,40 @@ test.describe("Customer administration", () => {
 
     const former = page.getByRole("region", { name: "Former User Accounts" });
     await expect(former.getByText("previous@harbor.example")).toBeVisible();
+
+    const exclusions = page.getByRole("region", {
+      name: "Customer Exclusion Lists",
+    });
+    await exclusions.locator("summary").click();
+    await expect(exclusions).toContainText("harbor-dnc.csv");
+    await expect(exclusions).toContainText("Customer-scoped");
+  });
+
+  test("gives Niche Assignment export and import a dedicated transfer panel", async ({
+    page,
+  }) => {
+    const state = await mockAdminCustomers(page);
+    await page.goto("./admin/customers");
+
+    const transfer = page.getByRole("region", {
+      name: "Niche Assignment transfer",
+    });
+    await transfer.locator("summary").click();
+    const downloadPromise = page.waitForEvent("download");
+    await transfer.getByRole("link", { name: "Export unmapped inventory" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("unmapped-inventory.csv");
+
+    await transfer.getByLabel("Niche Assignment CSV").setInputFiles({
+      name: "assignments.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from("phone,niche\n2155550101,Roofing\n"),
+    });
+    await transfer.getByRole("button", { name: "Import assignments" }).click();
+    await expect(transfer.getByRole("article", {
+      name: "Niche Assignment import status",
+    })).toContainText("1 assigned");
+    expect(state.nicheAssignmentImports).toHaveLength(1);
   });
 
   test("states that the current User Account stays active while an invitation is pending", async ({

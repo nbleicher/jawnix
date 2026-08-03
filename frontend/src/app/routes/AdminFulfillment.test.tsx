@@ -215,7 +215,10 @@ function renderRoute(element: React.ReactElement, data: unknown) {
       hydrationData: { loaderData: { fulfillment: data } },
     },
   );
-  render(<RouterProvider router={router} />);
+  const view = render(<RouterProvider router={router} />);
+  view.container.querySelectorAll("details").forEach((item) => {
+    item.open = true;
+  });
 }
 
 beforeEach(() => {

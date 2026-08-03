@@ -24,12 +24,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("The GMS/OPS identity is consistent", () => {
-  test("acquisition wears the terminal frame and theme", async ({ page }) => {
+  test("acquisition wears the Opaline operations frame", async ({ page }) => {
     await page.goto("./admin/acquisition");
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "terminal");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
     await expect(
-      page.getByRole("region", { name: "Acquisition terminal" }),
+      page.getByRole("region", { name: "Acquisition workspace" }),
     ).toBeVisible();
     await expect(page.getByText("GMS / OPS")).toBeVisible();
   });
@@ -38,7 +38,7 @@ test.describe("The GMS/OPS identity is consistent", () => {
     await page.goto("./admin/acquisition");
 
     const rail = page.getByRole("navigation", {
-      name: "Acquisition terminal sections",
+      name: "Acquisition workspace sections",
     });
     await expect(
       rail.getByRole("link", { name: "Scraper Operations" }),
@@ -48,16 +48,16 @@ test.describe("The GMS/OPS identity is consistent", () => {
     ).toBeVisible();
   });
 
-  test("leaving acquisition restores the product theme", async ({ page }) => {
+  test("leaving acquisition preserves the admin Opaline theme", async ({ page }) => {
     await page.goto("./admin/acquisition");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "terminal");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
 
     await page
       .getByRole("navigation", { name: "Administration" })
       .getByRole("link", { name: "Overview" })
       .click();
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "jawnix");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
   });
 });
 
@@ -140,6 +140,7 @@ test.describe("Source Recommendations stay human-controlled", () => {
     const section = page.getByRole("region", {
       name: "Source Recommendations",
     });
+    await section.locator("summary").click();
     await expect(
       section.getByText(/Worked 120 · rated 40 · eligibility eligible/),
     ).toBeVisible();
@@ -153,6 +154,10 @@ test.describe("Source Recommendations stay human-controlled", () => {
   }) => {
     await page.goto("./admin/acquisition");
 
+    await page
+      .getByRole("region", { name: "Source Recommendations" })
+      .locator("summary")
+      .click();
     await page
       .getByRole("region", { name: "Source Recommendations" })
       .getByRole("button", { name: "Approve" })
@@ -176,6 +181,10 @@ test.describe("Source Recommendations stay human-controlled", () => {
 
     await page
       .getByRole("region", { name: "Source Recommendations" })
+      .locator("summary")
+      .click();
+    await page
+      .getByRole("region", { name: "Source Recommendations" })
       .getByRole("button", { name: "Approve" })
       .click();
 
@@ -194,6 +203,7 @@ test.describe("Immutable Scraper Configuration versions", () => {
     const section = page.getByRole("region", {
       name: "Scraper Configuration versions",
     });
+    await section.locator("summary").click();
     await expect(
       section.getByRole("heading", { level: 3, name: "Version 5" }),
     ).toBeVisible();
@@ -208,6 +218,10 @@ test.describe("Immutable Scraper Configuration versions", () => {
   test("a rolled-forward version says what it came from", async ({ page }) => {
     await page.goto("./admin/acquisition");
 
+    await page
+      .getByRole("region", { name: "Scraper Configuration versions" })
+      .locator("summary")
+      .click();
     await expect(
       page.getByText(/rolled forward from an earlier version/),
     ).toBeVisible();
@@ -221,10 +235,47 @@ test.describe("Nightly Reviews", () => {
     await page.goto("./admin/acquisition");
 
     const section = page.getByRole("region", { name: "Nightly Reviews" });
+    await section.locator("summary").click();
     await expect(section.getByText(/Telegram delivery: unknown/)).toBeVisible();
     await expect(
       section.getByText(/needs reconciling before this review can be updated/),
     ).toBeVisible();
+  });
+});
+
+test.describe("Compact review queues", () => {
+  test("Niche mapping offers correction and denial without a long list", async ({
+    page,
+  }) => {
+    await page.goto("./admin/acquisition");
+
+    const mappings = page.getByRole("region", { name: "Niche mappings" });
+    await expect(mappings.getByText("Proposal 1 of 1", { exact: true })).toBeVisible();
+    await expect(mappings.getByRole("searchbox", { name: "Find a Niche mapping" }))
+      .toBeVisible();
+    await expect(mappings.getByRole("button", { name: "Review and confirm" }))
+      .toBeVisible();
+    await mappings.getByRole("button", { name: "Deny proposal" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Reason (required)").fill("Wrong taxonomy match.");
+    await dialog.getByRole("button", { name: "Deny proposal" }).click();
+    await expect
+      .poll(() => calls.map((call) => call.url))
+      .toContain("/api/admin/source-niches/TX%3A%3Aroofing%20contractor/deny");
+  });
+
+  test("global exclusion impact has an explicit confirm and deny home", async ({
+    page,
+  }) => {
+    await page.goto("./admin/acquisition");
+
+    const exclusions = page.getByRole("region", { name: "Exclusion review" });
+    await expect(exclusions).toContainText("Liberty Roofing");
+    await expect(exclusions).toContainText("61 pool impact");
+    await expect(exclusions.getByRole("button", { name: "Confirm globally" }))
+      .toBeVisible();
+    await expect(exclusions.getByRole("button", { name: "Deny global effect" }))
+      .toBeVisible();
   });
 });
 

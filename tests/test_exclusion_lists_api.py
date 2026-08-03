@@ -118,6 +118,17 @@ def test_customer_upload_is_ingested_in_the_background_and_status_is_visible(
         listed = client.get("/api/me/exclusion-lists")
         assert listed.status_code == 200
         assert listed.json() == [status.json()]
+        app.dependency_overrides[require_admin] = lambda: Principal(
+            user_id=uuid.uuid4(),
+            email="admin@example.com",
+            role="admin",
+            csrf="test",
+        )
+        admin_view = client.get(
+            f"/api/admin/customers/{customer.id}/exclusion-lists"
+        )
+        assert admin_view.status_code == 200
+        assert admin_view.json() == [status.json()]
         audit = session.scalar(
             select(AuditEntry).where(
                 AuditEntry.action == "exclusion_list_uploaded"

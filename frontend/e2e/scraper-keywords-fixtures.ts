@@ -14,6 +14,21 @@ export const KEYWORD_WORKSPACE = {
     last_status: "generated",
     last_event: "Jul 28 · 12:00 UTC",
   },
+  prescriptive_mode: "dormant_worked_leads",
+  performance: [
+    {
+      keyword: "plumbers",
+      delivered: 100,
+      positive: 12,
+      positives_per_delivered: 0.12,
+    },
+    {
+      keyword: "electricians",
+      delivered: 0,
+      positive: 0,
+      positives_per_delivered: null,
+    },
+  ],
   winners: [
     {
       rank: 1,

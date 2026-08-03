@@ -21,14 +21,18 @@ test.describe("Pool analytics surfaces", () => {
     await page.goto("./admin/fulfillment");
 
     const section = page.getByRole("region", {
-      name: "Eligible pool by state and Niche",
+      name: "Pool analytics",
     });
-    await expect(section.getByText("TX · Dental: 340")).toBeVisible();
-    await expect(section.getByText("TX · unmapped: 18")).toBeVisible();
+    const dental = section.getByRole("article").filter({ hasText: "TX" })
+      .filter({ hasText: "Dental" });
+    const unmapped = section.getByRole("article").filter({ hasText: "TX" })
+      .filter({ hasText: "unmapped" });
+    await expect(dental).toContainText("340 eligible");
+    await expect(unmapped).toContainText("18 eligible");
     await expect(section.getByText(/As of:/)).toBeVisible();
 
     await section.getByRole("button", { name: "Refresh pool breakdown" }).click();
-    await expect(section.getByText("TX · Dental: 341")).toBeVisible();
+    await expect(dental).toContainText("341 eligible");
   });
 
   test("Customer details shows availability, forecast, and refresh", async ({

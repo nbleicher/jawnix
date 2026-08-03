@@ -67,6 +67,13 @@ class KeywordWinner(BaseModel):
         return value
 
 
+class KeywordOutcomePerformance(BaseModel):
+    keyword: str
+    delivered: int = Field(ge=0)
+    positive: int = Field(ge=0)
+    positives_per_delivered: float | None = Field(default=None, ge=0, le=1)
+
+
 class ScraperKeywordWorkspace(BaseModel):
     """The private Scraper control service's keyword workspace."""
 
@@ -95,6 +102,8 @@ class KeywordWorkspace(BaseModel):
     ai_enabled: bool
     rollover: KeywordRollover
     winners: list[KeywordWinner]
+    performance: list[KeywordOutcomePerformance] = Field(default_factory=list)
+    prescriptive_mode: Literal["dormant_worked_leads"] = "dormant_worked_leads"
     idle_expires_in: int = Field(gt=0)
 
 
