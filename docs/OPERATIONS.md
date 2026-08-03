@@ -206,27 +206,39 @@ The PostgreSQL initialization hook enables password-authenticated replication on
 
 ## Scraper ownership cutover
 
-Do not schedule this window until a Stage C rehearsal report says **GO**. No
-rehearsal has produced a standing GO. The
-[2026-08-01 report](rehearsals/2026-08-01-scraper-cutover.md) published a GO
-and **retracted it**: it backed up and rehearsed against the application
-host's `gmaps_pro`, which is a stale or partial copy (17,650 businesses, all
-with an empty `state`, last enqueue 2026-07-01), not the live acquisition
-store the legacy dashboard serves (779,408 businesses across PA, NC, OH, FL,
-SC, GA, TX, UT). The earlier
-[2026-07-31 report](rehearsals/2026-07-31-scraper-cutover.md) is also a
-NO-GO.
+Do not schedule this window until a Stage C rehearsal report says **GO**. The
+[2026-08-02 report](rehearsals/2026-08-02-scraper-cutover.md) is a standing
+**GO**: all three blockers are cleared against the real acquisition store,
+with an off-host dump that reconciles exactly, a 4,603,285-row history import
+that reruns idempotently, and Jawnix-owned rollover proven with no model
+credential on the control service. It supersedes the
+[2026-07-31 NO-GO](rehearsals/2026-07-31-scraper-cutover.md) and the
+[retracted 2026-08-01 GO](rehearsals/2026-08-01-scraper-cutover.md).
 
-**Identify the acquisition store before anything else.** It sits behind the
-Scale control VPS (`51.81.184.162`, WireGuard `10.77.0.2`), which exposes
-only dashboard port 8090 and rejects the available SSH keys. Do not treat a
-DSN found in a worker or application `.env` as authoritative: cross-check the
+### The acquisition store
+
+The live store is a **loopback-bound Docker PostgreSQL 16.14 on the Scale
+control VPS itself** (`51.81.184.162`, WireGuard `10.77.0.2`), container
+`gms-scale-db-1`, `postgresql://postgres@127.0.0.1:5432/gmaps_pro`. It
+publishes no port beyond loopback, so it is invisible from the application
+host and the worker box.
+
+Access is `ubuntu@51.81.184.162` with passwordless sudo — the OVH Ubuntu image
+disables root login, so `root@` attempts always fail regardless of the
+password. The operator key is `~/.ssh/scale_vps`.
+
+The database on the application host that a worker `.env` names as `gmaps_pro`
+is a stale partial copy (17,650 businesses, all with an empty `state`). **Do
+not treat a DSN found in any `.env` as authoritative.** Cross-check a
 candidate database's row counts and per-state distribution against the live
-dashboard's `/api/dashboard` and `/database` before backing anything up.
+dashboard's `/api/dashboard` and `/database` before backing anything up; a
+2026-08-01 rehearsal backed up the wrong database and had to retract a GO.
 
-Of the three 2026-07-31 blockers, only rollover ownership (PR #138) is
-cleared. The acquisition backup and the keyword-history artifact remain open
-and must be redone against the real store.
+**The pipeline is live.** Eight worker containers plus `gms-serve`,
+`gms-enqueue`, and nine timers run continuously on the control VPS; the window
+must stop them deliberately. There are **no pending additive migrations** —
+the store's `scale_migrations` ledger already matches this repository through
+`20260727000000-dataset-publications.sql`.
 
 ### Required artifacts and rehearsal isolation
 
