@@ -239,9 +239,7 @@ describe("the guided Batch Request flow", () => {
     expect(
       screen.getByRole("group", { name: /How should the Batch be split/ }),
     ).toBeVisible();
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "750 at 750/file = 1 file",
-    );
+    expect(screen.getByText("750 at 750/file = 1 file")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
@@ -424,9 +422,7 @@ describe("the guided Batch Request flow", () => {
       screen.getByRole("spinbutton", { name: /Rows per file/ }),
       "250",
     );
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "750 at 250/file = 3 files",
-    );
+    expect(screen.getByText("750 at 250/file = 3 files")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Continue" }));
     expect(
       screen.getByText("750 at 250/file = 3 files"),
@@ -705,7 +701,7 @@ describe("a Batch Request detail page", () => {
     expect(
       within(card).getByText("requests-customer_batch_part_001.csv"),
     ).toBeVisible();
-    expect(within(card).getByText("300 rows")).toBeVisible();
+    expect(within(card).getAllByText("300 rows")).toHaveLength(2);
     expect(
       within(card).getByText("requests-customer_batch_part_003.csv"),
     ).toBeVisible();

@@ -150,6 +150,34 @@
   overflow-wrap: anywhere;
 }
 
+.request-artifact__parts {
+  display: grid;
+  gap: var(--jx-space-2);
+  margin: var(--jx-space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.request-artifact__part {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--jx-space-2) var(--jx-space-4);
+  min-width: 0;
+  padding: var(--jx-space-2) 0;
+  border-block-end: 1px solid var(--jx-color-border);
+}
+
+.request-artifact__part:last-child {
+  border-block-end: 0;
+  padding-block-end: 0;
+}
+
+.request-artifact__part .jx-mono {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 32rem) {
   .request-artifact__metadata {
     grid-template-columns: 1fr;

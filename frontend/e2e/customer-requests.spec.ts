@@ -34,10 +34,12 @@ async function openRequestDetail(
   return state;
 }
 
-/** Quantity → scope → review, with nothing typed that is not needed. */
+/** Quantity → scope → one-file default → review, with nothing typed that is not needed. */
 async function completeGuidedFlow(page: Page, quantity = "750") {
   await page.getByRole("spinbutton", { name: /How many leads/ }).fill(quantity);
   await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("radio", { name: "One file" })).toBeChecked();
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(
     page.getByRole("heading", { name: "Review your request" }),
@@ -50,7 +52,7 @@ function milestoneNodes(page: Page, name: RegExp): Locator {
 }
 
 test.describe("Guided Batch Requests", () => {
-  test("completes a valid request through three stages in well under a minute", async ({
+  test("completes a valid request through four stages in well under a minute", async ({
     page,
   }) => {
     const state = await openRequests(page, {
@@ -70,12 +72,43 @@ test.describe("Guided Batch Requests", () => {
       lead_count: 750,
       state_mode: "all_saved",
     });
+    expect(state.submissions[0]).not.toHaveProperty("rows_per_file");
     await expect(
       page.getByRole("link", { name: "View this Batch Request" }),
     ).toHaveAttribute(
       "href",
       "/app/requests?request=33333333-3333-4333-8333-333333333333",
     );
+  });
+
+  test("splits by rows per file with a live preview and freezes the choice", async ({
+    page,
+  }) => {
+    const state = await openRequests(page, {
+      workspace: EMPTY_BATCH_REQUEST_WORKSPACE,
+    });
+
+    await page.getByRole("spinbutton", { name: /How many leads/ }).fill("50000");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("radio", { name: /Split by rows per file/ }).check();
+    await page.getByRole("spinbutton", { name: /Rows per file/ }).fill("10000");
+    await expect(
+      page.getByText("50,000 at 10,000/file = 5 files"),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(page.getByText("50,000 at 10,000/file = 5 files")).toBeVisible();
+    await page.getByRole("button", { name: "Submit request" }).click();
+
+    await expect(
+      page.getByRole("heading", { name: "Request submitted" }),
+    ).toBeVisible();
+    expect(state.submissions).toHaveLength(1);
+    expect(state.submissions[0]).toMatchObject({
+      lead_count: 50_000,
+      rows_per_file: 10_000,
+      state_mode: "all_saved",
+    });
   });
 
   test("keeps invalid and unlicensed requests out of the review stage", async ({
@@ -119,6 +152,7 @@ test.describe("Guided Batch Requests", () => {
     });
 
     await page.getByRole("spinbutton", { name: /How many leads/ }).fill("750");
+    await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByRole("button", { name: "Submit request" }).dblclick();
@@ -317,14 +351,22 @@ test.describe("Batch Request detail deep links", () => {
     });
 
     const card = page.getByRole("region", { name: "Batch Artifact" });
-    await expect(card.getByText("requests-customer_batch.csv")).toBeVisible();
+    await expect(card.getByText("requests-customer_batch.zip")).toBeVisible();
     await expect(card.getByText("750")).toBeVisible();
+    await expect(
+      card.getByText("requests-customer_batch_part_001.csv"),
+    ).toBeVisible();
+    await expect(card.getByText("300 rows").first()).toBeVisible();
+    await expect(
+      card.getByText("requests-customer_batch_part_003.csv"),
+    ).toBeVisible();
+    await expect(card.getByText("150 rows")).toBeVisible();
     await expect(card.getByText("Expires in 26 days")).toBeVisible();
 
     const downloadPromise = page.waitForEvent("download");
-    await card.getByRole("link", { name: "Download CSV" }).click();
+    await card.getByRole("link", { name: "Download zip" }).click();
     const download = await downloadPromise;
-    expect(download.suggestedFilename()).toBe("requests-customer_batch.csv");
+    expect(download.suggestedFilename()).toBe("requests-customer_batch.zip");
     expect(state.artifactDownloads).toEqual([DELIVERED_REQUEST.id]);
   });
 
