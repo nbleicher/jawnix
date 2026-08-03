@@ -119,9 +119,13 @@ def customer_dependency_counts(db: Session, customer_id: int) -> dict[str, int]:
         "requests": select(func.count(LeadRequest.id)).where(
             LeadRequest.agent_id == customer_id
         ),
-        "distributions": select(func.count(DistributionEvent.id)).where(
-            DistributionEvent.agent_id == customer_id
-        ),
+        # count() rather than count(id): the id forces a heap fetch per row,
+        # while count(*) rides the (agent_id, lead_id) index alone — the
+        # difference is seconds for a Customer with hundreds of thousands of
+        # Distribution Events.
+        "distributions": select(func.count())
+        .select_from(DistributionEvent)
+        .where(DistributionEvent.agent_id == customer_id),
         "outcomes": select(func.count(LeadOutcome.id)).where(
             LeadOutcome.customer_id == customer_id
         ),
