@@ -1,9 +1,14 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { api } from "../auth/adminMFA";
 
 import type { CustomerDetailsData } from "./AdminCustomerDetails";
 import { AdminCustomerDetailsRoute } from "./AdminCustomerDetails";
+
+vi.mock("../auth/adminMFA", () => ({ api: vi.fn() }));
 
 const ACCOUNT = {
   auth_user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -86,6 +91,11 @@ function renderDetails(data: CustomerDetailsData) {
 }
 
 describe("administrator Customer details", () => {
+  beforeEach(() => {
+    vi.mocked(api).mockReset();
+    vi.mocked(api).mockResolvedValue({});
+  });
+
   it("separates the durable Customer from its permanent history", () => {
     renderDetails(details());
 
@@ -114,6 +124,12 @@ describe("administrator Customer details", () => {
     ).toBeVisible();
     // The history counts belong to the Customer, not to the identity block.
     expect(within(identity).queryByText("240")).not.toBeInTheDocument();
+    expect(
+      within(identity).getByRole("button", { name: "Rename Customer" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Send password reset" }),
+    ).toBeVisible();
   });
 
   it("keeps the current User Account active while a replacement is pending", () => {
@@ -157,6 +173,10 @@ describe("administrator Customer details", () => {
     expect(
       screen.queryByRole("button", { name: "Replace User Account" }),
     ).not.toBeInTheDocument();
+    // Nor act on an account that is about to be replaced.
+    expect(
+      screen.queryByRole("button", { name: "Send password reset" }),
+    ).not.toBeInTheDocument();
   });
 
   it("offers an invitation, not a password, when there is no User Account", () => {
@@ -173,6 +193,9 @@ describe("administrator Customer details", () => {
       within(access).getByRole("button", { name: "Invite User Account" }),
     ).toBeVisible();
     expect(document.querySelector('input[type="password"]')).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Send password reset" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows that identity and history survived every replacement", () => {
@@ -246,5 +269,28 @@ describe("administrator Customer details", () => {
     renderDetails(details());
 
     expect(document.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it("keeps lifecycle behavior after extracting the shared action", async () => {
+    const user = userEvent.setup();
+    renderDetails(details());
+
+    await user.click(screen.getByRole("button", { name: "Deactivate Customer" }));
+    const dialog = screen.getByRole("dialog", { name: "Deactivate Customer" });
+    await user.type(within(dialog).getByLabelText("Reason (required)"), "Customer requested closure");
+    await user.click(within(dialog).getByRole("button", { name: "Deactivate" }));
+
+    expect(vi.mocked(api)).toHaveBeenCalledWith(
+      "/api/admin/customers/7",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          name: "Harbor Insurance",
+          agency_id: 4,
+          active: false,
+          reason: "Customer requested closure",
+        }),
+      }),
+    );
   });
 });

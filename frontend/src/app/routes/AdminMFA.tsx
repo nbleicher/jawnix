@@ -1,5 +1,11 @@
 import { useMemo, useState } from "react";
-import { Link, useLoaderData, useNavigate, useRevalidator } from "react-router";
+import {
+  Link,
+  useLoaderData,
+  useNavigate,
+  useRevalidator,
+  useSearchParams,
+} from "react-router";
 
 import {
   api,
@@ -24,6 +30,7 @@ import {
   Stack,
 } from "../../design-system/primitives/layout";
 import { Text } from "../../design-system/primitives/typography";
+import { defaultFactorId, FactorChooser } from "../auth/factorChoice";
 
 const PENDING_ENROLLMENT_KEY = "jawnix_pending_mfa_enrollment";
 
@@ -286,7 +293,11 @@ export function AdminMFAChallengeRoute() {
   const factors = status.factors.filter(
     (factor) => factor.status === "verified" && factor.type === "totp",
   );
-  const [factorId, setFactorId] = useState(factors[0]?.id ?? "");
+  const [searchParams] = useSearchParams();
+  const [factorId, setFactorId] = useState(() => defaultFactorId(factors));
+  const [expanded, setExpanded] = useState(
+    () => searchParams.get("choose") === "1",
+  );
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -338,33 +349,13 @@ export function AdminMFAChallengeRoute() {
                   : "the stated time"}.
               </p>
             ) : null}
-            <fieldset className="jx-fieldset">
-              <legend className="jx-fieldset__legend">Authenticator to use</legend>
-              <Stack gap={3}>
-                {factors.map((factor) => (
-                  <label className="jx-mfa-factor-choice" key={factor.id}>
-                    <input
-                      type="radio"
-                      name="factor"
-                      value={factor.id}
-                      checked={factorId === factor.id}
-                      onChange={() => setFactorId(factor.id)}
-                    />
-                    <span>
-                      <Text as="span" weight="semibold">
-                        {factor.name}
-                      </Text>
-                      <Text size="sm" tone="muted">
-                        Last used{" "}
-                        {factor.lastUsedAt
-                          ? new Date(factor.lastUsedAt).toLocaleString()
-                          : "never"}
-                      </Text>
-                    </span>
-                  </label>
-                ))}
-              </Stack>
-            </fieldset>
+            <FactorChooser
+              factors={factors}
+              factorId={factorId}
+              onSelect={setFactorId}
+              expanded={expanded}
+              onExpand={() => setExpanded(true)}
+            />
             <AuthenticatorCode
               value={code}
               onChange={setCode}
@@ -380,7 +371,6 @@ export function AdminMFAChallengeRoute() {
               >
                 Verify and continue
               </Button>
-              <Link to="/admin/mfa/recover">I cannot use my primary authenticator</Link>
             </Cluster>
           </Stack>
         </form>
@@ -407,7 +397,9 @@ export function AdminMFARecoveryRoute() {
               backup. After sign-in, Security lets you replace the lost factor.
             </Text>
             <div>
-              <Link to="/admin/mfa/challenge">Choose the backup authenticator</Link>
+              <Link to="/admin/mfa/challenge?choose=1">
+                Choose the backup authenticator
+              </Link>
             </div>
           </Stack>
         </Card>

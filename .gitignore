@@ -11,6 +11,7 @@ __pycache__/
 .coverage
 *.egg-info/
 supabase/.temp/
+.DS_Store
 
 # Frontend. The lockfile is committed; build output and caches are not.
 node_modules/

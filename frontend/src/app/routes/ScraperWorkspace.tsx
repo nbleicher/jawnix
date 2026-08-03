@@ -17,7 +17,6 @@ import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { ErrorState } from "../../design-system/primitives/feedback";
 import {
   Field,
-  Fieldset,
   Input,
 } from "../../design-system/primitives/form";
 import {
@@ -30,11 +29,13 @@ import {
 import { TerminalWorkspace } from "../../design-system/primitives/terminal";
 import { Text } from "../../design-system/primitives/typography";
 import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
+import { defaultFactorId, FactorChooser } from "../auth/factorChoice";
 
 interface ScraperFactor {
   id: string;
   name: string;
   type: string;
+  lastUsedAt?: string | null;
 }
 
 interface ScraperEntryData {
@@ -113,7 +114,10 @@ export async function scraperWorkspaceLoader(): Promise<ScraperWorkspaceData> {
 export function ScraperStepUpRoute() {
   const data = useLoaderData<ScraperEntryData>();
   const navigate = useNavigate();
-  const [factorId, setFactorId] = useState(data.factors[0]?.id ?? "");
+  const [factorId, setFactorId] = useState(() =>
+    defaultFactorId(data.factors),
+  );
+  const [expanded, setExpanded] = useState(false);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -163,27 +167,17 @@ export function ScraperStepUpRoute() {
               A successful challenge opens a privileged session. It closes after
               15 minutes without Scraper activity.
             </Text>
-            <Fieldset
-              legend="Authenticator to use"
-              description="This challenge is independent of your current administrator assurance."
-            >
-              <Stack gap={2}>
-                {data.factors.map((factor) => (
-                  <label className="jx-mfa-factor-choice" key={factor.id}>
-                    <input
-                      type="radio"
-                      name="scraper-factor"
-                      value={factor.id}
-                      checked={factorId === factor.id}
-                      onChange={() => setFactorId(factor.id)}
-                    />
-                    <Text as="span" weight="semibold">
-                      {factor.name}
-                    </Text>
-                  </label>
-                ))}
-              </Stack>
-            </Fieldset>
+            <Text size="sm" tone="muted">
+              This challenge is independent of your current administrator
+              assurance.
+            </Text>
+            <FactorChooser
+              factors={data.factors}
+              factorId={factorId}
+              onSelect={setFactorId}
+              expanded={expanded}
+              onExpand={() => setExpanded(true)}
+            />
             <Field
               id="scraper-authenticator-code"
               label="Six-digit authenticator code"

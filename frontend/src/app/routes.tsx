@@ -65,10 +65,6 @@ import {
   signInLoader,
 } from "./auth/customerAuth";
 import {
-  AcceptInvitationRoute,
-  SignInRoute,
-} from "./routes/CustomerAuth";
-import {
   ScraperStepUpRoute,
   scraperEntryLoader,
 } from "./routes/ScraperWorkspace";
@@ -131,12 +127,20 @@ export const router = createBrowserRouter(
         {
           path: "sign-in",
           loader: signInLoader,
-          element: <SignInRoute />,
+          lazy: async () => {
+            const { SignInRoute } = await import("./routes/CustomerAuth");
+            return { Component: SignInRoute };
+          },
         },
         {
           path: "accept-invitation",
           loader: invitationLoader,
-          element: <AcceptInvitationRoute />,
+          lazy: async () => {
+            const { AcceptInvitationRoute } = await import(
+              "./routes/CustomerAuth"
+            );
+            return { Component: AcceptInvitationRoute };
+          },
         },
 
         // Customer portal — Overview, Requests, Feedback, Account.
@@ -339,6 +343,19 @@ export const router = createBrowserRouter(
         // is the fixture the accessibility and visual-regression gates in #70
         // run against.
         { path: "design-system", element: <DesignSystemRoute /> },
+        ...(import.meta.env.DEV
+          ? [
+              {
+                path: "prototype/typeface",
+                lazy: async () => {
+                  const { TypefacePrototypeRoute } = await import(
+                    "./routes/TypefacePrototype"
+                  );
+                  return { Component: TypefacePrototypeRoute };
+                },
+              },
+            ]
+          : []),
       ],
     },
   ],

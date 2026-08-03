@@ -92,6 +92,17 @@
   margin-top: 0.1rem;
 }
 
+.jx-mfa-link-button {
+  appearance: none;
+  padding: 0;
+  color: var(--jx-color-accent);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .jx-mfa-actions > * {
   flex: 1 1 10rem;
 }

@@ -17,6 +17,12 @@ export default defineConfig({
         entryFileNames: "assets/[name]-[hash].js",
         chunkFileNames: "assets/[name]-[hash].js",
         assetFileNames: "assets/[name]-[hash][extname]",
+        // Opaline is an authentication-only identity layer. Keeping Three in
+        // an explicit chunk makes the route boundary auditable and prevents a
+        // future import from quietly adding ~600 kB to the working app.
+        manualChunks(id) {
+          if (id.includes("/node_modules/three/")) return "opaline-three";
+        },
       },
     },
   },

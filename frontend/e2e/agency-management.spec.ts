@@ -60,6 +60,12 @@ test("Agency directory and details stay complete on mobile", async ({
   await expect(
     page.getByRole("article", { name: "Gulf Coast Agency" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /Harbor Insurance/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("article", { name: "Independent Customers" }),
+  ).toBeVisible();
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
@@ -74,6 +80,50 @@ test("Agency directory and details stay complete on mobile", async ({
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(390);
+});
+
+test("opens and manages the floating Customer card", async ({ page }) => {
+  const state = await mockAdminCustomers(page);
+  await page.goto("./admin/agencies");
+
+  await page.getByRole("link", { name: /Harbor Insurance/ }).click();
+  await expect(page).toHaveURL(/\/admin\/agencies\?customer=7$/);
+  const customer = page.getByRole("dialog", { name: "Harbor Insurance" });
+  await expect(customer).toBeVisible();
+  await expect(
+    customer.getByRole("link", { name: "Open full record" }),
+  ).toBeVisible();
+
+  await customer.getByRole("button", { name: "Send password reset" }).click();
+  const reset = page.getByRole("dialog", { name: "Send password reset" });
+  await reset.getByRole("button", { name: "Send password reset" }).click();
+  await expect(reset).toBeHidden();
+  expect(state.passwordResetRequests).toHaveLength(1);
+
+  await customer.getByRole("button", { name: "Rename Customer" }).click();
+  const rename = page.getByRole("dialog", { name: "Rename Customer" });
+  await rename.getByLabel("Customer name").fill("Harbor Group");
+  await rename.getByLabel("Reason").fill("Legal name changed");
+  await rename.getByRole("button", { name: "Rename Customer" }).click();
+  await expect(rename).toBeHidden();
+  expect(state.customerPatchRequests).toContainEqual({
+    name: "Harbor Group",
+    agency_id: 4,
+    active: true,
+    reason: "Legal name changed",
+  });
+
+  await customer.getByRole("button", { name: "Close dialog" }).click();
+  await expect(page).toHaveURL(/\/admin\/agencies$/);
+});
+
+test("opens a floating Customer card from a deep link", async ({ page }) => {
+  await mockAdminCustomers(page);
+  await page.goto("./admin/agencies?customer=7");
+
+  await expect(
+    page.getByRole("dialog", { name: "Harbor Insurance" }),
+  ).toBeVisible();
 });
 
 test("Agency impact and members use the desktop workspace", async ({ page }) => {

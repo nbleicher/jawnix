@@ -23,6 +23,24 @@
   list-style: none;
 }
 
+.admin-agencies__member {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--jx-space-3);
+  min-height: var(--jx-touch-target);
+  padding: var(--jx-space-3);
+  color: var(--jx-color-text-strong);
+  background: var(--jx-color-surface-recessed);
+  border: 1px solid var(--jx-color-border);
+  border-radius: var(--jx-radius-md);
+  text-decoration: none;
+}
+
+.admin-agencies__member:hover {
+  border-color: var(--jx-color-border-strong);
+}
+
 .admin-agencies__dependencies {
   padding-inline-start: var(--jx-space-4);
   list-style: disc;
