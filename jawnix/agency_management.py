@@ -8,6 +8,7 @@ Distribution Events continue to point at their original snapshots.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -154,21 +155,57 @@ def _history_summary(
     }
 
 
+# The distributed-Lead count behind an Agency card only changes on batch
+# delivery or a history merge, but computing it walks millions of index
+# entries. Counts are cached only above production scale so tests and small
+# deployments always see live values; a merge changes the subject sets and
+# therefore the cache key, so entries never survive the merges they describe.
+_HISTORY_LEAD_COUNT_CACHE_THRESHOLD = 100_000
+_HISTORY_LEAD_COUNT_CACHE_TTL_S = 3600.0
+_history_lead_count_cache: dict[
+    tuple[frozenset, frozenset], tuple[float, int]
+] = {}
+
+
 def _history_lead_count(db: Session, subjects: HistorySubjects) -> int:
     # Counted in SQL: materializing the ids (as assignment_preview must for
     # its set algebra) ships millions of rows per Agency and took ~30s per
-    # directory load in production.
-    clauses = _history_lead_clauses(subjects)
-    if not clauses:
-        return 0
-    return int(
-        db.scalar(
-            select(
-                func.count(func.distinct(DistributionEvent.lead_id))
-            ).where(or_(*clauses))
+    # directory load in production. The UNION of the two single-column
+    # predicates lets both branches run as index-only scans.
+    key = (frozenset(subjects.customer_ids), frozenset(subjects.agency_ids))
+    cached = _history_lead_count_cache.get(key)
+    if cached is not None:
+        cached_at, count = cached
+        if time.monotonic() - cached_at < _HISTORY_LEAD_COUNT_CACHE_TTL_S:
+            return count
+        del _history_lead_count_cache[key]
+
+    branches = []
+    if subjects.agency_ids:
+        branches.append(
+            select(DistributionEvent.lead_id).where(
+                DistributionEvent.agency_id.in_(subjects.agency_ids)
+            )
         )
-        or 0
+    if subjects.customer_ids:
+        branches.append(
+            select(DistributionEvent.lead_id).where(
+                DistributionEvent.agent_id.in_(subjects.customer_ids)
+            )
+        )
+    if not branches:
+        return 0
+    leads = (
+        branches[0].union(*branches[1:])
+        if len(branches) > 1
+        else branches[0].distinct()
     )
+    count = int(
+        db.scalar(select(func.count()).select_from(leads.subquery())) or 0
+    )
+    if count >= _HISTORY_LEAD_COUNT_CACHE_THRESHOLD:
+        _history_lead_count_cache[key] = (time.monotonic(), count)
+    return count
 
 
 def _history_lead_clauses(subjects: HistorySubjects) -> list:

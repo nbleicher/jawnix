@@ -615,6 +615,9 @@ class DistributionEvent(Base):
     __table_args__ = (
         UniqueConstraint("request_id", "lead_id", name="uq_request_lead"),
         UniqueConstraint("lead_id", "agent_id", "delivered_at", "source", name="uq_legacy_distribution_event"),
+        # Covering indexes so shared-history Lead counts stay index-only.
+        Index("ix_distribution_events_agency_lead", "agency_id", "lead_id"),
+        Index("ix_distribution_events_agent_lead", "agent_id", "lead_id"),
     )
 
     @property
