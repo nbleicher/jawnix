@@ -1661,6 +1661,26 @@ class NightlyReview(Base):
     )
 
 
+class SharedHistoryLeadCount(Base):
+    """Persisted distributed-Lead count for one permanent-history subject set.
+
+    Recomputing the count walks millions of distribution_events rows, so the
+    Agency read models serve this row (refreshing it in the background once
+    stale) instead of counting per request. The key encodes the subject
+    Customer and Agency ids, so a history merge produces a new key and never
+    reads a stale entry.
+    """
+
+    __tablename__ = "shared_history_lead_counts"
+    subject_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    lead_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
 class AuditEntry(Base):
     __tablename__ = "audit_entries"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

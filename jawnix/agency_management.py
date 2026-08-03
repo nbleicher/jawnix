@@ -8,7 +8,7 @@ Distribution Events continue to point at their original snapshots.
 
 from __future__ import annotations
 
-import time
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -25,6 +25,8 @@ from .models import (
     DistributionEvent,
     EligibilityHold,
     Lead,
+    SharedHistoryLeadCount,
+    utcnow,
 )
 
 
@@ -157,29 +159,28 @@ def _history_summary(
 
 # The distributed-Lead count behind an Agency card only changes on batch
 # delivery or a history merge, but computing it walks millions of index
-# entries. Counts are cached only above production scale so tests and small
-# deployments always see live values; a merge changes the subject sets and
-# therefore the cache key, so entries never survive the merges they describe.
+# entries (~30s cold in production). Counts at production scale are served
+# from a persisted row and refreshed in the background once stale, so no
+# request ever waits on the recount; below the threshold the count is always
+# computed live, which keeps tests and small deployments exact. A merge
+# changes the subject sets and therefore the key, so a merged Agency never
+# reads the pre-merge entry.
 _HISTORY_LEAD_COUNT_CACHE_THRESHOLD = 100_000
-_HISTORY_LEAD_COUNT_CACHE_TTL_S = 3600.0
-_history_lead_count_cache: dict[
-    tuple[frozenset, frozenset], tuple[float, int]
-] = {}
+_HISTORY_LEAD_COUNT_TTL = timedelta(hours=1)
+_history_lead_refreshing: set[str] = set()
+_history_lead_refresh_lock = threading.Lock()
 
 
-def _history_lead_count(db: Session, subjects: HistorySubjects) -> int:
+def _history_subject_key(subjects: HistorySubjects) -> str:
+    customers = ",".join(str(id) for id in sorted(subjects.customer_ids))
+    agencies = ",".join(str(id) for id in sorted(subjects.agency_ids))
+    return f"customers:{customers}|agencies:{agencies}"
+
+
+def _count_history_leads(db: Session, subjects: HistorySubjects) -> int:
     # Counted in SQL: materializing the ids (as assignment_preview must for
-    # its set algebra) ships millions of rows per Agency and took ~30s per
-    # directory load in production. The UNION of the two single-column
-    # predicates lets both branches run as index-only scans.
-    key = (frozenset(subjects.customer_ids), frozenset(subjects.agency_ids))
-    cached = _history_lead_count_cache.get(key)
-    if cached is not None:
-        cached_at, count = cached
-        if time.monotonic() - cached_at < _HISTORY_LEAD_COUNT_CACHE_TTL_S:
-            return count
-        del _history_lead_count_cache[key]
-
+    # its set algebra) ships millions of rows per request. The UNION of the
+    # two single-column predicates runs both branches as index-only scans.
     branches = []
     if subjects.agency_ids:
         branches.append(
@@ -200,11 +201,68 @@ def _history_lead_count(db: Session, subjects: HistorySubjects) -> int:
         if len(branches) > 1
         else branches[0].distinct()
     )
-    count = int(
+    return int(
         db.scalar(select(func.count()).select_from(leads.subquery())) or 0
     )
+
+
+def _store_history_lead_count(
+    db: Session, *, key: str, count: int
+) -> None:
+    db.merge(
+        SharedHistoryLeadCount(
+            subject_key=key,
+            lead_count=count,
+            computed_at=utcnow(),
+        )
+    )
+
+
+def _refresh_history_lead_count(key: str, subjects: HistorySubjects) -> None:
+    from .database import SessionLocal
+
+    with _history_lead_refresh_lock:
+        if key in _history_lead_refreshing:
+            return
+        _history_lead_refreshing.add(key)
+
+    def refresh() -> None:
+        try:
+            with SessionLocal() as session:
+                count = _count_history_leads(session, subjects)
+                _store_history_lead_count(session, key=key, count=count)
+                session.commit()
+        except Exception:  # pragma: no cover - best-effort refresh
+            pass
+        finally:
+            with _history_lead_refresh_lock:
+                _history_lead_refreshing.discard(key)
+
+    threading.Thread(
+        target=refresh,
+        daemon=True,
+        name=f"history-lead-count-refresh:{key}",
+    ).start()
+
+
+def _history_lead_count(db: Session, subjects: HistorySubjects) -> int:
+    key = _history_subject_key(subjects)
+    row = db.get(SharedHistoryLeadCount, key)
+    if (
+        row is not None
+        and row.lead_count >= _HISTORY_LEAD_COUNT_CACHE_THRESHOLD
+    ):
+        computed_at = row.computed_at
+        if computed_at.tzinfo is None:
+            computed_at = computed_at.replace(tzinfo=timezone.utc)
+        if utcnow() - computed_at >= _HISTORY_LEAD_COUNT_TTL:
+            _refresh_history_lead_count(key, subjects)
+        return row.lead_count
+
+    count = _count_history_leads(db, subjects)
     if count >= _HISTORY_LEAD_COUNT_CACHE_THRESHOLD:
-        _history_lead_count_cache[key] = (time.monotonic(), count)
+        _store_history_lead_count(db, key=key, count=count)
+        db.commit()
     return count
 
 
