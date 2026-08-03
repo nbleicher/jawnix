@@ -133,6 +133,10 @@ export function CustomerBillingSection({
   }
 
   const rateValue = Number(leadRate);
+  const rateDescription =
+    Number.isInteger(rateValue) && rateValue > 0
+      ? `Integer from 100 to 2000. ${rateValue} = $${(rateValue / 100_000).toFixed(3)} per lead.`
+      : "Integer from 100 to 2000. Example: 1000 = $0.010 per lead.";
   const configureReady =
     configureReason.trim().length > 0 &&
     (!enabled ||
@@ -243,7 +247,7 @@ export function CustomerBillingSection({
           <Field
             label="Lead Rate (¢ per 1,000 leads)"
             required={enabled}
-            description="Integer from 100 to 2000. Example: 1000 = $0.010 per lead."
+            description={rateDescription}
           >
             <Input
               type="number"
