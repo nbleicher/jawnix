@@ -64,9 +64,16 @@ export interface RequestAction {
   href: string;
 }
 
+/** One CSV entry inside the delivered Batch Artifact zip. */
+export interface BatchArtifactPart {
+  filename: string;
+  row_count: number;
+}
+
 export interface BatchArtifact {
   filename: string;
   row_count: number;
+  parts: BatchArtifactPart[];
   expires_at: string | null;
   available: boolean;
   download_href: string | null;
@@ -75,6 +82,8 @@ export interface BatchArtifact {
 export interface BatchRequest {
   id: string;
   lead_count: number;
+  /** Frozen at submission; sizes the CSV parts inside the zip. */
+  rows_per_file: number;
   states: string[];
   submitted_at: string;
   delivered_at: string | null;
@@ -113,6 +122,8 @@ export interface BatchRequestReceipt {
 export interface BatchRequestSubmission {
   idempotency_key: string;
   lead_count: number;
+  /** Omit for one file; the backend freezes `lead_count` as the part size. */
+  rows_per_file?: number | null;
   state_mode: "all_saved" | "selected";
   states: string[];
 }

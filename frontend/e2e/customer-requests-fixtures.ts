@@ -12,6 +12,7 @@ const WAITING_DESCRIPTION =
 export const WAITING_REQUEST = {
   id: "11111111-1111-4111-8111-111111111111",
   lead_count: 750,
+  rows_per_file: 750,
   states: ["FL", "TX"],
   submitted_at: SUBMITTED,
   delivered_at: null,
@@ -70,6 +71,7 @@ export const WAITING_REQUEST = {
 export const REJECTED_REQUEST = {
   id: "22222222-2222-4222-8222-222222222222",
   lead_count: 300,
+  rows_per_file: 300,
   states: ["TX"],
   submitted_at: "2026-07-22T12:00:00Z",
   delivered_at: null,
@@ -161,9 +163,24 @@ export const DELIVERED_REQUEST = {
   },
   receipt_href:
     "/app/requests?request=44444444-4444-4444-8444-444444444444",
+  rows_per_file: 300,
   artifact: {
-    filename: "requests-customer_batch.csv",
+    filename: "requests-customer_batch.zip",
     row_count: 750,
+    parts: [
+      {
+        filename: "requests-customer_batch_part_001.csv",
+        row_count: 300,
+      },
+      {
+        filename: "requests-customer_batch_part_002.csv",
+        row_count: 300,
+      },
+      {
+        filename: "requests-customer_batch_part_003.csv",
+        row_count: 150,
+      },
+    ],
     expires_at: "2026-08-26T16:00:00Z",
     available: true,
     download_href:
@@ -270,12 +287,13 @@ export async function mockBatchRequests(
     state.artifactDownloads.push(id);
     return route.fulfill({
       status: 200,
-      contentType: "text/csv",
+      contentType: "application/zip",
       headers: {
         "Content-Disposition":
-          'attachment; filename="requests-customer_batch.csv"',
+          'attachment; filename="requests-customer_batch.zip"',
       },
-      body: "phone,title\n2145550100,Portal Lead\n",
+      // Minimal zip local-file header so Playwright records a real download.
+      body: Buffer.from("PK\x05\x06" + "\x00".repeat(18), "binary"),
     });
   });
 
@@ -340,10 +358,14 @@ export async function mockBatchRequests(
     if (existing) {
       return json(route, { created: false, request: existing }, 200);
     }
+    const leadCount = Number(body.lead_count);
+    const rowsPerFile =
+      body.rows_per_file == null ? leadCount : Number(body.rows_per_file);
     const created = {
       ...WAITING_REQUEST,
       id: "33333333-3333-4333-8333-333333333333",
-      lead_count: Number(body.lead_count),
+      lead_count: leadCount,
+      rows_per_file: rowsPerFile,
       states:
         body.state_mode === "all_saved"
           ? ["FL", "TX"]
