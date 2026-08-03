@@ -80,6 +80,10 @@ def test_deploy_dry_runs_with_pinned_excludes_before_sync(tmp_path):
         assert "--delete" in call
         assert "--exclude=/.git" in call
         assert "--exclude=/.env" in call
+        assert "--exclude=/config.js" in call
+        assert "--exclude=/.venv/" in call
+        assert "--exclude=/jawnix_vps.egg-info/" in call
+        assert "--exclude=/jawnix-dev.db" in call
         assert "--exclude=/batches/" in call
         assert "--exclude=/backups/" in call
         assert "--exclude=/invoices/" in call

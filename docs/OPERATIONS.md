@@ -87,13 +87,25 @@ itemized `rsync --dry-run` first and requires the exact confirmation shown in
 the prompt before repeating the same sync without `--dry-run`.
 
 The sync uses `--delete`, but its pinned excludes protect the production
-`.env`, `batches/`, `backups/`, `invoices/`, `monitoring/`,
+`.env`, `config.js`, `batches/`, `backups/`, `invoices/`, `monitoring/`,
 `restic-repository/`, `migration/`, and `user-account-migration/`. These paths
 contain host-owned configuration, datasets, generated invoices, monitoring
 state, backup material, or migration evidence and must never be removed or
 replaced by an application deploy. The backup, monitoring, and migration
 directories are normally siblings of `/srv/jawnix/app`; keeping them excluded
 also protects legacy or accidentally nested copies.
+
+`config.js` is gitignored and therefore absent from the deploy source, so
+`--delete` would remove the host's copy. Caddy has rendered `/config.js` from
+the environment since #103 and the on-disk file is no longer read, but it
+holds real Supabase credentials and is host-owned, so the deploy leaves it
+alone rather than destroying it as a side effect.
+
+The excludes also cover build artifacts that exist only on the host —
+`.venv/`, `jawnix_vps.egg-info/`, and a stray `jawnix-dev.db`. Nothing
+references them (the application runs from the Compose images), and syncing
+them adds thousands of lines of irrelevant churn to the dry-run diff that an
+operator must review, which is how a genuinely dangerous deletion gets missed.
 
 After the source sync, connect to the host, confirm that `.env` still sets
 `COMPOSE_FILE=docker-compose.yml:docker-compose.edge.yml`, and use the normal
