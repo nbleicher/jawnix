@@ -27,6 +27,14 @@ import {
   VisuallyHidden,
 } from "../../design-system/primitives/typography";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
+import { useBilledWallet } from "../billing/CreditWalletContext";
+import {
+  batchCostCents,
+  formatBalanceRefusal,
+  formatCents,
+  formatLeadRate,
+} from "../billing/money";
+import type { CreditWallet } from "../billing/wallet";
 
 import { MilestoneGraph, formatMilestoneTime } from "./MilestoneGraph";
 import {
@@ -193,9 +201,11 @@ function Receipt({
 
 function RequestFlow({
   limits,
+  billing,
   onSubmitted,
 }: {
   limits: RequestLimits;
+  billing: CreditWallet | null;
   onSubmitted: () => void;
 }) {
   const [stage, setStage] = useState(0);
@@ -219,17 +229,28 @@ function RequestFlow({
   // Selected scope can only ever contain Licensed States, so an unlicensed
   // request is not something the Customer can express and then be told off for.
   const states = wholeScope ? limits.licensed_states : chosenStates;
-  const leadCount = Number(quantity.trim());
+  const leadCount = /^\d+$/.test(quantity.trim())
+    ? Number(quantity.trim())
+    : null;
   const splitRows = Number(rowsPerFile.trim());
   const previewRows = oneFile
-    ? leadCount
+    ? (leadCount ?? 0)
     : Number.isFinite(splitRows) && splitRows >= 1
       ? splitRows
       : 0;
   const filePreview =
-    Number.isFinite(leadCount) && leadCount >= 1 && previewRows >= 1
+    leadCount != null && leadCount >= 1 && previewRows >= 1
       ? formatFileCountPreview(leadCount, previewRows)
       : null;
+
+  const holdCents =
+    billing?.leadRateCentsPerThousand != null && leadCount != null
+      ? batchCostCents(leadCount, billing.leadRateCentsPerThousand)
+      : null;
+  const insufficient =
+    holdCents != null
+    && billing != null
+    && holdCents > billing.availableBalanceCents;
 
   useEffect(() => {
     if (receipt) return;
@@ -330,11 +351,11 @@ function RequestFlow({
       );
       onSubmitted();
     } catch (caught) {
-      setFailure(
+      const message =
         caught instanceof Error
-          ? caught.message
-          : "We could not submit this request. Please try again.",
-      );
+          ? formatBalanceRefusal(caught.message)
+          : "We could not submit this request. Please try again.";
+      setFailure(message);
     } finally {
       setBusy(false);
     }
@@ -354,7 +375,10 @@ function RequestFlow({
       if (validFiles()) setStage(3);
       return;
     }
-    void send();
+    if (stage === 3) {
+      if (insufficient) return;
+      void send();
+    }
   }
 
   function restart() {
@@ -577,11 +601,56 @@ function RequestFlow({
                           )}
                     </dd>
                   </div>
+                  {billing && holdCents != null && billing.leadRateCentsPerThousand != null ? (
+                    <>
+                      <div>
+                        <dt>
+                          <LabelText>Lead Rate</LabelText>
+                        </dt>
+                        <dd>
+                          {formatLeadRate(billing.leadRateCentsPerThousand)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>
+                          <LabelText>Cost</LabelText>
+                        </dt>
+                        <dd>
+                          {`${formatCount(Number(quantity.trim()))} × ${formatLeadRate(billing.leadRateCentsPerThousand)} = ${formatCents(holdCents)}`}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>
+                          <LabelText>Batch Hold</LabelText>
+                        </dt>
+                        <dd>
+                          {`${formatCents(holdCents)} reserved from your Credit Wallet on submit`}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>
+                          <LabelText>Available balance</LabelText>
+                        </dt>
+                        <dd>{formatCents(billing.availableBalanceCents)}</dd>
+                      </div>
+                    </>
+                  ) : null}
                 </dl>
-                <Text size="sm" tone="muted">
-                  Submitting sends this to Jawnix for review. You can cancel it
-                  while it is still waiting.
-                </Text>
+                {insufficient ? (
+                  <div className="request-flow__failure" role="alert">
+                    <Text tone="danger">
+                      {`The Credit Wallet does not have enough available balance for this Batch Hold. Required ${formatCents(holdCents!)}; available ${formatCents(billing!.availableBalanceCents)}. Buy credits before submitting.`}
+                    </Text>
+                  </div>
+                ) : (
+                  <Text size="sm" tone="muted">
+                    Submitting sends this to Jawnix for review. You can cancel it
+                    while it is still waiting.
+                    {billing
+                      ? " Submitting places a Batch Hold for the full cost against your Credit Wallet."
+                      : ""}
+                  </Text>
+                )}
               </Stack>
             ) : null}
 
@@ -594,6 +663,7 @@ function RequestFlow({
                 variant="primary"
                 busy={busy}
                 busyLabel="Submitting…"
+                disabled={stage === 3 && insufficient}
               >
                 {stage === 3 ? "Submit request" : "Continue"}
               </Button>
@@ -871,6 +941,7 @@ function RequestSummary({ request }: { request: BatchRequest }) {
 export function CustomerRequestsRoute() {
   const workspace = useLoaderData<BatchRequestWorkspace>();
   const revalidator = useRevalidator();
+  const billing = useBilledWallet();
   const [searchParams] = useSearchParams();
   const requestId = searchParams.get("request");
 
@@ -958,6 +1029,7 @@ export function CustomerRequestsRoute() {
         ) : (
           <RequestFlow
             limits={workspace.limits}
+            billing={billing}
             onSubmitted={() => void revalidator.revalidate()}
           />
         )}

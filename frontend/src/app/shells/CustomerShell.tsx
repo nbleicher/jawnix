@@ -9,6 +9,8 @@ import {
   Button,
 } from "../../design-system/primitives/Button";
 import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
+import { CreditWalletProvider } from "../billing/CreditWalletContext";
+import { CreditWalletWidget } from "../billing/CreditWalletWidget";
 
 /** Customer-facing navigation, matching the Customer's jobs rather than the
  *  backend's structure. */
@@ -36,24 +38,27 @@ export function CustomerShell() {
   }
 
   return (
-    <AppShell
-      audience="Customer"
-      destinations={DESTINATIONS}
-      headerActions={
-        <>
-          <ActionLink href="mailto:hai@jawnix.com" variant="ghost">
-            Support
-          </ActionLink>
-          <Button
-            variant="ghost"
-            busy={signingOut}
-            busyLabel="Signing out…"
-            onClick={handleSignOut}
-          >
-            Sign out
-          </Button>
-        </>
-      }
-    />
+    <CreditWalletProvider>
+      <AppShell
+        audience="Customer"
+        destinations={DESTINATIONS}
+        headerActions={
+          <>
+            <CreditWalletWidget />
+            <ActionLink href="mailto:hai@jawnix.com" variant="ghost">
+              Support
+            </ActionLink>
+            <Button
+              variant="ghost"
+              busy={signingOut}
+              busyLabel="Signing out…"
+              onClick={handleSignOut}
+            >
+              Sign out
+            </Button>
+          </>
+        }
+      />
+    </CreditWalletProvider>
   );
 }
