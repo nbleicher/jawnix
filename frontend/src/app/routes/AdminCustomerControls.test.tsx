@@ -98,6 +98,51 @@ describe("CustomerBillingSection", () => {
     expect(onChanged).toHaveBeenCalled();
   });
 
+  it("previews the per-lead price as the Lead Rate changes", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <CustomerBillingSection
+        billing={BILLING}
+        customerId={7}
+        onChanged={onChanged}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Configure billing" }));
+    const dialog = screen.getByRole("dialog", { name: "Configure billing" });
+    expect(
+      within(dialog).getByText(
+        "Integer from 100 to 2000. Example: 1000 = $0.010 per lead.",
+      ),
+    ).toBeVisible();
+
+    await user.click(within(dialog).getByLabelText("Billing enabled"));
+    const rate = within(dialog).getByLabelText(/Lead Rate/);
+    await user.type(rate, "1000");
+    expect(
+      within(dialog).getByText(
+        "Integer from 100 to 2000. 1000 = $0.010 per lead.",
+      ),
+    ).toBeVisible();
+
+    await user.clear(rate);
+    await user.type(rate, "5000");
+    expect(
+      within(dialog).getByText(
+        "Integer from 100 to 2000. 5000 = $0.050 per lead.",
+      ),
+    ).toBeVisible();
+
+    await user.clear(rate);
+    expect(
+      within(dialog).getByText(
+        "Integer from 100 to 2000. Example: 1000 = $0.010 per lead.",
+      ),
+    ).toBeVisible();
+  });
+
   it("posts a Credit Wallet adjustment with a required reason", async () => {
     const user = userEvent.setup();
     const onChanged = vi.fn().mockResolvedValue(undefined);
