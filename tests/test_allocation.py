@@ -355,3 +355,144 @@ def test_newer_request_needs_one_scope_bound_conflict_decision_to_bypass_older(
     session.refresh(conflict)
     assert conflict.status == "consumed"
     assert session.query(InventoryConflict).count() == 1
+
+
+def test_deactivated_recipient_history_releases_after_flat_hold(session, settings):
+    agency = Agency(slug="hold-agency", name="Hold Agency")
+    departed = Agent(slug="departed", name="Departed", agency=agency, active=False)
+    staying = Agent(slug="staying", name="Staying", agency=agency)
+    session.add_all([agency, departed, staying])
+    session.flush()
+    released = datetime.now(timezone.utc) - timedelta(days=4)
+    lead = Lead(phone="2145553001", title="Released", state="TX", last_distributed_at=released)
+    session.add(lead)
+    session.flush()
+    session.add(
+        DistributionEvent(
+            lead_id=lead.id,
+            agent_id=departed.id,
+            agency_id=agency.id,
+            delivered_at=released,
+            source="manifest",
+        )
+    )
+    request = make_request(session, staying, 1)
+
+    result = allocate_request(session, request.id, settings)
+    session.commit()
+
+    assert result.allocated == 1
+
+
+def test_deactivated_recipient_event_holds_lead_for_three_days(session, settings):
+    departed = Agent(slug="held-departed", name="Held Departed", active=False)
+    drawing = Agent(slug="held-drawing", name="Held Drawing")
+    session.add_all([departed, drawing])
+    session.flush()
+    recent = datetime.now(timezone.utc) - timedelta(days=2)
+    lead = Lead(phone="2145553002", title="Held", state="TX", last_distributed_at=recent)
+    session.add(lead)
+    session.flush()
+    session.add(
+        DistributionEvent(
+            lead_id=lead.id,
+            agent_id=departed.id,
+            delivered_at=recent,
+            source="manifest",
+        )
+    )
+    request = make_request(session, drawing, 1)
+
+    result = allocate_request(session, request.id, settings)
+    session.commit()
+
+    assert result.status == RequestStatus.waiting_inventory.value
+    assert result.allocated == 0
+
+
+def test_reactivation_rearms_permanent_agency_history(session, settings):
+    from jawnix.allocation import inventory_count
+
+    agency = Agency(slug="rearm-agency", name="Rearm Agency")
+    departed = Agent(slug="rearm-departed", name="Rearm Departed", agency=agency, active=False)
+    staying = Agent(slug="rearm-staying", name="Rearm Staying", agency=agency)
+    session.add_all([agency, departed, staying])
+    session.flush()
+    old = datetime.now(timezone.utc) - timedelta(days=90)
+    lead = Lead(phone="2145553003", title="Rearm", state="TX", last_distributed_at=old)
+    session.add(lead)
+    session.flush()
+    session.add(
+        DistributionEvent(
+            lead_id=lead.id,
+            agent_id=departed.id,
+            agency_id=agency.id,
+            delivered_at=old,
+            source="manifest",
+        )
+    )
+    request = make_request(session, staying, 1)
+
+    assert inventory_count(session, request, settings) == 1
+    departed.active = True
+    session.flush()
+    assert inventory_count(session, request, settings) == 0
+
+
+def test_unknown_recipient_event_holds_three_days_only(session, settings):
+    from jawnix.allocation import inventory_count
+
+    drawing = Agent(slug="unknown-drawing", name="Unknown Drawing")
+    session.add(drawing)
+    session.flush()
+    recent = datetime.now(timezone.utc) - timedelta(days=2)
+    stale = datetime.now(timezone.utc) - timedelta(days=4)
+    held = Lead(phone="2145553004", title="Unknown Held", state="TX", last_distributed_at=recent)
+    free = Lead(phone="2145553005", title="Unknown Free", state="TX", last_distributed_at=stale)
+    session.add_all([held, free])
+    session.flush()
+    session.add_all(
+        [
+            DistributionEvent(lead_id=held.id, delivered_at=recent, source="legacy_unknown_recipient"),
+            DistributionEvent(lead_id=free.id, delivered_at=stale, source="legacy_unknown_recipient"),
+        ]
+    )
+    request = make_request(session, drawing, 2)
+
+    assert inventory_count(session, request, settings) == 1
+
+
+def test_tombstoned_recipient_history_does_not_block(session, settings):
+    from jawnix.allocation import inventory_count
+
+    tombstoned = Agent(
+        slug="tombstoned",
+        name="Tombstoned",
+        active=False,
+        deleted_at=datetime.now(timezone.utc) - timedelta(days=10),
+    )
+    drawing = Agent(slug="tombstone-drawing", name="Tombstone Drawing")
+    session.add_all([tombstoned, drawing])
+    session.flush()
+    old = datetime.now(timezone.utc) - timedelta(days=30)
+    lead = Lead(phone="2145553006", title="Tombstone", state="TX", last_distributed_at=old)
+    session.add(lead)
+    session.flush()
+    session.add(
+        DistributionEvent(lead_id=lead.id, agent_id=tombstoned.id, delivered_at=old, source="manifest")
+    )
+    request = make_request(session, drawing, 1)
+
+    assert inventory_count(session, request, settings) == 1
+
+
+def test_eligible_query_compiles_on_postgresql(session, settings):
+    agent = Agent(slug="compile-check", name="Compile Check")
+    session.add(agent)
+    session.flush()
+    request = make_request(session, agent, 1)
+
+    compiled = str(
+        eligible_query(request, settings).compile(dialect=postgresql.dialect())
+    )
+    assert "distribution_events" in compiled

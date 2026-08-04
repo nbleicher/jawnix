@@ -117,8 +117,8 @@ The durable party that requests and receives lead batches and owns permanent no-
 _Avoid_: Agent, recipient identity
 
 **Deactivated Customer**:
-A Customer blocked from login and new Batch Requests but retained in history. True deletion is available only before any request, distribution, or outcome history exists.
-_Avoid_: Deleted customer, suspended request
+A Customer blocked from login and new Batch Requests but retained in history. While deactivated, the Customer's Distribution Events impose no permanent no-repeat block and instead hold each Lead for a flat three days from delivery; reactivation restores the full no-repeat effect of their entire history. True deletion is available only before any request, distribution, or outcome history exists.
+_Avoid_: Deleted customer, suspended request, erased history
 
 **Customer Tombstone**:
 An anonymous Customer identity retained after personal data erasure when historical records exist. It preserves immutable audit and no-repeat history without retaining login or profile details.
@@ -149,7 +149,7 @@ A named reason a Customer cannot currently work — no User Account invited, an 
 _Avoid_: Deactivated Customer, error, validation failure
 
 **Agency**:
-A group of Customers that share permanent no-repeat history.
+A group of Customers that share permanent no-repeat history drawn from its active members; a Deactivated Customer's events stop blocking the Agency while that member remains deactivated.
 _Avoid_: Customer, account
 
 **Deactivated Agency**:
@@ -161,7 +161,7 @@ An immutable record created when a Lead's allocation and batch generation commit
 _Avoid_: Current customer membership, email delivery
 
 **Cooldown Window**:
-The administrator-set minimum age (default seven days, minimum one) that a Lead's latest Distribution Event must reach before a given Customer may draw that Lead. The window belongs to the drawing Customer, so a delivered Lead's effective exclusivity equals the smallest window among other Customers; a Lead is never again eligible for the same Customer or Agency.
+The administrator-set minimum age (default seven days, minimum one) that a Lead's latest Distribution Event must reach before a given Customer may draw that Lead. The window belongs to the drawing Customer, so a delivered Lead's effective exclusivity equals the smallest window among other Customers; a Lead delivered to an active Customer is never again eligible for that Customer or their Agency. An event delivered to a Deactivated Customer or an unknown legacy recipient instead holds the Lead for a flat three days for everyone, with no permanent ineligibility.
 _Avoid_: Global cooldown, guaranteed exclusivity, permanent no-repeat
 
 **Lead Suppression**:

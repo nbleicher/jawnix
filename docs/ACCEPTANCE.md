@@ -1,5 +1,32 @@
 # Production acceptance record
 
+## 2026-08-04 go-live catch-up acceptance
+
+Jawnix became the sole distributor today. The legacy `dat` tool made its final
+distribution this morning; a post-final-run manifest snapshot (7,318,933
+CSV-aware rows, SHA-256 `baae778036d8…`) was frozen, staged, and imported the
+same day with `import-manifest` only. The import committed 7,214,991 rows with
+103,942 quarantines. `distribution_events` grew from 4,588,286 to 5,550,075 —
+a delta of 961,789 events matching the sized post-cutover legacy distributions
+— and `lead_inventory` grew to 9,582,107 phones. `import-config` was
+intentionally skipped so it could not reactivate deactivated agents.
+
+Per-agent reconciliation passed: every agent's manifest-source event count
+meets or exceeds its final-manifest row count, with deficits explained by
+quarantined rows and surpluses by preserved re-distribution history. Spot
+checks confirmed all sampled phones distributed on the final legacy morning
+(jo, tim, tony) carry same-day attributed events; six of nine also retain
+their earlier 2026-07-09 delivery to jack as separate immutable events.
+
+The durable roster was applied in production: active Customers are jo, max,
+jack, spencer, tony, noah, tim, seth, alex, webb, sofia, sailor, matthew, and
+ali; amir, pryce, robert, ron, trevor, and zach are deactivated; `tony-aca`,
+`downs`, and `james` remain tombstoned with no roster standing. PR #170
+shipped the matching allocation rules: deactivated and unknown recipients
+impose a flat three-day hold instead of permanent no-repeat, and reactivation
+re-arms full history. The `dat` directory is retired read-only; its manifest
+is superseded by `distribution_events` as the distribution log.
+
 ## 2026-07-26 completion verification
 
 Issue #27 repository verification passed against a disposable PostgreSQL
