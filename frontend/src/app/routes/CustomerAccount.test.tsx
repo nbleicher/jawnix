@@ -198,10 +198,15 @@ describe("Licensed State management", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = typeof input === "string" ? input : String(input);
-        calls.push(`${init?.method ?? "GET"} ${path}`);
+        // Reads are free (the Exclusion List section loads on mount); the
+        // assertion below is that nothing MUTATES until confirmation.
+        if (init?.method && init.method !== "GET") {
+          calls.push(`${init.method} ${path}`);
+        }
         if (path.endsWith("/preview")) return json(REVIEW);
         if (path.endsWith("/apply")) return json(result(updated));
         if (path.endsWith("/profile")) return json(IDENTITY);
+        if (path.endsWith("/exclusion-lists")) return json([]);
         return json(updated);
       }),
     );
@@ -277,6 +282,7 @@ describe("Licensed State management", () => {
           );
         }
         if (path.endsWith("/profile")) return json(IDENTITY);
+        if (path.endsWith("/exclusion-lists")) return json([]);
         return json(concurrent);
       }),
     );

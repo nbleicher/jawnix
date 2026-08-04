@@ -1,10 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLoaderData, useRevalidator } from "react-router";
 
 import { Button } from "../../design-system/primitives/Button";
 import { ConfirmDialog } from "../../design-system/primitives/Dialog";
 import { EmptyState } from "../../design-system/primitives/feedback";
-import { Field, Input, Textarea } from "../../design-system/primitives/form";
+import {
+  Field,
+  Input,
+  Select,
+  Textarea,
+} from "../../design-system/primitives/form";
 import {
   Card,
   Cluster,
@@ -20,6 +25,8 @@ import type { TerminalDestination } from "../../design-system/primitives/termina
 import { Heading, Mono, Text } from "../../design-system/primitives/typography";
 import { api } from "../auth/adminMFA";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
+import { EXCLUSION_TYPES, INGESTING_STATUSES } from "./exclusionLists";
+import type { ExclusionListStatus } from "./exclusionLists";
 
 /**
  * The native Acquisition workspace (#68).
@@ -236,6 +243,149 @@ function ExclusionReviewCard({ item }: { item: ExclusionReviewRow }) {
           />
         </Cluster>
       </Stack>
+    </Card>
+  );
+}
+
+/** Administrator bulk upload (#153 story 25): global effect immediately after
+ *  ingestion, no Nightly Review gate, so the form demands an audit reason. */
+export function AdminExclusionUpload() {
+  const revalidator = useRevalidator();
+  const [file, setFile] = useState<File | null>(null);
+  const [type, setType] = useState<string>(EXCLUSION_TYPES[0].value);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState("");
+  const [upload, setUpload] = useState<ExclusionListStatus | null>(null);
+  const [pollAttempt, setPollAttempt] = useState(0);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const ingesting =
+    upload !== null && INGESTING_STATUSES.includes(upload.status);
+
+  useEffect(() => {
+    if (!ingesting || upload === null) return;
+    const timer = window.setTimeout(() => {
+      void api<ExclusionListStatus>(`/api/admin/exclusion-lists/${upload.id}`)
+        .then((next) => {
+          setUpload(next);
+          if (!INGESTING_STATUSES.includes(next.status)) {
+            revalidator.revalidate();
+          }
+        })
+        .catch(() => setPollAttempt((attempt) => attempt + 1));
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [ingesting, upload, pollAttempt, revalidator]);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!file) {
+      setFailure("Choose a CSV file to upload.");
+      return;
+    }
+    if (!reason.trim()) {
+      setFailure("An upload reason is required.");
+      return;
+    }
+    setBusy(true);
+    setFailure("");
+    const body = new FormData();
+    body.append("file", file);
+    body.append("type", type);
+    body.append("reason", reason.trim());
+    try {
+      setUpload(
+        await api<ExclusionListStatus>("/api/admin/exclusion-lists", {
+          method: "POST",
+          body,
+        }),
+      );
+      setFile(null);
+      setReason("");
+      if (fileInput.current) fileInput.current.value = "";
+    } catch (caught: unknown) {
+      setFailure(
+        caught instanceof Error
+          ? caught.message
+          : "The Exclusion List could not be uploaded.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card as="article">
+      <form onSubmit={(event) => void submit(event)} noValidate>
+        <Stack gap={4}>
+          <Heading level={3} size="sm">
+            Administrator bulk upload
+          </Heading>
+          <Text size="sm" tone="muted">
+            Every accepted phone becomes globally ineligible as soon as
+            processing completes — no Nightly Review confirmation. CSV with a
+            phone column, 1,000–50,000 rows.
+          </Text>
+          <Cluster gap={3} align="end">
+            <Field label="Type" id="admin-exclusion-type" required>
+              <Select
+                id="admin-exclusion-type"
+                value={type}
+                onChange={(event) => setType(event.currentTarget.value)}
+              >
+                {EXCLUSION_TYPES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="CSV file" id="admin-exclusion-file" required>
+              <Input
+                id="admin-exclusion-file"
+                ref={fileInput}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) =>
+                  setFile(event.currentTarget.files?.[0] ?? null)
+                }
+              />
+            </Field>
+          </Cluster>
+          <Field
+            label="Reason"
+            id="admin-exclusion-reason"
+            description="Recorded in Activity as the audit reason for the global effect."
+            required
+          >
+            <Input
+              id="admin-exclusion-reason"
+              value={reason}
+              onChange={(event) => setReason(event.currentTarget.value)}
+            />
+          </Field>
+          <Cluster gap={3} align="center">
+            <Button type="submit" disabled={busy}>
+              {busy ? "Uploading…" : "Upload globally"}
+            </Button>
+            {upload ? (
+              <Text size="sm" role="status">
+                {upload.status === "failed"
+                  ? `Failed: ${upload.error || "the file could not be processed."}`
+                  : INGESTING_STATUSES.includes(upload.status)
+                    ? `Processing ${upload.filename}…`
+                    : `${upload.acceptedRows.toLocaleString()} phones from ${upload.filename} are now globally ineligible.`}
+              </Text>
+            ) : null}
+          </Cluster>
+          {failure ? (
+            <Text size="sm" tone="danger" role="alert">
+              {failure}
+            </Text>
+          ) : null}
+        </Stack>
+      </form>
     </Card>
   );
 }
@@ -748,18 +898,21 @@ export function AdminAcquisitionRoute() {
               summary={`${pendingExclusions.length} waiting`}
               defaultOpen={pendingExclusions.length > 0}
             >
-              {pendingExclusions.length ? (
-                <Grid minColumnWidth="20rem">
-                  {pendingExclusions.map((item) => (
-                    <ExclusionReviewCard item={item} key={item.id} />
-                  ))}
-                </Grid>
-              ) : (
-                <EmptyState
-                  title="No Exclusion Lists are waiting"
-                  description="Ingested Customer uploads appear here with their validation counts and current pool impact."
-                />
-              )}
+              <Stack gap={4}>
+                <AdminExclusionUpload />
+                {pendingExclusions.length ? (
+                  <Grid minColumnWidth="20rem">
+                    {pendingExclusions.map((item) => (
+                      <ExclusionReviewCard item={item} key={item.id} />
+                    ))}
+                  </Grid>
+                ) : (
+                  <EmptyState
+                    title="No Exclusion Lists are waiting"
+                    description="Ingested Customer uploads appear here with their validation counts and current pool impact."
+                  />
+                )}
+              </Stack>
             </DisclosureSection>
 
             <DisclosureSection

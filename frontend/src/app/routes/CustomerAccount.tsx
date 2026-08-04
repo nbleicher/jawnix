@@ -20,6 +20,7 @@ import {
 } from "../../design-system/primitives/typography";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { CreditLedgerSection } from "../billing/CreditLedgerSection";
+import { CustomerExclusionListsSection } from "./CustomerExclusionLists";
 import {
   LicensedStateRequestError,
   applyLicensedStateReview,
@@ -362,6 +363,7 @@ export function CustomerAccountRoute() {
       <Identity identity={loaded.identity} />
       <SetupStatus problems={problems} />
       <CreditLedgerSection />
+      <CustomerExclusionListsSection />
 
       <Section
         title="Licensed States"

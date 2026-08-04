@@ -417,3 +417,76 @@ describe("Scraper Configuration versions", () => {
     ).toBeNull();
   });
 });
+
+describe("administrator Exclusion List bulk upload", () => {
+  it("posts the typed CSV with its audit reason as multipart form data", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "55555555-5555-4555-8555-555555555555",
+          type: "dnc",
+          filename: "junk.csv",
+          status: "queued",
+          totalRows: 0,
+          acceptedRows: 0,
+          invalidRows: 0,
+          duplicateRows: 0,
+          poolImpact: 0,
+          global: false,
+          error: "",
+          createdAt: "2026-08-04T00:00:00Z",
+          ingestedAt: null,
+          decidedAt: null,
+        }),
+        { status: 202, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    renderRoute(acquisition());
+
+    const region = screen.getByRole("region", { name: "Exclusion review" });
+    await user.selectOptions(within(region).getByLabelText(/Type/), "dnc");
+    await user.upload(
+      within(region).getByLabelText(/CSV file/),
+      new File(["phone\n2155550000\n"], "junk.csv", { type: "text/csv" }),
+    );
+    await user.type(
+      within(region).getByLabelText(/Reason/),
+      "Purge junk phones",
+    );
+    await user.click(
+      within(region).getByRole("button", { name: "Upload globally" }),
+    );
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    const [path, init] = fetchSpy.mock.calls[0]!;
+    expect(path).toBe("/api/admin/exclusion-lists");
+    const body = (init as RequestInit).body as FormData;
+    expect(body.get("type")).toBe("dnc");
+    expect(body.get("reason")).toBe("Purge junk phones");
+    expect((body.get("file") as File).name).toBe("junk.csv");
+    expect(await within(region).findByRole("status")).toHaveTextContent(
+      "Processing junk.csv",
+    );
+  });
+
+  it("refuses to upload without an audit reason", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    renderRoute(acquisition());
+
+    const region = screen.getByRole("region", { name: "Exclusion review" });
+    await user.upload(
+      within(region).getByLabelText(/CSV file/),
+      new File(["phone\n2155550000\n"], "junk.csv", { type: "text/csv" }),
+    );
+    await user.click(
+      within(region).getByRole("button", { name: "Upload globally" }),
+    );
+
+    expect(
+      await within(region).findByText("An upload reason is required."),
+    ).toBeVisible();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
