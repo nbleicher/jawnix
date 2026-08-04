@@ -457,7 +457,7 @@ def main():
         if ledger:
             ledger.close()
         return
-    if not jobs:
+    if not jobs and not args.watch:
         print("\n  Nothing to enqueue (all covered or filtered).");
         if ledger: ledger.close()
         return
