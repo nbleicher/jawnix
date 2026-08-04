@@ -99,8 +99,12 @@ test.describe("Searching delivered batches", () => {
     await expect(page.getByRole("region", { name: "Recorded" })).toBeVisible();
     const submit = calls.find((call) => call.path === "/api/me/feedback");
     expect(submit?.body["disposition"]).toBe("positive_response");
-    await expect(page.locator('input[type="file"]')).toHaveCount(0);
-    await expect(page.getByText(/bulk import|import csv/i)).toHaveCount(0);
+    // Feedback stays one deliberate answer per Lead. Exclusion List upload
+    // shares this page, so the no-bulk-import guard is scoped to Find-the-Lead.
+    const findTheLead = page.getByRole("region", { name: "Find the Lead" });
+    await expect(findTheLead).toBeVisible();
+    await expect(findTheLead.locator('input[type="file"]')).toHaveCount(0);
+    await expect(findTheLead.getByText(/bulk import|import csv/i)).toHaveCount(0);
   });
 });
 

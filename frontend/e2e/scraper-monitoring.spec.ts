@@ -149,9 +149,25 @@ test.describe("Scraper monitoring", () => {
   });
 });
 
+async function openPipelineControls(page: Page, options: OverrideOptions = {}) {
+  const writes = await openWorkspace(page, options);
+  // PipelineControls lives inside the "Pipeline activity" disclosure, which
+  // ships collapsed. Only click it open when it is actually closed, so a
+  // future default-open Panel does not get toggled shut here.
+  const panel = page.getByRole("group", { name: "Pipeline activity" });
+  const open = await panel.evaluate(
+    (element) => (element as HTMLDetailsElement).open,
+  );
+  if (!open) {
+    await panel.getByRole("heading", { name: "Pipeline activity" }).click();
+  }
+  await expect(panel).toHaveJSProperty("open", true);
+  return writes;
+}
+
 test.describe("Pipeline controls", () => {
   test("will not change the pipeline without a recorded reason", async ({ page }) => {
-    const writes = await openWorkspace(page);
+    const writes = await openPipelineControls(page);
 
     await page.getByRole("button", { name: "Pause, keep queue" }).click();
 
@@ -162,7 +178,7 @@ test.describe("Pipeline controls", () => {
   });
 
   test("pauses while keeping the queue", async ({ page }) => {
-    const writes = await openWorkspace(page);
+    const writes = await openPipelineControls(page);
 
     await page.getByRole("textbox", { name: /Reason/ }).fill("Source quality");
     await page.getByRole("button", { name: "Pause, keep queue" }).click();
@@ -177,7 +193,7 @@ test.describe("Pipeline controls", () => {
   });
 
   test("makes clearing the queue a separate, warned choice", async ({ page }) => {
-    const writes = await openWorkspace(page, {
+    const writes = await openPipelineControls(page, {
       pipeline: pausedPipelineResult(812),
     });
 
@@ -208,7 +224,7 @@ test.describe("Pipeline controls", () => {
         },
       };
     }
-    const writes = await openWorkspace(page, {
+    const writes = await openPipelineControls(page, {
       snapshot: paused,
       pipeline: {
         ok: true,
