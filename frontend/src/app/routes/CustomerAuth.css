@@ -121,3 +121,39 @@
     padding: var(--jx-space-7) var(--jx-space-5);
   }
 }
+
+@media (min-width: 64rem) {
+  .jx-auth-route {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) min(50%, 44rem);
+    grid-template-rows: auto 1fr;
+  }
+
+  .jx-opaline-scene {
+    position: relative;
+    inset: auto;
+    z-index: 0;
+    grid-column: 1;
+    grid-row: 1 / -1;
+  }
+
+  /* Feather the scene's right edge into the flat #03040c pane; the shader
+     background does not reliably end at that color on its own. */
+  .jx-opaline-scene::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to right, rgba(3, 4, 12, 0) 72%, #03040c 100%);
+    pointer-events: none;
+  }
+
+  .jx-auth-route__banner {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .jx-auth-route__main {
+    grid-column: 2;
+    grid-row: 1 / -1;
+  }
+}
