@@ -374,7 +374,7 @@ def test_review_accepts_same_day_external_scraper_publication(
         session,
         Settings(
             JAWNIX_SCRAPER_OPS_URL="http://10.77.0.2:8090",
-            JAWNIX_SCRAPER_OPS_PASSWORD="secret",
+            JAWNIX_SCRAPER_CONTROL_TOKEN="control-token",
             OPENROUTER_API_KEY="test-key",
         ),
         as_of=datetime(2026, 7, 27, 9, tzinfo=timezone.utc),
@@ -455,7 +455,7 @@ def test_scheduled_configuration_activates_exact_scale_contract(
         session,
         Settings(
             JAWNIX_SCRAPER_OPS_URL="http://10.77.0.2:8090",
-            JAWNIX_SCRAPER_OPS_PASSWORD="secret",
+            JAWNIX_SCRAPER_CONTROL_TOKEN="control-token",
         ),
         as_of=datetime(2026, 7, 27, 8, tzinfo=timezone.utc),
     )
@@ -463,6 +463,9 @@ def test_scheduled_configuration_activates_exact_scale_contract(
     assert captured["url"].endswith(
         "/api/source-segments/activate"
     )
+    assert captured["headers"] == {
+        "Authorization": "Bearer control-token"
+    }
     assert captured["json"]["segments"] == [
         {
             "id": "PA::roof repair",
