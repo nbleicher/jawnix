@@ -26,6 +26,10 @@ import {
   scraperConfigurationDetailsLoader,
 } from "./routes/AdminAcquisitionDetails";
 import {
+  AdminSourcePerformanceRoute,
+  sourcePerformanceLoader,
+} from "./routes/AdminSourcePerformance";
+import {
   AdminCustomersRoute,
   adminCustomerDirectoryLoader,
 } from "./routes/AdminCustomers";
@@ -257,6 +261,15 @@ export const router = createBrowserRouter(
               path: "acquisition/runs/:runId",
               loader: scrapeRunDetailsLoader,
               element: <ScrapeRunDetailsRoute />,
+            },
+            // #173 A1 restored Source Performance as its own destination —
+            // the descriptive nightly evidence Acquisition's optimizer reads,
+            // without re-porting the Niche mappings or Source Recommendation
+            // decisions that already live there.
+            {
+              path: "acquisition/performance",
+              loader: sourcePerformanceLoader,
+              element: <AdminSourcePerformanceRoute />,
             },
             {
               path: "acquisition/scraper",

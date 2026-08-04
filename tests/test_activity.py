@@ -248,3 +248,20 @@ def test_activity_endpoints_are_admin_only_and_share_the_query(
         assert client.get("/api/admin/activity/customer/42").status_code == 403
     finally:
         app.dependency_overrides.clear()
+
+
+def test_activity_endpoints_refuse_unauthenticated_sessions(
+    session,
+    settings,
+):
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    try:
+        client = TestClient(app)
+        assert client.get("/api/admin/activity").status_code == 401
+        assert client.get("/api/admin/activity/customer/42").status_code == 401
+    finally:
+        app.dependency_overrides.clear()

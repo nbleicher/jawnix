@@ -36,6 +36,11 @@ class Response:
         ),
         ("rejection", "not approved", "no Leads were reserved"),
         ("failure", "needs attention", "Do not submit a duplicate"),
+        (
+            "canceled",
+            "canceled",
+            "none of its requested states remain",
+        ),
     ],
 )
 def test_milestone_email_content_links_to_the_authenticated_timeline(
@@ -76,7 +81,7 @@ def test_milestone_email_content_links_to_the_authenticated_timeline(
     first, repeated = calls
     payload = first["json"]
     timeline = (
-        "https://app.jawnix.example/app/overview"
+        f"https://app.jawnix.example/app/requests?request={request.id}"
     )
     assert subject_phrase in payload["subject"]
     assert body_phrase in payload["text"]
@@ -139,7 +144,6 @@ def test_repeated_state_processing_queues_one_milestone_job(
         RequestStatus.processing.value,
         RequestStatus.generated.value,
         RequestStatus.delivered.value,
-        RequestStatus.canceled.value,
     ],
 )
 def test_internal_and_non_email_states_queue_nothing(session, status):

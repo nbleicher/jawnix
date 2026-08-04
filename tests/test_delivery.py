@@ -61,7 +61,8 @@ def test_delivery_retry_reuses_artifact_and_resend_idempotency(session, settings
     assert "30-day retention period" in captured["json"]["text"]
     assert "attachments" not in captured["json"]
     assert (
-        "http://localhost:8080/app/overview"
+        "http://localhost:8080/app/requests?request="
+        f"{request.id}"
         in captured["json"]["text"]
     )
     assert request.status == RequestStatus.delivered.value

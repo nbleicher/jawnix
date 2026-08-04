@@ -20,17 +20,17 @@ from jawnix.config import Settings
 from jawnix.jobs import enqueue_job
 from jawnix.models import (
     DatasetPublication,
-    InventoryConflict,
     InventorySyncAttempt,
     Lead,
-    LeadRequest,
     NightlyReview,
-    RequestStatus,
     ScraperRun,
     ScraperConfiguration,
     ScrapeAnomaly,
     ScrapeSegmentResult,
-    SourceRecommendation,
+)
+from jawnix.nightly_snapshots import (
+    nightly_operational_snapshot,
+    scrape_run_segment_summaries,
 )
 from jawnix.states import US_STATES, normalize_phone
 
@@ -368,73 +368,6 @@ def sync_dataset_version(
         }
 
 
-def _nightly_operational_snapshot(session: Session) -> dict:
-    inventory_by_state = {
-        state: int(count)
-        for state, count in session.execute(
-            select(Lead.state, func.count(Lead.id))
-            .group_by(Lead.state)
-            .order_by(Lead.state)
-        )
-    }
-    return {
-        "inventory": {
-            "total": int(
-                session.scalar(select(func.count(Lead.id))) or 0
-            ),
-            "byState": inventory_by_state,
-        },
-        "waitingRequests": [
-            {
-                "id": str(item.id),
-                "customerId": item.customer_id,
-                "requested": item.lead_count,
-                "available": item.available_count,
-                "states": item.states_snapshot,
-            }
-            for item in session.scalars(
-                select(LeadRequest)
-                .where(
-                    LeadRequest.status
-                    == RequestStatus.waiting_inventory.value
-                )
-                .order_by(LeadRequest.created_at, LeadRequest.id)
-            )
-        ],
-        "inventoryConflicts": [
-            {
-                "id": str(item.id),
-                "status": item.status,
-                "olderRequestId": str(item.older_request_id),
-                "newerRequestId": str(item.newer_request_id),
-            }
-            for item in session.scalars(
-                select(InventoryConflict)
-                .where(
-                    InventoryConflict.status.in_(
-                        {"pending", "confirmed", "denied"}
-                    )
-                )
-                .order_by(InventoryConflict.created_at)
-            )
-        ],
-        "recommendations": [
-            {
-                "id": str(item.id),
-                "niche": item.niche,
-                "segment": item.segment_key,
-                "action": item.action,
-                "status": item.status,
-            }
-            for item in session.scalars(
-                select(SourceRecommendation)
-                .where(SourceRecommendation.status == "pending")
-                .order_by(SourceRecommendation.created_at)
-            )
-        ],
-    }
-
-
 def _update_nightly_review_after_sync(
     session: Session,
     run: ScraperRun,
@@ -479,7 +412,7 @@ def _update_nightly_review_after_sync(
             .order_by(InventorySyncAttempt.attempt_number)
         )
     ]
-    summary.update(_nightly_operational_snapshot(session))
+    summary.update(nightly_operational_snapshot(session))
     review.summary = summary
     review.status = (
         "complete" if publication.sync_status == "complete" else "attention"
@@ -513,19 +446,13 @@ def create_nightly_review(
             DatasetPublication.scraper_run_id == run.id
         )
     )
-    segment_rows = list(
-        session.scalars(
-            select(ScrapeSegmentResult)
-            .where(ScrapeSegmentResult.scraper_run_id == run.id)
-            .order_by(ScrapeSegmentResult.segment_key)
-        )
-    )
+    segments = scrape_run_segment_summaries(session, run.id)
     anomaly = session.scalar(
         select(ScrapeAnomaly).where(
             ScrapeAnomaly.scraper_run_id == run.id
         )
     )
-    operational_snapshot = _nightly_operational_snapshot(session)
+    operational_snapshot = nightly_operational_snapshot(session)
     failures = []
     if run.status in {"failed", "sync_failed"}:
         failures.append(
@@ -610,21 +537,7 @@ def create_nightly_review(
                     else None
                 ),
             },
-            "segments": [
-                {
-                    "key": item.segment_key,
-                    "niche": item.niche,
-                    "geography": item.geography,
-                    "observed": item.observed_count,
-                    "valid": item.valid_count,
-                    "new": item.new_count,
-                    "duplicate": item.duplicate_count,
-                    "quarantined": item.quarantined_count,
-                    "anomalous": item.anomalous,
-                    "anomalyReasons": item.anomaly_reasons,
-                }
-                for item in segment_rows
-            ],
+            "segments": segments,
             **operational_snapshot,
             "failures": failures,
         },

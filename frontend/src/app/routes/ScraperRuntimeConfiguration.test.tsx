@@ -179,7 +179,7 @@ function mockRequests(plans: Plan[]) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("offline workspace states", () => {
-  it("renders campaign history in place when Scale is unavailable", () => {
+  it("renders campaign history in place when Scraper is unavailable", () => {
     renderRoute("history", {
       ...HISTORY,
       service_state: "unavailable",
@@ -193,7 +193,7 @@ describe("offline workspace states", () => {
       .not.toBeInTheDocument();
   });
 
-  it("renders runtime configuration in place when Scale is unavailable", () => {
+  it("renders runtime configuration in place when Scraper is unavailable", () => {
     renderRoute("runtime", {
       ...WORKSPACE,
       service_state: "unavailable",
@@ -313,7 +313,7 @@ describe("runtime configuration parity", () => {
 
     expect(
       await screen.findByText(
-        "Scale runtime configuration saved and enqueue requested.",
+        "Scraper runtime configuration saved and enqueue requested.",
       ),
     ).toBeVisible();
     expect(calls[1]?.body).toMatchObject({

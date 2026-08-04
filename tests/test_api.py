@@ -686,6 +686,36 @@ def test_customer_feedback_preserves_milestones_and_materializes_current_state(
             canceled.json()["transition"]["id"]
         )
 
+        # Fresh Lead: appointment follow-ups require a prior booking.
+        fresh_lead = Lead(
+            phone="2145555099",
+            title="Ungated Roofing",
+            state="TX",
+        )
+        session.add(fresh_lead)
+        session.flush()
+        ungated = DistributionEvent(
+            lead_id=fresh_lead.id,
+            agent_id=customer.id,
+            customer_name=customer.name,
+            phone=fresh_lead.phone,
+            title=fresh_lead.title,
+            state=fresh_lead.state,
+            delivered_at=utcnow(),
+            source_segment_key="roofing|TX",
+        )
+        session.add(ungated)
+        session.commit()
+        refused = client.post(
+            "/api/me/feedback",
+            json={
+                "distribution_event_id": ungated.id,
+                "disposition": "appointment_canceled",
+            },
+        )
+        assert refused.status_code == 409
+        assert "Book an appointment" in refused.json()["detail"]
+
         history = client.get(
             f"/api/me/distributions/{delivered.id}/dispositions"
         )
@@ -3087,10 +3117,32 @@ def test_telegram_webhook_authorization_replay_and_async_queue(session, settings
         assert unauthorized.json()["ignored"] is True
         assert session.scalar(select(func.count(Job.id)).where(Job.kind == "telegram_action")) == 1
 
-        anomaly_update = update(3)
+        stale_anomaly_update = update(3)
+        stale_anomaly_update["callback_query"]["data"] = anomaly_callback_data(
+            "confirm",
+            anomaly.id,
+            dataset_checksum="0" * 64,
+            configuration_version=configuration.version,
+        )
+        stale_anomaly = client.post(
+            "/api/integrations/telegram/webhook",
+            headers=headers,
+            json=stale_anomaly_update,
+        )
+        assert stale_anomaly.status_code == 200
+        assert stale_anomaly.json()["ignored"] is True
+        assert session.scalar(
+            select(func.count(Job.id)).where(
+                Job.kind == "telegram_anomaly_action"
+            )
+        ) == 0
+
+        anomaly_update = update(4)
         anomaly_update["callback_query"]["data"] = anomaly_callback_data(
             "confirm",
             anomaly.id,
+            dataset_checksum=anomaly.dataset_checksum,
+            configuration_version=configuration.version,
         )
         queued_anomaly = client.post(
             "/api/integrations/telegram/webhook",

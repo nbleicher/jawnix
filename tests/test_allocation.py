@@ -8,7 +8,12 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.dialects import postgresql
 
-from jawnix.allocation import allocate_request, eligible_query, fulfill_round_robin
+from jawnix.allocation import (
+    allocate_request,
+    decide_inventory_conflict,
+    eligible_query,
+    fulfill_round_robin,
+)
 from jawnix.metrics_emit import EMIT_LEAD_ASSIGNED_JOB
 from jawnix.models import (
     Agency,
@@ -355,6 +360,116 @@ def test_newer_request_needs_one_scope_bound_conflict_decision_to_bypass_older(
     session.refresh(conflict)
     assert conflict.status == "consumed"
     assert session.query(InventoryConflict).count() == 1
+
+
+def test_denied_conflict_reopens_after_older_request_material_change(
+    session,
+    settings,
+):
+    """A denied conflict blocks silently until the snapshot it decided on
+    goes stale (#173).
+
+    Denying a conflict is not a permanent grant to the newer request: it
+    only says the newer request cannot bypass the older one *for this exact
+    inventory snapshot*. Changing the older request's lead_count changes the
+    snapshot checksum, so the next round-robin attempt cannot reuse the
+    denied decision and instead opens a new pending conflict.
+    """
+    older_customer = Agent(slug="reopen-older", name="Reopen Older")
+    newer_customer = Agent(slug="reopen-newer", name="Reopen Newer")
+    session.add_all([older_customer, newer_customer])
+    session.flush()
+    older = make_request(session, older_customer, 2, ["TX"])
+    older.status = RequestStatus.waiting_inventory.value
+    older.available_count = 1
+    newer = make_request(session, newer_customer, 1, ["TX"])
+    newer.created_at = older.created_at + timedelta(seconds=1)
+    session.add(Lead(phone="2145554501", title="Reopen Shared", state="TX"))
+    session.commit()
+
+    first_round = fulfill_round_robin(session, settings)
+    session.commit()
+    conflict = session.query(InventoryConflict).one()
+    assert first_round["requestsFulfilled"] == 0
+    assert conflict.status == "pending"
+
+    decision = decide_inventory_conflict(
+        session,
+        conflict.id,
+        "deny",
+        "test-admin",
+        "Preserve older work",
+    )
+    session.commit()
+    assert decision["status"] == "denied"
+
+    unchanged_round = fulfill_round_robin(session, settings)
+    session.commit()
+    assert unchanged_round["requestsFulfilled"] == 0
+    assert newer.status == RequestStatus.waiting_inventory.value
+    assert session.scalar(select(func.count(InventoryConflict.id))) == 1
+
+    older.lead_count = 3
+    session.commit()
+    changed_round = fulfill_round_robin(session, settings)
+    session.commit()
+
+    assert changed_round["requestsFulfilled"] == 0
+    reopened_conflict = session.scalar(
+        select(InventoryConflict)
+        .where(
+            InventoryConflict.older_request_id == older.id,
+            InventoryConflict.newer_request_id == newer.id,
+            InventoryConflict.status == "pending",
+        )
+        .order_by(InventoryConflict.created_at.desc())
+    )
+    assert reopened_conflict is not None
+    assert reopened_conflict.id != conflict.id
+    assert session.scalar(select(func.count(InventoryConflict.id))) == 2
+
+
+def test_within_customer_round_robin_prefers_oldest_request_then_lowest_id(
+    session,
+    settings,
+):
+    customer = Agent(slug="tiebreak-customer", name="Tiebreak Customer")
+    session.add(customer)
+    session.flush()
+    older = make_request(session, customer, 1, ["TX"])
+    newer = make_request(session, customer, 1, ["TX"])
+    newer.created_at = older.created_at + timedelta(seconds=1)
+    session.add(Lead(phone="2145555001", title="Older Wins", state="TX"))
+    session.commit()
+
+    result = fulfill_round_robin(session, settings)
+    session.commit()
+
+    assert result["requestsFulfilled"] == 1
+    assert older.status == RequestStatus.generated.value
+    assert newer.status == RequestStatus.approved.value
+
+    # Two requests filed at the exact same instant fall back to the lower
+    # primary key, so the tiebreak is deterministic rather than incidental
+    # insertion order.
+    tied_customer = Agent(slug="tiebreak-customer-tie", name="Tiebreak Tie")
+    session.add(tied_customer)
+    session.flush()
+    first = make_request(session, tied_customer, 1, ["TX"])
+    second = make_request(session, tied_customer, 1, ["TX"])
+    tie = datetime.now(timezone.utc)
+    first.created_at = tie
+    second.created_at = tie
+    session.add(Lead(phone="2145555002", title="Tie Wins", state="TX"))
+    session.commit()
+    winner, loser = sorted([first, second], key=lambda item: item.id)
+
+    tied_result = fulfill_round_robin(session, settings)
+    session.commit()
+
+    assert tied_result["requestsFulfilled"] == 1
+    assert winner.status == RequestStatus.generated.value
+    assert loser.status == RequestStatus.approved.value
 
 
 def test_deactivated_recipient_history_releases_after_flat_hold(session, settings):

@@ -111,7 +111,7 @@ export function ScraperCampaignHistoryRoute() {
     return (
       <Page
         title="Scraper Campaign History"
-        description="Search and inspect the Scale campaign ledger without exposing the private service."
+        description="Search and inspect the Scraper campaign ledger without exposing the private service."
       >
         <TerminalWorkspace
           status="OFFLINE / HISTORY UNAVAILABLE"
@@ -131,7 +131,7 @@ export function ScraperCampaignHistoryRoute() {
   return (
     <Page
       title="Scraper Campaign History"
-      description="Search and inspect the Scale campaign ledger without exposing the private service."
+      description="Search and inspect the Scraper campaign ledger without exposing the private service."
     >
       <TerminalWorkspace
         status={busy ? "HISTORY / QUERYING" : "HISTORY / PRIVILEGED"}

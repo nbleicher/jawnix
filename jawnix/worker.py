@@ -36,6 +36,7 @@ from .models import (
     Notification,
     RequestStatus,
     ScrapeAnomaly,
+    ScraperConfiguration,
     ScraperRun,
     SourceRecommendation,
     utcnow,
@@ -448,13 +449,23 @@ def process_job(job_id: int) -> None:
                 run = session.get(ScraperRun, anomaly.scraper_run_id)
                 if run is None:
                     raise LookupError("Scrape Run was not found.")
+                configuration_version = session.scalar(
+                    select(ScraperConfiguration.version).where(
+                        ScraperConfiguration.id
+                        == anomaly.configuration_id
+                    )
+                )
                 if not anomaly.telegram_message_id:
                     (
                         anomaly.telegram_chat_id,
                         anomaly.telegram_message_id,
-                    ) = telegram.post_scrape_anomaly(anomaly, run)
+                    ) = telegram.post_scrape_anomaly(
+                        anomaly, run, configuration_version
+                    )
                 else:
-                    telegram.update_scrape_anomaly(anomaly, run)
+                    telegram.update_scrape_anomaly(
+                        anomaly, run, configuration_version
+                    )
             elif job.kind == "telegram_anomaly_action":
                 from jawnix_data.scraper import decide_scrape_anomaly
 

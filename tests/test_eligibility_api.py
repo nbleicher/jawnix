@@ -255,7 +255,11 @@ class TestDistinctEffects:
             hold = session.scalar(select(EligibilityHold))
             assert hold.active is False
             assert hold.release_reason == "Phone verified working"
-            assert audit_actions(session) == ["lead_report_dismissed"]
+            assert audit_actions(session) == [
+                "eligibility_hold_applied",
+                "eligibility_hold_removed",
+                "lead_report_dismissed",
+            ]
             assert history(session) == before
 
             repeated = client.post(
@@ -348,6 +352,8 @@ class TestDistinctEffects:
             # Suppression is not a correction.
             assert fresh.active_correction_id is None
             assert audit_actions(session) == [
+                "eligibility_hold_applied",
+                "eligibility_hold_removed",
                 "lead_report_suppressed",
                 "lead_suppressed",
             ]
@@ -513,6 +519,43 @@ class TestSuppressionAndCorrectionControls:
             assert fresh.title == "Observed Title"
             assert fresh.state == "PA"
             assert history(session) == before
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_removing_a_correction_refuses_when_no_fallback_evidence(
+        self,
+        session,
+    ):
+        _, lead, _, _, _, _ = reported_lead(session, with_observation=False)
+        lead.legacy_title = ""
+        lead.legacy_state = ""
+        session.commit()
+        client = as_admin(session)
+        try:
+            applied = client.put(
+                f"/api/admin/leads/{lead.id}/correction",
+                json={
+                    "title": "Manual Override",
+                    "state": "NJ",
+                    "reason": "Verified by phone",
+                },
+            )
+            assert applied.status_code == 200
+
+            removed = client.request(
+                "DELETE",
+                f"/api/admin/leads/{lead.id}/correction",
+                json={"reason": "Override no longer applies"},
+            )
+            assert removed.status_code == 409
+            assert "no Current Listing or Legacy Listing Snapshot" in (
+                removed.json()["detail"]
+            )
+            session.expire_all()
+            fresh = session.get(Lead, lead.id)
+            assert fresh.active_correction_id is not None
+            assert fresh.title == "Manual Override"
+            assert fresh.state == "NJ"
         finally:
             app.dependency_overrides.clear()
 

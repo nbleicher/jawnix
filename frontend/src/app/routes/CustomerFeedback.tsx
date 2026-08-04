@@ -4,7 +4,7 @@ import { useLoaderData } from "react-router";
 import { Button } from "../../design-system/primitives/Button";
 import { DetailList } from "../../design-system/primitives/detail";
 import { EmptyState, ErrorState } from "../../design-system/primitives/feedback";
-import { Field, Fieldset, Input, Textarea } from "../../design-system/primitives/form";
+import { Field, Fieldset, Input, Select, Textarea } from "../../design-system/primitives/form";
 import {
   Card,
   Cluster,
@@ -137,7 +137,16 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!response.ok) {
-    const error = new Error("request failed") as Error & { status?: number };
+    let detail = "";
+    try {
+      const body = (await response.json()) as { detail?: unknown };
+      if (typeof body.detail === "string") detail = body.detail;
+    } catch {
+      // Keep the generic message when the body is not JSON.
+    }
+    const error = new Error(detail || "request failed") as Error & {
+      status?: number;
+    };
     error.status = response.status;
     throw error;
   }
@@ -202,6 +211,11 @@ export function CustomerFeedbackRoute() {
   const [receipt, setReceipt] = useState<FeedbackReceipt | null>(null);
   const [history, setHistory] = useState<DispositionTransition[]>([]);
   const [historyError, setHistoryError] = useState("");
+  const [reportReason, setReportReason] = useState("other");
+  const [reportDetails, setReportDetails] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState("");
+  const [reportSaved, setReportSaved] = useState("");
 
   function resetEntry() {
     setSelected(null);
@@ -209,6 +223,10 @@ export function CustomerFeedbackRoute() {
     setRating(null);
     setSubmitError("");
     setReceipt(null);
+    setReportReason("other");
+    setReportDetails("");
+    setReportError("");
+    setReportSaved("");
   }
 
   async function loadHistory(eventId: number) {
@@ -307,12 +325,52 @@ export function CustomerFeedbackRoute() {
       setSelected(null);
       setNote("");
       setRating(null);
-    } catch {
+    } catch (caught) {
+      const status =
+        caught instanceof Error && "status" in caught
+          ? Number((caught as Error & { status?: number }).status)
+          : 0;
+      // Surface booking-gate and similar 409s; keep generic copy for unknowns
+      // so a server detail never becomes a Customer-facing oracle.
       setSubmitError(
-        "Your feedback could not be recorded. Nothing was saved — try again.",
+        status === 409
+        && caught instanceof Error
+        && caught.message
+        && caught.message !== "request failed"
+          ? caught.message
+          : "Your feedback could not be recorded. Nothing was saved — try again.",
       );
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function submitReport() {
+    if (!lead) return;
+    if (reportReason === "other" && !reportDetails.trim()) {
+      setReportError("A note is required when the reason is Other.");
+      return;
+    }
+    setReportBusy(true);
+    setReportError("");
+    setReportSaved("");
+    try {
+      await post(`/api/me/distributions/${lead.distributionEventId}/reports`, {
+        reason: reportReason,
+        details: reportDetails.trim(),
+      });
+      setReportSaved(
+        "Lead Report filed. An administrator will review it.",
+      );
+      setReportDetails("");
+    } catch (caught) {
+      setReportError(
+        caught instanceof Error && caught.message && caught.message !== "request failed"
+          ? caught.message
+          : "The Lead Report could not be filed. Nothing was saved — try again.",
+      );
+    } finally {
+      setReportBusy(false);
     }
   }
 
@@ -609,6 +667,72 @@ export function CustomerFeedbackRoute() {
                 </Card>
               </Section>
             ) : null}
+
+            <Section
+              title="File a Lead Report"
+              description="Use this when a quality rating is not enough and an administrator should review the Lead. Data and compliance dispositions above already file a report automatically."
+            >
+              <Card>
+                <Stack gap={4}>
+                  <Field label="Reason" required>
+                    <Select
+                      value={reportReason}
+                      onChange={(event) => {
+                        setReportSaved("");
+                        setReportError("");
+                        setReportReason(event.currentTarget.value);
+                      }}
+                    >
+                      <option value="invalid_phone">Invalid phone</option>
+                      <option value="wrong_business_or_title">
+                        Wrong business or title
+                      </option>
+                      <option value="wrong_state">Wrong state</option>
+                      <option value="duplicate">Duplicate</option>
+                      <option value="do_not_contact_or_legal">
+                        Do not contact or legal
+                      </option>
+                      <option value="other">Other</option>
+                    </Select>
+                  </Field>
+                  <Field
+                    label="Details"
+                    description={
+                      reportReason === "other"
+                        ? "Required for Other."
+                        : "Optional context for the administrator."
+                    }
+                    required={reportReason === "other"}
+                  >
+                    <Textarea
+                      value={reportDetails}
+                      onChange={(event) => {
+                        setReportSaved("");
+                        setReportError("");
+                        setReportDetails(event.currentTarget.value);
+                      }}
+                    />
+                  </Field>
+                  {reportError ? (
+                    <ErrorState description={reportError} />
+                  ) : null}
+                  {reportSaved ? (
+                    <Text tone="success" role="status">
+                      {reportSaved}
+                    </Text>
+                  ) : null}
+                  <div>
+                    <Button
+                      onClick={() => void submitReport()}
+                      busy={reportBusy}
+                      busyLabel="Filing…"
+                    >
+                      File Lead Report
+                    </Button>
+                  </div>
+                </Stack>
+              </Card>
+            </Section>
 
             <Section
               title="Feedback history"

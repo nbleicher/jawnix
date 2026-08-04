@@ -56,10 +56,25 @@ def test_telegram_secret_and_callback_validation():
     with pytest.raises(ValueError, match="Malformed"):
         parse_callback_data("invalid")
     anomaly_id = uuid.uuid4()
-    anomaly_data = anomaly_callback_data("confirm", anomaly_id)
+    anomaly_data = anomaly_callback_data(
+        "confirm",
+        anomaly_id,
+        dataset_checksum="b" * 64,
+        configuration_version=9,
+    )
     assert parse_anomaly_callback_data(anomaly_data) == (
         "confirm",
         anomaly_id,
+        9,
+        "bbbbbbbb",
+    )
+    assert len(anomaly_data.encode()) <= 64
+    bare_anomaly_data = anomaly_callback_data("deny", anomaly_id)
+    assert parse_anomaly_callback_data(bare_anomaly_data) == (
+        "deny",
+        anomaly_id,
+        None,
+        "",
     )
 
 

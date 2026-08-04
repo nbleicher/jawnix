@@ -3,10 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -22,12 +22,12 @@ from .keyword_generation import (
 )
 from .models import (
     Customer,
+    DailySourcePerformance,
     DatasetPublication,
     DistributionEvent,
     ExclusionList,
     InventoryConflict,
     InventorySyncAttempt,
-    Lead,
     LeadRequest,
     NightlyReview,
     ScraperConfiguration,
@@ -35,6 +35,10 @@ from .models import (
     SourceSegment,
     SourceRecommendation,
     SourceNicheMapping,
+)
+from .nightly_snapshots import (
+    nightly_operational_snapshot,
+    scrape_run_segment_summaries,
 )
 from .optimization import analyze_nightly_performance
 
@@ -612,6 +616,60 @@ def _attach_adjacent_keyword_evidence(
     return failures
 
 
+def _adopt_run_scoped_review(
+    session: Session,
+    *,
+    placeholder: NightlyReview,
+    canonical: NightlyReview,
+    review_date: date,
+    scheduled_for: datetime,
+) -> NightlyReview:
+    """Fold a review_date-scoped placeholder into the scraper_run_id-scoped
+    review that ``create_nightly_review`` already owns for this run.
+
+    ``NightlyReview`` has a unique constraint on both ``review_date`` and
+    ``scraper_run_id``, so once a run has its own review we cannot simply
+    stamp that ``scraper_run_id`` onto a second, review_date-scoped row.
+    Instead we make the run-scoped row the row of record going forward: any
+    rows the placeholder already accumulated get repointed at it, its
+    review_date/scheduled_for/summary are backfilled, and the placeholder is
+    discarded.
+    """
+    placeholder_attempt_count = placeholder.attempt_count
+    placeholder_summary = dict(placeholder.summary)
+    placeholder_telegram_message_id = placeholder.telegram_message_id
+    placeholder_telegram_delivery_state = placeholder.telegram_delivery_state
+    placeholder_telegram_delivery_started_at = (
+        placeholder.telegram_delivery_started_at
+    )
+    placeholder_telegram_delivery_error = placeholder.telegram_delivery_error
+    for model in (DailySourcePerformance, ExclusionList, SourceRecommendation):
+        session.execute(
+            update(model)
+            .where(model.nightly_review_id == placeholder.id)
+            .values(nightly_review_id=canonical.id)
+        )
+    session.delete(placeholder)
+    session.flush()
+    canonical.review_date = canonical.review_date or review_date
+    canonical.scheduled_for = canonical.scheduled_for or scheduled_for
+    canonical.attempt_count = max(
+        canonical.attempt_count, placeholder_attempt_count
+    )
+    canonical.summary = {**placeholder_summary, **canonical.summary}
+    if not canonical.telegram_message_id and placeholder_telegram_message_id:
+        canonical.telegram_message_id = placeholder_telegram_message_id
+        canonical.telegram_delivery_state = (
+            placeholder_telegram_delivery_state
+        )
+        canonical.telegram_delivery_started_at = (
+            placeholder_telegram_delivery_started_at
+        )
+        canonical.telegram_delivery_error = placeholder_telegram_delivery_error
+    session.flush()
+    return canonical
+
+
 def run_scheduled_nightly_review(
     session: Session,
     settings: Settings,
@@ -704,8 +762,26 @@ def run_scheduled_nightly_review(
         session.flush()
         return review
 
-    if publication is not None:
-        review.scraper_run_id = publication.scraper_run_id
+    if (
+        publication is not None
+        and review.scraper_run_id != publication.scraper_run_id
+    ):
+        existing_by_run = session.scalar(
+            select(NightlyReview).where(
+                NightlyReview.scraper_run_id == publication.scraper_run_id,
+                NightlyReview.id != review.id,
+            )
+        )
+        if existing_by_run is not None:
+            review = _adopt_run_scoped_review(
+                session,
+                placeholder=review,
+                canonical=existing_by_run,
+                review_date=review_date,
+                scheduled_for=scheduled_for,
+            )
+        else:
+            review.scraper_run_id = publication.scraper_run_id
     review.next_retry_at = None
     sync_scraper_configuration_baseline(
         session,
@@ -827,6 +903,39 @@ def run_scheduled_nightly_review(
             .order_by(InventoryConflict.created_at)
         )
     )
+    snapshots_by_segment = {item.segment_key: item for item in snapshots}
+    if scraper_run is not None:
+        segments = [
+            {
+                **entry,
+                "state": entry["key"].partition("::")[0],
+                "keyword": entry["key"].partition("::")[2],
+                "confidence": (
+                    snapshots_by_segment[entry["key"]].eligibility
+                    if entry["key"] in snapshots_by_segment
+                    else None
+                ),
+                "action": (
+                    snapshots_by_segment[entry["key"]].action_state
+                    if entry["key"] in snapshots_by_segment
+                    else None
+                ),
+            }
+            for entry in scrape_run_segment_summaries(session, scraper_run.id)
+        ]
+    else:
+        segments = [
+            {
+                "key": item.segment_key,
+                "state": item.state,
+                "keyword": item.keyword,
+                "anomalous": False,
+                "confidence": item.eligibility,
+                "action": item.action_state,
+            }
+            for item in snapshots
+        ]
+    operational_snapshot = nightly_operational_snapshot(session)
     review.summary = {
         **review.summary,
         "configuration": {
@@ -858,30 +967,8 @@ def run_scheduled_nightly_review(
                 sync_attempt.status if sync_attempt is not None else None
             ),
         },
-        "segments": [
-            {
-                "key": item.segment_key,
-                "state": item.state,
-                "keyword": item.keyword,
-                "anomalous": False,
-                "confidence": item.eligibility,
-                "action": item.action_state,
-            }
-            for item in snapshots
-        ],
-        "inventory": {
-            "total": int(
-                session.scalar(select(func.count(Lead.id))) or 0
-            ),
-            "eligible": int(
-                session.scalar(
-                    select(func.count(Lead.id)).where(
-                        Lead.suppressed.is_(False)
-                    )
-                )
-                or 0
-            ),
-        },
+        "segments": segments,
+        "inventory": operational_snapshot["inventory"],
         "waitingRequests": [
             {
                 "id": str(item.id),

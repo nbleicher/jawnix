@@ -26,6 +26,7 @@ from .config import Settings
 from .customer_overview import build_customer_overview, customer_request_status
 from .customer_requests import CANCELABLE_STATUSES, build_request_workspace
 from .jobs import enqueue_job
+from .milestone_emails import enqueue_milestone_email
 from .models import CustomerProfile, LeadRequest, RequestStatus, utcnow
 from .schemas import CustomerOverviewOut, CustomerRequestWorkspaceOut
 from .states import US_STATE_OPTIONS, normalize_states
@@ -132,14 +133,16 @@ def workspace(profile: CustomerProfile) -> LicensedStateWorkspace:
 def _affected_requests(
     db: Session,
     *,
-    user_id: uuid.UUID,
+    customer_id: int,
     proposed_states: list[str],
     lock: bool,
 ) -> tuple[list[LeadRequest], list[LicensedStateImpact]]:
+    # Scope by durable Customer, not submitting User Account — requests that
+    # remain under a since-replaced account still belong to the Customer.
     statement = (
         select(LeadRequest)
         .where(
-            LeadRequest.user_id == user_id,
+            LeadRequest.agent_id == customer_id,
             LeadRequest.status.in_(CANCELABLE_STATUSES),
         )
         .order_by(LeadRequest.created_at, LeadRequest.id)
@@ -207,9 +210,14 @@ def preview(
         raise LicensedStateReviewError(
             "Choose a different set of Licensed States before reviewing."
         )
+    if profile.customer_id is None:
+        raise LicensedStateReviewError(
+            "Licensed States cannot change until this User Account is "
+            "mapped to a Customer."
+        )
     _, impacts = _affected_requests(
         db,
-        user_id=user_id,
+        customer_id=profile.customer_id,
         proposed_states=proposed_states,
         lock=False,
     )
@@ -275,6 +283,7 @@ def _apply_request_impact(
         )
         item.closed_at = utcnow()
         release_batch_hold(db, item)
+        enqueue_milestone_email(db, item)
     enqueue_job(
         db,
         "licensed_states_changed",
@@ -308,6 +317,11 @@ def apply_review(
     )
     if profile is None:
         raise LookupError("Profile was not found.")
+    if profile.customer_id is None:
+        raise LicensedStateReviewError(
+            "Licensed States cannot change until this User Account is "
+            "mapped to a Customer."
+        )
     if _version(profile) != claims.version:
         raise LicensedStateConflict(
             "Licensed States changed in another session. "
@@ -316,7 +330,7 @@ def apply_review(
 
     requests, impacts = _affected_requests(
         db,
-        user_id=user_id,
+        customer_id=profile.customer_id,
         proposed_states=claims.proposed_states,
         lock=True,
     )

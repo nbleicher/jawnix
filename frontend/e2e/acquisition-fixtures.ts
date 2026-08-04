@@ -145,6 +145,53 @@ export function acquisitionPayload(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/**
+ * A seeded Source Performance response (#173 A1).
+ *
+ * Shape mirrors `jawnix/performance.py`'s `source_performance_snapshot` plus
+ * `_performance_response`, so browser tests exercise the same contract the
+ * backend actually produces.
+ */
+export function sourcePerformancePayload(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    cohorts: [],
+    segments: [],
+    global: {
+      delivered: 400,
+      worked: 320,
+      rated: 120,
+      good: 80,
+      poor: 40,
+      positiveResponses: 100,
+      appointmentsBooked: 40,
+      rates: { good: 0.667, positiveResponse: 0.3125, appointmentBooked: 0.125 },
+      prescriptive: false,
+    },
+    legacy: { delivered: 15, excludedFromRecommendations: true },
+    rows: [
+      {
+        id: "88888888-8888-4888-8888-888888888888",
+        date: "2026-07-28",
+        segment: "TX::roofing contractor",
+        state: "TX",
+        keyword: "roofing contractor",
+        niche: "Roofing",
+        nicheConfirmed: true,
+        counts: { delivered: 40, worked: 32, rated: 12, good: 8, poor: 4 },
+        rates: { good: 0.667, positiveResponse: 0.3125, appointmentBooked: 0.125 },
+        intervals: {},
+        trend: { positiveResponse: 0.02 },
+        confidence: "eligible",
+        actionState: "prescriptive_dormant",
+        evidenceChecksum: "f".repeat(64),
+      },
+    ],
+    ...overrides,
+  };
+}
+
 export async function mockAcquisition(
   page: Page,
   overrides: Record<string, unknown> = {},
@@ -153,6 +200,15 @@ export async function mockAcquisition(
 
   await page.route(/\/api\/admin\/acquisition$/, (route) =>
     json(route, acquisitionPayload(overrides)),
+  );
+
+  await page.route(/\/api\/admin\/source-performance(\?.*)?$/, (route) =>
+    json(route, sourcePerformancePayload()),
+  );
+
+  await page.route(
+    /\/api\/admin\/source-performance\/[^/]+\/history$/,
+    (route) => json(route, { rows: [] }),
   );
 
   await page.route(

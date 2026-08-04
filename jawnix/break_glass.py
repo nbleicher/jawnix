@@ -1,4 +1,12 @@
-"""Two-person operator recovery for loss of every administrator factor."""
+"""Two-person operator recovery for loss of every administrator factor.
+
+Break-glass deliberately constructs ``AuditEntry`` rows directly and commits
+them at each recovery checkpoint, rather than going through
+``record_activity``. The shared Activity seam refuses to commit so that an
+action and its evidence land atomically; this flow must persist authorization
+evidence *before* the external MFA provider call, and failure evidence even
+when that call raises, so mid-flow commits are the deliberate exception.
+"""
 
 from __future__ import annotations
 

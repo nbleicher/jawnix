@@ -63,27 +63,72 @@ def parse_callback_data(value: str) -> tuple[str, uuid.UUID]:
     return action, request_id
 
 
-def anomaly_callback_data(action: str, anomaly_id: uuid.UUID) -> str:
+def anomaly_callback_data(
+    action: str,
+    anomaly_id: uuid.UUID,
+    *,
+    dataset_checksum: str = "",
+    configuration_version: int | None = None,
+) -> str:
+    """Bind the callback to the exact dataset and configuration it decides on.
+
+    A bare ``prefix:action:uuid`` callback stays valid forever, so a stale
+    Telegram button (an old message, an operator's outdated keyboard) can
+    approve a Scrape Anomaly that no longer matches what was reviewed. Tying
+    in a short dataset checksum and the Scraper Configuration version, the
+    way ``recommendation_callback_data`` already does, lets the webhook
+    reject a decision made against evidence that has since changed.
+    """
     if action not in ALLOWED_ANOMALY_ACTIONS:
         raise ValueError(f"Unsupported Scrape Anomaly action: {action}")
-    value = f"{ANOMALY_PREFIX}:{action}:{anomaly_id}"
+    short_action = {"confirm": "c", "deny": "d"}[action]
+    version = (
+        format(configuration_version, "x")
+        if configuration_version is not None
+        else "-"
+    )
+    checksum = dataset_checksum[:8] or "-"
+    value = (
+        f"{ANOMALY_PREFIX}:{short_action}:"
+        f"{anomaly_id.hex}:{version}:{checksum}"
+    )
     if len(value.encode("utf-8")) > 64:
         raise ValueError("Telegram callback data exceeds 64 bytes.")
     return value
 
 
-def parse_anomaly_callback_data(value: str) -> tuple[str, uuid.UUID]:
+def parse_anomaly_callback_data(
+    value: str,
+) -> tuple[str, uuid.UUID, int | None, str]:
     try:
-        prefix, action, raw_anomaly_id = value.split(":", 2)
-        anomaly_id = uuid.UUID(raw_anomaly_id)
-    except (ValueError, AttributeError):
-        raise ValueError("Malformed Telegram anomaly callback data.") from None
+        prefix, short_action, raw_id, raw_version, checksum = (
+            value.split(":", 4)
+        )
+        action = {"c": "confirm", "d": "deny"}[short_action]
+        anomaly_id = uuid.UUID(raw_id)
+        configuration_version = (
+            int(raw_version, 16) if raw_version != "-" else None
+        )
+        if checksum != "-" and not re.fullmatch(
+            r"[0-9a-f]{8}",
+            checksum,
+        ):
+            raise ValueError
+    except (KeyError, ValueError, AttributeError):
+        raise ValueError(
+            "Malformed Telegram anomaly callback data."
+        ) from None
     if (
         prefix != ANOMALY_PREFIX
         or action not in ALLOWED_ANOMALY_ACTIONS
     ):
         raise ValueError("Unsupported Telegram anomaly callback data.")
-    return action, anomaly_id
+    return (
+        action,
+        anomaly_id,
+        configuration_version,
+        "" if checksum == "-" else checksum,
+    )
 
 
 def conflict_callback_data(action: str, conflict_id: uuid.UUID) -> str:
@@ -345,6 +390,13 @@ class TelegramClient:
         ]
         keyboard_rows: list[list[dict[str, str]]] = []
         if anomaly is not None and anomaly.status == "pending":
+            # The review summary already snapshots the configuration version
+            # this anomaly's run used, so no extra lookup is needed here.
+            anomaly_configuration_version = (
+                int(configuration["version"])
+                if configuration.get("version") is not None
+                else None
+            )
             keyboard_rows.append(
                 [
                     {
@@ -352,6 +404,10 @@ class TelegramClient:
                         "callback_data": anomaly_callback_data(
                             "confirm",
                             anomaly.id,
+                            dataset_checksum=anomaly.dataset_checksum,
+                            configuration_version=(
+                                anomaly_configuration_version
+                            ),
                         ),
                     },
                     {
@@ -359,6 +415,10 @@ class TelegramClient:
                         "callback_data": anomaly_callback_data(
                             "deny",
                             anomaly.id,
+                            dataset_checksum=anomaly.dataset_checksum,
+                            configuration_version=(
+                                anomaly_configuration_version
+                            ),
                         ),
                     },
                 ]
@@ -515,6 +575,7 @@ class TelegramClient:
         self,
         anomaly: ScrapeAnomaly,
         run: ScraperRun,
+        configuration_version: int | None = None,
     ) -> tuple[str, dict]:
         segments = ", ".join(
             run.details.get("anomalousSegments") or []
@@ -542,6 +603,10 @@ class TelegramClient:
                             "callback_data": anomaly_callback_data(
                                 "confirm",
                                 anomaly.id,
+                                dataset_checksum=anomaly.dataset_checksum,
+                                configuration_version=(
+                                    configuration_version
+                                ),
                             ),
                         },
                         {
@@ -549,6 +614,10 @@ class TelegramClient:
                             "callback_data": anomaly_callback_data(
                                 "deny",
                                 anomaly.id,
+                                dataset_checksum=anomaly.dataset_checksum,
+                                configuration_version=(
+                                    configuration_version
+                                ),
                             ),
                         },
                     ]
@@ -560,8 +629,11 @@ class TelegramClient:
         self,
         anomaly: ScrapeAnomaly,
         run: ScraperRun,
+        configuration_version: int | None = None,
     ) -> tuple[str, str]:
-        text, keyboard = self._anomaly_message(anomaly, run)
+        text, keyboard = self._anomaly_message(
+            anomaly, run, configuration_version
+        )
         data = self._call(
             "sendMessage",
             {
@@ -577,8 +649,11 @@ class TelegramClient:
         self,
         anomaly: ScrapeAnomaly,
         run: ScraperRun,
+        configuration_version: int | None = None,
     ) -> None:
-        text, keyboard = self._anomaly_message(anomaly, run)
+        text, keyboard = self._anomaly_message(
+            anomaly, run, configuration_version
+        )
         self._call(
             "editMessageText",
             {

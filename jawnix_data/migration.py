@@ -118,10 +118,17 @@ def _upsert_lead_batch(session: Session, batch: list[dict], manifest_wins: bool)
     for phone, row in by_phone.items():
         lead = existing.get(phone)
         if lead is None:
+            title = row.get("title", "")
+            state = row["state"]
             lead = Lead(
                 phone=phone,
-                title=row.get("title", ""),
-                state=row["state"],
+                title=title,
+                state=state,
+                # Seed the Legacy Listing Snapshot on first import so later
+                # corrections have somewhere to fall back when no Current
+                # Listing exists yet (mirrors alembic 0004 / sync behavior).
+                legacy_title=title,
+                legacy_state=state,
                 source_flow=row.get("source_flow", ""),
                 first_seen_at=row.get("first_seen_at") or datetime.now(timezone.utc),
                 last_distributed_at=row.get("last_distributed_at"),
@@ -132,6 +139,9 @@ def _upsert_lead_batch(session: Session, batch: list[dict], manifest_wins: bool)
             if row.get("title"):
                 lead.title = row["title"]
             lead.state = row["state"]
+            if not lead.legacy_title and not lead.legacy_state:
+                lead.legacy_title = lead.title
+                lead.legacy_state = lead.state
             if row.get("last_distributed_at") and (
                 lead.last_distributed_at is None or row["last_distributed_at"] > lead.last_distributed_at
             ):
@@ -268,10 +278,13 @@ def _postgres_finish_manifest(
         cursor.execute(
             """
             INSERT INTO lead_inventory (
-                phone, title, state, first_seen_at, source_flow, last_distributed_at
+                phone, title, state, legacy_title, legacy_state,
+                first_seen_at, source_flow, last_distributed_at
             )
             SELECT
                 phone,
+                COALESCE(MAX(NULLIF(title, '')), ''),
+                MAX(state),
                 COALESCE(MAX(NULLIF(title, '')), ''),
                 MAX(state),
                 COALESCE(MIN(first_seen_at), now()),
@@ -282,6 +295,18 @@ def _postgres_finish_manifest(
             ON CONFLICT (phone) DO UPDATE SET
                 title = COALESCE(NULLIF(EXCLUDED.title, ''), lead_inventory.title),
                 state = EXCLUDED.state,
+                legacy_title = CASE
+                    WHEN lead_inventory.legacy_title = ''
+                         AND lead_inventory.legacy_state = ''
+                    THEN COALESCE(NULLIF(EXCLUDED.title, ''), lead_inventory.title)
+                    ELSE lead_inventory.legacy_title
+                END,
+                legacy_state = CASE
+                    WHEN lead_inventory.legacy_title = ''
+                         AND lead_inventory.legacy_state = ''
+                    THEN EXCLUDED.state
+                    ELSE lead_inventory.legacy_state
+                END,
                 source_flow = COALESCE(NULLIF(EXCLUDED.source_flow, ''), lead_inventory.source_flow),
                 first_seen_at = LEAST(lead_inventory.first_seen_at, EXCLUDED.first_seen_at),
                 last_distributed_at = CASE

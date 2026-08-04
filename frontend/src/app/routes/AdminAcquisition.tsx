@@ -392,6 +392,7 @@ export function AdminExclusionUpload() {
 
 const DESTINATIONS: TerminalDestination[] = [
   { label: "Acquisition review", href: "/app/admin/acquisition", current: true },
+  { label: "Source Performance", href: "/app/admin/acquisition/performance" },
   { label: "Scraper Operations", href: "/app/admin/acquisition/scraper" },
   // The administrator navigation deliberately omits Security, so this rail is
   // the only way to reach it. Dropping it here would strand the route.

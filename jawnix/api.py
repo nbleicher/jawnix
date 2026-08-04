@@ -1638,6 +1638,27 @@ def create_feedback(
         )
         .limit(1)
     )
+    if payload.disposition in {
+        "appointment_canceled",
+        "appointment_no_show",
+    }:
+        booked = db.scalar(
+            select(LeadDispositionTransition.id)
+            .where(
+                LeadDispositionTransition.distribution_event_id
+                == event.id,
+                LeadDispositionTransition.disposition
+                == "appointment_booked",
+            )
+            .limit(1)
+        )
+        if booked is None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Book an appointment before reporting its later status."
+                ),
+            )
     quality_rating = None
     if payload.quality_rating is not None:
         rating_history = list(
@@ -3606,11 +3627,20 @@ def remove_lead_correction(
         "title": lead.title,
         "state": lead.state,
     }
-    lead.active_correction_id = None
     # Resolve the fallback *after* clearing the override, so the evidence
     # reported is what the Lead actually reverts to rather than the override
-    # that is going away.
+    # that is going away. Restore the override if there is nowhere to land.
+    lead.active_correction_id = None
     evidence = lead_evidence(db, lead)
+    if evidence.kind == "none":
+        lead.active_correction_id = active.id
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This Lead Correction cannot be removed because there is no "
+                "Current Listing or Legacy Listing Snapshot to fall back to."
+            ),
+        )
     removal = LeadCorrectionEvent(
         lead_id=lead.id,
         action="removed",
@@ -3625,12 +3655,8 @@ def remove_lead_correction(
         based_on_state=evidence.state,
     )
     db.add(removal)
-    if evidence.kind == "none":
-        lead.title = lead.legacy_title
-        lead.state = lead.legacy_state
-    else:
-        lead.title = evidence.title
-        lead.state = evidence.state
+    lead.title = evidence.title
+    lead.state = evidence.state
     record_activity(
         db,
         action="lead_correction_removed",
@@ -5122,9 +5148,12 @@ async def telegram_webhook(
         action, target_id = parse_callback_data(callback_value)
     except ValueError:
         try:
-            action, target_id = parse_anomaly_callback_data(
-                callback_value
-            )
+            (
+                action,
+                target_id,
+                target_configuration_version,
+                target_dataset_checksum,
+            ) = parse_anomaly_callback_data(callback_value)
             target_kind = "anomaly"
         except ValueError:
             try:
@@ -5159,6 +5188,38 @@ async def telegram_webhook(
     if user_id not in settings.telegram_approvers or chat_id != settings.telegram_chat_id:
         background_tasks.add_task(telegram.answer_callback, callback_query_id, "Not authorized")
         return {"ok": True, "ignored": True}
+    if target_kind == "anomaly":
+        # A button carries the dataset checksum and Scraper Configuration
+        # version it was rendered against. Rejecting a mismatch here, before
+        # the durable Job even exists, keeps a stale keyboard (an old
+        # message, a superseded configuration) from queuing a decision that
+        # decide_scrape_anomaly's own staged-file checksum check cannot see
+        # coming, because by then the anomaly row may already have moved on.
+        anomaly = db.get(ScrapeAnomaly, target_id)
+        current_configuration_version = (
+            db.scalar(
+                select(ScraperConfiguration.version).where(
+                    ScraperConfiguration.id == anomaly.configuration_id
+                )
+            )
+            if anomaly is not None
+            else None
+        )
+        stale = anomaly is None or (
+            target_dataset_checksum
+            and target_dataset_checksum != anomaly.dataset_checksum[:8]
+        ) or (
+            target_configuration_version is not None
+            and target_configuration_version
+            != current_configuration_version
+        )
+        if stale:
+            background_tasks.add_task(
+                telegram.answer_callback,
+                callback_query_id,
+                "This decision is stale.",
+            )
+            return {"ok": True, "ignored": True}
     try:
         with db.begin_nested():
             db.add(WebhookReceipt(provider="telegram", event_key=update_id))
