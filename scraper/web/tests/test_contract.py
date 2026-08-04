@@ -7,6 +7,7 @@ from pathlib import Path
 import asyncpg
 import pytest
 import yaml
+from app import queries
 from app.contracts import (
     AdjacentKeywordResponse,
     CampaignHistory,
@@ -72,6 +73,11 @@ EXPECTED_ROUTES = {
     ("POST", "/api/source-segments/niche-proposals"),
     ("POST", "/api/source-segments/adjacent-keywords"),
 }
+
+
+def test_history_join_keeps_state_columns_indexable():
+    assert "e.state=h.state" in queries.HISTORY_BASE
+    assert "lower(e.state)" not in queries.HISTORY_BASE
 
 
 def assert_contract(response, model):
