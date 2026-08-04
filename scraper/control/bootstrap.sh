@@ -157,6 +157,28 @@ RestartSec=10
 WantedBy=multi-user.target
 UNIT
 
+cat > /etc/systemd/system/gms-dataset-publication.service <<UNIT
+[Unit]
+Description=Commit the daily Scraper dataset publication
+After=gms-enqueue.service network-online.target
+[Service]
+Type=oneshot
+User=${APP_USER}
+EnvironmentFile=${ENV_FILE}
+WorkingDirectory=${APP_DIR}
+ExecStart=${APP_DIR}/venv/bin/python ${APP_DIR}/control/publish_dataset.py
+TimeoutStartSec=3600
+UNIT
+cat > /etc/systemd/system/gms-dataset-publication.timer <<UNIT
+[Unit]
+Description=Commit the Scraper dataset daily at 08:00 UTC
+[Timer]
+OnCalendar=*-*-* 08:00:00 UTC
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
+
 # Daily global-combine export + campaign rollover (08:00 UTC)
 cat > /etc/systemd/system/gms-export.service <<UNIT
 [Unit]
@@ -229,7 +251,8 @@ ufw --force enable || true
 
 systemctl daemon-reload
 systemctl enable --now gms-serve.service gms-enqueue.service \
-  gms-export.timer gms-alert.timer enqueue-trigger.path || \
+  gms-export.timer gms-alert.timer gms-dataset-publication.timer \
+  enqueue-trigger.path || \
   echo "  (enable services after confirming the binary subcommands)"
 
 echo
