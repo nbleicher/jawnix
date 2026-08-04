@@ -57,6 +57,52 @@ class AllocationResult:
     artifact_id: int | None = None
 
 
+# How long an event delivered to a Deactivated Customer or an unknown legacy
+# recipient holds its Lead for every Customer before the Lead re-enters the
+# pool. Active recipients use the drawing Customer's Cooldown Window instead.
+DEACTIVATED_RECIPIENT_HOLD_DAYS = 3
+
+
+def _recipient_status_clauses():
+    """Active and inactive tests for an event's recipient.
+
+    Events with no recorded Customer fall back to their Agency's status;
+    unknown legacy recipients carry neither and are never active. Status is
+    read at allocation time, so reactivating a Customer re-arms the no-repeat
+    effect of their entire history. Both clauses are spelled out because a
+    NULL agent id makes a negated IN evaluate to NULL rather than true.
+    """
+    active_customers = select(Customer.id).where(
+        Customer.active.is_(True),
+        Customer.deleted_at.is_(None),
+    )
+    active_agencies = select(Agency.id).where(
+        Agency.active.is_(True),
+        Agency.deleted_at.is_(None),
+    )
+    active = or_(
+        DistributionEvent.agent_id.in_(active_customers),
+        and_(
+            DistributionEvent.agent_id.is_(None),
+            DistributionEvent.agency_id.in_(active_agencies),
+        ),
+    )
+    inactive = or_(
+        and_(
+            DistributionEvent.agent_id.isnot(None),
+            DistributionEvent.agent_id.notin_(active_customers),
+        ),
+        and_(
+            DistributionEvent.agent_id.is_(None),
+            or_(
+                DistributionEvent.agency_id.is_(None),
+                DistributionEvent.agency_id.notin_(active_agencies),
+            ),
+        ),
+    )
+    return active, inactive
+
+
 def _same_recipient_clause(request: LeadRequest):
     permanent_customers = select(Customer.id).where(
         Customer.permanent_history_key
@@ -71,22 +117,25 @@ def _same_recipient_clause(request: LeadRequest):
         DistributionEvent.agency_id.in_(permanent_agencies),
     )
     if request.customer.agency_id is None:
-        return or_(
+        same_recipient = or_(
             DistributionEvent.agent_id == request.customer_id,
             permanent_history,
         )
-    same_agency_customers = select(Customer.id).where(
-        Customer.agency_id == request.customer.agency_id
-    )
-    return or_(
-        DistributionEvent.agent_id == request.customer_id,
-        DistributionEvent.agency_id == request.customer.agency_id,
-        and_(
-            DistributionEvent.agency_id.is_(None),
-            DistributionEvent.agent_id.in_(same_agency_customers),
-        ),
-        permanent_history,
-    )
+    else:
+        same_agency_customers = select(Customer.id).where(
+            Customer.agency_id == request.customer.agency_id
+        )
+        same_recipient = or_(
+            DistributionEvent.agent_id == request.customer_id,
+            DistributionEvent.agency_id == request.customer.agency_id,
+            and_(
+                DistributionEvent.agency_id.is_(None),
+                DistributionEvent.agent_id.in_(same_agency_customers),
+            ),
+            permanent_history,
+        )
+    active_recipient, _ = _recipient_status_clauses()
+    return and_(active_recipient, same_recipient)
 
 
 def eligible_query(
@@ -104,9 +153,30 @@ def eligible_query(
     """
 
     cooldown_days = max(1, int(request.customer.cooldown_window_days or 7))
-    cutoff = (
-        as_of or datetime.now(timezone.utc)
-    ) - timedelta(days=cooldown_days)
+    instant = as_of or datetime.now(timezone.utc)
+    cutoff = instant - timedelta(days=cooldown_days)
+    inactive_cutoff = instant - timedelta(days=DEACTIVATED_RECIPIENT_HOLD_DAYS)
+    oldest_cutoff = min(cutoff, inactive_cutoff)
+    active_recipient, inactive_recipient = _recipient_status_clauses()
+    cooling_down = and_(
+        Lead.last_distributed_at.isnot(None),
+        Lead.last_distributed_at > oldest_cutoff,
+        exists(
+            select(DistributionEvent.id).where(
+                DistributionEvent.lead_id == Lead.id,
+                or_(
+                    and_(
+                        DistributionEvent.delivered_at > cutoff,
+                        active_recipient,
+                    ),
+                    and_(
+                        DistributionEvent.delivered_at > inactive_cutoff,
+                        inactive_recipient,
+                    ),
+                ),
+            )
+        ),
+    )
     previously_sent = exists(
         select(DistributionEvent.id).where(
             DistributionEvent.lead_id == Lead.id,
@@ -155,7 +225,7 @@ def eligible_query(
         .where(
             Lead.state.in_(request.states_snapshot),
             Lead.suppressed.is_(False),
-            or_(Lead.last_distributed_at.is_(None), Lead.last_distributed_at <= cutoff),
+            ~cooling_down,
             ~previously_sent,
             ~actively_held,
             ~excluded_phone,
