@@ -20,6 +20,7 @@ export interface CustomerAuthMockOptions {
   overview?: unknown | (() => unknown);
   batchRequests?: unknown | (() => unknown);
   licensedStates?: unknown | (() => unknown);
+  exclusionLists?: unknown | (() => unknown);
   profile?: unknown | (() => unknown);
   /** Defaults to a Free Customer wallet so billing chrome stays hidden. */
   billing?: CustomerBillingMockOptions;
@@ -97,6 +98,7 @@ export async function mockCustomerAuth(
     overview: CUSTOMER_OVERVIEW,
     batchRequests: BATCH_REQUEST_WORKSPACE,
     licensedStates: LICENSED_STATE_ACCOUNT,
+    exclusionLists: [] as unknown[],
     profile: CUSTOMER_ACCOUNT_IDENTITY,
     ...options,
   };
@@ -200,6 +202,10 @@ export async function mockCustomerAuth(
 
   await page.route(/\/api\/me\/licensed-states$/, (route) =>
     json(route, current(settings.licensedStates)),
+  );
+
+  await page.route(/\/api\/me\/exclusion-lists$/, (route) =>
+    json(route, current(settings.exclusionLists)),
   );
 
   await page.route(/\/api\/me\/profile$/, (route) =>
