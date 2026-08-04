@@ -32,6 +32,7 @@ _MILESTONE_BY_STATUS = {
     RequestStatus.waiting_inventory.value: "waiting_inventory",
     RequestStatus.rejected.value: "rejection",
     RequestStatus.failed.value: "failure",
+    RequestStatus.canceled.value: "canceled",
 }
 
 
@@ -45,6 +46,15 @@ def customer_overview_url(settings: Settings) -> str:
     """The authenticated Customer attention queue used by email links."""
 
     return f"{settings.public_base_url.rstrip('/')}/app/overview"
+
+
+def customer_request_url(settings: Settings, request_id: object) -> str:
+    """Deep link to one Batch Request in the Customer portal."""
+
+    return (
+        f"{settings.public_base_url.rstrip('/')}"
+        f"/app/requests?request={request_id}"
+    )
 
 
 def _request_summary(request: LeadRequest) -> str:
@@ -63,7 +73,7 @@ def build_milestone_message(
 ) -> MilestoneMessage:
     """Customer-safe copy for one allow-listed milestone."""
 
-    overview = customer_overview_url(settings)
+    request_url = customer_request_url(settings, request.id)
     summary = _request_summary(request)
     if milestone == "approval":
         subject = f"Batch Request approved — {request.id}"
@@ -93,6 +103,12 @@ def build_milestone_message(
             "duplicate request; review the current timeline for the valid "
             "next action or contact Jawnix for help."
         )
+    elif milestone == "canceled":
+        subject = f"Batch Request canceled — {request.id}"
+        update = (
+            "This Batch Request was canceled because none of its requested "
+            "states remain in your Licensed States. No Leads were reserved."
+        )
     else:
         raise ValueError(f"Unknown Batch Request email milestone: {milestone}")
 
@@ -101,8 +117,8 @@ def build_milestone_message(
         text=(
             f"{update}\n\n"
             f"{summary}\n\n"
-            "View anything that needs your attention after signing in:\n"
-            f"{overview}\n"
+            "Review this Batch Request after signing in:\n"
+            f"{request_url}\n"
         ),
     )
 

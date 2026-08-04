@@ -344,3 +344,61 @@ def test_apply_requires_a_valid_preview_artifact(session, settings):
         assert profile.licensed_states == ["FL", "TX"]
     finally:
         app.dependency_overrides.clear()
+
+
+def test_narrowing_scopes_by_customer_across_replaced_user_accounts(
+    session,
+    settings,
+):
+    """Open requests under a former User Account still narrow with the Customer."""
+    former_user_id = uuid.uuid4()
+    current_user_id = uuid.uuid4()
+    customer = Agent(
+        slug=f"replaced-{current_user_id}",
+        name="Replaced Account Customer",
+        licensed_states=["FL", "TX"],
+    )
+    current = CustomerProfile(
+        user_id=current_user_id,
+        email=f"{current_user_id}@example.com",
+        first_name="Current",
+        last_name="Owner",
+        licensed_states=["FL", "TX"],
+        agent=customer,
+        mapping_confirmed_at=utcnow(),
+    )
+    orphaned = LeadRequest(
+        user_id=former_user_id,
+        agent=customer,
+        lead_count=100,
+        state_mode="all_saved",
+        states_snapshot=["FL", "TX"],
+        delivery_email=current.email,
+        status=RequestStatus.approved.value,
+        approved_at=utcnow(),
+    )
+    session.add_all([customer, current, orphaned])
+    session.commit()
+
+    client = _client(
+        session,
+        settings,
+        user_id=current_user_id,
+        email=current.email,
+    )
+    try:
+        review = _preview(client, states=["FL"])
+        assert len(review["impacts"]) == 1
+        assert review["impacts"][0]["request_id"] == str(orphaned.id)
+        assert review["impacts"][0]["action"] == "narrowed"
+
+        applied = client.post(
+            "/api/me/licensed-states/apply",
+            json={"review_token": review["review_token"]},
+        )
+        assert applied.status_code == 200
+        session.refresh(orphaned)
+        assert orphaned.states_snapshot == ["FL"]
+        assert orphaned.status == RequestStatus.approved.value
+    finally:
+        app.dependency_overrides.clear()

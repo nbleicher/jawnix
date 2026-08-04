@@ -487,6 +487,142 @@ def test_segment_anomaly_boundaries(
         assert segment_result.anomaly_reasons == [expected_reason]
 
 
+def test_non_default_anomaly_thresholds_move_the_hold_boundary(
+    session,
+    tmp_path,
+    monkeypatch,
+):
+    """A 30% drop from a median of 10 (down to 7) passes under the default
+    down_fraction of 0.5 (needs to fall below 5) but is held by a
+    configuration whose down_fraction is 0.25 (holds anything below 7.5).
+    """
+    dataset = tmp_path / "leads.db"
+    _google_maps_dataset(dataset)
+    default_configuration = ScraperConfiguration(
+        version=1,
+        checksum="1" * 64,
+        status="active",
+        anomaly_thresholds={
+            "down_fraction": 0.5,
+            "up_multiplier": 2.0,
+            "history_runs": 7,
+        },
+        created_by=uuid.uuid4(),
+        reason="Default threshold configuration",
+        segments=[
+            SourceSegment(
+                key="default-threshold-segment",
+                niche="Roofing",
+                query="roofing",
+                geography="Texas",
+                parameters={},
+            )
+        ],
+    )
+    strict_configuration = ScraperConfiguration(
+        version=2,
+        checksum="2" * 64,
+        status="active",
+        anomaly_thresholds={
+            "down_fraction": 0.25,
+            "up_multiplier": 3.0,
+            "history_runs": 7,
+        },
+        created_by=uuid.uuid4(),
+        reason="Non-default threshold configuration",
+        segments=[
+            SourceSegment(
+                key="strict-threshold-segment",
+                niche="Roofing",
+                query="roofing",
+                geography="Texas",
+                parameters={},
+            )
+        ],
+    )
+    session.add_all([default_configuration, strict_configuration])
+    session.flush()
+    for configuration, segment_key in (
+        (default_configuration, "default-threshold-segment"),
+        (strict_configuration, "strict-threshold-segment"),
+    ):
+        for index in range(7):
+            historical_run = ScraperRun(
+                source="google_maps",
+                source_version=f"{segment_key}-history-{index}",
+                configuration_id=configuration.id,
+                status="complete",
+            )
+            session.add(historical_run)
+            session.flush()
+            session.add(
+                ScrapeSegmentResult(
+                    scraper_run_id=historical_run.id,
+                    segment_key=segment_key,
+                    niche="Roofing",
+                    geography="Texas",
+                    observed_count=10,
+                    valid_count=10,
+                    new_count=10,
+                    duplicate_count=0,
+                    quarantined_count=0,
+                    anomalous=False,
+                    anomaly_reasons=[],
+                )
+            )
+    session.commit()
+    settings = Settings(
+        JAWNIX_SCRAPER_DB_PATH=dataset,
+        JAWNIX_SCRAPER_COMMAND="fake-google-maps",
+    )
+
+    def dip_scraper(_command, check, env, *, segment_key):
+        assert check is True
+        with sqlite3.connect(env["JAWNIX_SCRAPER_DB_PATH"]) as connection:
+            connection.execute("DELETE FROM leads")
+            connection.executemany(
+                """
+                INSERT INTO leads
+                VALUES (?, ?, '', 'Roofing', 'TX', ?)
+                """,
+                [
+                    (f"512555{number:04d}", f"Dip {number}", segment_key)
+                    for number in range(7)
+                ],
+            )
+
+    monkeypatch.setattr(
+        "jawnix_data.scraper.subprocess.run",
+        lambda command, check, env: dip_scraper(
+            command,
+            check,
+            env,
+            segment_key="default-threshold-segment",
+        ),
+    )
+    lenient_result = run_scrape(session, settings, default_configuration.id)
+    session.commit()
+
+    monkeypatch.setattr(
+        "jawnix_data.scraper.subprocess.run",
+        lambda command, check, env: dip_scraper(
+            command,
+            check,
+            env,
+            segment_key="strict-threshold-segment",
+        ),
+    )
+    strict_result = run_scrape(session, settings, strict_configuration.id)
+    session.commit()
+
+    assert lenient_result["status"] == "published"
+    assert strict_result["status"] == "held_anomaly"
+    strict_segment = session.query(ScrapeSegmentResult).filter_by(
+        scraper_run_id=strict_result["runId"]
+    ).one()
+    assert strict_segment.anomaly_reasons == ["more_than_50_percent_down"]
+
+
 def test_stale_anomaly_confirmation_cannot_replace_newer_output(
     session,
     tmp_path,
@@ -688,6 +824,90 @@ def test_published_dataset_sync_failure_rolls_back_and_retries_same_version(
     ] == ["failed", "complete"]
     session.refresh(publication)
     assert publication.sync_status == "complete"
+
+
+def test_sync_enqueues_fulfill_round_robin_only_on_success_and_leaves_source_untouched(
+    session,
+    tmp_path,
+    monkeypatch,
+):
+    dataset = tmp_path / "leads.db"
+    _google_maps_dataset(dataset)
+    configuration = ScraperConfiguration(
+        version=1,
+        checksum="7" * 64,
+        status="active",
+        anomaly_thresholds={},
+        created_by=uuid.uuid4(),
+        reason="Fulfill trigger and read-only source test",
+        segments=[
+            SourceSegment(
+                key="google_maps",
+                niche="Roofing",
+                query="roofing",
+                geography="Texas",
+                parameters={},
+            )
+        ],
+    )
+    session.add(configuration)
+    session.flush()
+    settings = Settings(
+        JAWNIX_SCRAPER_DB_PATH=dataset,
+        JAWNIX_SCRAPER_COMMAND="fake-google-maps",
+    )
+    monkeypatch.setattr(
+        "jawnix_data.scraper.subprocess.run",
+        lambda *_args, **_kwargs: None,
+    )
+    published = run_scrape(session, settings, configuration.id)
+    session.commit()
+
+    publication = session.query(DatasetPublication).one()
+    source_path = Path(publication.storage_path)
+    source_bytes_before = source_path.read_bytes()
+    source_mtime_before = source_path.stat().st_mtime_ns
+
+    import jawnix_data.scraper as scraper_module
+
+    original_import = scraper_module.import_scraper_sqlite
+
+    def broken_import(*_args, **_kwargs):
+        raise RuntimeError("synthetic outage")
+
+    monkeypatch.setattr(
+        "jawnix_data.scraper.import_scraper_sqlite",
+        broken_import,
+    )
+    failed = sync_dataset_version(
+        session, settings, published["datasetVersion"]
+    )
+    session.commit()
+
+    assert failed["status"] == "sync_failed"
+    assert session.query(Job).filter_by(
+        kind="fulfill_round_robin"
+    ).count() == 0
+    # A failed import attempt only opened the source read-only; nothing
+    # written to it, even though the attempt itself failed midway.
+    assert source_path.read_bytes() == source_bytes_before
+    assert source_path.stat().st_mtime_ns == source_mtime_before
+
+    monkeypatch.setattr(
+        "jawnix_data.scraper.import_scraper_sqlite",
+        original_import,
+    )
+    succeeded = sync_dataset_version(
+        session, settings, published["datasetVersion"]
+    )
+    session.commit()
+
+    assert succeeded["status"] == "complete"
+    assert session.query(Job).filter_by(
+        kind="fulfill_round_robin"
+    ).count() == 1
+    assert source_path.read_bytes() == source_bytes_before
+    assert source_path.stat().st_mtime_ns == source_mtime_before
 
 
 def test_nightly_attempt_activates_scheduled_configuration_and_writes_review(

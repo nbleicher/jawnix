@@ -991,6 +991,7 @@ def test_google_maps_to_customer_feedback_acceptance(
         assert denied_recommendation is not None
         denied_recommendation_id = denied_recommendation.id
         anomaly_id = anomaly.id
+        anomaly_dataset_checksum = anomaly.dataset_checksum
 
     settings.telegram_webhook_secret = "acceptance-webhook-secret"
     settings.telegram_chat_id = "-10020260726"
@@ -1035,6 +1036,8 @@ def test_google_maps_to_customer_feedback_acceptance(
                             "data": anomaly_callback_data(
                                 "deny",
                                 anomaly_id,
+                                dataset_checksum=anomaly_dataset_checksum,
+                                configuration_version=configuration.version,
                             ),
                         },
                     },

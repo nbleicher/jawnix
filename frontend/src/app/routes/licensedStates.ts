@@ -68,6 +68,15 @@ export class LicensedStateRequestError extends Error {
   }
 }
 
+export class ProfileUpdateError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 function csrf(): string {
   const item = document.cookie
     .split(";")
@@ -103,6 +112,33 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     );
   }
   return parsed as T;
+}
+
+/** Update Customer identity fields. Licensed States stay on the review path. */
+export async function updateCustomerProfile(input: {
+  first_name: string;
+  last_name: string;
+  phone: string;
+  licensed_states: string[];
+}): Promise<CustomerAccountIdentity> {
+  const response = await fetch("/api/me/profile", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf(),
+    },
+    credentials: "same-origin",
+    body: JSON.stringify(input),
+  });
+  const parsed = (await response.json().catch(() => ({}))) as ErrorBody &
+    CustomerAccountIdentity;
+  if (!response.ok) {
+    throw new ProfileUpdateError(
+      refusal(parsed, "Profile could not be updated. Please try again."),
+      response.status,
+    );
+  }
+  return parsed;
 }
 
 export async function customerAccountLoader({

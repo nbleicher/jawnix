@@ -24,6 +24,7 @@ import {
   LicensedStateRequestError,
   applyLicensedStateReview,
   previewLicensedStates,
+  updateCustomerProfile,
 } from "./licensedStates";
 import type {
   CustomerAccountIdentity,
@@ -75,30 +76,132 @@ function setupProblems(
   return problems;
 }
 
-function Identity({ identity }: { identity: CustomerAccountIdentity }) {
-  const name = [identity.first_name, identity.last_name]
-    .filter(Boolean)
-    .join(" ");
+function Identity({
+  identity,
+  licensedStates,
+  onSaved,
+}: {
+  identity: CustomerAccountIdentity;
+  licensedStates: string[];
+  onSaved: (next: CustomerAccountIdentity) => void;
+}) {
+  const [firstName, setFirstName] = useState(identity.first_name);
+  const [lastName, setLastName] = useState(identity.last_name);
+  const [phone, setPhone] = useState(identity.phone);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState("");
+  const [saved, setSaved] = useState("");
+
+  useEffect(() => {
+    setFirstName(identity.first_name);
+    setLastName(identity.last_name);
+    setPhone(identity.phone);
+  }, [identity.first_name, identity.last_name, identity.phone]);
+
+  const changed =
+    firstName.trim() !== identity.first_name
+    || lastName.trim() !== identity.last_name
+    || phone.trim() !== identity.phone;
+
+  async function save() {
+    if (!changed || busy) return;
+    setBusy(true);
+    setFailure("");
+    setSaved("");
+    try {
+      const next = await updateCustomerProfile({
+        first_name: firstName,
+        last_name: lastName,
+        phone,
+        licensed_states: licensedStates,
+      });
+      onSaved({
+        ...identity,
+        first_name: next.first_name,
+        last_name: next.last_name,
+        phone: next.phone,
+      });
+      setSaved("Profile saved.");
+    } catch (caught) {
+      setFailure(
+        caught instanceof Error
+          ? caught.message
+          : "Profile could not be updated. Please try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <Section
       title="Identity"
       description="The person currently signed in to this Customer account."
     >
       <Card>
-        <dl className="customer-account__identity">
-          <div>
-            <dt><LabelText>Name</LabelText></dt>
-            <dd>{name || "Not provided"}</dd>
-          </div>
-          <div>
-            <dt><LabelText>Email</LabelText></dt>
-            <dd>{identity.email}</dd>
-          </div>
-          <div>
-            <dt><LabelText>Phone</LabelText></dt>
-            <dd>{identity.phone || "Not provided"}</dd>
-          </div>
-        </dl>
+        <Stack gap={5}>
+          <Fieldset legend="Your details">
+            <Grid minColumnWidth="14rem" gap={4}>
+              <Field label="First name">
+                <Input
+                  value={firstName}
+                  onChange={(event) => {
+                    setSaved("");
+                    setFailure("");
+                    setFirstName(event.currentTarget.value);
+                  }}
+                  autoComplete="given-name"
+                />
+              </Field>
+              <Field label="Last name">
+                <Input
+                  value={lastName}
+                  onChange={(event) => {
+                    setSaved("");
+                    setFailure("");
+                    setLastName(event.currentTarget.value);
+                  }}
+                  autoComplete="family-name"
+                />
+              </Field>
+              <Field
+                label="Email"
+                description="Sign-in email cannot be changed here."
+              >
+                <Input value={identity.email} disabled readOnly />
+              </Field>
+              <Field label="Phone">
+                <Input
+                  type="tel"
+                  value={phone}
+                  onChange={(event) => {
+                    setSaved("");
+                    setFailure("");
+                    setPhone(event.currentTarget.value);
+                  }}
+                  autoComplete="tel"
+                />
+              </Field>
+            </Grid>
+          </Fieldset>
+          {failure ? (
+            <Text tone="danger" role="alert">{failure}</Text>
+          ) : null}
+          {saved ? (
+            <Text tone="success" role="status">{saved}</Text>
+          ) : null}
+          <Cluster justify="flex-end">
+            <Button
+              variant="primary"
+              disabled={!changed}
+              busy={busy}
+              busyLabel="Saving…"
+              onClick={() => void save()}
+            >
+              Save profile
+            </Button>
+          </Cluster>
+        </Stack>
       </Card>
     </Section>
   );
@@ -247,6 +350,7 @@ function ReviewContents({ review }: { review: LicensedStateReview }) {
 export function CustomerAccountRoute() {
   const loaded = useLoaderData<CustomerAccountWorkspace>();
   const revalidator = useRevalidator();
+  const [identity, setIdentity] = useState(loaded.identity);
   const [account, setAccount] = useState(loaded.licensed_states);
   const [selected, setSelected] = useState(loaded.licensed_states.states);
   const [query, setQuery] = useState("");
@@ -256,6 +360,10 @@ export function CustomerAccountRoute() {
   const [failure, setFailure] = useState("");
   const [saved, setSaved] = useState("");
   useDocumentTitle("Account");
+
+  useEffect(() => {
+    setIdentity(loaded.identity);
+  }, [loaded.identity]);
 
   useEffect(() => {
     if (loaded.licensed_states.version === account.version) return;
@@ -274,7 +382,7 @@ export function CustomerAccountRoute() {
   }, [account.options, query]);
 
   const changed = !sameStates(selected, account.states);
-  const problems = setupProblems(loaded.identity, account.states);
+  const problems = setupProblems(identity, account.states);
 
   function toggleState(code: string) {
     setSaved("");
@@ -359,7 +467,11 @@ export function CustomerAccountRoute() {
         </div>
       ) : null}
 
-      <Identity identity={loaded.identity} />
+      <Identity
+        identity={identity}
+        licensedStates={account.states}
+        onSaved={setIdentity}
+      />
       <SetupStatus problems={problems} />
       <CreditLedgerSection />
 

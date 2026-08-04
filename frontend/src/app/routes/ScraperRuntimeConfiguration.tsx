@@ -279,7 +279,7 @@ export function ScraperRuntimeConfigurationRoute() {
     return (
       <Page
         title="Scraper Runtime Configuration"
-        description="Tune Scale coverage, workers, and queue behavior with calculated review before activation."
+        description="Tune Scraper coverage, workers, and queue behavior with calculated review before activation."
       >
         <TerminalWorkspace
           status="OFFLINE / RUNTIME UNAVAILABLE"
@@ -329,8 +329,8 @@ export function ScraperRuntimeConfigurationRoute() {
       setPreview(null);
       setOutcome(
         preserveDraft
-          ? "Current Scale settings reloaded. Your draft is preserved; preview it again."
-          : "Current Scale settings reloaded.",
+          ? "Current Scraper settings reloaded. Your draft is preserved; preview it again."
+          : "Current Scraper settings reloaded.",
       );
     } catch (error) {
       if (!handleExpired(error)) setFailure(message(error));
@@ -385,8 +385,8 @@ export function ScraperRuntimeConfigurationRoute() {
       setReason("");
       setOutcome(
         result.enqueued
-          ? "Scale runtime configuration saved and enqueue requested."
-          : "Scale runtime configuration saved.",
+          ? "Scraper runtime configuration saved and enqueue requested."
+          : "Scraper runtime configuration saved.",
       );
     } catch (error) {
       if (handleExpired(error)) return;
@@ -430,7 +430,7 @@ export function ScraperRuntimeConfigurationRoute() {
   return (
     <Page
       title="Scraper Runtime Configuration"
-      description="Tune Scale coverage, workers, and queue behavior with calculated review before activation."
+      description="Tune Scraper coverage, workers, and queue behavior with calculated review before activation."
       actions={
         <Button
           onClick={() => void reloadCurrent(false)}
@@ -448,7 +448,7 @@ export function ScraperRuntimeConfigurationRoute() {
       >
         <Stack gap={5}>
           <div className="runtime-boundary" role="note">
-            <strong>Scale runtime controls only.</strong>
+            <strong>Scraper runtime controls only.</strong>
             <span>
               Saving here does not edit, publish, activate, or roll back a
               Jawnix Scraper Configuration version.
@@ -472,7 +472,7 @@ export function ScraperRuntimeConfigurationRoute() {
           <Section
             id="runtime-states"
             title="Active states"
-            description={`${draft.states.length} of ${workspace.all_states.length} states are active. Changes alter the next Scale enqueue, not a published Jawnix version.`}
+            description={`${draft.states.length} of ${workspace.all_states.length} states are active. Changes alter the next Scraper enqueue, not a published Jawnix version.`}
           >
             <fieldset className="runtime-state-picker">
               <legend className="runtime-sr-only">Select active states</legend>
@@ -494,7 +494,7 @@ export function ScraperRuntimeConfigurationRoute() {
           <Section
             id="runtime-settings"
             title="Runtime settings"
-            description="Current Scale scrape-process controls, enforced at the existing bounds."
+            description="Current Scraper scrape-process controls, enforced at the existing bounds."
           >
             <Grid minColumnWidth="13rem" gap={3}>
               {RUNTIME_FIELDS.map((field) => (
@@ -536,7 +536,7 @@ export function ScraperRuntimeConfigurationRoute() {
               <label className="runtime-toggle">
                 <span>
                   <strong>Fast mode</strong>
-                  <small>Use Scale’s faster scrape execution path.</small>
+                  <small>Use Scraper’s faster scrape execution path.</small>
                 </span>
                 <input
                   type="checkbox"
@@ -581,7 +581,7 @@ export function ScraperRuntimeConfigurationRoute() {
           <Section
             id="runtime-overrides"
             title="Per-state overrides"
-            description="Leave a value blank to use Scale’s default for that active state."
+            description="Leave a value blank to use Scraper’s default for that active state."
           >
             {activeStates.length ? (
               <div className="runtime-overrides">
@@ -661,7 +661,7 @@ export function ScraperRuntimeConfigurationRoute() {
           <Section
             id="runtime-review"
             title="Preview and save"
-            description="Preview validates this draft against current Scale settings and calculates the state-cell effect. Any later edit requires another preview."
+            description="Preview validates this draft against current Scraper settings and calculates the state-cell effect. Any later edit requires another preview."
           >
             <Stack gap={4}>
               <Cluster gap={3}>
@@ -713,7 +713,7 @@ export function ScraperRuntimeConfigurationRoute() {
                 <span>
                   <strong>Request enqueue after save</strong>
                   <small>
-                    Uses Scale’s current optional enqueue behavior after the
+                    Uses Scraper’s current optional enqueue behavior after the
                     runtime file is saved.
                   </small>
                 </span>

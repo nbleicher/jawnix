@@ -125,9 +125,13 @@ describe("Account identity and setup status", () => {
     );
 
     const identity = screen.getByRole("region", { name: "Identity" });
-    expect(within(identity).getByText("River Morgan")).toBeVisible();
-    expect(within(identity).getByText("river@northstar.example")).toBeVisible();
-    expect(within(identity).getByText("(215) 555-0142")).toBeVisible();
+    expect(within(identity).getByDisplayValue("River")).toBeVisible();
+    expect(within(identity).getByDisplayValue("Morgan")).toBeVisible();
+    expect(within(identity).getByDisplayValue("river@northstar.example")).toBeVisible();
+    expect(within(identity).getByDisplayValue("(215) 555-0142")).toBeVisible();
+    expect(
+      within(identity).getByRole("button", { name: "Save profile" }),
+    ).toBeDisabled();
 
     const status = screen.getByRole("region", { name: "Setup status" });
     expect(

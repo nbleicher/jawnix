@@ -244,6 +244,11 @@ def record_activity(
     actions and their evidence must commit atomically. For a refused action,
     callers must first roll back the failed transaction, then call this helper
     and commit the evidence in a fresh transaction.
+
+    The deliberate exception is break-glass MFA recovery
+    (``jawnix.break_glass``), which must commit authorization and failure
+    evidence at mid-flow checkpoints before and after the external provider
+    call and therefore constructs ``AuditEntry`` rows directly.
     """
     normalized_action = action.strip()
     normalized_target_type = target_type.strip()

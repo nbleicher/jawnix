@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .activity import record_activity
 from .models import (
     DistributionEvent,
     EligibilityHold,
@@ -63,6 +64,20 @@ def apply_disposition_controls(
         )
         session.add(hold)
         session.flush()
+        record_activity(
+            session,
+            action="eligibility_hold_applied",
+            target_type="lead",
+            target_id=event.lead_id,
+            actor_id=transition.actor_user_id,
+            reason=transition.note or transition.disposition,
+            details={
+                "holdId": str(hold.id),
+                "reportId": str(report.id),
+                "distributionEventId": event.id,
+                "disposition": transition.disposition,
+            },
+        )
     return report, hold
 
 
@@ -87,4 +102,17 @@ def release_report_hold(
     hold.released_by = actor_id
     hold.release_reason = reason
     hold.released_at = datetime.now(timezone.utc)
+    record_activity(
+        session,
+        action="eligibility_hold_removed",
+        target_type="lead",
+        target_id=hold.lead_id,
+        actor_id=actor_id,
+        reason=reason,
+        details={
+            "holdId": str(hold.id),
+            "reportId": str(report.id),
+            "distributionEventId": hold.distribution_event_id,
+        },
+    )
     return hold

@@ -17,12 +17,14 @@ from jawnix.models import (
     PerformanceSuggestionNote,
     ScraperConfiguration,
     ScraperRun,
+    ScrapeSegmentResult,
     SourceNicheMapping,
 )
 from jawnix.nightly import run_scheduled_nightly_review
 from jawnix.nightly import activate_scheduled_scraper_configuration
 from jawnix.nightly import propose_niche_mappings
 from jawnix.models import SourceSegment
+from jawnix_data.scraper import create_nightly_review
 from scraper_fake import GenerationFake
 
 
@@ -100,6 +102,182 @@ def test_review_completes_once_after_committed_publication(session):
     assert session.query(Job).filter_by(
         kind="notify_nightly_review"
     ).count() == 1
+
+
+def test_scheduled_review_uses_full_segment_counts_when_run_exists(session):
+    settings = Settings()
+    configuration = ScraperConfiguration(
+        version=1,
+        checksum="a" * 64,
+        status="active",
+        anomaly_thresholds={},
+        created_by=uuid.uuid4(),
+        reason="Test",
+    )
+    run = ScraperRun(
+        source="google_maps",
+        source_version="nightly-test",
+        configuration_id=configuration.id,
+        status="complete",
+    )
+    session.add_all([configuration, run])
+    session.flush()
+    session.add_all(
+        [
+            ScrapeSegmentResult(
+                scraper_run_id=run.id,
+                segment_key="OH::roof repair",
+                niche="Roofing",
+                geography="OH",
+                observed_count=10,
+                valid_count=8,
+                new_count=5,
+                duplicate_count=3,
+                quarantined_count=2,
+                anomalous=True,
+                anomaly_reasons=["more_than_50_percent_down"],
+            ),
+            ScrapeSegmentResult(
+                scraper_run_id=run.id,
+                segment_key="TX::plumber",
+                niche="Plumbing",
+                geography="TX",
+                observed_count=4,
+                valid_count=4,
+                new_count=4,
+                duplicate_count=0,
+                quarantined_count=0,
+                anomalous=False,
+                anomaly_reasons=[],
+            ),
+        ]
+    )
+    session.add(
+        DatasetPublication(
+            version=1,
+            checksum="b" * 64,
+            scraper_run_id=run.id,
+            configuration_id=configuration.id,
+            storage_path="/tmp/test",
+            sync_status="complete",
+            committed_at=datetime(
+                2026, 7, 27, 8, tzinfo=timezone.utc
+            ),
+        )
+    )
+    session.flush()
+
+    review = run_scheduled_nightly_review(
+        session,
+        settings,
+        as_of=datetime(2026, 7, 27, 9, tzinfo=timezone.utc),
+    )
+
+    segments_by_key = {
+        item["key"]: item for item in review.summary["segments"]
+    }
+    assert segments_by_key["OH::roof repair"] == {
+        "key": "OH::roof repair",
+        "niche": "Roofing",
+        "geography": "OH",
+        "observed": 10,
+        "valid": 8,
+        "new": 5,
+        "duplicate": 3,
+        "quarantined": 2,
+        "anomalous": True,
+        "anomalyReasons": ["more_than_50_percent_down"],
+        "state": "OH",
+        "keyword": "roof repair",
+        "confidence": None,
+        "action": None,
+    }
+    assert segments_by_key["TX::plumber"]["anomalous"] is False
+    assert review.summary["inventory"] == {"total": 0, "byState": {}}
+    assert "eligible" not in review.summary["inventory"]
+
+
+def test_scheduled_review_adopts_existing_run_scoped_review(session):
+    settings = Settings()
+    configuration = ScraperConfiguration(
+        version=1,
+        checksum="c" * 64,
+        status="active",
+        anomaly_thresholds={},
+        created_by=uuid.uuid4(),
+        reason="Test",
+    )
+    run = ScraperRun(
+        source="google_maps",
+        source_version="nightly-test-2",
+        configuration_id=configuration.id,
+        status="complete",
+    )
+    session.add_all([configuration, run])
+    session.flush()
+    session.add(
+        ScrapeSegmentResult(
+            scraper_run_id=run.id,
+            segment_key="OH::roof repair",
+            niche="Roofing",
+            geography="OH",
+            observed_count=6,
+            valid_count=5,
+            new_count=5,
+            duplicate_count=0,
+            quarantined_count=1,
+            anomalous=False,
+            anomaly_reasons=[],
+        )
+    )
+    session.add(
+        DatasetPublication(
+            version=1,
+            checksum="d" * 64,
+            scraper_run_id=run.id,
+            configuration_id=configuration.id,
+            storage_path="/tmp/test-2",
+            sync_status="complete",
+            committed_at=datetime(
+                2026, 7, 27, 8, tzinfo=timezone.utc
+            ),
+        )
+    )
+    session.flush()
+
+    # The scrape-run-scoped writer claims this run's NightlyReview first,
+    # exactly as it does at the end of a real nightly scrape.
+    run_scoped_review = create_nightly_review(session, run)
+    session.flush()
+
+    # The calendar-day-scoped writer must not crash when it later tries to
+    # attach the same scraper_run_id to a review_date-keyed row.
+    scheduled_review = run_scheduled_nightly_review(
+        session,
+        settings,
+        as_of=datetime(2026, 7, 27, 9, tzinfo=timezone.utc),
+    )
+
+    assert session.query(NightlyReview).count() == 1
+    assert scheduled_review.id == run_scoped_review.id
+    assert scheduled_review.scraper_run_id == run.id
+    assert scheduled_review.review_date == datetime(2026, 7, 27).date()
+    assert scheduled_review.status == "complete"
+    segment = next(
+        item
+        for item in scheduled_review.summary["segments"]
+        if item["key"] == "OH::roof repair"
+    )
+    assert segment["valid"] == 5
+    assert segment["quarantined"] == 1
+    assert scheduled_review.summary["performance"] == {
+        "snapshotCount": 0,
+        "actionableCount": 0,
+    }
+    assert "recommendations" in scheduled_review.summary
+    assert "exclusionLists" in scheduled_review.summary
+    assert "scraperOperations" in scheduled_review.summary
+    assert "publication" in scheduled_review.summary
 
 
 def test_review_accepts_same_day_external_scraper_publication(
