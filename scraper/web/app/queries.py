@@ -165,7 +165,7 @@ SELECT h.keyword, upper(h.state) AS state, h.last_enqueued,
        count(DISTINCT e.cell) FILTER (WHERE e.status='posted') AS cells_posted,
        min(e.enqueued_at) AS first_enqueued, max(e.updated_at) AS latest_enqueued
 FROM keyword_history h LEFT JOIN enqueue_log e
-  ON e.keyword=h.keyword AND lower(e.state)=lower(h.state)
+  ON e.keyword=h.keyword AND e.state=h.state
 WHERE ($1='' OR h.keyword ILIKE '%' || $1 || '%') AND ($2='' OR lower(h.state)=$2)
 GROUP BY h.keyword,h.state,h.last_enqueued
 """
