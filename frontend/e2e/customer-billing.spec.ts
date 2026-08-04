@@ -110,7 +110,7 @@ test.describe("Account Credit Ledger", () => {
     await expect(ledger.getByText("−$3.75")).toBeVisible();
 
     await expect(
-      page.getByRole("heading", { level: 2, name: "Processing purchases" }),
+      page.getByRole("heading", { level: 2, name: "Recent purchase attempts" }),
     ).toBeVisible();
   });
 

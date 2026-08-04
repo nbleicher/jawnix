@@ -149,9 +149,19 @@ test.describe("Scraper monitoring", () => {
   });
 });
 
+async function openPipelineControls(page: Page, options: OverrideOptions = {}) {
+  const writes = await openWorkspace(page, options);
+  // PipelineControls lives inside the collapsed "Pipeline activity" disclosure.
+  await page
+    .getByRole("group", { name: "Pipeline activity" })
+    .getByRole("heading", { name: "Pipeline activity" })
+    .click();
+  return writes;
+}
+
 test.describe("Pipeline controls", () => {
   test("will not change the pipeline without a recorded reason", async ({ page }) => {
-    const writes = await openWorkspace(page);
+    const writes = await openPipelineControls(page);
 
     await page.getByRole("button", { name: "Pause, keep queue" }).click();
 
@@ -162,7 +172,7 @@ test.describe("Pipeline controls", () => {
   });
 
   test("pauses while keeping the queue", async ({ page }) => {
-    const writes = await openWorkspace(page);
+    const writes = await openPipelineControls(page);
 
     await page.getByRole("textbox", { name: /Reason/ }).fill("Source quality");
     await page.getByRole("button", { name: "Pause, keep queue" }).click();
@@ -177,7 +187,7 @@ test.describe("Pipeline controls", () => {
   });
 
   test("makes clearing the queue a separate, warned choice", async ({ page }) => {
-    const writes = await openWorkspace(page, {
+    const writes = await openPipelineControls(page, {
       pipeline: pausedPipelineResult(812),
     });
 
@@ -208,7 +218,7 @@ test.describe("Pipeline controls", () => {
         },
       };
     }
-    const writes = await openWorkspace(page, {
+    const writes = await openPipelineControls(page, {
       snapshot: paused,
       pipeline: {
         ok: true,
