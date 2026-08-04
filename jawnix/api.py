@@ -3,8 +3,8 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import logging
 import re
-import shutil
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -32,6 +32,7 @@ from .auth import Principal, clear_session, issue_session, require_admin, requir
 from .admin_mfa_api import router as admin_mfa_router
 from .billing import (
     BillingError,
+    close_credit_purchase_for_session,
     complete_credit_purchase_for_session,
     configure_customer_billing,
     place_batch_hold,
@@ -211,7 +212,6 @@ from .telegram import (
     parse_recommendation_callback_data,
     verify_telegram_secret,
 )
-from .transitions import TransitionError, transition_request
 from .fulfillment import (
     TRANSITION_ACTIONS,
     artifact_available,
@@ -219,7 +219,18 @@ from .fulfillment import (
     describe_request,
     workspace as fulfillment_workspace,
 )
+from .transitions import TransitionError, transition_request
 
+
+MAX_CSV_UPLOAD_BYTES = 10 * 1024 * 1024
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
+class UploadTooLargeError(ValueError):
+    pass
+
+
+log = logging.getLogger("jawnix.api")
 
 app = FastAPI(title="Jawnix VPS API", version="1.0.0")
 app.include_router(admin_mfa_router)
@@ -687,6 +698,16 @@ def _current_customer_profile(
     return profile
 
 
+def _mapped_customer_profile(
+    db: Session,
+    principal: Principal,
+) -> CustomerProfile:
+    profile = _current_customer_profile(db, principal)
+    if profile.customer_id is None:
+        raise HTTPException(status_code=404, detail="Customer was not found.")
+    return profile
+
+
 def _store_exclusion_upload(
     upload: UploadFile,
     *,
@@ -696,9 +717,22 @@ def _store_exclusion_upload(
     directory = Path(settings.batch_dir) / "exclusion-lists"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{exclusion_list_id}.csv"
-    with path.open("xb") as stream:
-        shutil.copyfileobj(upload.file, stream)
+    _store_bounded_upload(upload, path)
     return path
+
+
+def _store_bounded_upload(upload: UploadFile, path: Path) -> None:
+    written = 0
+    try:
+        with path.open("xb") as stream:
+            while chunk := upload.file.read(_UPLOAD_CHUNK_BYTES):
+                written += len(chunk)
+                if written > MAX_CSV_UPLOAD_BYTES:
+                    raise UploadTooLargeError
+                stream.write(chunk)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
 
 
 @app.post("/api/me/exclusion-lists", status_code=202)
@@ -709,7 +743,7 @@ def upload_customer_exclusion_list(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    profile = _current_customer_profile(db, principal)
+    profile = _mapped_customer_profile(db, principal)
     normalized_type = exclusion_type.strip().casefold()
     if normalized_type not in EXCLUSION_TYPES:
         raise HTTPException(status_code=422, detail="Unknown Exclusion List type.")
@@ -730,6 +764,12 @@ def upload_customer_exclusion_list(
                 file, exclusion_list_id=item.id, settings=settings
             )
         )
+    except UploadTooLargeError:
+        db.rollback()
+        raise HTTPException(
+            status_code=413,
+            detail="CSV uploads must be 10 MB or smaller.",
+        ) from None
     except OSError as exc:
         db.rollback()
         raise HTTPException(
@@ -765,7 +805,7 @@ def customer_exclusion_list_status(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
-    profile = _current_customer_profile(db, principal)
+    profile = _mapped_customer_profile(db, principal)
     item = db.scalar(
         select(ExclusionList).where(
             ExclusionList.id == exclusion_list_id,
@@ -782,7 +822,7 @@ def list_customer_exclusion_lists(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
-    profile = _current_customer_profile(db, principal)
+    profile = _mapped_customer_profile(db, principal)
     return [
         exclusion_list_status(item, db)
         for item in db.scalars(
@@ -826,6 +866,12 @@ def upload_admin_exclusion_list(
                 file, exclusion_list_id=item.id, settings=settings
             )
         )
+    except UploadTooLargeError:
+        db.rollback()
+        raise HTTPException(
+            status_code=413,
+            detail="CSV uploads must be 10 MB or smaller.",
+        ) from None
     except OSError as exc:
         db.rollback()
         raise HTTPException(
@@ -997,7 +1043,13 @@ async def stripe_billing_webhook(
         return {"ok": True, "duplicate": True}
 
     event_type = str(event.get("type") or "")
-    if event_type != "checkout.session.completed":
+    handled_types = {
+        "checkout.session.completed",
+        "checkout.session.async_payment_succeeded",
+        "checkout.session.async_payment_failed",
+        "checkout.session.expired",
+    }
+    if event_type not in handled_types:
         db.commit()
         return {"ok": True, "ignored": True}
 
@@ -1007,12 +1059,49 @@ async def stripe_billing_webhook(
         db.commit()
         return {"ok": True, "ignored": True}
 
-    try:
-        purchase = complete_credit_purchase_for_session(
-            db,
-            stripe_checkout_session_id=checkout_session_id,
+    payment_status = str(session_payload.get("payment_status") or "")
+    should_credit = (
+        event_type == "checkout.session.async_payment_succeeded"
+        or (
+            event_type == "checkout.session.completed"
+            and payment_status == "paid"
         )
+    )
+    try:
+        if should_credit:
+            purchase = complete_credit_purchase_for_session(
+                db,
+                stripe_checkout_session_id=checkout_session_id,
+                settled_late=(
+                    event_type == "checkout.session.async_payment_succeeded"
+                ),
+            )
+        elif event_type in {
+            "checkout.session.async_payment_failed",
+            "checkout.session.expired",
+        }:
+            purchase = close_credit_purchase_for_session(
+                db,
+                stripe_checkout_session_id=checkout_session_id,
+                status=(
+                    "failed"
+                    if event_type == "checkout.session.async_payment_failed"
+                    else "expired"
+                ),
+            )
+        else:
+            db.commit()
+            return {"ok": True, "pending": True}
     except BillingError as exc:
+        # Stripe retries a non-2xx, so a refusal here repeats until someone
+        # looks. Say which session and why in the log rather than leaving a
+        # silent loop.
+        log.warning(
+            "Stripe %s for session %s was refused: %s",
+            event_type,
+            checkout_session_id,
+            exc.detail,
+        )
         raise HTTPException(
             status_code=exc.status_code,
             detail=exc.detail,
@@ -2841,8 +2930,7 @@ def _store_niche_assignment_upload(
     directory = Path(settings.batch_dir) / "niche-assignments"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{upload_id}.csv"
-    with path.open("xb") as stream:
-        shutil.copyfileobj(upload.file, stream)
+    _store_bounded_upload(upload, path)
     return path
 
 
@@ -2882,6 +2970,12 @@ def upload_niche_assignments(
         item.storage_path = str(
             _store_niche_assignment_upload(file, upload_id=item.id, settings=settings)
         )
+    except UploadTooLargeError:
+        db.rollback()
+        raise HTTPException(
+            status_code=413,
+            detail="CSV uploads must be 10 MB or smaller.",
+        ) from None
     except OSError as exc:
         db.rollback()
         raise HTTPException(

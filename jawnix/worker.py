@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -11,6 +11,7 @@ from .allocation import allocate_request, fulfill_round_robin
 from .config import get_settings
 from .database import SessionLocal
 from .delivery import deliver_request, mark_delivery_failed
+from .billing import release_batch_hold
 from .jobs import claim_next_job, enqueue_job
 from .metrics_emit import EMIT_LEAD_ASSIGNED_JOB, emit_lead_assigned
 from .milestone_emails import (
@@ -19,10 +20,12 @@ from .milestone_emails import (
     send_milestone_email,
 )
 from .models import (
+    ExclusionList,
     Job,
     JobStatus,
     InventoryConflict,
     LeadRequest,
+    NicheAssignmentUpload,
     NightlyReview,
     Notification,
     RequestStatus,
@@ -47,6 +50,44 @@ TELEGRAM_DECISION_JOB_KINDS = frozenset(
         "telegram_exclusion_action",
     }
 )
+
+
+#: The upload row each retryable ingestion Job speaks for.
+INGESTION_JOB_TARGETS: dict[str, tuple[type, str]] = {
+    "ingest_exclusion_list": (ExclusionList, "exclusion_list_id"),
+    "ingest_niche_assignments": (
+        NicheAssignmentUpload,
+        "niche_assignment_upload_id",
+    ),
+}
+
+
+def _fail_exhausted_ingestion(session, job: Job) -> None:
+    """Carry a give-up decision through to the row the uploader watches.
+
+    Every failed attempt rolls its transaction back, so the upload returns to
+    "queued". Once the Job stops retrying nothing else would ever move it, and
+    a permanent fault would read forever as still-waiting.
+    """
+
+    target = INGESTION_JOB_TARGETS.get(job.kind)
+    if target is None:
+        return
+    model, payload_key = target
+    raw_id = job.payload.get(payload_key)
+    if not raw_id:
+        return
+    try:
+        item = session.get(model, uuid.UUID(str(raw_id)))
+    except ValueError:
+        return
+    if item is None or item.status not in {"queued", "ingesting"}:
+        return
+    item.status = "failed"
+    item.error = (
+        "Ingestion failed after repeated attempts. Please upload the file "
+        "again."
+    )
 
 
 def _telegram_action_label(job: Job) -> str:
@@ -564,8 +605,23 @@ def process_job(job_id: int) -> None:
             job = session.get(Job, job_id)
             if job is None:
                 return
-            job.status = JobStatus.failed.value
+            retryable_ingestion = (
+                job.kind in INGESTION_JOB_TARGETS and job.attempts < 3
+            )
+            job.status = (
+                JobStatus.queued.value
+                if retryable_ingestion
+                else JobStatus.failed.value
+            )
             job.last_error = str(exc)[:4000]
+            if retryable_ingestion:
+                job.run_after = utcnow() + timedelta(
+                    seconds=30 * (2 ** max(0, job.attempts - 1))
+                )
+                job.locked_at = None
+                job.locked_by = ""
+            else:
+                _fail_exhausted_ingestion(session, job)
             _enqueue_telegram_action_failure(session, job)
             request = session.get(LeadRequest, job.request_id) if job.request_id else None
             if request is not None and job.kind in {"allocate_request", "deliver_request"}:
@@ -582,6 +638,7 @@ def process_job(job_id: int) -> None:
                 if job.kind == "deliver_request":
                     mark_delivery_failed(session, request.id, str(exc))
                 else:
+                    release_batch_hold(session, request)
                     enqueue_milestone_email(session, request)
                     enqueue_job(session, "update_notification", request.id)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import itertools
 import uuid
 from pathlib import Path
 
@@ -131,35 +132,51 @@ def ingest_exclusion_list(
         return item
 
     item.status = "ingesting"
+    phones: set[str] = set()
+    over_limit = False
     try:
         with Path(item.storage_path).open(
             "r", encoding="utf-8-sig", newline=""
         ) as stream:
-            rows = list(csv.reader(stream))
+            reader = csv.reader(stream)
+            first = next(reader, None)
+            column, leading_rows = _phone_column(
+                [first] if first is not None else []
+            )
+            for row in itertools.chain(leading_rows, reader):
+                if item.total_rows >= MAX_ROWS:
+                    # One row past the cap settles the refusal, so stop there
+                    # rather than recording a count of exactly MAX_ROWS + 1
+                    # for a file that may hold millions.
+                    over_limit = True
+                    break
+                item.total_rows += 1
+                raw_phone = row[column] if column < len(row) else ""
+                phone = normalize_phone(raw_phone)
+                if phone is None:
+                    item.invalid_rows += 1
+                elif phone in phones:
+                    item.duplicate_rows += 1
+                else:
+                    phones.add(phone)
     except (OSError, UnicodeError, csv.Error):
         item.status = "failed"
         item.error = "The CSV could not be read."
         return item
 
-    column, data_rows = _phone_column(rows)
-    item.total_rows = len(data_rows)
-    if not MIN_ROWS <= item.total_rows <= MAX_ROWS:
+    if over_limit:
+        item.status = "failed"
+        item.error = (
+            f"Exclusion Lists must contain {MIN_ROWS:,}–{MAX_ROWS:,} data "
+            f"rows; this file holds more than {MAX_ROWS:,}."
+        )
+        return item
+    if item.total_rows < MIN_ROWS:
         item.status = "failed"
         item.error = (
             f"Exclusion Lists must contain {MIN_ROWS:,}–{MAX_ROWS:,} data rows."
         )
         return item
-
-    phones: set[str] = set()
-    for row in data_rows:
-        raw_phone = row[column] if column < len(row) else ""
-        phone = normalize_phone(raw_phone)
-        if phone is None:
-            item.invalid_rows += 1
-        elif phone in phones:
-            item.duplicate_rows += 1
-        else:
-            phones.add(phone)
     item.accepted_rows = len(phones)
     session.add_all(
         ExclusionPhone(exclusion_list_id=item.id, phone=phone)

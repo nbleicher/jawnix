@@ -94,9 +94,19 @@ def eligible_query(
     settings: Settings,
     *,
     niche_policy_rows: list[dict] | None = None,
+    as_of: datetime | None = None,
 ):
+    """Eligible Leads as of an instant, defaulting to now.
+
+    Analytics passes the instant it is reporting about so that a count and a
+    forecast built from the same call cannot straddle the Cooldown Window
+    boundary and place one Lead in both, or in neither.
+    """
+
     cooldown_days = max(1, int(request.customer.cooldown_window_days or 7))
-    cutoff = datetime.now(timezone.utc) - timedelta(days=cooldown_days)
+    cutoff = (
+        as_of or datetime.now(timezone.utc)
+    ) - timedelta(days=cooldown_days)
     previously_sent = exists(
         select(DistributionEvent.id).where(
             DistributionEvent.lead_id == Lead.id,
@@ -136,7 +146,10 @@ def eligible_query(
         )
         .outerjoin(
             SourceNicheMapping,
-            SourceNicheMapping.segment_key == ListingObservation.source,
+            and_(
+                SourceNicheMapping.segment_key == ListingObservation.source,
+                SourceNicheMapping.denied_at.is_(None),
+            ),
         )
         .outerjoin(NicheAssignment, NicheAssignment.phone == Lead.phone)
         .where(
@@ -158,12 +171,14 @@ def inventory_count(
     settings: Settings,
     *,
     niche_policy_rows: list[dict] | None = None,
+    as_of: datetime | None = None,
 ) -> int:
     eligible_ids = (
         eligible_query(
             request,
             settings,
             niche_policy_rows=niche_policy_rows,
+            as_of=as_of,
         )
         .with_only_columns(Lead.id)
         .order_by(None)
@@ -462,7 +477,7 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
         session.scalars(
             eligible_query(request, settings)
             .limit(request.lead_count)
-            .with_for_update(skip_locked=True)
+            .with_for_update(skip_locked=True, of=Lead)
         )
     )
     if len(candidates) < request.lead_count:

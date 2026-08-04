@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import csv
+import itertools
 import uuid
 from collections import defaultdict
 from pathlib import Path
 
 from sqlalchemy import and_, case, exists, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from .models import (
     Lead,
@@ -24,6 +25,9 @@ from .states import US_STATES, normalize_phone
 
 class NichePolicyError(ValueError):
     pass
+
+
+MAX_ASSIGNMENT_ROWS = 50_000
 
 
 def normalize_policy_rows(rows: list[dict]) -> list[dict]:
@@ -97,36 +101,38 @@ def effective_niche_expression():
 
 def policy_clause(customer_id: int, niche_expression):
     """SQL condition for a Customer's effective state policy."""
+    policy_row = aliased(NichePolicyRow)
+    override_row = aliased(NichePolicyRow)
     state_override = exists(
-        select(NichePolicyRow.id).where(
-            NichePolicyRow.customer_id == customer_id,
-            NichePolicyRow.state == Lead.state,
+        select(override_row.id).where(
+            override_row.customer_id == customer_id,
+            override_row.state == Lead.state,
         )
-    )
+    ).correlate(Lead)
     policy_scope = and_(
-        NichePolicyRow.customer_id == customer_id,
+        policy_row.customer_id == customer_id,
         or_(
-            NichePolicyRow.state == Lead.state,
-            and_(NichePolicyRow.state.is_(None), ~state_override),
+            policy_row.state == Lead.state,
+            and_(policy_row.state.is_(None), ~state_override),
         ),
     )
     comparable_niche = and_(
         niche_expression.is_not(None),
-        func.lower(NichePolicyRow.niche) == func.lower(niche_expression),
+        func.lower(policy_row.niche) == func.lower(niche_expression),
     )
     excluded = exists(
-        select(NichePolicyRow.id).where(
-            policy_scope, NichePolicyRow.mode == "exclude", comparable_niche
+        select(policy_row.id).where(
+            policy_scope, policy_row.mode == "exclude", comparable_niche
         )
     )
     has_only = exists(
-        select(NichePolicyRow.id).where(
-            policy_scope, NichePolicyRow.mode == "only"
+        select(policy_row.id).where(
+            policy_scope, policy_row.mode == "only"
         )
     )
     allowed_only = exists(
-        select(NichePolicyRow.id).where(
-            policy_scope, NichePolicyRow.mode == "only", comparable_niche
+        select(policy_row.id).where(
+            policy_scope, policy_row.mode == "only", comparable_niche
         )
     )
     return and_(~excluded, or_(~has_only, allowed_only))
@@ -183,7 +189,10 @@ def unmapped_inventory_query():
         )
         .outerjoin(
             SourceNicheMapping,
-            SourceNicheMapping.segment_key == ListingObservation.source,
+            and_(
+                SourceNicheMapping.segment_key == ListingObservation.source,
+                SourceNicheMapping.denied_at.is_(None),
+            ),
         )
         .where(SourceNicheMapping.id.is_(None))
         .order_by(Lead.state, Lead.title, Lead.phone)
@@ -219,34 +228,52 @@ def ingest_niche_assignments(
     if item.status != "queued":
         return item
     item.status = "ingesting"
+    assignments: dict[str, str] = {}
     try:
-        with Path(item.storage_path).open("r", encoding="utf-8-sig", newline="") as stream:
-            rows = list(csv.reader(stream))
+        with Path(item.storage_path).open(
+            "r", encoding="utf-8-sig", newline=""
+        ) as stream:
+            reader = csv.reader(stream)
+            header = next(reader, None)
+            if header is None:
+                item.status = "failed"
+                item.error = "The CSV must have phone,niche headers."
+                return item
+            headers = [
+                value.strip().casefold().replace(" ", "_")
+                for value in header
+            ]
+            if "phone" not in headers or "niche" not in headers:
+                item.status = "failed"
+                item.error = "The CSV must have phone,niche headers."
+                return item
+            phone_column = headers.index("phone")
+            niche_column = headers.index("niche")
+            for row in itertools.islice(reader, MAX_ASSIGNMENT_ROWS + 1):
+                item.total_rows += 1
+                if item.total_rows > MAX_ASSIGNMENT_ROWS:
+                    item.status = "failed"
+                    item.error = (
+                        "Niche Assignment uploads may contain at most "
+                        f"{MAX_ASSIGNMENT_ROWS:,} data rows."
+                    )
+                    return item
+                phone = normalize_phone(
+                    row[phone_column] if phone_column < len(row) else ""
+                )
+                niche = (
+                    row[niche_column] if niche_column < len(row) else ""
+                ).strip()
+                if phone is None or not niche or len(niche) > 160:
+                    item.invalid_rows += 1
+                elif phone.casefold() in assignments:
+                    item.duplicate_rows += 1
+                else:
+                    assignments[phone] = niche
     except (OSError, UnicodeError, csv.Error):
         item.status = "failed"
         item.error = "The CSV could not be read."
         return item
-    if not rows:
-        item.status = "failed"
-        item.error = "The CSV must have phone,niche headers."
-        return item
-    headers = [value.strip().casefold().replace(" ", "_") for value in rows[0]]
-    if "phone" not in headers or "niche" not in headers:
-        item.status = "failed"
-        item.error = "The CSV must have phone,niche headers."
-        return item
-    phone_column, niche_column = headers.index("phone"), headers.index("niche")
-    assignments: dict[str, str] = {}
-    item.total_rows = len(rows) - 1
-    for row in rows[1:]:
-        phone = normalize_phone(row[phone_column] if phone_column < len(row) else "")
-        niche = (row[niche_column] if niche_column < len(row) else "").strip()
-        if phone is None or not niche or len(niche) > 160:
-            item.invalid_rows += 1
-        elif phone.casefold() in assignments:
-            item.duplicate_rows += 1
-        else:
-            assignments[phone] = niche
     mapped_phones = {
         phone
         for phone in session.scalars(
@@ -257,7 +284,10 @@ def ingest_niche_assignments(
             )
             .join(
                 SourceNicheMapping,
-                SourceNicheMapping.segment_key == ListingObservation.source,
+                and_(
+                    SourceNicheMapping.segment_key == ListingObservation.source,
+                    SourceNicheMapping.denied_at.is_(None),
+                ),
             )
             .where(Lead.phone.in_(assignments))
         )

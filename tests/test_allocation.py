@@ -6,8 +6,9 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects import postgresql
 
-from jawnix.allocation import allocate_request, fulfill_round_robin
+from jawnix.allocation import allocate_request, eligible_query, fulfill_round_robin
 from jawnix.metrics_emit import EMIT_LEAD_ASSIGNED_JOB
 from jawnix.models import (
     Agency,
@@ -58,6 +59,38 @@ def test_exact_allocation_and_csv(session, settings):
     assert len(rows) == 2
     assert len({row["phone"] for row in rows}) == 2
     assert {row["title"] for row in rows} == {'Owner, "Acme"', "Manager"}
+
+
+def test_allocation_locks_only_lead_rows_on_postgres(
+    session, settings, monkeypatch
+):
+    agent = Agent(slug="postgres-lock", name="Postgres Lock")
+    session.add(agent)
+    session.flush()
+    session.add(Lead(phone="2155550099", title="Lock Me", state="PA"))
+    request = make_request(session, agent, 1, ["PA"])
+    locked_statements: list[str] = []
+    original_scalars = session.scalars
+
+    def tracking_scalars(statement, *args, **kwargs):
+        if getattr(statement, "_for_update_arg", None) is not None:
+            locked_statements.append(
+                str(
+                    statement.compile(
+                        dialect=postgresql.dialect(),
+                        compile_kwargs={"literal_binds": True},
+                    )
+                )
+            )
+        return original_scalars(statement, *args, **kwargs)
+
+    monkeypatch.setattr(session, "scalars", tracking_scalars)
+    allocate_request(session, request.id, settings)
+
+    assert any(
+        "FOR UPDATE OF lead_inventory SKIP LOCKED" in statement
+        for statement in locked_statements
+    )
 
 
 def test_shortage_allocates_nothing(session, settings):

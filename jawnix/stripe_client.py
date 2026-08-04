@@ -86,21 +86,31 @@ class HttpStripeClient:
             form["customer_email"] = customer_email
         for key, value in metadata.items():
             form[f"metadata[{key}]"] = value
-        response = httpx.post(
-            STRIPE_CHECKOUT_SESSIONS_URL,
-            content=urlencode(form),
-            headers={
-                "Authorization": f"Bearer {self._secret_key}",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
-            timeout=30,
-        )
+        try:
+            response = httpx.post(
+                STRIPE_CHECKOUT_SESSIONS_URL,
+                content=urlencode(form),
+                headers={
+                    "Authorization": f"Bearer {self._secret_key}",
+                    "Content-Type": "application/x-www-form-urlencoded",
+                },
+                timeout=30,
+            )
+        except httpx.HTTPError as exc:
+            raise StripeClientError(
+                "Stripe Checkout is temporarily unavailable."
+            ) from exc
         if response.status_code >= 400:
             detail = _stripe_error_message(response)
             raise StripeClientError(
                 detail or "Stripe Checkout Session creation failed."
             )
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise StripeClientError(
+                "Stripe returned an unusable Checkout response."
+            ) from exc
         checkout_url = str(data.get("url") or "").strip()
         checkout_id = str(data.get("id") or "").strip()
         if not checkout_url or not checkout_id:

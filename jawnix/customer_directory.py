@@ -19,16 +19,21 @@ from .models import (
     Agency,
     AgencyMembershipHistory,
     AuditEntry,
+    BatchHold,
     Customer,
     CustomerProfile,
     CustomerTombstone,
+    CreditLedgerEntry,
+    CreditPurchase,
     DistributionEvent,
+    ExclusionList,
     LeadDispositionTransition,
     LeadOutcome,
     LeadReport,
     LeadRequest,
     UserAccount,
     UserAccountInvitation,
+    UserAccountMigrationMapping,
 )
 from .schemas import (
     CustomerActivityEntry,
@@ -147,6 +152,21 @@ def customer_dependency_counts(db: Session, customer_id: int) -> dict[str, int]:
         "agencyMemberships": select(
             func.count(AgencyMembershipHistory.id)
         ).where(AgencyMembershipHistory.customer_id == customer_id),
+        "exclusionLists": select(func.count(ExclusionList.id)).where(
+            ExclusionList.customer_id == customer_id
+        ),
+        "creditLedgerEntries": select(
+            func.count(CreditLedgerEntry.id)
+        ).where(CreditLedgerEntry.customer_id == customer_id),
+        "creditPurchases": select(func.count(CreditPurchase.id)).where(
+            CreditPurchase.customer_id == customer_id
+        ),
+        "batchHolds": select(func.count(BatchHold.id)).where(
+            BatchHold.customer_id == customer_id
+        ),
+        "accountMigrations": select(
+            func.count(UserAccountMigrationMapping.id)
+        ).where(UserAccountMigrationMapping.customer_id == customer_id),
     }
     return {key: int(db.scalar(query) or 0) for key, query in counts.items()}
 
@@ -472,4 +492,3 @@ def _activity(
         )
         for entry in entries
     ]
-
