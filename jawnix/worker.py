@@ -13,7 +13,13 @@ from .database import SessionLocal
 from .delivery import deliver_request, mark_delivery_failed
 from .billing import release_batch_hold
 from .jobs import claim_next_job, enqueue_job
-from .metrics_emit import EMIT_LEAD_ASSIGNED_JOB, emit_lead_assigned
+from .metrics_emit import (
+    EMIT_LEAD_ASSIGNED_JOB,
+    EMIT_MAX_ATTEMPTS,
+    MetricsEmitTransientError,
+    emit_lead_assigned,
+    emit_retry_delay,
+)
 from .milestone_emails import (
     MILESTONE_EMAIL_JOB,
     enqueue_milestone_email,
@@ -604,6 +610,22 @@ def process_job(job_id: int) -> None:
         with SessionLocal.begin() as session:
             job = session.get(Job, job_id)
             if job is None:
+                return
+            if (
+                job.kind == EMIT_LEAD_ASSIGNED_JOB
+                and isinstance(exc, MetricsEmitTransientError)
+                and job.attempts < EMIT_MAX_ATTEMPTS
+            ):
+                # Transient metrics-ingest failure (network / 5xx): reschedule
+                # with backoff instead of failing permanently. Metrics dedups
+                # on distribution_event.id, so re-POSTing is safe. Only after
+                # EMIT_MAX_ATTEMPTS does the job fail for good — and even then
+                # it never touches the customer request's status.
+                job.status = JobStatus.queued.value
+                job.run_after = utcnow() + emit_retry_delay(job.attempts)
+                job.locked_at = None
+                job.locked_by = ""
+                job.last_error = str(exc)[:4000]
                 return
             retryable_ingestion = (
                 job.kind in INGESTION_JOB_TARGETS and job.attempts < 3
