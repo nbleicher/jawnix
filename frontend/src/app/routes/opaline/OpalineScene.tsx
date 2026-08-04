@@ -6,6 +6,7 @@ type SceneState = "animated" | "fallback" | "loading" | "static";
 
 export function OpalineScene({ paused = false }: { paused?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<
     ReturnType<typeof createOpalineScene> | undefined
   >(undefined);
@@ -14,7 +15,8 @@ export function OpalineScene({ paused = false }: { paused?: boolean }) {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const host = hostRef.current;
+    if (!canvas || !host) return;
 
     const reducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
@@ -22,6 +24,7 @@ export function OpalineScene({ paused = false }: { paused?: boolean }) {
     let active = true;
     try {
       const controller = createOpalineScene(canvas, {
+        host,
         reducedMotion,
         onFailure: () => {
           if (active) setSceneState("fallback");
@@ -49,6 +52,7 @@ export function OpalineScene({ paused = false }: { paused?: boolean }) {
 
   return (
     <div
+      ref={hostRef}
       aria-hidden="true"
       className="jx-opaline-scene"
       data-opaline-paused={paused || undefined}

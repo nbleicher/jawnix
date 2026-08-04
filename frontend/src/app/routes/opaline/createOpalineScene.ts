@@ -6,6 +6,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { GammaCorrectionShader } from "three/examples/jsm/shaders/GammaCorrectionShader.js";
 
 export interface OpalineSceneOptions {
+  host: HTMLElement;
   reducedMotion: boolean;
   onFailure: () => void;
   onReady: () => void;
@@ -277,7 +278,7 @@ void main(){ vec2 p = gl_PointCoord - 0.5; float l = length(p); if (l > 0.5) dis
 
 export function createOpalineScene(
   canvas: HTMLCanvasElement,
-  { reducedMotion, onFailure, onReady }: OpalineSceneOptions,
+  { host, reducedMotion, onFailure, onReady }: OpalineSceneOptions,
 ): OpalineSceneController {
   let disposed = false;
   let animationFrame = 0;
@@ -316,9 +317,11 @@ export function createOpalineScene(
   scene.background = new THREE.Color(0x000000);
   scene.fog = null;
 
+  let hostRect = host.getBoundingClientRect();
+
   const camera = new THREE.PerspectiveCamera(
     45,
-    window.innerWidth / window.innerHeight,
+    Math.max(1, hostRect.width) / Math.max(1, hostRect.height),
     0.1,
     200,
   );
@@ -432,8 +435,8 @@ export function createOpalineScene(
     uColor2: { value: hexToVec3("#4fc8ff") },
     uRes: {
       value: new THREE.Vector2(
-        window.innerWidth * window.devicePixelRatio,
-        window.innerHeight * window.devicePixelRatio,
+        hostRect.width * window.devicePixelRatio,
+        hostRect.height * window.devicePixelRatio,
       ),
     },
   };
@@ -455,7 +458,7 @@ export function createOpalineScene(
   composer.addPass(new RenderPass(scene, camera));
   composer.addPass(
     new UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      new THREE.Vector2(hostRect.width, hostRect.height),
       0,
       0,
       1,
@@ -465,8 +468,9 @@ export function createOpalineScene(
 
   let renderStaticFrame: (() => void) | undefined;
   const resize = () => {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    hostRect = host.getBoundingClientRect();
+    const width = Math.max(1, hostRect.width);
+    const height = Math.max(1, hostRect.height);
     const dpr = Math.min(window.devicePixelRatio, 2);
     renderer.setPixelRatio(dpr);
     renderer.setSize(width, height, false);
@@ -477,6 +481,8 @@ export function createOpalineScene(
     moteUniforms.uRes.value.set(width * dpr, height * dpr);
     renderStaticFrame?.();
   };
+  const resizeObserver = new ResizeObserver(resize);
+  resizeObserver.observe(host);
   window.addEventListener("resize", resize, { passive: true });
   resize();
 
@@ -495,16 +501,26 @@ export function createOpalineScene(
   };
 
   const updatePointerTarget = (event: PointerEvent) => {
-    mouseTarget.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouseTarget.y = -((event.clientY / window.innerHeight) * 2 - 1);
+    const width = Math.max(1, hostRect.width);
+    const height = Math.max(1, hostRect.height);
+    mouseTarget.x = clamp(
+      ((event.clientX - hostRect.left) / width) * 2 - 1,
+      -1,
+      1,
+    );
+    mouseTarget.y = clamp(
+      -(((event.clientY - hostRect.top) / height) * 2 - 1),
+      -1,
+      1,
+    );
     POINTER.active = true;
     POINTER.lastMove = performance.now();
   };
   const pointerMove = (event: PointerEvent) => {
     updatePointerTarget(event);
     if (POINTER.pressed) {
-      POINTER.dragX += (event.clientX - POINTER.lastPX) / window.innerWidth;
-      POINTER.dragY += (event.clientY - POINTER.lastPY) / window.innerHeight;
+      POINTER.dragX += (event.clientX - POINTER.lastPX) / Math.max(1, hostRect.width);
+      POINTER.dragY += (event.clientY - POINTER.lastPY) / Math.max(1, hostRect.height);
     }
     POINTER.lastPX = event.clientX;
     POINTER.lastPY = event.clientY;
@@ -637,6 +653,7 @@ export function createOpalineScene(
     dispose() {
       disposed = true;
       if (animationFrame) cancelAnimationFrame(animationFrame);
+      resizeObserver.disconnect();
       window.removeEventListener("resize", resize);
       window.removeEventListener("pointermove", pointerMove);
       window.removeEventListener("pointerdown", pointerDown);
