@@ -198,8 +198,8 @@ describe("Licensed State management", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = typeof input === "string" ? input : String(input);
-        // Reads are free (the Exclusion List section loads on mount); the
-        // assertion below is that nothing MUTATES until confirmation.
+        // Reads are free; the assertion below is that nothing MUTATES
+        // until confirmation.
         if (init?.method && init.method !== "GET") {
           calls.push(`${init.method} ${path}`);
         }

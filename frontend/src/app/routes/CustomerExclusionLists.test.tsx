@@ -98,6 +98,15 @@ describe("Customer Exclusion Lists", () => {
     expect(screen.getByText("Queued")).toBeVisible();
   });
 
+  it("defaults the type to mixed, since real files span all three reasons", async () => {
+    vi.mocked(listMyExclusionLists).mockResolvedValue([]);
+
+    render(<CustomerExclusionListsSection />);
+    await screen.findByText("No Exclusion Lists yet");
+
+    expect(screen.getByLabelText(/Type/)).toHaveValue("mixed");
+  });
+
   it("refuses to submit without a file", async () => {
     const user = userEvent.setup();
     vi.mocked(listMyExclusionLists).mockResolvedValue([]);

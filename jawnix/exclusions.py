@@ -23,7 +23,7 @@ from .models import (
 from .states import normalize_phone
 
 
-EXCLUSION_TYPES = frozenset({"landline", "dnc", "tcpa_litigator"})
+EXCLUSION_TYPES = frozenset({"mixed", "landline", "dnc", "tcpa_litigator"})
 MIN_ROWS = 1_000
 MAX_ROWS = 50_000
 

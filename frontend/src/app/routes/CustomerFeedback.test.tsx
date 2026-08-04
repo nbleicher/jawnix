@@ -202,6 +202,9 @@ function mockApi(options: {
       if (url.includes("/api/me/feedback")) {
         return options.submit ?? json(receipt(), 201);
       }
+      if (url.includes("/api/me/exclusion-lists")) {
+        return json([]);
+      }
       return json({}, 404);
     });
 }
@@ -335,12 +338,18 @@ describe("searching delivered batches", () => {
     });
   });
 
-  it("does not offer a bulk or file-import path", () => {
+  it("does not offer a bulk or file-import path for feedback itself", () => {
     mockApi();
-    const { container } = renderRoute();
+    renderRoute();
 
-    expect(container.querySelector('input[type="file"]')).toBeNull();
-    expect(screen.queryByText(/bulk import|import csv/i)).toBeNull();
+    // Feedback stays one deliberate answer per Lead. The Exclusion List
+    // upload that shares this page imports exclusions, not feedback, so the
+    // guard is scoped to the Find-the-Lead flow rather than the whole page.
+    const findTheLead = screen.getByRole("region", { name: "Find the Lead" });
+    expect(findTheLead.querySelector('input[type="file"]')).toBeNull();
+    expect(
+      within(findTheLead).queryByText(/bulk import|import csv/i),
+    ).toBeNull();
   });
 });
 
