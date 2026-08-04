@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh the cached Database page aggregates
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=scraper
+EnvironmentFile=/opt/gms-scale/.env.control
+WorkingDirectory=/opt/gms-scale
+ExecStart=/opt/gms-scale/venv/bin/python /opt/gms-scale/control/refresh_database_cache.py

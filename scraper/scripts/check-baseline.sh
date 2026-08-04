@@ -27,10 +27,16 @@ scraper_changes/worker-build.patch
 control/alert.py
 control/enqueue.py
 control/export_leads.py
+control/publish_dataset.py
+control/refresh_database_cache.py
 control/uptime_probe.py
 worker/heartbeat.py
 worker/shipper.py
 systemd/gms-alert.service
+systemd/gms-database-cache.service
+systemd/gms-database-cache.timer
+systemd/gms-dataset-publication.service
+systemd/gms-dataset-publication.timer
 systemd/gms-heartbeat.service
 systemd/gms-uptime.service
 systemd/gms-uptime.timer

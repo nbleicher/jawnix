@@ -183,41 +183,14 @@ FROM businesses WHERE COALESCE(phone,'')<>'' GROUP BY state ORDER BY state
 """
 
 DATABASE_STATE_SUMMARIES = """
-WITH cleaned AS (
-  SELECT upper(trim(state)) AS state,
-         CASE
-           WHEN length(regexp_replace(COALESCE(phone,''), '\\D', '', 'g')) = 10
-             THEN regexp_replace(phone, '\\D', '', 'g')
-           WHEN length(regexp_replace(COALESCE(phone,''), '\\D', '', 'g')) = 11
-                AND left(regexp_replace(phone, '\\D', '', 'g'), 1) = '1'
-             THEN right(regexp_replace(phone, '\\D', '', 'g'), 10)
-         END AS normalized_phone,
-         COALESCE(NULLIF(lower(trim(keyword)), ''), '__uncategorized__') AS niche_key
-  FROM businesses
-  WHERE trim(COALESCE(state,'')) ~* '^[a-z]{2}$'
-)
-SELECT state, count(*) AS businesses,
-       count(DISTINCT normalized_phone) FILTER (WHERE normalized_phone IS NOT NULL) AS unique_phones,
-       count(DISTINCT niche_key) AS niches
-FROM cleaned
-GROUP BY state
+SELECT state, businesses, unique_phones, niches
+FROM database_state_summaries_cache
 ORDER BY businesses DESC, state
 """
 
 DATABASE_TOTALS = """
-WITH cleaned AS (
-  SELECT CASE
-    WHEN length(regexp_replace(COALESCE(phone,''), '\\D', '', 'g')) = 10
-      THEN regexp_replace(phone, '\\D', '', 'g')
-    WHEN length(regexp_replace(COALESCE(phone,''), '\\D', '', 'g')) = 11
-         AND left(regexp_replace(phone, '\\D', '', 'g'), 1) = '1'
-      THEN right(regexp_replace(phone, '\\D', '', 'g'), 10)
-  END AS normalized_phone
-  FROM businesses
-)
-SELECT count(*) AS businesses,
-       count(DISTINCT normalized_phone) FILTER (WHERE normalized_phone IS NOT NULL) AS unique_phones
-FROM cleaned
+SELECT businesses, unique_phones
+FROM database_totals_cache
 """
 
 DATABASE_STATE_EXISTS = """

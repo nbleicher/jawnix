@@ -43,6 +43,10 @@ async def seeded_database():
             await connection.execute(migration_up_sql(migration))
         await connection.execute((TESTS / "schema.sql").read_text())
         await connection.execute((TESTS / "seed.sql").read_text())
+        await connection.execute("REFRESH MATERIALIZED VIEW database_totals_cache")
+        await connection.execute(
+            "REFRESH MATERIALIZED VIEW database_state_summaries_cache"
+        )
     finally:
         await connection.close()
 

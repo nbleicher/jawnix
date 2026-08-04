@@ -196,9 +196,31 @@ AccuracySec=10s
 [Install]
 WantedBy=timers.target
 UNIT
+cat >/etc/systemd/system/gms-database-cache.service <<UNIT
+[Unit]
+Description=Refresh the cached Database page aggregates
+After=network-online.target
+[Service]
+Type=oneshot
+User=scraper
+EnvironmentFile=${APP_DIR}/.env.control
+WorkingDirectory=${APP_DIR}
+ExecStart=${APP_DIR}/venv/bin/python ${APP_DIR}/control/refresh_database_cache.py
+UNIT
+cat >/etc/systemd/system/gms-database-cache.timer <<UNIT
+[Unit]
+Description=Refresh the Database page aggregates every five minutes
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+[Install]
+WantedBy=timers.target
+UNIT
 systemctl daemon-reload
 systemctl reset-failed gms-ship.path gms-ship.service gms-alert.service gms-uptime.service || true
-systemctl enable --now gms-ship.path gms-ship.timer gms-heartbeat.timer gms-uptime.timer
+systemctl enable --now gms-ship.path gms-ship.timer gms-heartbeat.timer gms-uptime.timer gms-database-cache.timer
 
 docker compose -f docker-compose.box.yml up -d --build --scale worker="${WORKER_REPLICAS}" scraper-control worker
 echo "Workers: ${WORKER_REPLICAS} replicas (override with WORKER_REPLICAS in ${APP_DIR}/.env)"
