@@ -17,6 +17,7 @@ from jawnix.api import app
 from jawnix.auth import Principal, require_admin
 from jawnix.config import get_settings
 from jawnix.database import get_db
+from jawnix.pool_analytics import compute_cooldown_forecast
 from jawnix.models import (
     Agent,
     DistributionEvent,
@@ -151,6 +152,45 @@ def test_pool_breakdown_groups_by_state_and_niche_with_unmapped_bucket(
         cached = client.get("/api/admin/pool-breakdown").json()
         assert cached["asOf"] == refreshed["asOf"]
         assert cached["cells"] == refreshed["cells"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_pool_breakdown_subtracts_global_exclusions(session, settings):
+    excluded = mapped_lead(
+        session,
+        phone="2145550191",
+        state="TX",
+        segment="TX::excluded-dentist",
+        niche="Dental",
+    )
+    mapped_lead(
+        session,
+        phone="2145550192",
+        state="TX",
+        segment="TX::included-dentist",
+        niche="Dental",
+    )
+    exclusion = ExclusionList(
+        customer_id=None,
+        uploaded_by="admin",
+        exclusion_type="dnc",
+        filename="global.csv",
+        storage_path="/tmp/global.csv",
+        status="confirmed",
+        global_effective=True,
+    )
+    session.add(exclusion)
+    session.flush()
+    session.add(
+        ExclusionPhone(exclusion_list_id=exclusion.id, phone=excluded.phone)
+    )
+    session.commit()
+
+    client = as_admin(session, settings)
+    try:
+        cells = client.post("/api/admin/pool-breakdown/refresh").json()["cells"]
+        assert cells == [{"state": "TX", "niche": "Dental", "count": 1}]
     finally:
         app.dependency_overrides.clear()
 
@@ -397,6 +437,52 @@ def test_cooldown_forecast_counts_leads_becoming_eligible_per_day(
         assert payload["forecast"][4]["date"] == "2026-08-07"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_cooldown_forecast_counts_leads_lapsing_later_today_in_day_zero(
+    session, settings
+):
+    # Pinned mid-day: a wall-clock `as_of` after 22:00 UTC would push a lapse
+    # two hours out into tomorrow and the case under test would not exist.
+    as_of = datetime(2026, 8, 3, 9, 0, tzinfo=timezone.utc)
+    customer = Agent(
+        slug="forecast-day-zero",
+        name="Forecast day zero",
+        licensed_states=["TX"],
+        cooldown_window_days=7,
+    )
+    prior = Agent(slug="forecast-day-zero-prior", name="Prior")
+    session.add_all([customer, prior])
+    session.flush()
+    lead = mapped_lead(
+        session,
+        phone="2145550391",
+        state="TX",
+        segment="TX::day-zero",
+        niche="Dental",
+    )
+    lead.last_distributed_at = as_of - timedelta(days=7) + timedelta(hours=2)
+    session.add(
+        DistributionEvent(
+            lead_id=lead.id,
+            agent_id=prior.id,
+            delivered_at=lead.last_distributed_at,
+            source="test",
+            phone=lead.phone,
+            title=lead.title,
+            state=lead.state,
+        )
+    )
+    session.commit()
+
+    available, forecast = compute_cooldown_forecast(
+        session,
+        customer,
+        settings,
+        as_of=as_of,
+    )
+    assert available == 0
+    assert forecast[0]["count"] == 1
 
 
 def test_projected_availability_and_exclusion_reuse_availability_figure(

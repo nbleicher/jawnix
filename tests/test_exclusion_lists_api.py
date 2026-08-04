@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from jawnix.allocation import inventory_count
-from jawnix.api import app
+from jawnix.api import MAX_CSV_UPLOAD_BYTES, app
 from jawnix.auth import Principal, require_admin, require_principal
 from jawnix.config import Settings, get_settings
 from jawnix.database import get_db
@@ -64,6 +65,55 @@ def customer_client(session, settings):
 def exclusion_csv(row_count: int = 1_000) -> bytes:
     phones = [f"+1 (215) 55{i // 100:01d}-{i % 10000:04d}" for i in range(row_count)]
     return ("phone\n" + "\n".join(phones) + "\n").encode()
+
+
+def test_unmapped_customer_cannot_upload_or_read_admin_exclusion_lists(
+    session,
+    settings,
+):
+    user_id = uuid.uuid4()
+    profile = CustomerProfile(
+        user_id=user_id,
+        email=f"{user_id}@example.com",
+        licensed_states=[],
+    )
+    admin_list = ExclusionList(
+        customer_id=None,
+        uploaded_by="admin",
+        exclusion_type="dnc",
+        filename="admin.csv",
+        storage_path="/tmp/admin.csv",
+    )
+    session.add_all([profile, admin_list])
+    session.commit()
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[require_principal] = lambda: Principal(
+        user_id=user_id,
+        email=profile.email,
+        role="customer",
+        csrf="test",
+    )
+    client = TestClient(app)
+    try:
+        uploaded = client.post(
+            "/api/me/exclusion-lists",
+            data={"type": "dnc"},
+            files={"file": ("customer.csv", exclusion_csv(1), "text/csv")},
+        )
+        assert uploaded.status_code == 404
+        assert session.scalar(select(Job).where(Job.kind == "ingest_exclusion_list")) is None
+
+        listed = client.get("/api/me/exclusion-lists")
+        assert listed.status_code == 404
+        status = client.get(f"/api/me/exclusion-lists/{admin_list.id}")
+        assert status.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_customer_upload_is_ingested_in_the_background_and_status_is_visible(
@@ -138,6 +188,32 @@ def test_customer_upload_is_ingested_in_the_background_and_status_is_visible(
         assert audit.target_id == uploaded["id"]
         assert audit.actor_user_id == str(user_id)
         assert audit.details["customerId"] == customer.id
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_csv_uploads_are_rejected_before_writing_unbounded_files(
+    session,
+    settings,
+):
+    client, _, _ = customer_client(session, settings)
+    try:
+        response = client.post(
+            "/api/me/exclusion-lists",
+            data={"type": "dnc"},
+            files={
+                "file": (
+                    "too-large.csv",
+                    b"x" * (MAX_CSV_UPLOAD_BYTES + 1),
+                    "text/csv",
+                )
+            },
+        )
+        assert response.status_code == 413
+        assert list(
+            (Path(settings.batch_dir) / "exclusion-lists").glob("*.csv")
+        ) == []
+        assert session.scalar(select(Job).where(Job.kind == "ingest_exclusion_list")) is None
     finally:
         app.dependency_overrides.clear()
 
@@ -443,8 +519,86 @@ def test_pending_list_appears_in_nightly_review_with_pool_impact_actions(
             f"jawnix-e:confirm:{upload['id']}",
             f"jawnix-e:deny:{upload['id']}",
         ]
+
+        # An undecided list remains pending work and must return on the next
+        # Nightly Review instead of disappearing behind its first review id.
+        next_run = ScraperRun(
+            source="google_maps",
+            source_version="exclusion-review-next",
+            configuration_id=configuration.id,
+            status="complete",
+        )
+        session.add(next_run)
+        session.flush()
+        session.add(
+            DatasetPublication(
+                version=2,
+                checksum="c" * 64,
+                scraper_run_id=next_run.id,
+                configuration_id=configuration.id,
+                storage_path="/tmp/test-next",
+                sync_status="complete",
+                committed_at=datetime(2026, 8, 4, 8, tzinfo=timezone.utc),
+            )
+        )
+        session.flush()
+        review.telegram_message_id = "555001"
+        session.flush()
+        second = run_scheduled_nightly_review(
+            session,
+            settings,
+            as_of=datetime(2026, 8, 4, 9, tzinfo=timezone.utc),
+        )
+        assert second.id != review.id
+        assert [row["id"] for row in second.summary["exclusionLists"]] == [
+            upload["id"]
+        ]
+        assert session.get(ExclusionList, item.id).nightly_review_id == second.id
+
+        # The first review's message must stop offering the decision that now
+        # belongs to the second review's message.
+        first = session.get(NightlyReview, review.id)
+        assert [row["status"] for row in first.summary["exclusionLists"]] == [
+            "carried_forward"
+        ]
+        text, keyboard = TelegramClient(settings)._nightly_review_message(first)
+        assert "removes 1 currently-available lead" not in text
+        assert keyboard["inline_keyboard"] == []
+        update_jobs = list(
+            session.scalars(
+                select(Job).where(
+                    Job.kind == "update_nightly_review_notification"
+                )
+            )
+        )
+        assert [job.payload["review_id"] for job in update_jobs] == [
+            str(review.id)
+        ]
     finally:
         app.dependency_overrides.clear()
+
+
+def test_nightly_telegram_payload_is_bounded_for_many_pending_lists(settings):
+    review = NightlyReview(
+        summary={
+            "exclusionLists": [
+                {
+                    "id": str(uuid.uuid4()),
+                    "customer": "Very Long Customer Name " * 8,
+                    "type": "tcpa_litigator",
+                    "poolImpact": index,
+                    "status": "pending_confirmation",
+                }
+                for index in range(100)
+            ]
+        }
+    )
+
+    text, keyboard = TelegramClient(settings)._nightly_review_message(review)
+
+    assert len(text) <= 4096
+    assert len(keyboard["inline_keyboard"]) <= 50
+    assert "/app/admin/acquisition#nightly-reviews" in text
 
 
 def test_telegram_confirmation_applies_global_exclusion_and_updates_review(

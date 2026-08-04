@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { CSSProperties, ElementType, HTMLAttributes, ReactNode } from "react";
 
 import "./layout.css";
@@ -178,18 +179,55 @@ export function DisclosureSection({
   defaultOpen = false,
   children,
 }: DisclosureSectionProps) {
+  // Openness lives in state rather than in the DOM alone. Reading the hash at
+  // render time and writing `open` imperatively disagreed on re-render, which
+  // collapsed a section the operator had open the moment anything else on the
+  // page navigated by hash.
+  const [open, setOpen] = useState(
+    () =>
+      defaultOpen ||
+      (Boolean(id) &&
+        typeof window !== "undefined" &&
+        window.location.hash === `#${id}`),
+  );
+
+  useEffect(() => {
+    if (!id) return;
+    const openForHash = () => {
+      if (window.location.hash !== `#${id}`) return;
+      setOpen(true);
+    };
+    openForHash();
+    window.addEventListener("hashchange", openForHash);
+    return () => window.removeEventListener("hashchange", openForHash);
+  }, [id]);
+
+  // Callers pass dynamic values like `defaultOpen={pending.length > 0}`. When
+  // a revalidation flips that to true, the section must open — the operator is
+  // being shown new decidable work — but a false value never force-closes a
+  // section they opened themselves.
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
+
   return (
     <section className="jx-section jx-disclosure-section" aria-label={title}>
-      <details id={id} open={defaultOpen}>
+      <details
+        id={id}
+        open={open}
+        onToggle={(event) => setOpen(event.currentTarget.open)}
+      >
         <summary className="jx-disclosure-section__summary">
-          <span className="jx-disclosure-section__copy">
-            <span className="jx-section__title">{title}</span>
+          {/* A <div>, not a <span>: a heading cannot live inside phrasing
+              content, and <summary>'s content model admits heading content. */}
+          <div className="jx-disclosure-section__copy">
+            <h2 className="jx-section__title">{title}</h2>
             {description ? (
               <span className="jx-section__description">{description}</span>
             ) : null}
-          </span>
+          </div>
           {summary ? (
-            <span className="jx-disclosure-section__value">{summary}</span>
+            <div className="jx-disclosure-section__value">{summary}</div>
           ) : null}
         </summary>
         <div className="jx-disclosure-section__body">{children}</div>

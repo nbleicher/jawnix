@@ -1,4 +1,8 @@
-export type CreditPurchaseStatus = "processing" | "completed";
+export type CreditPurchaseStatus =
+  | "processing"
+  | "completed"
+  | "failed"
+  | "expired";
 
 export type CreditLedgerKind =
   | "purchase"
@@ -70,7 +74,11 @@ export async function loadCreditWallet(): Promise<CreditWallet | null> {
   const response = await fetch(BILLING_PATH, { credentials: "same-origin" });
   if (response.status === 404) return null;
   if (response.status === 401 || response.status === 403) {
-    return null;
+    // Not an answer about the wallet: the session is being refreshed, or it
+    // has ended and the route guard is about to redirect. Either way this is
+    // a failure to read, not evidence that billing does not apply — treating
+    // it as "no wallet" would blank a Billed Customer's billing UI.
+    throw new Error("The Credit Wallet could not be read for this session.");
   }
   if (!response.ok) {
     throw new Error("The Credit Wallet could not be loaded. Please try again.");

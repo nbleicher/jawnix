@@ -32,6 +32,9 @@ ALLOWED_ANOMALY_ACTIONS = {"confirm", "deny"}
 ALLOWED_CONFLICT_ACTIONS = {"confirm", "deny"}
 ALLOWED_RECOMMENDATION_ACTIONS = {"approve", "deny"}
 ALLOWED_EXCLUSION_ACTIONS = {"confirm", "deny"}
+#: Telegram rejects an oversized inline keyboard, so the nightly review keeps
+#: its button rows under a cap and names whatever did not fit.
+NIGHTLY_KEYBOARD_ROWS = 50
 
 
 def verify_telegram_secret(provided: str, expected: str) -> bool:
@@ -328,37 +331,18 @@ class TelegramClient:
         recommendations = review.summary.get("recommendations") or []
         exclusion_lists = review.summary.get("exclusionLists") or []
         failures = review.summary.get("failures") or []
-        text = "\n".join(
-            [
-                "Jawnix Nightly Review",
-                "",
-                f"Configuration: v{configuration.get('version') or 'none'}",
-                f"Run: {run.get('status') or 'unknown'}",
-                f"Dataset: v{dataset.get('version') or 'none'} "
-                f"({dataset.get('syncStatus') or 'not synchronized'})",
-                f"Segments: {len(segments):,} "
-                f"({sum(bool(item.get('anomalous')) for item in segments):,} anomalous)",
-                f"Inventory: {int(inventory.get('total', 0)):,}",
-                f"Waiting requests: {len(waiting):,}",
-                f"Inventory conflicts: {len(conflicts):,}",
-                f"Recommendations: {len(recommendations):,}",
-                f"Exclusion lists: {len(exclusion_lists):,}",
-                f"Failures: {len(failures):,}",
-                *[
-                    (
-                        f"{item.get('customer') or 'Customer'} "
-                        f"{str(item.get('type') or '').replace('_', ' ')}: "
-                        f"removes {int(item.get('poolImpact', 0)):,} "
-                        f"currently-available "
-                        f"{'lead' if int(item.get('poolImpact', 0)) == 1 else 'leads'}"
-                    )
-                    for item in exclusion_lists
-                    if item.get("status") == "pending_confirmation"
-                ],
-                "",
-                f"Review: {self.settings.public_base_url}/app/admin/acquisition#nightly-reviews",
-            ]
+        review_url = (
+            f"{self.settings.public_base_url}"
+            "/app/admin/acquisition#nightly-reviews"
         )
+        # Filtering before the slice is what makes the "…and N more" count
+        # true: slicing first lists fewer than the cap and then counts lists
+        # that were already decided.
+        pending_exclusions = [
+            item
+            for item in exclusion_lists
+            if item.get("status") == "pending_confirmation"
+        ]
         keyboard_rows: list[list[dict[str, str]]] = []
         if anomaly is not None and anomaly.status == "pending":
             keyboard_rows.append(
@@ -423,9 +407,7 @@ class TelegramClient:
                     },
                 ]
             )
-        for item in exclusion_lists:
-            if item.get("status") != "pending_confirmation":
-                continue
+        for item in pending_exclusions:
             exclusion_list_id = uuid.UUID(str(item["id"]))
             keyboard_rows.append(
                 [
@@ -443,7 +425,56 @@ class TelegramClient:
                     },
                 ]
             )
-        keyboard = {"inline_keyboard": keyboard_rows}
+        # Telegram caps an inline keyboard, so past the cap some decisions
+        # have no button. Dropping them quietly would present a complete-
+        # looking review, so the message says how many are only in Jawnix.
+        undecidable_here = max(0, len(keyboard_rows) - NIGHTLY_KEYBOARD_ROWS)
+        keyboard = {"inline_keyboard": keyboard_rows[:NIGHTLY_KEYBOARD_ROWS]}
+        text = "\n".join(
+            [
+                "Jawnix Nightly Review",
+                "",
+                f"Configuration: v{configuration.get('version') or 'none'}",
+                f"Run: {run.get('status') or 'unknown'}",
+                f"Dataset: v{dataset.get('version') or 'none'} "
+                f"({dataset.get('syncStatus') or 'not synchronized'})",
+                f"Segments: {len(segments):,} "
+                f"({sum(bool(item.get('anomalous')) for item in segments):,} anomalous)",
+                f"Inventory: {int(inventory.get('total', 0)):,}",
+                f"Waiting requests: {len(waiting):,}",
+                f"Inventory conflicts: {len(conflicts):,}",
+                f"Recommendations: {len(recommendations):,}",
+                f"Exclusion lists: {len(exclusion_lists):,}",
+                f"Failures: {len(failures):,}",
+                *[
+                    (
+                        f"{item.get('customer') or 'Customer'} "
+                        f"{str(item.get('type') or '').replace('_', ' ')}: "
+                        f"removes {int(item.get('poolImpact', 0)):,} "
+                        f"currently-available "
+                        f"{'lead' if int(item.get('poolImpact', 0)) == 1 else 'leads'}"
+                    )
+                    for item in pending_exclusions[:20]
+                ],
+                (
+                    f"…and {len(pending_exclusions) - 20:,} more pending "
+                    "Exclusion Lists"
+                    if len(pending_exclusions) > 20
+                    else ""
+                ),
+                (
+                    f"{undecidable_here:,} further decisions do not fit on "
+                    "this keyboard; decide them in Jawnix."
+                    if undecidable_here
+                    else ""
+                ),
+                "",
+                f"Review: {review_url}",
+            ]
+        )
+        if len(text) > 4096:
+            suffix = f"\n…\nReview: {review_url}"
+            text = text[: 4096 - len(suffix)] + suffix
         return text, keyboard
 
     def post_nightly_review(

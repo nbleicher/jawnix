@@ -27,7 +27,10 @@ import {
   VisuallyHidden,
 } from "../../design-system/primitives/typography";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
-import { useBilledWallet } from "../billing/CreditWalletContext";
+import {
+  useBilledWallet,
+  useCreditWallet,
+} from "../billing/CreditWalletContext";
 import {
   batchCostCents,
   formatBalanceRefusal,
@@ -203,10 +206,12 @@ function RequestFlow({
   limits,
   billing,
   onSubmitted,
+  onSubmitFailed,
 }: {
   limits: RequestLimits;
   billing: CreditWallet | null;
   onSubmitted: () => void;
+  onSubmitFailed: () => void;
 }) {
   const [stage, setStage] = useState(0);
   const [submissionKey, setSubmissionKey] = useState(newSubmissionKey);
@@ -356,6 +361,10 @@ function RequestFlow({
           ? formatBalanceRefusal(caught.message)
           : "We could not submit this request. Please try again.";
       setFailure(message);
+      // A refusal is exactly when the displayed balance is most likely to be
+      // the stale number that let the request through, so re-read it before
+      // the Customer decides what to do next.
+      onSubmitFailed();
     } finally {
       setBusy(false);
     }
@@ -942,6 +951,7 @@ export function CustomerRequestsRoute() {
   const workspace = useLoaderData<BatchRequestWorkspace>();
   const revalidator = useRevalidator();
   const billing = useBilledWallet();
+  const { refresh: refreshWallet } = useCreditWallet();
   const [searchParams] = useSearchParams();
   const requestId = searchParams.get("request");
 
@@ -988,10 +998,13 @@ export function CustomerRequestsRoute() {
             <RequestDetail
               request={selectedRequest}
               onCanceled={(updated) =>
-                setCanceled((current) => ({
-                  ...current,
-                  [updated.id]: updated,
-                }))
+                {
+                  setCanceled((current) => ({
+                    ...current,
+                    [updated.id]: updated,
+                  }));
+                  void refreshWallet();
+                }
               }
             />
           </Card>
@@ -1030,7 +1043,13 @@ export function CustomerRequestsRoute() {
           <RequestFlow
             limits={workspace.limits}
             billing={billing}
-            onSubmitted={() => void revalidator.revalidate()}
+            onSubmitted={() => {
+              void refreshWallet();
+              void revalidator.revalidate();
+            }}
+            onSubmitFailed={() => {
+              void refreshWallet();
+            }}
           />
         )}
       </Section>

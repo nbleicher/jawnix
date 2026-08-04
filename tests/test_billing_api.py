@@ -11,6 +11,7 @@ from jawnix.allocation import allocate_request
 from jawnix.api import app
 from jawnix.auth import Principal, require_admin, require_principal
 from jawnix.database import get_db
+from jawnix.billing import batch_cost_cents, release_batch_hold
 from jawnix.models import (
     Agent,
     AuditEntry,
@@ -141,6 +142,12 @@ def _submit(
     )
 
 
+def test_positive_billed_batches_have_a_one_cent_floor():
+    assert batch_cost_cents(1, 100) == 1
+    assert batch_cost_cents(4, 100) == 1
+    assert batch_cost_cents(0, 100) == 0
+
+
 def test_billed_submission_is_refused_when_available_balance_cannot_cover_hold(
     session,
 ):
@@ -258,6 +265,104 @@ def test_hold_captures_with_distribution_and_releases_on_cancel_or_reject(
     assert wallet["balanceCents"] == 90
     assert wallet["activeHoldsCents"] == 0
     assert wallet["availableBalanceCents"] == 90
+
+
+def test_retry_after_a_failed_allocation_re_arms_the_released_hold(
+    session,
+    settings,
+):
+    """Releasing the hold on failure must not make the request unretryable."""
+
+    user_id, customer = _customer(session)
+    _configure(session, customer, enabled=True, rate=1_000)
+    _adjust(session, customer, 100)
+
+    response = _submit(
+        session,
+        user_id,
+        lead_count=10,
+        key="billing-retry-0001",
+    )
+    request_id = uuid.UUID(response.json()["request"]["id"])
+    request = session.get(LeadRequest, request_id)
+    request.status = RequestStatus.failed.value
+    release_batch_hold(session, request)
+    session.commit()
+
+    wallet = _as_customer(session, user_id).get("/api/me/billing").json()
+    assert wallet["activeHoldsCents"] == 0
+
+    retried = _as_admin(session).post(
+        f"/api/admin/requests/{request_id}/retry",
+        json={"reason": "The transient allocation fault is resolved."},
+    )
+    assert retried.status_code == 200, retried.text
+    session.expire_all()
+
+    hold = session.scalar(
+        select(BatchHold).where(BatchHold.request_id == request_id)
+    )
+    assert hold.status == "active"
+    assert hold.released_at is None
+    wallet = _as_customer(session, user_id).get("/api/me/billing").json()
+    assert wallet["activeHoldsCents"] == 10
+    assert wallet["availableBalanceCents"] == 90
+
+    # The re-armed hold is the one allocation captures, so the retry completes.
+    session.add_all(
+        [
+            Lead(
+                phone=f"214556{index:04d}",
+                title=f"Retry {index}",
+                state="TX",
+            )
+            for index in range(10)
+        ]
+    )
+    session.commit()
+    allocate_request(session, request_id, settings)
+    session.commit()
+
+    session.expire_all()
+    hold = session.scalar(
+        select(BatchHold).where(BatchHold.request_id == request_id)
+    )
+    assert hold.status == "captured"
+
+
+def test_retry_is_refused_when_the_wallet_no_longer_covers_the_hold(session):
+    user_id, customer = _customer(session)
+    _configure(session, customer, enabled=True, rate=1_000)
+    _adjust(session, customer, 100)
+
+    response = _submit(
+        session,
+        user_id,
+        lead_count=10,
+        key="billing-retry-0002",
+    )
+    request_id = uuid.UUID(response.json()["request"]["id"])
+    request = session.get(LeadRequest, request_id)
+    request.status = RequestStatus.failed.value
+    release_batch_hold(session, request)
+    session.commit()
+    _adjust(session, customer, -95)
+
+    retried = _as_admin(session).post(
+        f"/api/admin/requests/{request_id}/retry",
+        json={"reason": "Trying again after the fault."},
+    )
+    assert retried.status_code == 409
+    assert "available balance" in retried.json()["detail"]
+
+    session.expire_all()
+    hold = session.scalar(
+        select(BatchHold).where(BatchHold.request_id == request_id)
+    )
+    assert hold.status == "released"
+    assert session.get(LeadRequest, request_id).status == (
+        RequestStatus.failed.value
+    )
 
 
 def test_billed_or_free_status_is_frozen_across_customer_toggle_flips(

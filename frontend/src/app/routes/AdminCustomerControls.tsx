@@ -74,10 +74,20 @@ export function formatUsdCents(cents: number): string {
   return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
 }
 
+function formatDollarsPerLead(centsPerThousand: number): string {
+  const [whole, initialFraction] = (centsPerThousand / 100_000)
+    .toFixed(5)
+    .split(".");
+  let fraction = initialFraction ?? "000";
+  while (fraction.length > 3 && fraction.endsWith("0")) {
+    fraction = fraction.slice(0, -1);
+  }
+  return `${whole}.${fraction}`;
+}
+
 export function formatLeadRate(centsPerThousand: number | null): string {
   if (centsPerThousand === null) return "Not set";
-  const dollarsPerLead = centsPerThousand / 100_000;
-  return `${centsPerThousand}¢ per 1,000 leads ($${dollarsPerLead.toFixed(3)}/lead)`;
+  return `${centsPerThousand}¢ per 1,000 leads ($${formatDollarsPerLead(centsPerThousand)}/lead)`;
 }
 
 function ledgerKindLabel(kind: string): string {
@@ -135,7 +145,7 @@ export function CustomerBillingSection({
   const rateValue = Number(leadRate);
   const rateDescription =
     Number.isInteger(rateValue) && rateValue > 0
-      ? `Integer from 100 to 2000. ${rateValue} = $${(rateValue / 100_000).toFixed(3)} per lead.`
+      ? `Integer from 100 to 2000. ${rateValue} = $${formatDollarsPerLead(rateValue)} per lead.`
       : "Integer from 100 to 2000. Example: 1000 = $0.010 per lead.";
   const configureReady =
     configureReason.trim().length > 0 &&
@@ -477,7 +487,23 @@ function toDraftRows(rows: NichePolicyRowView[]): DraftPolicyRow[] {
   }));
 }
 
+function hasNiches(row: DraftPolicyRow): boolean {
+  return row.niches.split(",").some((niche) => niche.trim().length > 0);
+}
+
+function isBlankRow(row: DraftPolicyRow): boolean {
+  // A chosen State with no Niches is a half-finished edit, not an empty row;
+  // treating it as blank would let a Save silently clear the policy while a
+  // State sits visibly selected.
+  return !row.state.trim() && !hasNiches(row);
+}
+
 function parseDraftRows(rows: DraftPolicyRow[]): NichePolicyRowView[] {
+  // The editor always holds at least one row, so leaving every row's Niches
+  // empty is the only way an administrator can express "no Niche Policy".
+  // Rows are dropped only when *all* of them are blank; a single blank row
+  // beside a filled one is a mistake the editor refuses rather than discards.
+  if (rows.every(isBlankRow)) return [];
   return rows
     .map((row) => ({
       state: row.state.trim() ? row.state.trim().toUpperCase() : null,
@@ -486,8 +512,7 @@ function parseDraftRows(rows: DraftPolicyRow[]): NichePolicyRowView[] {
         .split(",")
         .map((niche) => niche.trim())
         .filter(Boolean),
-    }))
-    .filter((row) => row.niches.length > 0);
+    }));
 }
 
 function describeRow(row: NichePolicyRowView): string {
@@ -551,6 +576,8 @@ export function CustomerNichePolicySection({
   }
 
   const ready = reason.trim().length > 0 && projected !== null;
+  const clearing = draft.every(isBlankRow);
+  const rowsValid = clearing || draft.every(hasNiches);
 
   return (
     <Section
@@ -636,8 +663,9 @@ export function CustomerNichePolicySection({
                         </Select>
                       </Field>
                     </Grid>
-                    <Field label="Niches" required>
+                    <Field label="Niches" required={!clearing}>
                       <Input
+                        required={!clearing}
                         value={row.niches}
                         onChange={(event) =>
                           updateRow(row.id, { niches: event.target.value })
@@ -672,6 +700,18 @@ export function CustomerNichePolicySection({
             </Stack>
           </Fieldset>
 
+          {clearing ? (
+            <Text size="sm" tone="muted" role="status">
+              Every row is empty, so saving removes this Customer's Niche
+              Policy entirely.
+            </Text>
+          ) : !rowsValid ? (
+            <Text size="sm" tone="danger" role="alert">
+              Every row needs at least one Niche. Remove the empty rows, or
+              empty them all to clear the policy.
+            </Text>
+          ) : null}
+
           <div>
             <Button
               onClick={() => {
@@ -692,7 +732,11 @@ export function CustomerNichePolicySection({
           </div>
 
           <Cluster gap={3} align="center">
-            <Button onClick={() => void previewAvailability()} busy={previewBusy}>
+            <Button
+              onClick={() => void previewAvailability()}
+              busy={previewBusy}
+              disabled={!rowsValid}
+            >
               Preview projected availability
             </Button>
             {projected !== null ? (
@@ -718,7 +762,7 @@ export function CustomerNichePolicySection({
             <Button
               variant="primary"
               busy={dialog.busy}
-              disabled={!ready}
+              disabled={!ready || !rowsValid}
               onClick={() =>
                 void dialog.run(() =>
                   api(`/api/admin/customers/${customerId}/niche-policy`, {

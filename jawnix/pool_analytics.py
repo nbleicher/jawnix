@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from .allocation import _same_recipient_clause, inventory_count
@@ -56,6 +56,20 @@ def _actively_held():
     )
 
 
+def _globally_excluded():
+    return exists(
+        select(ExclusionPhone.phone)
+        .join(
+            ExclusionList,
+            ExclusionList.id == ExclusionPhone.exclusion_list_id,
+        )
+        .where(
+            ExclusionPhone.phone == Lead.phone,
+            ExclusionList.global_effective.is_(True),
+        )
+    )
+
+
 def compute_pool_breakdown(session: Session) -> list[dict]:
     """Inventory composition by state × effective Niche (unmapped as its bucket)."""
     niche = effective_niche_expression()
@@ -68,10 +82,17 @@ def compute_pool_breakdown(session: Session) -> list[dict]:
         )
         .outerjoin(
             SourceNicheMapping,
-            SourceNicheMapping.segment_key == ListingObservation.source,
+            and_(
+                SourceNicheMapping.segment_key == ListingObservation.source,
+                SourceNicheMapping.denied_at.is_(None),
+            ),
         )
         .outerjoin(NicheAssignment, NicheAssignment.phone == Lead.phone)
-        .where(Lead.suppressed.is_(False), ~_actively_held())
+        .where(
+            Lead.suppressed.is_(False),
+            ~_actively_held(),
+            ~_globally_excluded(),
+        )
         .group_by(Lead.state, niche_label)
         .order_by(Lead.state, niche_label)
     ).all()
@@ -121,6 +142,7 @@ def compute_customer_available(
     settings: Settings,
     *,
     niche_policy_rows: list[dict] | None = None,
+    as_of: datetime | None = None,
 ) -> int:
     if not customer.licensed_states:
         return 0
@@ -129,6 +151,7 @@ def compute_customer_available(
         _projection_request(customer),
         settings,
         niche_policy_rows=niche_policy_rows,
+        as_of=as_of,
     )
 
 
@@ -164,7 +187,10 @@ def _candidate_base_query(customer: Customer):
         )
         .outerjoin(
             SourceNicheMapping,
-            SourceNicheMapping.segment_key == ListingObservation.source,
+            and_(
+                SourceNicheMapping.segment_key == ListingObservation.source,
+                SourceNicheMapping.denied_at.is_(None),
+            ),
         )
         .outerjoin(NicheAssignment, NicheAssignment.phone == Lead.phone)
         .where(
@@ -201,19 +227,27 @@ def compute_cooldown_forecast(
         return 0, empty
 
     cooldown_days = max(1, int(customer.cooldown_window_days or 7))
-    available = compute_customer_available(session, customer, settings)
+    # Both halves must read the same instant. Counting "available now" against
+    # the wall clock while bucketing the rest against `as_of` puts a Lead
+    # whose Cooldown Window lapses between the two reads in both or neither.
+    available = compute_customer_available(
+        session, customer, settings, as_of=as_of
+    )
     cutoff_today = as_of - timedelta(days=cooldown_days)
 
     counts = {0: available}
     for offset in range(1, FORECAST_DAYS + 1):
         counts[offset] = 0
 
-    leads = list(session.scalars(_candidate_base_query(customer)))
+    last_distributions = session.scalars(
+        _candidate_base_query(customer)
+        .with_only_columns(Lead.last_distributed_at)
+        .order_by(None)
+    )
     today = as_of.date()
-    for lead in leads:
-        if lead.last_distributed_at is None:
+    for last in last_distributions:
+        if last is None:
             continue
-        last = lead.last_distributed_at
         if last.tzinfo is None:
             last = last.replace(tzinfo=timezone.utc)
         if last <= cutoff_today:
@@ -221,7 +255,7 @@ def compute_cooldown_forecast(
             continue
         eligible_on = (last + timedelta(days=cooldown_days)).date()
         offset = (eligible_on - today).days
-        if 1 <= offset <= FORECAST_DAYS:
+        if 0 <= offset <= FORECAST_DAYS:
             counts[offset] += 1
 
     forecast = [
@@ -287,6 +321,7 @@ def project_customer_availability(
             customer,
             settings,
             niche_policy_rows=niche_policy_rows,
+            as_of=as_of,
         ),
     }
 

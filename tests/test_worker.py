@@ -13,6 +13,8 @@ from jawnix.milestone_emails import MILESTONE_EMAIL_JOB
 from jawnix.models import (
     Agent,
     AuditEntry,
+    BatchHold,
+    ExclusionList,
     Job,
     JobStatus,
     LeadRequest,
@@ -90,6 +92,148 @@ def test_telegram_request_decision_uses_shared_activity_record(
             "before": {"status": "pending"},
             "after": {"status": "approved"},
         }
+    engine.dispose()
+
+
+def test_failed_allocation_releases_the_active_batch_hold(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'failed-allocation.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    with factory.begin() as session:
+        customer = Agent(
+            slug="failed-billed-allocation",
+            name="Failed billed allocation",
+            billing_enabled=True,
+            lead_rate_cents_per_thousand=1_000,
+        )
+        request = LeadRequest(
+            user_id=uuid.uuid4(),
+            agent=customer,
+            lead_count=10,
+            states_snapshot=["TX"],
+            delivery_email="failure@example.com",
+            status="approved",
+            is_billed=True,
+            lead_rate_cents_per_thousand=1_000,
+            billing_amount_cents=10,
+        )
+        session.add_all([customer, request])
+        session.flush()
+        hold = BatchHold(
+            request_id=request.id,
+            customer_id=customer.id,
+            amount_cents=10,
+            status="active",
+        )
+        job = Job(
+            kind="allocate_request",
+            request_id=request.id,
+            status=JobStatus.running.value,
+        )
+        session.add_all([hold, job])
+        session.flush()
+        job_id = job.id
+        request_id = request.id
+
+    monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
+    monkeypatch.setattr(
+        "jawnix.worker.allocate_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("simulated allocation failure")
+        ),
+    )
+    process_job(job_id)
+
+    with factory() as session:
+        request = session.get(LeadRequest, request_id)
+        hold = session.scalar(
+            select(BatchHold).where(BatchHold.request_id == request_id)
+        )
+        assert request.status == "failed"
+        assert hold.status == "released"
+        assert hold.released_at is not None
+    engine.dispose()
+
+
+def test_transient_ingestion_failures_are_retried(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'ingestion-retry.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    with factory.begin() as session:
+        job = Job(
+            kind="ingest_exclusion_list",
+            payload={"exclusion_list_id": str(uuid.uuid4())},
+            status=JobStatus.running.value,
+            attempts=1,
+        )
+        session.add(job)
+        session.flush()
+        job_id = job.id
+
+    monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
+    monkeypatch.setattr(
+        "jawnix.exclusions.ingest_exclusion_list",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("temporary database failure")
+        ),
+    )
+    process_job(job_id)
+
+    with factory() as session:
+        job = session.get(Job, job_id)
+        assert job.status == JobStatus.queued.value
+        assert job.locked_at is None
+        assert job.run_after > job.created_at
+        assert "temporary database failure" in job.last_error
+    engine.dispose()
+
+
+def test_exhausted_ingestion_retries_mark_the_list_failed(tmp_path, monkeypatch):
+    """The uploader watches the list, not the Job, so the list must move."""
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'ingestion-exhausted.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    with factory.begin() as session:
+        customer = Agent(slug="exhausted-upload", name="Exhausted upload")
+        session.add(customer)
+        session.flush()
+        item = ExclusionList(
+            customer_id=customer.id,
+            uploaded_by="customer:exhausted",
+            exclusion_type="dnc",
+            filename="dnc.csv",
+            storage_path=str(tmp_path / "dnc.csv"),
+            status="queued",
+        )
+        session.add(item)
+        session.flush()
+        job = Job(
+            kind="ingest_exclusion_list",
+            payload={"exclusion_list_id": str(item.id)},
+            status=JobStatus.running.value,
+            attempts=3,
+        )
+        session.add(job)
+        session.flush()
+        job_id = job.id
+        list_id = item.id
+
+    monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
+    monkeypatch.setattr(
+        "jawnix.exclusions.ingest_exclusion_list",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("permanent database failure")
+        ),
+    )
+    process_job(job_id)
+
+    with factory() as session:
+        job = session.get(Job, job_id)
+        item = session.get(ExclusionList, list_id)
+        assert job.status == JobStatus.failed.value
+        assert item.status == "failed"
+        assert "again" in item.error
     engine.dispose()
 
 

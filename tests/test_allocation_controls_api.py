@@ -336,6 +336,98 @@ def test_only_rule_hides_unmapped_leads_and_projected_availability(
         app.dependency_overrides.clear()
 
 
+def test_state_policy_fully_overrides_all_states_default(session, settings):
+    customer, request = customer_with_request(
+        session, slug="policy-override", states=["TX", "FL"]
+    )
+    roof_tx = mapped_lead(
+        session,
+        phone="2145550491",
+        state="TX",
+        segment="TX::roofers-override",
+        niche="roofing",
+    )
+    roof_fl = mapped_lead(
+        session,
+        phone="3055550492",
+        state="FL",
+        segment="FL::roofers-override",
+        niche="roofing",
+    )
+    session.commit()
+
+    client = as_admin(session, settings)
+    try:
+        rows = [
+            {"state": None, "mode": "exclude", "niches": ["roofing"]},
+            {"state": "TX", "mode": "only", "niches": ["roofing"]},
+        ]
+        preview = client.post(
+            f"/api/admin/customers/{customer.id}/niche-policy/projected-availability",
+            json={"rows": rows},
+        )
+        assert preview.status_code == 200, preview.text
+        assert preview.json()["available"] == 1
+
+        saved = client.put(
+            f"/api/admin/customers/{customer.id}/niche-policy",
+            json={"rows": rows, "reason": "TX overrides the default"},
+        )
+        assert saved.status_code == 200, saved.text
+        session.expire_all()
+
+        assert inventory_count(session, request, settings) == 1
+        assert {
+            lead.phone for lead in session.scalars(eligible_query(request, settings))
+        } == {roof_tx.phone}
+        assert roof_fl.phone != roof_tx.phone
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_denied_source_mapping_yields_to_manual_niche_assignment(
+    session, settings
+):
+    customer, request = customer_with_request(
+        session, slug="denied-mapping", states=["TX"]
+    )
+    lead = mapped_lead(
+        session,
+        phone="2145550493",
+        state="TX",
+        segment="TX::denied-source",
+        niche="roofing",
+    )
+    mapping = session.scalar(
+        select(SourceNicheMapping).where(
+            SourceNicheMapping.segment_key == "TX::denied-source"
+        )
+    )
+    mapping.denied_at = datetime.now(timezone.utc)
+    mapping.denied_by = "admin"
+    session.add(NicheAssignment(phone=lead.phone, niche="solar"))
+    session.commit()
+
+    client = as_admin(session, settings)
+    try:
+        saved = client.put(
+            f"/api/admin/customers/{customer.id}/niche-policy",
+            json={
+                "rows": [
+                    {"state": None, "mode": "only", "niches": ["solar"]}
+                ],
+                "reason": "Use the manual stamp after denial",
+            },
+        )
+        assert saved.status_code == 200, saved.text
+        session.expire_all()
+        assert inventory_count(session, request, settings) == 1
+        exported = client.get("/api/admin/niche-assignments/export")
+        assert lead.phone in exported.text
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_niche_assignment_export_upload_and_segment_precedence(
     session, settings, monkeypatch
 ):

@@ -9,6 +9,7 @@ Distribution Events continue to point at their original snapshots.
 from __future__ import annotations
 
 import threading
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -16,6 +17,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from .activity import record_activity
+from .allocation import eligible_query
 from .config import Settings
 from .models import (
     Agency,
@@ -23,8 +25,8 @@ from .models import (
     AuditEntry,
     Customer,
     DistributionEvent,
-    EligibilityHold,
     Lead,
+    LeadRequest,
     SharedHistoryLeadCount,
     utcnow,
 )
@@ -600,26 +602,30 @@ def _history_lead_ids(
 def _eligible_inventory_count(
     db: Session,
     *,
+    customer: Customer,
     blocked_lead_ids: set[int],
     settings: Settings,
+    as_of: datetime | None = None,
 ) -> int:
-    cutoff = datetime.now(timezone.utc) - timedelta(
-        days=settings.global_cooldown_days
+    projection = LeadRequest(
+        agent=customer,
+        agent_id=customer.id,
+        user_id=uuid.uuid4(),
+        lead_count=1,
+        states_snapshot=list(customer.licensed_states or []),
+        state_mode="all_saved",
+        delivery_email="agency-preview@invalid",
+        status="approved",
     )
-    held = select(EligibilityHold.lead_id).where(
-        EligibilityHold.active.is_(True)
-    )
-    query = select(func.count(Lead.id)).where(
-        Lead.suppressed.is_(False),
-        or_(
-            Lead.last_distributed_at.is_(None),
-            Lead.last_distributed_at <= cutoff,
-        ),
-        ~Lead.id.in_(held),
+    query = (
+        eligible_query(projection, settings, as_of=as_of)
+        .with_only_columns(Lead.id)
+        .order_by(None)
     )
     if blocked_lead_ids:
         query = query.where(~Lead.id.in_(blocked_lead_ids))
-    return int(db.scalar(query) or 0)
+    eligible = query.subquery()
+    return int(db.scalar(select(func.count()).select_from(eligible)) or 0)
 
 
 def assignment_preview(
@@ -638,6 +644,7 @@ def assignment_preview(
     source_leads = _history_lead_ids(db, source)
     target_leads = _history_lead_ids(db, target)
     combined_leads = source_leads | target_leads
+    preview_as_of = datetime.now(timezone.utc)
     return {
         "customer": {
             "id": customer.id,
@@ -668,15 +675,22 @@ def assignment_preview(
             else None
         ),
         "inventory": {
+            # One instant for both counts: a Cooldown Window lapsing between
+            # them would otherwise read as an inventory delta caused by the
+            # assignment itself.
             "eligibleBefore": _eligible_inventory_count(
                 db,
+                customer=customer,
                 blocked_lead_ids=source_leads,
                 settings=settings,
+                as_of=preview_as_of,
             ),
             "eligibleAfter": _eligible_inventory_count(
                 db,
+                customer=customer,
                 blocked_lead_ids=combined_leads,
                 settings=settings,
+                as_of=preview_as_of,
             ),
         },
         "sharedHistory": {
