@@ -151,11 +151,17 @@ test.describe("Scraper monitoring", () => {
 
 async function openPipelineControls(page: Page, options: OverrideOptions = {}) {
   const writes = await openWorkspace(page, options);
-  // PipelineControls lives inside the collapsed "Pipeline activity" disclosure.
-  await page
-    .getByRole("group", { name: "Pipeline activity" })
-    .getByRole("heading", { name: "Pipeline activity" })
-    .click();
+  // PipelineControls lives inside the "Pipeline activity" disclosure, which
+  // ships collapsed. Only click it open when it is actually closed, so a
+  // future default-open Panel does not get toggled shut here.
+  const panel = page.getByRole("group", { name: "Pipeline activity" });
+  const open = await panel.evaluate(
+    (element) => (element as HTMLDetailsElement).open,
+  );
+  if (!open) {
+    await panel.getByRole("heading", { name: "Pipeline activity" }).click();
+  }
+  await expect(panel).toHaveJSProperty("open", true);
   return writes;
 }
 

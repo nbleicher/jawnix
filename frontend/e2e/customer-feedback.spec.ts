@@ -102,6 +102,7 @@ test.describe("Searching delivered batches", () => {
     // Feedback stays one deliberate answer per Lead. Exclusion List upload
     // shares this page, so the no-bulk-import guard is scoped to Find-the-Lead.
     const findTheLead = page.getByRole("region", { name: "Find the Lead" });
+    await expect(findTheLead).toBeVisible();
     await expect(findTheLead.locator('input[type="file"]')).toHaveCount(0);
     await expect(findTheLead.getByText(/bulk import|import csv/i)).toHaveCount(0);
   });
