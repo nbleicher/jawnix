@@ -706,3 +706,30 @@ def test_telegram_confirmation_applies_global_exclusion_and_updates_review(
         ) is not None
     finally:
         app.dependency_overrides.clear()
+
+
+def test_mixed_type_upload_is_accepted_for_lists_spanning_reasons(
+    session,
+    settings,
+):
+    """A real customer file mixes landline, DNC, and TCPA phones (#153
+    amendment): 'mixed' is a first-class type, and unknown types still 422."""
+
+    client, _, _ = customer_client(session, settings)
+    try:
+        response = client.post(
+            "/api/me/exclusion-lists",
+            data={"type": "mixed"},
+            files={"file": ("mixed.csv", exclusion_csv(), "text/csv")},
+        )
+        assert response.status_code == 202, response.text
+        assert response.json()["type"] == "mixed"
+
+        refused = client.post(
+            "/api/me/exclusion-lists",
+            data={"type": "wireless"},
+            files={"file": ("mixed.csv", exclusion_csv(), "text/csv")},
+        )
+        assert refused.status_code == 422
+    finally:
+        app.dependency_overrides.clear()

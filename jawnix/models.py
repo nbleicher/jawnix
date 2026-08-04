@@ -732,7 +732,7 @@ class ExclusionList(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "exclusion_type IN ('landline', 'dnc', 'tcpa_litigator')",
+            "exclusion_type IN ('mixed', 'landline', 'dnc', 'tcpa_litigator')",
             name="ck_exclusion_lists_type",
         ),
     )

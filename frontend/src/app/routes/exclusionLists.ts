@@ -24,6 +24,10 @@ export interface ExclusionListStatus {
 }
 
 export const EXCLUSION_TYPES = [
+  // Mixed leads: real customer files hold landline, DNC, and TCPA phones in
+  // one CSV, so the blended type is the default and the exclusive types are
+  // for customers who do keep separated lists.
+  { value: "mixed", label: "Mixed (landline, DNC, TCPA litigator)" },
   { value: "landline", label: "Landline" },
   { value: "dnc", label: "DNC registry" },
   { value: "tcpa_litigator", label: "TCPA litigator" },

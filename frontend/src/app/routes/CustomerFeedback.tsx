@@ -15,6 +15,7 @@ import {
 import { StatusBadge } from "../../design-system/primitives/status";
 import { Heading, Text } from "../../design-system/primitives/typography";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
+import { CustomerExclusionListsSection } from "./CustomerExclusionLists";
 
 import "./CustomerFeedback.css";
 
@@ -646,6 +647,8 @@ export function CustomerFeedbackRoute() {
             </Section>
           </>
         ) : null}
+
+        <CustomerExclusionListsSection />
       </Stack>
     </Page>
   );
