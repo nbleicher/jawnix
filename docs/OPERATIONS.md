@@ -455,6 +455,40 @@ Manifest data wins on phone collisions. Scraper-only rows use their valid source
 
 After import, reconcile table totals, inventory by state, distinct normalized phones, agent and agency histories, quarantine reasons, source provenance, profiles, and pending requests. Run `python -m jawnix_data inventory` and state-specific dry runs before enabling customers.
 
+### 2026-08-04 go-live catch-up import
+
+The legacy `dat` distributor kept running after the pinned snapshot above and
+made its final distribution on the morning of 2026-08-04, jawnix's go-live day
+as sole distributor. A second, final manifest snapshot was frozen after that
+last run and imported the same day:
+
+| Source | Rows | SHA-256 |
+|---|---:|---|
+| `util/archive/manifest.csv` (2026-08-04 final) | 7,318,933 CSV-aware rows | `baae778036d8ef8a2cbc9caf8f3295c116b3480c314382dab4aa9304f46ac8df` |
+| `util/config.json` (2026-08-04 final) | — | `dfb32d46cb3bb92a793e2ade99a6d24075ffa8872e8289f65b4142bc039eef98` |
+
+Only `import-manifest` was rerun. `import-config` was intentionally skipped:
+every manifest agent slug already existed in production, and re-importing the
+config would have forced `active = true` onto agents that the operator
+deactivated the same day. The importer's event dedup makes the overlap with
+the first import a no-op; the only duplicate-capable rows are the 209
+`history`-slug rows, whose unknown-recipient events carry a NULL agent id.
+
+The same day, the operator set the durable roster: active Customers are jo,
+max, jack, spencer, tony, noah, tim, seth, alex, webb, sofia, and sailor from
+the legacy manifest plus the jawnix-native matthew and ali; amir, pryce,
+robert, ron, trevor, and zach were deactivated. Standalone `tony-aca` and
+`downs` (already tombstoned) intentionally have no Customer records; their
+manifest rows import as unknown-recipient events. Under the allocation rules
+that shipped with go-live (PR #170), deactivated and unknown recipients impose
+no permanent no-repeat block — their events hold each Lead for a flat three
+days, after which the Lead re-enters the pool. Reactivating a Customer re-arms
+their full history.
+
+The `dat` directory is retired and permanently read-only as of this import.
+Its manifest is superseded by `distribution_events`; jawnix is the only
+distribution log going forward.
+
 ## One-time User Account migration
 
 This is an offline cutover operation, not an administrator screen. Its input is
