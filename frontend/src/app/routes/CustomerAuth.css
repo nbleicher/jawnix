@@ -18,7 +18,13 @@
     linear-gradient(145deg, #12060d, #03040c 72%);
 }
 
+/* Absolute so the drawing-buffer size (set as width/height attributes by the
+   renderer) never feeds grid track sizing — in flow, height:100% cannot
+   resolve against an auto-sized track and the buffer's intrinsic size
+   inflates the row past the viewport. */
 .jx-opaline-scene canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
@@ -125,7 +131,7 @@
 @media (min-width: 64rem) {
   .jx-auth-route {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) min(50%, 44rem);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-rows: auto 1fr;
   }
 
