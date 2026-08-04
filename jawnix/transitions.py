@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .activity import record_activity
-from .billing import release_batch_hold
+from .billing import BillingError, reinstate_batch_hold, release_batch_hold
 from .fulfillment import RequestActionContext, available_action_names
 from .jobs import enqueue_job
 from .milestone_emails import enqueue_milestone_email
@@ -68,6 +68,12 @@ def transition_request(
         enqueue_job(db, "update_notification", item.id)
         enqueue_job(db, "fulfill_round_robin")
     elif action == "retry":
+        # A failed allocation released the hold, so the retry has to reserve
+        # the frozen amount again before allocation can capture anything.
+        try:
+            reinstate_batch_hold(db, item)
+        except BillingError as exc:
+            raise TransitionError(exc.detail, exc.status_code) from None
         item.status = RequestStatus.approved.value
         item.status_message = "Retry approved; allocation is queued."
         # The request is moving again, so it no longer has a stopping point.

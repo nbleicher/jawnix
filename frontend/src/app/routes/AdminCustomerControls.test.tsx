@@ -50,6 +50,9 @@ describe("admin billing and allocation money formatting", () => {
     expect(formatLeadRate(1000)).toBe(
       "1000¢ per 1,000 leads ($0.010/lead)",
     );
+    expect(formatLeadRate(150)).toBe(
+      "150¢ per 1,000 leads ($0.0015/lead)",
+    );
   });
 });
 
@@ -225,6 +228,84 @@ describe("CustomerCooldownSection", () => {
 });
 
 describe("CustomerNichePolicySection", () => {
+  it("does not silently drop a row whose required Niches field is empty", async () => {
+    const user = userEvent.setup();
+    render(
+      <CustomerNichePolicySection
+        policy={{ rows: [{ state: "TX", mode: "exclude", niches: ["solar"] }] }}
+        customerId={7}
+        onChanged={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Niche Policy" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit Niche Policy" });
+    const preview = within(dialog).getByRole("button", {
+      name: "Preview projected availability",
+    });
+    expect(preview).toBeEnabled();
+
+    // A blank row beside a filled one is a half-finished edit, not a clear.
+    await user.click(within(dialog).getByRole("button", { name: "Add row" }));
+    expect(preview).toBeDisabled();
+    expect(
+      within(dialog).getByText(/Every row needs at least one Niche/),
+    ).toBeVisible();
+
+    await user.type(
+      within(dialog).getAllByLabelText("Niches (required)")[1]!,
+      "roofing",
+    );
+    expect(preview).toBeEnabled();
+  });
+
+  it("clears a Niche Policy when every row is emptied", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api)
+      .mockResolvedValueOnce({ available: 1200 })
+      .mockResolvedValueOnce({ rows: [] });
+
+    render(
+      <CustomerNichePolicySection
+        policy={{ rows: [{ state: null, mode: "exclude", niches: ["solar"] }] }}
+        customerId={7}
+        onChanged={onChanged}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit Niche Policy" }));
+    const dialog = screen.getByRole("dialog", { name: "Edit Niche Policy" });
+    await user.clear(within(dialog).getByLabelText("Niches (required)"));
+    expect(
+      within(dialog).getByText(/saving removes this Customer's Niche Policy/),
+    ).toBeVisible();
+
+    await user.click(
+      within(dialog).getByRole("button", {
+        name: "Preview projected availability",
+      }),
+    );
+    await user.type(
+      within(dialog).getByLabelText("Reason (required)"),
+      "Customer took every Niche",
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: "Save Niche Policy" }),
+    );
+
+    expect(api).toHaveBeenCalledWith(
+      "/api/admin/customers/7/niche-policy",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify({
+          rows: [],
+          reason: "Customer took every Niche",
+        }),
+      }),
+    );
+  });
+
   it("requires a projected-availability preview before save", async () => {
     const user = userEvent.setup();
     const onChanged = vi.fn().mockResolvedValue(undefined);

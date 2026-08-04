@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -18,12 +19,17 @@ from jawnix.config import Settings, get_settings
 from jawnix.database import get_db
 from jawnix.models import (
     Agent,
+    AuditEntry,
     CreditLedgerEntry,
     CreditPurchase,
     CustomerProfile,
     UserAccount,
 )
-from jawnix.stripe_client import CheckoutSession
+from jawnix.stripe_client import (
+    CheckoutSession,
+    HttpStripeClient,
+    StripeClientError,
+)
 
 
 WEBHOOK_SECRET = "whsec_test_credit_purchase"
@@ -391,6 +397,126 @@ def test_purchase_stays_processing_until_webhook_lands(session):
     assert after["ledger"][0]["kind"] == "purchase"
 
 
+def test_unpaid_completion_waits_and_async_failure_closes_without_credit(session):
+    fake = FakeStripeClient()
+    settings = _billing_settings(fake)
+    user_id, _, _ = _customer(session)
+    client = _as_customer(session, settings, user_id)
+    created = client.post(
+        "/api/me/billing/purchases",
+        json={"amount_dollars": 10},
+    ).json()
+    session_id = fake.created[0]["session"].id
+
+    unpaid = _checkout_completed_event(
+        event_id="evt_test_unpaid_completion",
+        session_id=session_id,
+        amount_cents=1_000,
+        metadata={"purchase_id": created["purchase"]["id"]},
+    )
+    unpaid["data"]["object"]["payment_status"] = "unpaid"
+    response = _post_webhook(client, fake, unpaid)
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "pending": True}
+    assert client.get("/api/me/billing").json()["balanceCents"] == 0
+
+    failed = {
+        **unpaid,
+        "id": "evt_test_async_failure",
+        "type": "checkout.session.async_payment_failed",
+    }
+    assert _post_webhook(client, fake, failed).status_code == 200
+    wallet = client.get("/api/me/billing").json()
+    assert wallet["balanceCents"] == 0
+    assert wallet["ledger"] == []
+    assert wallet["purchases"][0]["status"] == "failed"
+
+
+def test_delayed_payment_success_credits_the_wallet_once(session):
+    fake = FakeStripeClient()
+    settings = _billing_settings(fake)
+    user_id, _, _ = _customer(session)
+    client = _as_customer(session, settings, user_id)
+    created = client.post(
+        "/api/me/billing/purchases",
+        json={"amount_dollars": 30},
+    ).json()
+    session_id = fake.created[0]["session"].id
+
+    unpaid = _checkout_completed_event(
+        event_id="evt_test_delayed_unpaid",
+        session_id=session_id,
+        amount_cents=3_000,
+        metadata={"purchase_id": created["purchase"]["id"]},
+    )
+    unpaid["data"]["object"]["payment_status"] = "unpaid"
+    assert _post_webhook(client, fake, unpaid).status_code == 200
+    assert client.get("/api/me/billing").json()["balanceCents"] == 0
+
+    settled = {
+        **unpaid,
+        "id": "evt_test_delayed_settled",
+        "type": "checkout.session.async_payment_succeeded",
+    }
+    assert _post_webhook(client, fake, settled).status_code == 200
+    wallet = client.get("/api/me/billing").json()
+    assert wallet["balanceCents"] == 3_000
+    assert wallet["purchases"][0]["status"] == "completed"
+    assert wallet["ledger"][0]["kind"] == "purchase"
+
+    replay = {**settled, "id": "evt_test_delayed_settled_replay"}
+    assert _post_webhook(client, fake, replay).status_code == 200
+    assert client.get("/api/me/billing").json()["balanceCents"] == 3_000
+    assert session.scalar(select(func.count(CreditLedgerEntry.id))) == 1
+
+
+def test_payment_settling_after_expiry_still_credits_the_wallet(session):
+    """Money that arrives late is still money the Customer paid."""
+
+    fake = FakeStripeClient()
+    settings = _billing_settings(fake)
+    user_id, _, _ = _customer(session)
+    client = _as_customer(session, settings, user_id)
+    created = client.post(
+        "/api/me/billing/purchases",
+        json={"amount_dollars": 15},
+    ).json()
+    session_id = fake.created[0]["session"].id
+
+    base = _checkout_completed_event(
+        event_id="evt_test_late_expired",
+        session_id=session_id,
+        amount_cents=1_500,
+        metadata={"purchase_id": created["purchase"]["id"]},
+    )
+    base["data"]["object"]["payment_status"] = "unpaid"
+    expired = {**base, "type": "checkout.session.expired"}
+    assert _post_webhook(client, fake, expired).status_code == 200
+    assert client.get("/api/me/billing").json()["purchases"][0]["status"] == (
+        "expired"
+    )
+
+    settled = {
+        **base,
+        "id": "evt_test_late_settled",
+        "type": "checkout.session.async_payment_succeeded",
+    }
+    assert _post_webhook(client, fake, settled).status_code == 200
+    wallet = client.get("/api/me/billing").json()
+    assert wallet["balanceCents"] == 1_500
+    assert wallet["purchases"][0]["status"] == "completed"
+    assert session.scalar(select(func.count(CreditLedgerEntry.id))) == 1
+    # The unusual ordering must leave audit evidence, not just a balance.
+    assert (
+        session.scalar(
+            select(func.count(AuditEntry.id)).where(
+                AuditEntry.action == "credit_purchase_settled_after_close"
+            )
+        )
+        == 1
+    )
+
+
 def test_purchase_rejects_sub_dollar_amounts(session):
     fake = FakeStripeClient()
     settings = _billing_settings(fake)
@@ -403,3 +529,22 @@ def test_purchase_rejects_sub_dollar_amounts(session):
     )
     assert response.status_code == 422
     assert fake.created == []
+
+
+def test_stripe_network_failures_are_translated_to_service_errors(monkeypatch):
+    client = HttpStripeClient(secret_key="sk_test", webhook_secret="whsec_test")
+    monkeypatch.setattr(
+        "jawnix.stripe_client.httpx.post",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            httpx.ConnectTimeout("Stripe timed out")
+        ),
+    )
+
+    with pytest.raises(StripeClientError, match="temporarily unavailable"):
+        client.create_checkout_session(
+            amount_cents=100,
+            customer_email=None,
+            metadata={},
+            success_url="https://example.test/success",
+            cancel_url="https://example.test/cancel",
+        )

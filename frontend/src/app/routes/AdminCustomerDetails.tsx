@@ -119,6 +119,9 @@ export interface CustomerDetailsData {
   /** Cached pool availability; omitted when the details payload is reused elsewhere. */
   availability?: CustomerAvailabilityView;
   exclusionLists?: CustomerExclusionListView[];
+  /** Sections whose own fetch failed, so the page renders without them.
+   *  An absent section and a broken one look identical otherwise. */
+  unavailableSections?: string[];
 }
 
 interface CustomerExclusionListView {
@@ -189,6 +192,11 @@ const DEPENDENCY_LABELS: Record<string, string> = {
   userAccounts: "User Accounts",
   invitations: "Invitations",
   agencyMemberships: "Agency memberships",
+  exclusionLists: "Exclusion Lists",
+  creditLedgerEntries: "Credit Ledger entries",
+  creditPurchases: "Credit Purchases",
+  batchHolds: "Batch Holds",
+  accountMigrations: "User Account migration records",
 };
 
 function dependencyLabel(key: string): string {
@@ -207,8 +215,20 @@ export async function adminCustomerDetailsLoader({
   params,
 }: LoaderFunctionArgs): Promise<CustomerDetailsData> {
   const customerId = params.customerId;
+  const details = await api<
+    Omit<
+      CustomerDetailsData,
+      | "agencies"
+      | "billing"
+      | "cooldown"
+      | "nichePolicy"
+      | "availability"
+      | "exclusionLists"
+      | "activityTimeline"
+      | "unavailableSections"
+    >
+  >(`/api/admin/customers/${customerId}/details`);
   const [
-    details,
     directory,
     activityTimeline,
     billing,
@@ -217,43 +237,55 @@ export async function adminCustomerDetailsLoader({
     availability,
     exclusionLists,
   ] = await Promise.all([
-    api<
-      Omit<
-        CustomerDetailsData,
-        | "agencies"
-        | "billing"
-        | "cooldown"
-        | "nichePolicy"
-        | "availability"
-        | "exclusionLists"
-        | "activityTimeline"
-      >
-    >(`/api/admin/customers/${customerId}/details`),
     api<{
       agencies: { id: number; name: string; active: boolean }[];
-    }>("/api/admin/agencies/directory"),
-    loadEntityActivity("customer", customerId),
-    api<CustomerBillingView>(`/api/admin/customers/${customerId}/billing`),
+    }>("/api/admin/agencies/directory").catch(() => undefined),
+    loadEntityActivity("customer", customerId).catch(() => undefined),
+    api<CustomerBillingView>(
+      `/api/admin/customers/${customerId}/billing`,
+    ).catch(() => undefined),
     api<CooldownWindowView>(
       `/api/admin/customers/${customerId}/cooldown-window`,
-    ),
-    api<NichePolicyView>(`/api/admin/customers/${customerId}/niche-policy`),
+    ).catch(() => undefined),
+    api<NichePolicyView>(
+      `/api/admin/customers/${customerId}/niche-policy`,
+    ).catch(() => undefined),
     api<CustomerAvailabilityView>(
       `/api/admin/customers/${customerId}/availability`,
-    ),
+    ).catch(() => undefined),
     api<CustomerExclusionListView[]>(
       `/api/admin/customers/${customerId}/exclusion-lists`,
-    ),
+    ).catch(() => undefined),
   ]);
+  // A section that failed to load is not a section that does not exist, and
+  // an administrator making a decision needs to know which one they are
+  // looking at. Naming the gap keeps the page usable without letting a
+  // transient error read as "this Customer has no Billing".
+  const unavailableSections = [
+    billing === undefined ? "Billing" : null,
+    cooldown === undefined ? "Cooldown Window" : null,
+    availability === undefined ? "Availability" : null,
+    nichePolicy === undefined ? "Niche Policy" : null,
+    exclusionLists === undefined ? "Customer Exclusion Lists" : null,
+    activityTimeline === undefined ? "Activity" : null,
+    directory === undefined ? "Agency directory" : null,
+  ].filter((label): label is string => label !== null);
   return {
     ...details,
-    activityTimeline,
-    billing,
-    cooldown,
-    nichePolicy,
-    availability,
-    exclusionLists,
-    agencies: directory.agencies.map(({ id, name, active }) => ({
+    activityTimeline: activityTimeline ?? {
+      entries: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      pages: 1,
+    },
+    ...(billing ? { billing } : {}),
+    ...(cooldown ? { cooldown } : {}),
+    ...(nichePolicy ? { nichePolicy } : {}),
+    ...(availability ? { availability } : {}),
+    ...(exclusionLists ? { exclusionLists } : {}),
+    ...(unavailableSections.length ? { unavailableSections } : {}),
+    agencies: (directory?.agencies ?? []).map(({ id, name, active }) => ({
       id,
       name,
       active,
@@ -503,6 +535,21 @@ export function AdminCustomerDetailsRoute() {
         <ActionLink href="/app/admin/customers">Back to Customers</ActionLink>
       }
     >
+      {data.unavailableSections?.length ? (
+        <Card>
+          <Stack gap={3} align="flex-start">
+            <Text role="alert" tone="danger" size="sm">
+              These sections could not be loaded and are missing from this
+              page: {data.unavailableSections.join(", ")}. Everything else is
+              current.
+            </Text>
+            <Button onClick={() => revalidator.revalidate()}>
+              Retry loading
+            </Button>
+          </Stack>
+        </Card>
+      ) : null}
+
       <Section
         title="Customer"
         description="The durable party. This identity, its Agency membership, and its Licensed States do not change when access is replaced."

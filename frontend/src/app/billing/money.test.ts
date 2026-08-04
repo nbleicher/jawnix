@@ -19,9 +19,8 @@ describe("batchCostCents", () => {
   it("rounds half-up to the nearest cent like the backend", () => {
     // 750 leads × $0.005/lead = $3.75
     expect(batchCostCents(750, 500)).toBe(375);
-    // 1 lead × $0.0015/lead = $0.0015 → $0.00 with half-up at .5 of a mill?
-    // 1 * 150 + 500 = 650 // 1000 = 0
-    expect(batchCostCents(1, 150)).toBe(0);
+    // Positive billed batches have a 1¢ floor so small quantities are never free.
+    expect(batchCostCents(1, 150)).toBe(1);
     // 667 * 150 + 500 = 100_550 // 1000 = 100
     expect(batchCostCents(667, 150)).toBe(100);
   });
@@ -31,6 +30,8 @@ describe("formatLeadRate", () => {
   it("names the per-lead price from cents-per-thousand", () => {
     expect(formatLeadRate(500)).toBe("$0.005 per lead");
     expect(formatLeadRate(100)).toBe("$0.001 per lead");
+    expect(formatLeadRate(150)).toBe("$0.0015 per lead");
+    expect(formatLeadRate(101)).toBe("$0.00101 per lead");
   });
 });
 

@@ -7,7 +7,7 @@ export function formatCents(cents: number): string {
 }
 
 /**
- * Round a lead quantity at the Lead Rate to the nearest whole cent.
+ * Round a lead quantity at the Lead Rate with a 1¢ positive-batch floor.
  *
  * Mirrors `batch_cost_cents` in jawnix.billing: half-up without float money.
  */
@@ -15,7 +15,10 @@ export function batchCostCents(
   leadCount: number,
   leadRateCentsPerThousand: number,
 ): number {
-  return Math.trunc((leadCount * leadRateCentsPerThousand + 500) / 1_000);
+  const rounded = Math.trunc(
+    (leadCount * leadRateCentsPerThousand + 500) / 1_000,
+  );
+  return leadCount > 0 ? Math.max(1, rounded) : 0;
 }
 
 /** Lead Rate stored as cents per 1,000 leads → dollars-per-lead label. */
@@ -25,7 +28,7 @@ export function formatLeadRate(centsPerThousand: number): string {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 3,
-    maximumFractionDigits: 3,
+    maximumFractionDigits: 5,
   })} per lead`;
 }
 

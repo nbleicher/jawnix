@@ -6,7 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../auth/adminMFA";
 
 import type { CustomerDetailsData } from "./AdminCustomerDetails";
-import { AdminCustomerDetailsRoute } from "./AdminCustomerDetails";
+import {
+  AdminCustomerDetailsRoute,
+  adminCustomerDetailsLoader,
+} from "./AdminCustomerDetails";
 
 vi.mock("../auth/adminMFA", () => ({ api: vi.fn() }));
 
@@ -106,6 +109,58 @@ describe("administrator Customer details", () => {
   beforeEach(() => {
     vi.mocked(api).mockReset();
     vi.mocked(api).mockResolvedValue({});
+  });
+
+  it("keeps core Customer details available when an ancillary endpoint fails", async () => {
+    const full = details();
+    const {
+      agencies: _agencies,
+      activityTimeline: _activityTimeline,
+      billing: _billing,
+      cooldown: _cooldown,
+      nichePolicy: _nichePolicy,
+      availability: _availability,
+      exclusionLists: _exclusionLists,
+      ...core
+    } = full;
+    vi.mocked(api)
+      .mockResolvedValueOnce(core)
+      .mockRejectedValue(new Error("analytics unavailable"));
+
+    const loaded = await adminCustomerDetailsLoader({
+      params: { customerId: "7" },
+    } as unknown as Parameters<typeof adminCustomerDetailsLoader>[0]);
+
+    expect(loaded.customer.name).toBe("Harbor Insurance");
+    expect(loaded.agencies).toEqual([]);
+    expect(loaded.activityTimeline.entries).toEqual([]);
+    expect(loaded.availability).toBeUndefined();
+    // A missing section and a broken one must not look the same.
+    expect(loaded.unavailableSections).toEqual([
+      "Billing",
+      "Cooldown Window",
+      "Availability",
+      "Niche Policy",
+      "Customer Exclusion Lists",
+      "Activity",
+      "Agency directory",
+    ]);
+  });
+
+  it("names the sections a failed fetch removed instead of hiding them", () => {
+    renderDetails(
+      details({ unavailableSections: ["Billing", "Niche Policy"] }),
+    );
+
+    const notice = screen.getByRole("alert");
+    expect(notice).toHaveTextContent(/Billing, Niche Policy/);
+    expect(screen.getByRole("button", { name: "Retry loading" })).toBeVisible();
+  });
+
+  it("shows no failure notice when every section loaded", () => {
+    renderDetails(details());
+
+    expect(screen.queryByRole("button", { name: "Retry loading" })).toBeNull();
   });
 
   it("separates the durable Customer from its permanent history", () => {

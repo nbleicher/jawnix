@@ -311,6 +311,7 @@ function NicheAssignmentTransfer() {
   const [upload, setUpload] = useState<NicheAssignmentUploadStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
+  const [pollAttempt, setPollAttempt] = useState(0);
 
   useEffect(() => {
     if (!upload || !["queued", "ingesting"].includes(upload.status)) return;
@@ -318,11 +319,17 @@ function NicheAssignmentTransfer() {
       void api<NicheAssignmentUploadStatus>(
         `/api/admin/niche-assignments/${upload.id}`,
       )
-        .then(setUpload)
-        .catch((caught: unknown) => setFailure(errorMessage(caught)));
+        .then((next) => {
+          setFailure("");
+          setUpload(next);
+        })
+        .catch((caught: unknown) => {
+          setFailure(errorMessage(caught));
+          setPollAttempt((attempt) => attempt + 1);
+        });
     }, 1000);
     return () => window.clearTimeout(timer);
-  }, [upload]);
+  }, [upload, pollAttempt]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -751,14 +751,44 @@ def run_scheduled_nightly_review(
             select(ExclusionList)
             .where(
                 ExclusionList.status == "pending_confirmation",
-                ExclusionList.nightly_review_id.is_(None),
             )
             .order_by(ExclusionList.created_at, ExclusionList.id)
         )
     )
+    carried_from: dict[uuid.UUID, set[str]] = {}
     for item in pending_exclusion_lists:
+        if (
+            item.nightly_review_id is not None
+            and item.nightly_review_id != review.id
+        ):
+            carried_from.setdefault(item.nightly_review_id, set()).add(
+                str(item.id)
+            )
         item.nightly_review_id = review.id
         refresh_pool_impact(session, item)
+    # A list carried into tonight's review must stop reading as pending on
+    # the earlier review's Telegram message, or that message keeps offering
+    # Confirm/Deny for a decision that now belongs to a later message.
+    for previous_review_id, carried_ids in carried_from.items():
+        previous = session.get(NightlyReview, previous_review_id)
+        if previous is None:
+            continue
+        previous.summary = {
+            **previous.summary,
+            "exclusionLists": [
+                {**row, "status": "carried_forward"}
+                if str(row.get("id")) in carried_ids
+                and row.get("status") == "pending_confirmation"
+                else row
+                for row in (previous.summary.get("exclusionLists") or [])
+            ],
+        }
+        if previous.telegram_message_id:
+            enqueue_job(
+                session,
+                "update_nightly_review_notification",
+                payload={"review_id": str(previous.id)},
+            )
     review.status = "complete"
     configuration = session.scalar(
         select(ScraperConfiguration)

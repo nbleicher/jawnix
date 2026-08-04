@@ -37,19 +37,23 @@ function ledgerDescription(entry: CreditLedgerEntry): string {
 }
 
 function PurchaseRow({ purchase }: { purchase: CreditPurchase }) {
+  const presentation = {
+    processing: { label: "Processing", tone: "info" as const },
+    completed: { label: "Completed", tone: "success" as const },
+    failed: { label: "Failed", tone: "danger" as const },
+    expired: { label: "Expired", tone: "neutral" as const },
+  }[purchase.status];
   return (
     <Card as="li" padding={4}>
-      <Cluster justify="between" align="start">
+      <Cluster justify="space-between" align="start">
         <Stack gap={1}>
           <Heading level={3}>{formatCents(purchase.amountCents)}</Heading>
           <Text size="sm" tone="muted">
             {`Started ${formatMilestoneTime(purchase.createdAt)}`}
           </Text>
         </Stack>
-        <StatusBadge
-          tone={purchase.status === "completed" ? "success" : "info"}
-        >
-          {purchase.status === "completed" ? "Completed" : "Processing"}
+        <StatusBadge tone={presentation.tone}>
+          {presentation.label}
         </StatusBadge>
       </Cluster>
     </Card>
@@ -60,7 +64,7 @@ function LedgerRow({ entry }: { entry: CreditLedgerEntry }) {
   const credit = entry.amountCents >= 0;
   return (
     <Card as="li" padding={4}>
-      <Cluster justify="between" align="start">
+      <Cluster justify="space-between" align="start">
         <Stack gap={1}>
           <Heading level={3}>{LEDGER_KIND_LABEL[entry.kind]}</Heading>
           <Text size="sm" tone="muted">
@@ -81,10 +85,12 @@ function LedgerRow({ entry }: { entry: CreditLedgerEntry }) {
 function PurchaseReturnNotice({
   outcome,
   processing,
+  failed,
   onClear,
 }: {
   outcome: "success" | "cancelled" | null;
   processing: boolean;
+  failed: boolean;
   onClear: () => void;
 }) {
   const { refresh } = useCreditWallet();
@@ -133,7 +139,9 @@ function PurchaseReturnNotice({
       >
         {processing
           ? "Your Credit Purchase is processing. The Credit Wallet updates when Stripe confirms payment."
-          : "Your Credit Purchase is complete. The Credit Wallet has been updated."}
+          : failed
+            ? "Stripe did not complete this Credit Purchase. The Credit Wallet was not charged."
+            : "Your Credit Purchase is complete. The Credit Wallet has been updated."}
       </div>
     );
   }
@@ -160,8 +168,11 @@ export function CreditLedgerSection() {
   if (!wallet) return null;
 
   const processing = hasProcessingPurchase(wallet);
-  const processingPurchases = wallet.purchases.filter(
-    (purchase) => purchase.status === "processing",
+  const pendingOrFailedPurchases = wallet.purchases.filter(
+    (purchase) => purchase.status !== "completed",
+  );
+  const latestPurchaseFailed = ["failed", "expired"].includes(
+    wallet.purchases[0]?.status ?? "",
   );
 
   return (
@@ -169,6 +180,7 @@ export function CreditLedgerSection() {
       <PurchaseReturnNotice
         outcome={outcome}
         processing={processing}
+        failed={latestPurchaseFailed}
         onClear={() => setOutcome(null)}
       />
 
@@ -210,13 +222,13 @@ export function CreditLedgerSection() {
         </Card>
       </Section>
 
-      {processingPurchases.length ? (
+      {pendingOrFailedPurchases.length ? (
         <Section
-          title="Processing purchases"
-          description="These Credit Purchases are waiting on Stripe confirmation."
+          title="Recent purchase attempts"
+          description="Processing purchases await Stripe confirmation; failed or expired attempts never credit the wallet."
         >
           <Stack as="ul" gap={3}>
-            {processingPurchases.map((purchase) => (
+            {pendingOrFailedPurchases.map((purchase) => (
               <PurchaseRow key={purchase.id} purchase={purchase} />
             ))}
           </Stack>

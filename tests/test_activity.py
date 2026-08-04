@@ -127,7 +127,9 @@ def test_one_query_filters_combines_paginates_and_backs_entity_timelines(
         session,
         action="scraper_configuration_scheduled",
         target_type="scraper_configuration",
-        target_id=uuid.uuid4(),
+        # Deterministic and deliberately excludes the Customer id text below;
+        # a random UUID containing "42" made the free-text assertion flaky.
+        target_id=uuid.UUID("11111111-1111-4111-8111-111111111111"),
         actor="admin:three",
         created_at=base,
     )

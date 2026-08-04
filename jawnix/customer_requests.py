@@ -34,7 +34,7 @@ from .config import get_settings
 from .customer_overview import customer_request_status
 from .fulfillment import artifact_available
 from .jobs import enqueue_job
-from .models import CustomerProfile, LeadRequest, RequestStatus, utcnow
+from .models import Customer, CustomerProfile, LeadRequest, RequestStatus, utcnow
 from .schemas import (
     CustomerBatchArtifact,
     CustomerMilestone,
@@ -469,6 +469,22 @@ def submit_request(
 
     licensed_states = normalize_states(profile.licensed_states)
     states = _requested_states(payload, licensed_states)
+
+    # Serialize duplicate detection with wallet/hold changes. A concurrent
+    # first submission may have been invisible at the optimistic check above
+    # and committed while this caller waited for the Customer lock.
+    db.scalar(
+        select(Customer)
+        .where(Customer.id == profile.customer_id)
+        .with_for_update()
+    )
+    existing = _existing_submission(
+        db,
+        user_id=user_id,
+        idempotency_key=payload.idempotency_key,
+    )
+    if existing is not None:
+        return existing, False
 
     try:
         billing = prepare_submission(

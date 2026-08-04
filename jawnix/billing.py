@@ -41,15 +41,16 @@ def batch_cost_cents(
     lead_count: int,
     lead_rate_cents_per_thousand: int,
 ) -> int:
-    """Round a quantity at the Lead Rate to the nearest whole cent.
+    """Round a quantity at the Lead Rate with a 1¢ positive-batch floor.
 
     Adding half the divisor gives deterministic half-up rounding without
     introducing floating point money.
     """
 
-    return (
+    rounded = (
         lead_count * lead_rate_cents_per_thousand + 500
     ) // 1_000
+    return max(1, rounded) if lead_count > 0 else 0
 
 
 def _wallet_totals(db: Session, customer_id: int) -> tuple[int, int, int]:
@@ -177,8 +178,15 @@ def complete_credit_purchase_for_session(
     db: Session,
     *,
     stripe_checkout_session_id: str,
+    settled_late: bool = False,
 ) -> CreditPurchase | None:
     """Credit the wallet for a Checkout session exactly once.
+
+    ``settled_late`` marks an ``async_payment_succeeded`` event, which is
+    Stripe reporting that money actually arrived. That can land after a
+    delayed method was already closed as failed or expired, and refusing it
+    would leave a paid Customer uncredited forever behind a webhook retry
+    loop, so a settled payment supersedes the close and is recorded as such.
 
     Returns ``None`` when no matching purchase exists for the session id.
     """
@@ -195,7 +203,10 @@ def complete_credit_purchase_for_session(
         return None
     if purchase.status == "completed":
         return purchase
-    if purchase.status != "processing":
+    superseded = purchase.status
+    if purchase.status != "processing" and not (
+        settled_late and purchase.status in {"failed", "expired"}
+    ):
         raise BillingError(
             f"Credit Purchase {purchase.id} cannot be completed from status "
             f"{purchase.status}."
@@ -205,6 +216,11 @@ def complete_credit_purchase_for_session(
             "Credit Purchases must be whole dollars with a $1 floor.",
             422,
         )
+    db.scalar(
+        select(Customer)
+        .where(Customer.id == purchase.customer_id)
+        .with_for_update()
+    )
     entry = CreditLedgerEntry(
         customer_id=purchase.customer_id,
         kind="purchase",
@@ -219,6 +235,49 @@ def complete_credit_purchase_for_session(
     purchase.ledger_entry_id = entry.id
     purchase.status = "completed"
     purchase.completed_at = utcnow()
+    if superseded != "processing":
+        record_activity(
+            db,
+            action="credit_purchase_settled_after_close",
+            target_type="customer",
+            target_id=purchase.customer_id,
+            actor_id="system:stripe",
+            reason=(
+                f"Credit Purchase {purchase.id} settled after it was closed "
+                f"as {superseded}; the wallet was credited."
+            ),
+            details={
+                "purchaseId": str(purchase.id),
+                "amountCents": purchase.amount_cents,
+                "before": {"status": superseded},
+                "after": {"status": "completed"},
+            },
+        )
+    return purchase
+
+
+def close_credit_purchase_for_session(
+    db: Session,
+    *,
+    stripe_checkout_session_id: str,
+    status: str,
+) -> CreditPurchase | None:
+    """Close an unpaid Checkout session without ever reversing a credit."""
+
+    if status not in {"failed", "expired"}:
+        raise ValueError("Credit Purchase close status must be failed or expired.")
+    purchase = db.scalar(
+        select(CreditPurchase)
+        .where(
+            CreditPurchase.stripe_checkout_session_id
+            == stripe_checkout_session_id
+        )
+        .with_for_update()
+    )
+    if purchase is None or purchase.status == "completed":
+        return purchase
+    if purchase.status == "processing":
+        purchase.status = status
     return purchase
 
 
@@ -294,6 +353,11 @@ def capture_batch_hold(db: Session, request: LeadRequest) -> None:
 
     if not request.is_billed:
         return
+    db.scalar(
+        select(Customer)
+        .where(Customer.id == request.customer_id)
+        .with_for_update()
+    )
     hold = db.scalar(
         select(BatchHold)
         .where(BatchHold.request_id == request.id)
@@ -330,6 +394,11 @@ def release_batch_hold(db: Session, request: LeadRequest) -> None:
 
     if not request.is_billed:
         return
+    db.scalar(
+        select(Customer)
+        .where(Customer.id == request.customer_id)
+        .with_for_update()
+    )
     hold = db.scalar(
         select(BatchHold)
         .where(BatchHold.request_id == request.id)
@@ -339,6 +408,46 @@ def release_batch_hold(db: Session, request: LeadRequest) -> None:
         return
     hold.status = "released"
     hold.released_at = utcnow()
+
+
+def reinstate_batch_hold(db: Session, request: LeadRequest) -> None:
+    """Re-arm a released hold so a failed billed Batch can be retried.
+
+    A failed allocation releases the hold so the money is not stranded, which
+    means a retry has nothing left to capture. Retry therefore has to reserve
+    the frozen amount again, under the same Customer lock as the original
+    submission, and refuse when the wallet no longer covers it.
+    """
+
+    if not request.is_billed:
+        return
+    customer = db.scalar(
+        select(Customer)
+        .where(Customer.id == request.customer_id)
+        .with_for_update()
+    )
+    if customer is None:
+        raise BillingError("Customer was not found.", 404)
+    hold = db.scalar(
+        select(BatchHold)
+        .where(BatchHold.request_id == request.id)
+        .with_for_update()
+    )
+    if hold is None:
+        raise BillingError("Billed Batch Request has no Batch Hold.")
+    if hold.status == "captured":
+        raise BillingError("A captured Batch Hold cannot be reinstated.")
+    if hold.status == "active":
+        return
+    _, _, available = _wallet_totals(db, customer.id)
+    if available < hold.amount_cents:
+        raise BillingError(
+            "The Credit Wallet does not have enough available balance to "
+            f"retry this Batch. Required {hold.amount_cents} cents; "
+            f"available {available} cents."
+        )
+    hold.status = "active"
+    hold.released_at = None
 
 
 def configure_customer_billing(

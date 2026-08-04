@@ -592,7 +592,7 @@ class CreditPurchase(Base):
             name="ck_credit_purchase_whole_dollars",
         ),
         CheckConstraint(
-            "status IN ('processing', 'completed')",
+            "status IN ('processing', 'completed', 'failed', 'expired')",
             name="ck_credit_purchase_status",
         ),
         Index(
