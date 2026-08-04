@@ -19,6 +19,7 @@ from .billing import capture_batch_hold
 from .activity import record_activity
 from .config import Settings
 from .jobs import enqueue_job
+from .metrics_emit import EMIT_LEAD_ASSIGNED_JOB
 from .milestone_emails import enqueue_milestone_email
 from .models import (
     Agency,
@@ -440,6 +441,7 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
         request.status = RequestStatus.generated.value
         request.status_message = "Batch generated; portal notification is queued."
         enqueue_job(session, "deliver_request", request.id)
+        enqueue_job(session, EMIT_LEAD_ASSIGNED_JOB, request.id)
         enqueue_job(session, "update_notification", request.id)
         capture_batch_hold(session, request)
         return AllocationResult(
@@ -509,6 +511,7 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
     request.processed_at = distributed_at
     request.status_message = "Batch generated; portal notification is queued."
     enqueue_job(session, "deliver_request", request.id)
+    enqueue_job(session, EMIT_LEAD_ASSIGNED_JOB, request.id)
     enqueue_job(session, "update_notification", request.id)
     capture_batch_hold(session, request)
     session.flush()

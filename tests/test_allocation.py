@@ -8,12 +8,14 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 
 from jawnix.allocation import allocate_request, fulfill_round_robin
+from jawnix.metrics_emit import EMIT_LEAD_ASSIGNED_JOB
 from jawnix.models import (
     Agency,
     Agent,
     BatchArtifact,
     DistributionEvent,
     InventoryConflict,
+    Job,
     Lead,
     RequestStatus,
 )
@@ -122,6 +124,49 @@ def test_retry_reuses_existing_allocation(session, settings):
     assert first.allocated == second.allocated == 1
     assert session.scalar(select(func.count(DistributionEvent.id))) == 1
     assert session.scalar(select(DistributionEvent.id).where(DistributionEvent.request_id == request.id)) == event_id
+
+
+def test_allocate_enqueues_emit_lead_assigned_on_fresh_and_replay(session, settings):
+    agent = Agent(slug="emit-queue", name="Emit Queue")
+    session.add(agent)
+    session.flush()
+    session.add(Lead(phone="2145552101", title="One", state="TX"))
+    request = make_request(session, agent, 1)
+
+    allocate_request(session, request.id, settings)
+    session.flush()
+    fresh_jobs = list(
+        session.scalars(
+            select(Job).where(
+                Job.kind == EMIT_LEAD_ASSIGNED_JOB,
+                Job.request_id == request.id,
+            )
+        )
+    )
+    assert len(fresh_jobs) == 1
+
+    request.status = RequestStatus.approved.value
+    allocate_request(session, request.id, settings)
+    session.commit()
+    replay_jobs = list(
+        session.scalars(
+            select(Job).where(
+                Job.kind == EMIT_LEAD_ASSIGNED_JOB,
+                Job.request_id == request.id,
+            )
+        )
+    )
+    # Replay re-enqueues; metrics dedups on distribution_event.id.
+    assert len(replay_jobs) == 2
+    deliver_jobs = list(
+        session.scalars(
+            select(Job).where(
+                Job.kind == "deliver_request",
+                Job.request_id == request.id,
+            )
+        )
+    )
+    assert len(deliver_jobs) == 2
 
 
 def test_allocation_snapshots_customer_agency_and_delivered_listing(session, settings):

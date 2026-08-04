@@ -12,6 +12,7 @@ from .config import get_settings
 from .database import SessionLocal
 from .delivery import deliver_request, mark_delivery_failed
 from .jobs import claim_next_job, enqueue_job
+from .metrics_emit import EMIT_LEAD_ASSIGNED_JOB, emit_lead_assigned
 from .milestone_emails import (
     MILESTONE_EMAIL_JOB,
     enqueue_milestone_email,
@@ -529,6 +530,12 @@ def process_job(job_id: int) -> None:
                     )
             elif job.kind == "deliver_request":
                 deliver_request(session, uuid.UUID(str(job.request_id)), settings)
+            elif job.kind == EMIT_LEAD_ASSIGNED_JOB:
+                emit_lead_assigned(
+                    session,
+                    uuid.UUID(str(job.request_id)),
+                    settings,
+                )
             elif job.kind == MILESTONE_EMAIL_JOB:
                 if request is None:
                     raise LookupError("Request was not found.")
