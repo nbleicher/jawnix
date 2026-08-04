@@ -32,6 +32,9 @@ def test_systemd_states(monkeypatch):
     monkeypatch.setattr(heartbeat, "run", lambda *args, **kwargs: Result())
     states = heartbeat.systemd_states()
     assert states["docker.service"]["active"] == "active"
+    assert "gms-dataset-publication.timer" in states
+    assert "gms-database-cache.timer" in states
+    assert "gms-keyword-rollover.timer" not in states
     assert states["external_heartbeat"]["active"] in {"active", "disabled"}
 
 

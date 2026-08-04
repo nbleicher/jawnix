@@ -35,6 +35,7 @@ import re
 import shutil
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 INSERT_SQL = """
@@ -187,6 +188,13 @@ def move_pair(
         )
 
 
+def archive_destination(archive_root: Path, data: Path) -> Path:
+    """Shard archived results by UTC day to avoid ext4 directory exhaustion."""
+    timestamp = data.stat().st_mtime if data.exists() else time.time()
+    day = datetime.fromtimestamp(timestamp, timezone.utc)
+    return archive_root / f"{day:%Y}" / f"{day:%m}" / f"{day:%d}"
+
+
 def main():
     ap = argparse.ArgumentParser(description="Spool → Postgres shipper",
                                  formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
@@ -213,7 +221,11 @@ def main():
     args = ap.parse_args()
 
     spool = Path(args.spool_dir)
-    archive = Path(args.archive) if args.archive else spool / "archive"
+    archive = Path(
+        args.archive
+        or os.environ.get("GMS_ARCHIVE_DIR", "")
+        or spool / "archive-v2"
+    )
     quarantine = (
         Path(args.quarantine)
         if args.quarantine
@@ -318,7 +330,7 @@ def main():
                         )
                 conn.commit()
                 # archive both files only after a successful commit
-                move_pair(data, m, archive)
+                move_pair(data, m, archive_destination(archive, data))
                 shipped_files += 1
                 shipped_rows += parsed.result_count
             except Exception as e:

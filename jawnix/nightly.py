@@ -127,10 +127,9 @@ def sync_scraper_configuration_baseline(
         return existing
     response = httpx.get(
         settings.scraper_ops_url.rstrip("/") + "/api/source-segments",
-        auth=(
-            settings.scraper_ops_user,
-            settings.scraper_ops_password,
-        ),
+        headers={
+            "Authorization": f"Bearer {settings.scraper_control_token}"
+        },
         timeout=settings.scraper_ops_timeout_seconds,
     )
     response.raise_for_status()
@@ -285,10 +284,9 @@ def activate_scheduled_scraper_configuration(
     response = httpx.post(
         settings.scraper_ops_url.rstrip("/")
         + "/api/source-segments/activate",
-        auth=(
-            settings.scraper_ops_user,
-            settings.scraper_ops_password,
-        ),
+        headers={
+            "Authorization": f"Bearer {settings.scraper_control_token}"
+        },
         json=payload,
         timeout=settings.scraper_ops_timeout_seconds,
     )
@@ -492,11 +490,10 @@ def _scraper_health(settings: Settings) -> dict:
         }
     try:
         response = httpx.get(
-            settings.scraper_ops_url.rstrip("/") + "/",
-            auth=(
-                settings.scraper_ops_user,
-                settings.scraper_ops_password,
-            ),
+            settings.scraper_ops_url.rstrip("/") + "/api/workspace",
+            headers={
+                "Authorization": f"Bearer {settings.scraper_control_token}"
+            },
             timeout=settings.scraper_ops_timeout_seconds,
         )
         return {
@@ -527,10 +524,9 @@ def _external_publication(
         response = httpx.get(
             settings.scraper_ops_url.rstrip("/")
             + "/api/source-segments/publication",
-            auth=(
-                settings.scraper_ops_user,
-                settings.scraper_ops_password,
-            ),
+            headers={
+                "Authorization": f"Bearer {settings.scraper_control_token}"
+            },
             timeout=settings.scraper_ops_timeout_seconds,
         )
         response.raise_for_status()

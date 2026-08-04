@@ -256,7 +256,7 @@ test.describe("Scraper runtime configuration", () => {
         name: "Cell size (km)",
       }),
     ).toHaveValue("");
-    await expect(page.getByText("Scale runtime controls only.")).toBeVisible();
+    await expect(page.getByText("Scraper runtime controls only.")).toBeVisible();
   });
 
   test("previews calculated effects before audited save and enqueue", async ({
@@ -290,7 +290,7 @@ test.describe("Scraper runtime configuration", () => {
     await save.click();
     await expect(
       page.getByText(
-        "Scale runtime configuration saved and enqueue requested.",
+        "Scraper runtime configuration saved and enqueue requested.",
       ),
     ).toBeVisible();
 

@@ -47,8 +47,15 @@ test.describe("identity and setup status", () => {
     await page.goto("./account");
 
     const identity = page.getByRole("region", { name: "Identity" });
-    await expect(identity.getByText("River Morgan")).toBeVisible();
-    await expect(identity.getByText("river@northstar.example")).toBeVisible();
+    await expect(identity.getByRole("textbox", { name: "First name" })).toHaveValue(
+      "River",
+    );
+    await expect(identity.getByRole("textbox", { name: "Last name" })).toHaveValue(
+      "Morgan",
+    );
+    await expect(identity.getByRole("textbox", { name: "Email" })).toHaveValue(
+      "river@northstar.example",
+    );
 
     const status = page.getByRole("region", { name: "Setup status" });
     await expect(

@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -82,3 +84,15 @@ def test_archiving_preserves_an_existing_file_with_the_same_name(
         "existing",
         "new",
     ]
+
+
+def test_archive_destination_shards_by_utc_day(tmp_path):
+    shipper = load_shipper()
+    data = tmp_path / "results-42-100.ndjson"
+    data.write_text("result", encoding="utf-8")
+    timestamp = datetime(2026, 8, 4, 23, 59, tzinfo=timezone.utc).timestamp()
+    os.utime(data, (timestamp, timestamp))
+
+    assert shipper.archive_destination(tmp_path / "archive-v2", data) == (
+        tmp_path / "archive-v2" / "2026" / "08" / "04"
+    )
