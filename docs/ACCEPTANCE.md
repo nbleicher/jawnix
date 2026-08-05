@@ -1,5 +1,17 @@
 # Production acceptance record
 
+## 2026-08-04 Scraper ownership cutover
+
+The production ownership window completed **GO**. Acquisition data, verified
+off-host backups, migration reconciliation, the idempotent 6,147,275-row
+history import, eight-worker deployment, authenticated typed reads, safe
+control writes, schedules, private-tunnel restart, and live queue movement all
+passed at tagged commit `e1a55e29839581d7300351929025db5d4d8c69b7`.
+Jawnix is the sole production deployment source; the stopped legacy stack and
+backups remain rollback-only material through 2026-08-11 23:43 UTC. See the
+[execution record](rehearsals/2026-08-04-scraper-production-cutover.md) for
+checksums, counts, deviations, and rollback material.
+
 ## 2026-08-04 go-live catch-up acceptance
 
 Jawnix became the sole distributor today. The legacy `dat` tool made its final

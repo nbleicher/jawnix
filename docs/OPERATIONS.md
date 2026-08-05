@@ -182,15 +182,18 @@ Use the verified Scale release
 production image and source revision have been recorded for rollback as required
 by Jawnix issue #29.
 
-This pin remains the deployment source only until the Scraper ownership cutover
-below passes. At that point it becomes a rollback reference for seven days;
-Jawnix's tagged `main` revision becomes the production source for
+This pin was retired as the production deployment source by the 2026-08-04
+Scraper ownership cutover. It remains a rollback reference through
+2026-08-11 23:43 UTC; Jawnix tag
+`scraper-cutover-complete-20260804T234259Z` is the authoritative source for
 `scraper-control`, the worker, migrations, and schedules. Do not delete the
 Scale tag or stopped stack while it is the rollback path.
 
 1. Assign a private WireGuard address to each host (the examples use Jawnix
    `10.77.0.1` and Scraper `10.77.0.2`) and configure each as the other's only
-   peer.
+   peer. Production pins Jawnix's `ListenPort` to UDP `46039` and permits that
+   port only from the acquisition host; do not omit the listener and rely on a
+   random port, because a host restart would break the return path.
 2. On the Scraper host, set `DASHBOARD_BIND_ADDRESS=10.77.0.2` in the Scale
    environment and recreate only the dashboard container. Keep port 8090
    closed on the public interface.
@@ -246,11 +249,12 @@ candidate database's row counts and per-state distribution against the live
 dashboard's `/api/dashboard` and `/database` before backing anything up; a
 2026-08-01 rehearsal backed up the wrong database and had to retract a GO.
 
-**The pipeline is live.** Eight worker containers plus `gms-serve`,
-`gms-enqueue`, and nine timers run continuously on the control VPS; the window
-must stop them deliberately. There are **no pending additive migrations** —
-the store's `scale_migrations` ledger already matches this repository through
-`20260727000000-dataset-publications.sql`.
+Since the 2026-08-04 production cutover, eight Jawnix-owned worker containers
+plus `gms-serve`, `gms-enqueue`, typed `scraper-control`, and the Jawnix-owned
+timers run continuously on the control VPS. The legacy dashboard and images
+are stopped and retained only for rollback. The migration ledgers include the
+additive database-cache migration
+`20260730000000-cache-database-totals.sql`.
 
 ### Required artifacts and rehearsal isolation
 
@@ -379,6 +383,12 @@ its `checksum` to equal the verified file digest. Rerun it and require
     Keep its stopped stack, image, tag, configuration, and backups intact for
     the seven-day rollback window. Jawnix's tagged `main` revision is now the
     sole deployment source.
+
+The production execution record is
+[2026-08-04-scraper-production-cutover.md](rehearsals/2026-08-04-scraper-production-cutover.md).
+Its decision is **GO — completed**. The legacy source, images, stopped stack,
+configuration, and verified backups remain rollback-only material through
+2026-08-11 23:43 UTC.
 
 ### Seven-day Scraper rollback
 
