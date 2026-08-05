@@ -19,6 +19,29 @@ def _columns(table: str) -> set[str]:
     }
 
 
+# Revision 20260721_0001 bootstraps an empty database with
+# Base.metadata.create_all() from the *current* models, so on a fresh
+# bootstrap every object below may already exist. Guard each metadata
+# object by name; the append-only trigger is migration-only DDL and
+# cannot pre-exist.
+def _check_names(table: str) -> set[str]:
+    return {
+        constraint["name"]
+        for constraint in sa.inspect(op.get_bind()).get_check_constraints(table)
+    }
+
+
+def _index_names(table: str) -> set[str]:
+    return {
+        index["name"]
+        for index in sa.inspect(op.get_bind()).get_indexes(table)
+    }
+
+
+def _has_table(table: str) -> bool:
+    return sa.inspect(op.get_bind()).has_table(table)
+
+
 def upgrade() -> None:
     if "billing_enabled" not in _columns("agents"):
         op.add_column(
@@ -41,22 +64,25 @@ def upgrade() -> None:
         )
 
     if op.get_bind().dialect.name != "sqlite":
-        op.create_check_constraint(
-            "ck_agent_billing_rate_required",
-            "agents",
-            (
-                "NOT billing_enabled OR "
-                "lead_rate_cents_per_thousand IS NOT NULL"
-            ),
-        )
-        op.create_check_constraint(
-            "ck_agent_lead_rate_range",
-            "agents",
-            (
-                "lead_rate_cents_per_thousand IS NULL OR "
-                "lead_rate_cents_per_thousand BETWEEN 100 AND 2000"
-            ),
-        )
+        agent_checks = _check_names("agents")
+        if "ck_agent_billing_rate_required" not in agent_checks:
+            op.create_check_constraint(
+                "ck_agent_billing_rate_required",
+                "agents",
+                (
+                    "NOT billing_enabled OR "
+                    "lead_rate_cents_per_thousand IS NOT NULL"
+                ),
+            )
+        if "ck_agent_lead_rate_range" not in agent_checks:
+            op.create_check_constraint(
+                "ck_agent_lead_rate_range",
+                "agents",
+                (
+                    "lead_rate_cents_per_thousand IS NULL OR "
+                    "lead_rate_cents_per_thousand BETWEEN 100 AND 2000"
+                ),
+            )
 
     request_columns = _columns("lead_requests")
     if "is_billed" not in request_columns:
@@ -83,7 +109,10 @@ def upgrade() -> None:
             "lead_requests",
             sa.Column("billing_amount_cents", sa.Integer(), nullable=True),
         )
-    if op.get_bind().dialect.name != "sqlite":
+    if (
+        op.get_bind().dialect.name != "sqlite"
+        and "ck_lead_request_frozen_billing" not in _check_names("lead_requests")
+    ):
         op.create_check_constraint(
             "ck_lead_request_frozen_billing",
             "lead_requests",
@@ -95,72 +124,67 @@ def upgrade() -> None:
             ),
         )
 
-    op.create_table(
-        "credit_ledger_entries",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("customer_id", sa.BigInteger(), nullable=False),
-        sa.Column("kind", sa.String(length=32), nullable=False),
-        sa.Column("amount_cents", sa.Integer(), nullable=False),
-        sa.Column("reason", sa.Text(), nullable=False, server_default=""),
-        sa.Column("actor_user_id", sa.String(length=160), nullable=False),
-        sa.Column("batch_request_id", sa.Uuid(), nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.func.now(),
-        ),
-        sa.CheckConstraint(
-            "kind IN ('purchase', 'batch_charge', 'admin_adjustment')",
-            name="ck_credit_ledger_kind",
-        ),
-        sa.CheckConstraint(
-            "kind != 'purchase' OR amount_cents > 0",
-            name="ck_credit_purchase_positive",
-        ),
-        sa.CheckConstraint(
-            "kind != 'batch_charge' OR amount_cents <= 0",
-            name="ck_credit_batch_charge_nonpositive",
-        ),
-        sa.CheckConstraint(
-            "kind != 'batch_charge' OR batch_request_id IS NOT NULL",
-            name="ck_credit_batch_charge_request",
-        ),
-        sa.CheckConstraint(
-            (
-                "kind != 'admin_adjustment' OR "
-                "(amount_cents != 0 AND length(trim(reason)) > 0)"
+    ledger_exists = _has_table("credit_ledger_entries")
+    if not ledger_exists:
+        op.create_table(
+            "credit_ledger_entries",
+            sa.Column("id", sa.Uuid(), nullable=False),
+            sa.Column("customer_id", sa.BigInteger(), nullable=False),
+            sa.Column("kind", sa.String(length=32), nullable=False),
+            sa.Column("amount_cents", sa.Integer(), nullable=False),
+            sa.Column("reason", sa.Text(), nullable=False, server_default=""),
+            sa.Column("actor_user_id", sa.String(length=160), nullable=False),
+            sa.Column("batch_request_id", sa.Uuid(), nullable=True),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
             ),
-            name="ck_credit_adjustment_reason",
-        ),
-        sa.ForeignKeyConstraint(
-            ["batch_request_id"],
-            ["lead_requests.id"],
-            ondelete="RESTRICT",
-        ),
-        sa.ForeignKeyConstraint(
-            ["customer_id"],
-            ["agents.id"],
-            ondelete="RESTRICT",
-        ),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("batch_request_id"),
-    )
-    op.create_index(
-        "ix_credit_ledger_entries_customer_id",
-        "credit_ledger_entries",
-        ["customer_id"],
-    )
-    op.create_index(
-        "ix_credit_ledger_entries_created_at",
-        "credit_ledger_entries",
-        ["created_at"],
-    )
-    op.create_index(
-        "ix_credit_ledger_customer_created",
-        "credit_ledger_entries",
-        ["customer_id", "created_at"],
-    )
+            sa.CheckConstraint(
+                "kind IN ('purchase', 'batch_charge', 'admin_adjustment')",
+                name="ck_credit_ledger_kind",
+            ),
+            sa.CheckConstraint(
+                "kind != 'purchase' OR amount_cents > 0",
+                name="ck_credit_purchase_positive",
+            ),
+            sa.CheckConstraint(
+                "kind != 'batch_charge' OR amount_cents <= 0",
+                name="ck_credit_batch_charge_nonpositive",
+            ),
+            sa.CheckConstraint(
+                "kind != 'batch_charge' OR batch_request_id IS NOT NULL",
+                name="ck_credit_batch_charge_request",
+            ),
+            sa.CheckConstraint(
+                (
+                    "kind != 'admin_adjustment' OR "
+                    "(amount_cents != 0 AND length(trim(reason)) > 0)"
+                ),
+                name="ck_credit_adjustment_reason",
+            ),
+            sa.ForeignKeyConstraint(
+                ["batch_request_id"],
+                ["lead_requests.id"],
+                ondelete="RESTRICT",
+            ),
+            sa.ForeignKeyConstraint(
+                ["customer_id"],
+                ["agents.id"],
+                ondelete="RESTRICT",
+            ),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint("batch_request_id"),
+        )
+    ledger_indexes = _index_names("credit_ledger_entries")
+    for name, columns in [
+        ("ix_credit_ledger_entries_customer_id", ["customer_id"]),
+        ("ix_credit_ledger_entries_created_at", ["created_at"]),
+        ("ix_credit_ledger_customer_created", ["customer_id", "created_at"]),
+    ]:
+        if name not in ledger_indexes:
+            op.create_index(name, "credit_ledger_entries", columns)
     if op.get_bind().dialect.name == "postgresql":
         op.execute(
             """
@@ -199,62 +223,56 @@ def upgrade() -> None:
             """
         )
 
-    op.create_table(
-        "batch_holds",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("request_id", sa.Uuid(), nullable=False),
-        sa.Column("customer_id", sa.BigInteger(), nullable=False),
-        sa.Column("amount_cents", sa.Integer(), nullable=False),
-        sa.Column(
-            "status",
-            sa.String(length=16),
-            nullable=False,
-            server_default="active",
-        ),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.func.now(),
-        ),
-        sa.Column("captured_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("released_at", sa.DateTime(timezone=True), nullable=True),
-        sa.CheckConstraint(
-            "amount_cents >= 0",
-            name="ck_batch_hold_amount_nonnegative",
-        ),
-        sa.CheckConstraint(
-            "status IN ('active', 'captured', 'released')",
-            name="ck_batch_hold_status",
-        ),
-        sa.ForeignKeyConstraint(
-            ["customer_id"],
-            ["agents.id"],
-            ondelete="RESTRICT",
-        ),
-        sa.ForeignKeyConstraint(
-            ["request_id"],
-            ["lead_requests.id"],
-            ondelete="RESTRICT",
-        ),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("request_id"),
-    )
-    op.create_index(
-        "ix_batch_holds_customer_id",
-        "batch_holds",
-        ["customer_id"],
-    )
-    op.create_index(
-        "ix_batch_holds_status",
-        "batch_holds",
-        ["status"],
-    )
-    op.create_index(
-        "ix_batch_hold_customer_status",
-        "batch_holds",
-        ["customer_id", "status"],
-    )
+    if not _has_table("batch_holds"):
+        op.create_table(
+            "batch_holds",
+            sa.Column("id", sa.Uuid(), nullable=False),
+            sa.Column("request_id", sa.Uuid(), nullable=False),
+            sa.Column("customer_id", sa.BigInteger(), nullable=False),
+            sa.Column("amount_cents", sa.Integer(), nullable=False),
+            sa.Column(
+                "status",
+                sa.String(length=16),
+                nullable=False,
+                server_default="active",
+            ),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                nullable=False,
+                server_default=sa.func.now(),
+            ),
+            sa.Column("captured_at", sa.DateTime(timezone=True), nullable=True),
+            sa.Column("released_at", sa.DateTime(timezone=True), nullable=True),
+            sa.CheckConstraint(
+                "amount_cents >= 0",
+                name="ck_batch_hold_amount_nonnegative",
+            ),
+            sa.CheckConstraint(
+                "status IN ('active', 'captured', 'released')",
+                name="ck_batch_hold_status",
+            ),
+            sa.ForeignKeyConstraint(
+                ["customer_id"],
+                ["agents.id"],
+                ondelete="RESTRICT",
+            ),
+            sa.ForeignKeyConstraint(
+                ["request_id"],
+                ["lead_requests.id"],
+                ondelete="RESTRICT",
+            ),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint("request_id"),
+        )
+    hold_indexes = _index_names("batch_holds")
+    for name, columns in [
+        ("ix_batch_holds_customer_id", ["customer_id"]),
+        ("ix_batch_holds_status", ["status"]),
+        ("ix_batch_hold_customer_status", ["customer_id", "status"]),
+    ]:
+        if name not in hold_indexes:
+            op.create_index(name, "batch_holds", columns)
 
 
 def downgrade() -> None:
