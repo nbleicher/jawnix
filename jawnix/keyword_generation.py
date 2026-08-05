@@ -35,7 +35,9 @@ KEYWORD_DRAFT_TTL = timedelta(hours=24)
 KEYWORD_DRAFT_RETENTION = timedelta(days=90)
 _GENERATION_LOCK_NAMESPACE = 0x4A41574E  # "JAWN", shared convention.
 _GENERATION_LOCK_RESOURCE = 0x4B574745  # "KWGE", keyword generation.
-_PROMPT_EXCLUSION_LIMIT = 500
+# Keep production-sized history visible to the model. Validation still checks
+# every exclusion, while this cap bounds prompt growth as history accumulates.
+_PROMPT_EXCLUSION_LIMIT = 5_000
 _PROMPT_REJECTION_LIMIT = 100
 
 GENERIC_WORDS = {
