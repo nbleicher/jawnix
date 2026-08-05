@@ -483,3 +483,279 @@ def test_nightly_review_crash_never_automatically_sends_twice(
         assert job.status == JobStatus.failed.value
         assert "reconciliation" in job.last_error.lower()
     engine.dispose()
+
+
+def _seed_notify_request_job(factory, *, attempts: int = 1):
+    with factory.begin() as session:
+        customer = Agent(slug="notify-retry", name="Notify Retry")
+        request = LeadRequest(
+            user_id=uuid.uuid4(),
+            agent=customer,
+            lead_count=5,
+            state_mode="selected",
+            states_snapshot=["TX"],
+            delivery_email="notify-retry@example.com",
+            status="pending",
+        )
+        session.add_all([customer, request])
+        session.flush()
+        job = Job(
+            kind="notify_request",
+            request_id=request.id,
+            status=JobStatus.running.value,
+            attempts=attempts,
+            locked_by="worker-test",
+            locked_at=datetime.now(timezone.utc),
+        )
+        session.add(job)
+        session.flush()
+        return job.id, request.id
+
+
+def test_transient_notify_request_requeues_then_succeeds(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'notify-retry.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    job_id, request_id = _seed_notify_request_job(factory, attempts=1)
+
+    settings = Settings(
+        TELEGRAM_BOT_TOKEN="token",
+        TELEGRAM_CHAT_ID="99",
+    )
+    calls = {"n": 0}
+
+    def flaky_post(_self, request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            from jawnix.telegram import TelegramTransientError
+
+            raise TelegramTransientError("Telegram sendMessage failed: 503")
+        return "99", "msg-1"
+
+    monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
+    monkeypatch.setattr("jawnix.worker.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "jawnix.worker.TelegramClient.post_request",
+        flaky_post,
+    )
+
+    before = datetime.now(timezone.utc)
+    process_job(job_id)
+
+    with factory() as session:
+        job = session.get(Job, job_id)
+        assert job.status == JobStatus.queued.value
+        assert "503" in job.last_error
+        run_after = job.run_after
+        if run_after.tzinfo is None:
+            run_after = run_after.replace(tzinfo=timezone.utc)
+        assert run_after >= before + timedelta(seconds=30)
+        assert job.locked_by == ""
+        assert job.locked_at is None
+        assert session.scalar(
+            select(Job).where(Job.kind == "notify_telegram_action_failure")
+        ) is None
+
+    process_job(job_id)
+
+    with factory() as session:
+        from jawnix.models import Notification
+
+        job = session.get(Job, job_id)
+        notification = session.scalar(
+            select(Notification).where(Notification.request_id == request_id)
+        )
+        assert job.status == JobStatus.complete.value
+        assert job.last_error == ""
+        assert notification is not None
+        assert notification.message_id == "msg-1"
+    engine.dispose()
+
+
+def test_notify_request_honors_telegram_retry_after(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'notify-429.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    job_id, _request_id = _seed_notify_request_job(factory, attempts=1)
+
+    settings = Settings(TELEGRAM_BOT_TOKEN="token", TELEGRAM_CHAT_ID="99")
+
+    def rate_limited(_self, request):
+        from jawnix.telegram import TelegramTransientError
+
+        raise TelegramTransientError(
+            "Too Many Requests",
+            retry_after=timedelta(seconds=42),
+        )
+
+    monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
+    monkeypatch.setattr("jawnix.worker.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "jawnix.worker.TelegramClient.post_request",
+        rate_limited,
+    )
+
+    before = datetime.now(timezone.utc)
+    process_job(job_id)
+
+    with factory() as session:
+        job = session.get(Job, job_id)
+        assert job.status == JobStatus.queued.value
+        run_after = job.run_after
+        if run_after.tzinfo is None:
+            run_after = run_after.replace(tzinfo=timezone.utc)
+        assert run_after >= before + timedelta(seconds=42)
+        assert run_after < before + timedelta(seconds=60)
+    engine.dispose()
+
+
+def test_permanent_notify_failure_alerts_once(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'notify-permanent.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    job_id, request_id = _seed_notify_request_job(factory, attempts=1)
+
+    settings = Settings(TELEGRAM_BOT_TOKEN="token", TELEGRAM_CHAT_ID="99")
+
+    def permanent(_self, request):
+        raise RuntimeError("Telegram sendMessage failed: chat not found")
+
+    monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
+    monkeypatch.setattr("jawnix.worker.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "jawnix.worker.TelegramClient.post_request",
+        permanent,
+    )
+
+    process_job(job_id)
+    process_job(job_id)
+
+    with factory() as session:
+        job = session.get(Job, job_id)
+        notices = list(
+            session.scalars(
+                select(Job).where(Job.kind == "notify_telegram_action_failure")
+            )
+        )
+        assert job.status == JobStatus.failed.value
+        assert len(notices) == 1
+        message = notices[0].payload["message"]
+        assert str(request_id) in message
+        assert "re-notify" in message.lower()
+        assert job.payload.get("failure_notification_job_id") == notices[0].id
+    engine.dispose()
+
+
+def test_exhausted_notify_attempts_fail_and_alert(tmp_path, monkeypatch):
+    from jawnix.telegram import TELEGRAM_NOTIFY_MAX_ATTEMPTS
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'notify-exhausted.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    job_id, _request_id = _seed_notify_request_job(
+        factory, attempts=TELEGRAM_NOTIFY_MAX_ATTEMPTS
+    )
+
+    settings = Settings(TELEGRAM_BOT_TOKEN="token", TELEGRAM_CHAT_ID="99")
+
+    def still_down(_self, request):
+        from jawnix.telegram import TelegramTransientError
+
+        raise TelegramTransientError("Telegram sendMessage failed: 503")
+
+    monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
+    monkeypatch.setattr("jawnix.worker.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "jawnix.worker.TelegramClient.post_request",
+        still_down,
+    )
+
+    process_job(job_id)
+
+    with factory() as session:
+        job = session.get(Job, job_id)
+        notices = list(
+            session.scalars(
+                select(Job).where(Job.kind == "notify_telegram_action_failure")
+            )
+        )
+        assert job.status == JobStatus.failed.value
+        assert len(notices) == 1
+    engine.dispose()
+
+
+def test_edit_target_missing_reposts_and_rewrites_notification(
+    tmp_path, monkeypatch
+):
+    from jawnix.models import Notification
+    from jawnix.telegram import TelegramEditTargetMissingError
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'notify-repost.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    with factory.begin() as session:
+        customer = Agent(slug="notify-repost", name="Notify Repost")
+        request = LeadRequest(
+            user_id=uuid.uuid4(),
+            agent=customer,
+            lead_count=5,
+            state_mode="selected",
+            states_snapshot=["TX"],
+            delivery_email="notify-repost@example.com",
+            status="approved",
+        )
+        session.add_all([customer, request])
+        session.flush()
+        session.add(
+            Notification(
+                request_id=request.id,
+                destination_id="old-chat",
+                message_id="old-msg",
+            )
+        )
+        job = Job(
+            kind="update_notification",
+            request_id=request.id,
+            status=JobStatus.running.value,
+            attempts=1,
+        )
+        session.add(job)
+        session.flush()
+        job_id = job.id
+        request_id = request.id
+        notification_id = session.scalar(
+            select(Notification.id).where(Notification.request_id == request.id)
+        )
+
+    settings = Settings(TELEGRAM_BOT_TOKEN="token", TELEGRAM_CHAT_ID="99")
+
+    def missing_edit(_self, request, chat_id, message_id):
+        raise TelegramEditTargetMissingError("message to edit not found")
+
+    def fresh_post(_self, request):
+        return "new-chat", "new-msg"
+
+    monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
+    monkeypatch.setattr("jawnix.worker.get_settings", lambda: settings)
+    monkeypatch.setattr(
+        "jawnix.worker.TelegramClient.update_request",
+        missing_edit,
+    )
+    monkeypatch.setattr(
+        "jawnix.worker.TelegramClient.post_request",
+        fresh_post,
+    )
+
+    process_job(job_id)
+
+    with factory() as session:
+        job = session.get(Job, job_id)
+        notification = session.get(Notification, notification_id)
+        assert job.status == JobStatus.complete.value
+        assert notification.destination_id == "new-chat"
+        assert notification.message_id == "new-msg"
+        # Still one row (unique per request) — rewritten in place.
+        assert session.scalar(
+            select(Notification).where(Notification.request_id == request_id)
+        ).id == notification_id
+    engine.dispose()

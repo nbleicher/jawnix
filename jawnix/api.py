@@ -4925,6 +4925,51 @@ async def create_customer(
     }
 
 
+@app.post("/api/admin/requests/{request_id}/notify")
+def renotify_batch_request(
+    request_id: uuid.UUID,
+    payload: ActionReason,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Queue a Telegram post/edit for a Batch Request that needs one.
+
+    Covers both "never notified" (no Notification row) and "message went
+    stale" (row exists but the chat message was deleted). ``update_notification``
+    is idempotent either way. Deliberately not a status transition — the
+    request itself is unchanged; only the Telegram surface is repaired.
+
+    Registered before ``/{action}`` so ``notify`` is not swallowed as an
+    unknown transition action.
+    """
+    item = db.scalar(
+        select(LeadRequest)
+        .where(LeadRequest.id == request_id)
+        .with_for_update()
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Request was not found.")
+    job = enqueue_job(db, "update_notification", item.id)
+    record_activity(
+        db,
+        action="batch_request_notify",
+        target_type="batch_request",
+        target_id=item.id,
+        actor_id=principal.user_id,
+        reason=payload.reason,
+        details={
+            "requestId": str(item.id),
+            "jobId": job.id,
+        },
+    )
+    db.commit()
+    return {
+        "requestId": str(item.id),
+        "jobId": job.id,
+        "jobKind": job.kind,
+    }
+
+
 @app.post("/api/admin/requests/{request_id}/{action}")
 def admin_request_action(
     request_id: uuid.UUID,

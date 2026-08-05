@@ -4,6 +4,7 @@ import hmac
 import logging
 import re
 import uuid
+from datetime import timedelta
 
 import httpx
 
@@ -23,6 +24,38 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 ACTION_PREFIX = "jawnix"
+
+#: Cap retries for notify_request / update_notification / licensed_states_changed.
+#: Mirror of metrics-emit: at-least-once is safe (Notification row is unique).
+TELEGRAM_NOTIFY_MAX_ATTEMPTS = 10
+_NOTIFY_RETRY_DELAYS_SECONDS = (30, 60, 300, 900, 1800)
+
+
+class TelegramTransientError(RuntimeError):
+    """Network failure, 429, or 5xx from Telegram; the job should be retried."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after: timedelta | None = None,
+    ):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class TelegramEditTargetMissingError(RuntimeError):
+    """editMessageText failed because the original message is gone.
+
+    The Notification row still points at a deleted chat message, so the next
+    attempt must post a fresh one and rewrite the row rather than keep editing.
+    """
+
+
+def telegram_retry_delay(attempts: int) -> timedelta:
+    """Backoff before the next try after `attempts` tries: 30s, 1m, 5m, 15m, 30m capped."""
+    index = min(max(attempts - 1, 0), len(_NOTIFY_RETRY_DELAYS_SECONDS) - 1)
+    return timedelta(seconds=_NOTIFY_RETRY_DELAYS_SECONDS[index])
 ANOMALY_PREFIX = "jawnix-a"
 CONFLICT_PREFIX = "jawnix-c"
 RECOMMENDATION_PREFIX = "jawnix-r"
@@ -291,18 +324,50 @@ class TelegramClient:
     def _call(self, method: str, payload: dict, timeout: float = 20) -> dict:
         if not self.settings.telegram_bot_token:
             raise RuntimeError("Telegram is not configured.")
-        response = httpx.post(
-            f"https://api.telegram.org/bot{self.settings.telegram_bot_token}/{method}",
-            json=payload,
-            timeout=timeout,
-        )
-        data = response.json()
-        if response.status_code != 200 or not data.get("ok"):
-            description = str(data.get("description") or response.text)
-            if method == "editMessageText" and "message is not modified" in description.lower():
-                return data
-            raise RuntimeError(f"Telegram {method} failed: {description}")
-        return data
+        try:
+            response = httpx.post(
+                f"https://api.telegram.org/bot{self.settings.telegram_bot_token}/{method}",
+                json=payload,
+                timeout=timeout,
+            )
+        except httpx.HTTPError as exc:
+            raise TelegramTransientError(
+                f"Telegram {method} transport failed: {exc}"
+            ) from exc
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+        if response.status_code == 200 and data.get("ok"):
+            return data
+        description = str(data.get("description") or response.text)
+        description_lower = description.lower()
+        if method == "editMessageText" and "message is not modified" in description_lower:
+            return data
+        if method == "editMessageText" and "message to edit not found" in description_lower:
+            raise TelegramEditTargetMissingError(
+                f"Telegram {method} failed: {description}"
+            )
+        if response.status_code == 429:
+            retry_after: timedelta | None = None
+            parameters = data.get("parameters") if isinstance(data, dict) else None
+            if isinstance(parameters, dict):
+                raw = parameters.get("retry_after")
+                try:
+                    seconds = int(raw)
+                except (TypeError, ValueError):
+                    seconds = 0
+                if seconds > 0:
+                    retry_after = timedelta(seconds=min(seconds, 3600))
+            raise TelegramTransientError(
+                f"Telegram {method} failed: {description}",
+                retry_after=retry_after,
+            )
+        if response.status_code >= 500:
+            raise TelegramTransientError(
+                f"Telegram {method} failed: {description}"
+            )
+        raise RuntimeError(f"Telegram {method} failed: {description}")
 
     def post_request(self, request: LeadRequest) -> tuple[str, str]:
         if not self.settings.telegram_chat_id:

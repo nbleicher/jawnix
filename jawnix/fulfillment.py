@@ -34,11 +34,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .eligibility import active_holds, report_summaries, suppressed_leads
+from .milestones import build_milestones
 from .models import (
     AuditEntry,
     BatchArtifact,
     DistributionEvent,
     InventoryConflict,
+    Job,
+    JobStatus,
     LeadRequest,
     Notification,
     RequestStatus,
@@ -389,6 +392,33 @@ def describe_request(
         )
         .order_by(AuditEntry.created_at.desc(), AuditEntry.id.desc())
     )
+    live_jobs = list(
+        db.scalars(
+            select(Job)
+            .where(
+                Job.request_id == item.id,
+                Job.status != JobStatus.complete.value,
+            )
+            .order_by(Job.created_at.asc(), Job.id.asc())
+        )
+    )
+    # Recent Jobs (every status) plus Audit Entries become the Progress log —
+    # newest first — so an administrator can scroll the trail of what ran.
+    recent_jobs = list(
+        db.scalars(
+            select(Job)
+            .where(Job.request_id == item.id)
+            .order_by(Job.created_at.desc(), Job.id.desc())
+            .limit(40)
+        )
+    )
+    audit_entries = list(entries)
+    by_state = _distribution_by_state(db, item.id)
+    settled_status = item.status in _SETTLED_STATUSES
+    live_active = any(
+        job.status in {JobStatus.queued.value, JobStatus.running.value}
+        for job in live_jobs
+    )
     detail = _summarize_request(item, ctx)
     detail.update(
         {
@@ -420,6 +450,30 @@ def describe_request(
                 "committed": ctx.committed_distributions,
                 "expected": item.lead_count,
                 "complete": ctx.distribution_complete,
+                "byState": by_state,
+            },
+            "milestones": build_milestones(item).model_dump(mode="json"),
+            "live": {
+                "settled": settled_status and not live_active,
+                "refreshSeconds": 10,
+                "jobs": [
+                    {
+                        "kind": job.kind,
+                        "label": _JOB_LABELS.get(
+                            job.kind, _words(job.kind)
+                        ),
+                        "status": job.status,
+                        "attempts": job.attempts,
+                        "runAfter": job.run_after,
+                        "lastError": job.last_error or None,
+                    }
+                    for job in live_jobs
+                ],
+                "log": _progress_log(
+                    item,
+                    recent_jobs=recent_jobs,
+                    audits=audit_entries,
+                ),
             },
             # Provenance, not a second action surface. The workspace renders
             # one action set and says a Telegram decision is also live.
@@ -433,11 +487,155 @@ def describe_request(
                     "before": entry.details.get("before"),
                     "after": entry.details.get("after"),
                 }
-                for entry in entries
+                for entry in audit_entries
             ],
         }
     )
     return detail
+
+
+_SETTLED_STATUSES = frozenset(
+    {
+        RequestStatus.delivered.value,
+        RequestStatus.rejected.value,
+        RequestStatus.canceled.value,
+        RequestStatus.failed.value,
+    }
+)
+
+_JOB_LABELS: dict[str, str] = {
+    "notify_request": "Sending the Telegram approval message",
+    "update_notification": "Updating the Telegram message",
+    "licensed_states_changed": "Refreshing the Telegram message",
+    "allocate_request": "Allocating inventory",
+    "deliver_request": "Delivering the Batch email",
+    "fulfill_round_robin": "Running round-robin fulfillment",
+    "emit_lead_assigned": "Emitting lead.assigned metrics",
+    "send_request_milestone_email": "Sending a milestone email",
+}
+
+_LOG_JOB_TONES: dict[str, str] = {
+    JobStatus.queued.value: "info",
+    JobStatus.running.value: "info",
+    JobStatus.complete.value: "success",
+    JobStatus.failed.value: "danger",
+}
+
+
+def _words(value: str) -> str:
+    return value.replace("_", " ").capitalize()
+
+
+def _progress_log(
+    item: LeadRequest,
+    *,
+    recent_jobs: list[Job],
+    audits: list[AuditEntry],
+) -> list[dict[str, object]]:
+    """Newest-first trail of Jobs and decisions for the Progress panel."""
+    rows: list[dict[str, object]] = []
+    rows.append(
+        {
+            "id": f"status:{item.id}",
+            "at": item.processed_at
+            or item.approved_at
+            or item.created_at,
+            "kind": "status",
+            "label": item.status_message
+            or status_label_for_log(item.status),
+            "detail": status_label_for_log(item.status),
+            "tone": _status_log_tone(item.status),
+        }
+    )
+    for job in recent_jobs:
+        detail_parts: list[str] = [job.status]
+        if job.attempts > 1:
+            detail_parts.append(f"attempt {job.attempts}")
+        if job.last_error:
+            detail_parts.append(job.last_error[:160])
+        rows.append(
+            {
+                "id": f"job:{job.id}",
+                "at": job.created_at,
+                "kind": "job",
+                "label": _JOB_LABELS.get(job.kind, _words(job.kind)),
+                "detail": " · ".join(detail_parts),
+                "tone": _LOG_JOB_TONES.get(job.status, "neutral"),
+            }
+        )
+    for entry in audits:
+        reason = (entry.reason or "").strip()
+        rows.append(
+            {
+                "id": f"audit:{entry.id}",
+                "at": entry.created_at,
+                "kind": "decision",
+                "label": _words(entry.action),
+                "detail": reason or None,
+                "tone": "neutral",
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            _as_utc(row["at"] if isinstance(row["at"], datetime) else None)
+            or datetime.min.replace(tzinfo=timezone.utc),
+            str(row["id"]),
+        ),
+        reverse=True,
+    )
+    return rows[:50]
+
+
+def status_label_for_log(status: str) -> str:
+    return {
+        RequestStatus.pending.value: "Pending",
+        RequestStatus.approved.value: "Approved",
+        RequestStatus.processing.value: "Processing",
+        RequestStatus.waiting_inventory.value: "Waiting for inventory",
+        RequestStatus.generated.value: "Generated",
+        RequestStatus.delivered.value: "Delivered",
+        RequestStatus.rejected.value: "Rejected",
+        RequestStatus.canceled.value: "Canceled",
+        RequestStatus.failed.value: "Failed",
+    }.get(status, status)
+
+
+def _status_log_tone(status: str) -> str:
+    return {
+        RequestStatus.pending.value: "info",
+        RequestStatus.approved.value: "info",
+        RequestStatus.processing.value: "info",
+        RequestStatus.waiting_inventory.value: "warning",
+        RequestStatus.generated.value: "info",
+        RequestStatus.delivered.value: "success",
+        RequestStatus.rejected.value: "danger",
+        RequestStatus.canceled.value: "neutral",
+        RequestStatus.failed.value: "danger",
+    }.get(status, "neutral")
+
+
+def _distribution_by_state(
+    db: Session, request_id
+) -> list[dict[str, object]]:
+    """Composition of committed Distribution Events by state × Niche."""
+    rows = db.execute(
+        select(
+            DistributionEvent.state,
+            DistributionEvent.source_niche,
+            func.count(DistributionEvent.id),
+        )
+        .where(DistributionEvent.request_id == request_id)
+        .group_by(DistributionEvent.state, DistributionEvent.source_niche)
+        .order_by(DistributionEvent.state, DistributionEvent.source_niche)
+    ).all()
+    return [
+        {
+            "state": state,
+            "niche": niche or "Unmapped",
+            "count": int(count),
+        }
+        for state, niche, count in rows
+    ]
 
 
 #: Inventory Conflict decisions keep their own vocabulary. They are not Batch

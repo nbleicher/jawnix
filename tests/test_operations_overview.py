@@ -181,3 +181,105 @@ def test_endpoint_exposes_the_stable_camel_case_contract(session):
         "Review affected record"
     )
     assert jobs["queues"][0]["items"][0]["recordedAt"]
+
+
+def test_unnotified_stale_request_appears_in_jobs_queue(session):
+    from sqlalchemy import func, select
+    from sqlalchemy.dialects import postgresql
+
+    from jawnix.fulfillment import OPEN_STATUSES
+    from jawnix.models import (
+        Agency,
+        Agent,
+        CustomerProfile,
+        LeadRequest,
+        Notification,
+        RequestStatus,
+    )
+
+    agency = Agency(slug="ops-agency", name="Ops Agency")
+    customer = Agent(slug="ops-customer", name="Ops Customer", agency=agency)
+    other = Agent(slug="ops-other", name="Ops Other", agency=agency)
+    user_id = uuid.uuid4()
+    profile = CustomerProfile(
+        user_id=user_id,
+        email="ops@example.com",
+        first_name="Ops",
+        last_name="Customer",
+        licensed_states=["TX"],
+        agent=customer,
+        mapping_confirmed_at=datetime.now(timezone.utc),
+    )
+    other_profile = CustomerProfile(
+        user_id=uuid.uuid4(),
+        email="other@example.com",
+        licensed_states=["TX"],
+        agent=other,
+        mapping_confirmed_at=datetime.now(timezone.utc),
+    )
+    stale = LeadRequest(
+        user_id=user_id,
+        agent=customer,
+        lead_count=10,
+        states_snapshot=["TX"],
+        state_mode="all_saved",
+        delivery_email=profile.email,
+        status=RequestStatus.pending.value,
+        created_at=datetime.now(timezone.utc) - timedelta(minutes=15),
+    )
+    fresh = LeadRequest(
+        user_id=user_id,
+        agent=customer,
+        lead_count=5,
+        states_snapshot=["TX"],
+        state_mode="all_saved",
+        delivery_email=profile.email,
+        status=RequestStatus.pending.value,
+        created_at=datetime.now(timezone.utc) - timedelta(minutes=2),
+        idempotency_key="fresh-key",
+    )
+    notified = LeadRequest(
+        user_id=other_profile.user_id,
+        agent=other,
+        lead_count=3,
+        states_snapshot=["TX"],
+        state_mode="all_saved",
+        delivery_email=other_profile.email,
+        status=RequestStatus.pending.value,
+        created_at=datetime.now(timezone.utc) - timedelta(minutes=20),
+    )
+    session.add_all(
+        [agency, customer, other, profile, other_profile, stale, fresh, notified]
+    )
+    session.flush()
+    session.add(
+        Notification(
+            request_id=notified.id,
+            destination_id="1",
+            message_id="42",
+        )
+    )
+    session.flush()
+
+    # Postgres parity: the outer-join query must compile.
+    (
+        select(func.count())
+        .select_from(LeadRequest)
+        .outerjoin(Notification, Notification.request_id == LeadRequest.id)
+        .where(
+            LeadRequest.status.in_(OPEN_STATUSES),
+            Notification.id.is_(None),
+        )
+        .compile(dialect=postgresql.dialect())
+    )
+
+    source = overview.read_jobs_source(session)
+    queue = next(q for q in source.queues if q.key == "unnotifiedRequests")
+    assert queue.count == 1
+    assert len(queue.items) == 1
+    assert queue.items[0].id == str(stale.id)
+    assert queue.items[0].tone == "danger"
+    assert (
+        queue.items[0].action.href
+        == f"/app/admin/fulfillment/requests/{stale.id}"
+    )
