@@ -619,6 +619,44 @@ describe("the Batch Request detail", () => {
     ).toBeVisible();
   });
 
+  it("explains when queued jobs are blocked behind another request", () => {
+    renderRoute(
+      <AdminFulfillmentRequestRoute />,
+      detail({
+        live: {
+          settled: false,
+          refreshSeconds: 10,
+          blocker: {
+            kind: "emit_lead_assigned",
+            label: "Emitting lead.assigned metrics",
+            status: "running",
+            jobId: 41,
+            requestId: "e79977ec-4e01-4943-96fb-27c2ecceedc8",
+            detail:
+              "The worker is busy with Emitting lead.assigned metrics for another batch (e79977ec-4e01-4943-96fb-27c2ecceedc8). Jobs for this request stay queued until that finishes.",
+          },
+          jobs: [
+            {
+              kind: "notify_request",
+              label: "Sending the Telegram approval message",
+              status: "queued",
+              attempts: 0,
+              runAfter: null,
+              lastError: null,
+            },
+          ],
+          log: [],
+        },
+      }),
+    );
+
+    const strip = screen.getByLabelText("Active jobs");
+    expect(
+      within(strip).getByText(/worker is busy with Emitting lead\.assigned metrics/),
+    ).toBeVisible();
+    expect(within(strip).getByText("queued")).toBeVisible();
+  });
+
   it("surfaces a failed job error in the live strip", () => {
     renderRoute(
       <AdminFulfillmentRequestRoute />,

@@ -624,11 +624,23 @@ def process_job(job_id: int) -> None:
             elif job.kind == "deliver_request":
                 deliver_request(session, uuid.UUID(str(job.request_id)), settings)
             elif job.kind == EMIT_LEAD_ASSIGNED_JOB:
-                emit_lead_assigned(
+                after_raw = job.payload.get("after_id")
+                after_id = int(after_raw) if after_raw is not None else None
+                emit_result = emit_lead_assigned(
                     session,
                     uuid.UUID(str(job.request_id)),
                     settings,
+                    after_id=after_id,
                 )
+                # Large batches emit in chunks so Telegram/email jobs can run
+                # between HTTP bursts instead of waiting for every event.
+                if emit_result.next_after_id is not None:
+                    enqueue_job(
+                        session,
+                        EMIT_LEAD_ASSIGNED_JOB,
+                        job.request_id,
+                        {"after_id": emit_result.next_after_id},
+                    )
             elif job.kind == MILESTONE_EMAIL_JOB:
                 if request is None:
                     raise LookupError("Request was not found.")

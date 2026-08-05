@@ -255,6 +255,42 @@ class TestRequestDetail:
         }
         assert by_state[("TX", "Roofing")] == 1
         assert by_state[("FL", "Unmapped")] == 1
+        assert body["live"]["blocker"] is None
+
+    def test_live_blocker_when_worker_busy_on_another_request(self, session):
+        from jawnix.models import Job, JobStatus
+
+        _, _, waiting = customer_with_request(session)
+        _, _, blocking = customer_with_request(session, 1, ["TX"])
+        session.add_all(
+            [
+                Job(
+                    kind="emit_lead_assigned",
+                    request_id=blocking.id,
+                    status=JobStatus.running.value,
+                    locked_at=datetime.now(timezone.utc),
+                    locked_by="test-worker",
+                    attempts=1,
+                ),
+                Job(
+                    kind="notify_request",
+                    request_id=waiting.id,
+                    status=JobStatus.queued.value,
+                ),
+            ]
+        )
+        session.commit()
+        client = as_admin(session)
+        try:
+            body = client.get(f"/api/admin/requests/{waiting.id}").json()
+        finally:
+            app.dependency_overrides.clear()
+
+        blocker = body["live"]["blocker"]
+        assert blocker is not None
+        assert blocker["kind"] == "emit_lead_assigned"
+        assert "another batch" in blocker["detail"]
+        assert str(blocking.id) in blocker["detail"]
 
     def test_terminal_request_is_settled_without_active_jobs(self, session):
         _, _, request = customer_with_request(session)

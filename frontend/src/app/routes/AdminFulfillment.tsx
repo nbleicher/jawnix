@@ -297,10 +297,22 @@ export interface LiveJob {
   lastError: string | null;
 }
 
+/** Why this request's jobs are waiting on the shared worker. Optional for skew. */
+export interface LiveWorkerBlocker {
+  kind: string;
+  label: string;
+  status: string;
+  jobId: number;
+  requestId: string | null;
+  detail: string;
+}
+
 /** Live activity strip projected by the server. Optional for deploy-skew. */
 export interface LiveActivity {
   settled: boolean;
   refreshSeconds: number;
+  /** Present when queued jobs are stuck behind work for another request. */
+  blocker?: LiveWorkerBlocker | null;
   jobs: LiveJob[];
   /** Newest-first trail of jobs, status, and decisions. Optional for skew. */
   log?: ProgressLogEntry[];
@@ -443,11 +455,16 @@ function LiveActivityStrip({ live }: { live: LiveActivity | undefined }) {
   if (live == null) {
     return null;
   }
-  if (!live.jobs.length) {
+  if (!live.jobs.length && live.blocker == null) {
     return null;
   }
   return (
     <Stack gap={2} aria-label="Active jobs">
+      {live.blocker ? (
+        <Text size="sm" tone="warning" role="status">
+          {live.blocker.detail}
+        </Text>
+      ) : null}
       {live.jobs.map((job) => (
         <Cluster key={`${job.kind}-${job.status}-${job.attempts}`} gap={2}>
           <StatusBadge tone={LIVE_JOB_TONES[job.status] ?? "neutral"}>
