@@ -1,12 +1,27 @@
 # Production acceptance record
 
+## 2026-08-05 production restore drill
+
+Item 12 passed operationally. The August 5 production database, Scraper
+Dataset, and independent dataset checksum were copied into the separately
+encrypted Peely SSD Restic repository. All three were restored from Peely with
+verification, the 628.143 MiB logical dump restored fully into disposable
+PostgreSQL 18, the 2.596 GiB dataset matched its saved SHA-256, and the Peely
+repository passed `restic check` across 18 snapshots.
+
+Against a clone of that restored production database, the operator CLI
+rejected an older versioned dataset and replayed a newer one through complete
+publication and Inventory Sync. A retry was idempotent. See the
+[restore-drill record](rehearsals/2026-08-05-restore-drill.md) for snapshot
+IDs, counts, checksums, and the separately tracked fresh-bootstrap defect.
+
 ## 2026-08-04 Scraper ownership cutover
 
 The production ownership window completed **GO**. Acquisition data, verified
 off-host backups, migration reconciliation, the idempotent 6,147,275-row
 history import, eight-worker deployment, authenticated typed reads, safe
 control writes, schedules, private-tunnel restart, and live queue movement all
-passed at tagged commit `e1a55e29839581d7300351929025db5d4d8c69b7`.
+passed at final tagged commit `8910538065793c0d596d1b506ac30d7e452eff2d`.
 Jawnix is the sole production deployment source; the stopped legacy stack and
 backups remain rollback-only material through 2026-08-11 23:43 UTC. See the
 [execution record](rehearsals/2026-08-04-scraper-production-cutover.md) for
