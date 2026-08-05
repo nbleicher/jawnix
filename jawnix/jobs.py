@@ -3,10 +3,15 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, case, or_, select
 from sqlalchemy.orm import Session
 
 from .models import Job, JobStatus
+
+# Metrics emit can fan out to tens of thousands of HTTP calls. Keep it behind
+# customer-facing work (Telegram, email, allocate, deliver) so a large batch
+# never starves approval/delivery notifications again.
+_LOW_PRIORITY_JOB_KINDS = frozenset({"emit_lead_assigned"})
 
 
 def enqueue_job(session: Session, kind: str, request_id: uuid.UUID | None = None, payload: dict | None = None) -> Job:
@@ -19,6 +24,10 @@ def enqueue_job(session: Session, kind: str, request_id: uuid.UUID | None = None
 def claim_next_job(session: Session, worker_id: str, lock_timeout_seconds: int = 900) -> Job | None:
     now = datetime.now(timezone.utc)
     stale_before = now - timedelta(seconds=lock_timeout_seconds)
+    priority = case(
+        (Job.kind.in_(_LOW_PRIORITY_JOB_KINDS), 1),
+        else_=0,
+    )
     job = session.scalar(
         select(Job)
         .where(
@@ -27,7 +36,7 @@ def claim_next_job(session: Session, worker_id: str, lock_timeout_seconds: int =
                 and_(Job.status == JobStatus.running.value, Job.locked_at <= stale_before),
             )
         )
-        .order_by(Job.run_after, Job.id)
+        .order_by(priority, Job.run_after, Job.id)
         .limit(1)
         .with_for_update(skip_locked=True)
     )

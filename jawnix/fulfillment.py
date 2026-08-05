@@ -30,7 +30,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import func, nullslast, or_, select
 from sqlalchemy.orm import Session
 
 from .eligibility import active_holds, report_summaries, suppressed_leads
@@ -419,6 +419,7 @@ def describe_request(
         job.status in {JobStatus.queued.value, JobStatus.running.value}
         for job in live_jobs
     )
+    blocker = _live_worker_blocker(db, item, live_jobs)
     detail = _summarize_request(item, ctx)
     detail.update(
         {
@@ -456,6 +457,7 @@ def describe_request(
             "live": {
                 "settled": settled_status and not live_active,
                 "refreshSeconds": 10,
+                "blocker": blocker,
                 "jobs": [
                     {
                         "kind": job.kind,
@@ -520,6 +522,81 @@ _LOG_JOB_TONES: dict[str, str] = {
     JobStatus.complete.value: "success",
     JobStatus.failed.value: "danger",
 }
+
+
+def _live_worker_blocker(
+    db: Session, item: LeadRequest, live_jobs: list[Job]
+) -> dict[str, object] | None:
+    """Explain why this request's jobs sit queued while the worker is elsewhere.
+
+    Progress only lists jobs for *this* request. When the single worker is
+    busy on another request (or a global job), those rows just say "queued"
+    with no reason — which is what operators saw when emit_lead_assigned for
+    a 50k batch blocked Telegram for hours.
+    """
+    queued_here = [
+        job
+        for job in live_jobs
+        if job.status == JobStatus.queued.value
+    ]
+    if not queued_here:
+        return None
+
+    running = db.scalar(
+        select(Job)
+        .where(
+            Job.status == JobStatus.running.value,
+            or_(
+                Job.request_id.is_(None),
+                Job.request_id != item.id,
+            ),
+        )
+        .order_by(nullslast(Job.locked_at), Job.id.asc())
+        .limit(1)
+    )
+    blocker = running
+    if blocker is None:
+        earliest_ours = min(job.id for job in queued_here)
+        blocker = db.scalar(
+            select(Job)
+            .where(
+                Job.id < earliest_ours,
+                Job.status.in_(
+                    {
+                        JobStatus.queued.value,
+                        JobStatus.running.value,
+                    }
+                ),
+                or_(
+                    Job.request_id.is_(None),
+                    Job.request_id != item.id,
+                ),
+            )
+            .order_by(Job.run_after.asc(), Job.id.asc())
+            .limit(1)
+        )
+    if blocker is None:
+        return None
+
+    label = _JOB_LABELS.get(blocker.kind, _words(blocker.kind))
+    other = (
+        f" for another batch ({blocker.request_id})"
+        if blocker.request_id is not None
+        else ""
+    )
+    return {
+        "kind": blocker.kind,
+        "label": label,
+        "status": blocker.status,
+        "jobId": blocker.id,
+        "requestId": (
+            str(blocker.request_id) if blocker.request_id is not None else None
+        ),
+        "detail": (
+            f"The worker is busy with {label}{other}. "
+            "Jobs for this request stay queued until that finishes."
+        ),
+    }
 
 
 def _words(value: str) -> str:

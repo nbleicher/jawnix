@@ -40,6 +40,25 @@ class Response:
         return self._payload
 
 
+def _patch_metrics_client(monkeypatch, post_fn):
+    """Route emit POSTs through ``post_fn`` (same kwargs as httpx.Client.post)."""
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, *args, **kwargs):
+            return post_fn(*args, **kwargs)
+
+    monkeypatch.setattr("jawnix.metrics_emit.httpx.Client", FakeClient)
+
+
 def test_lead_assigned_body_uses_distribution_event_id_and_delivered_at():
     delivered = datetime(2026, 8, 3, 18, 0, 0, tzinfo=timezone.utc)
     event = DistributionEvent(
@@ -111,10 +130,11 @@ def test_emit_lead_assigned_posts_each_event(session, settings, monkeypatch):
         posts.append(kwargs)
         return Response(201, {"status": "accepted"})
 
-    monkeypatch.setattr("jawnix.metrics_emit.httpx.post", capture)
+    _patch_metrics_client(monkeypatch, capture)
     posted = emit_lead_assigned(session, request.id, settings)
 
-    assert posted == 2
+    assert posted.posted == 2
+    assert posted.next_after_id is None
     assert len(posts) == 2
     assert all(
         post["headers"]["X-Ingest-Secret"] == "shared-secret" for post in posts
@@ -163,8 +183,10 @@ def test_emit_lead_assigned_skips_when_unconfigured(session, settings, monkeypat
         calls += 1
         raise AssertionError("should not POST when unconfigured")
 
-    monkeypatch.setattr("jawnix.metrics_emit.httpx.post", boom)
-    assert emit_lead_assigned(session, request.id, settings) == 0
+    _patch_metrics_client(monkeypatch, boom)
+    result = emit_lead_assigned(session, request.id, settings)
+    assert result.posted == 0
+    assert result.next_after_id is None
     assert calls == 0
 
 
@@ -196,8 +218,8 @@ def test_emit_lead_assigned_422_held_body_counts_as_delivered(
     settings.metrics_ingest_url = "https://metrics.example/ingest/jawnix"
     settings.metrics_ingest_secret = "shared-secret"
     request = _make_single_event_request(session, "held-agent", "2145550601")
-    monkeypatch.setattr(
-        "jawnix.metrics_emit.httpx.post",
+    _patch_metrics_client(
+        monkeypatch,
         lambda *_args, **_kwargs: Response(
             422,
             {
@@ -210,7 +232,7 @@ def test_emit_lead_assigned_422_held_body_counts_as_delivered(
             },
         ),
     )
-    assert emit_lead_assigned(session, request.id, settings) == 1
+    assert emit_lead_assigned(session, request.id, settings).posted == 1
 
 
 def test_emit_lead_assigned_non_held_422_raises_with_detail(
@@ -219,8 +241,8 @@ def test_emit_lead_assigned_non_held_422_raises_with_detail(
     settings.metrics_ingest_url = "https://metrics.example/ingest/jawnix"
     settings.metrics_ingest_secret = "super-secret-value"
     request = _make_single_event_request(session, "reject-agent", "2145550602")
-    monkeypatch.setattr(
-        "jawnix.metrics_emit.httpx.post",
+    _patch_metrics_client(
+        monkeypatch,
         lambda *_args, **_kwargs: Response(
             422,
             {"detail": {"reason": "missing_source_agent_identity"}},
@@ -238,9 +260,7 @@ def test_emit_lead_assigned_other_4xx_raises_permanent(session, settings, monkey
     settings.metrics_ingest_url = "https://metrics.example/ingest/jawnix"
     settings.metrics_ingest_secret = "shared-secret"
     request = _make_single_event_request(session, "forbidden-agent", "2145550603")
-    monkeypatch.setattr(
-        "jawnix.metrics_emit.httpx.post",
-        lambda *_args, **_kwargs: Response(403, text="bad ingest secret"),
+    _patch_metrics_client(monkeypatch, lambda *_args, **_kwargs: Response(403, text="bad ingest secret"),
     )
     with pytest.raises(RuntimeError, match="403") as excinfo:
         emit_lead_assigned(session, request.id, settings)
@@ -258,7 +278,7 @@ def test_emit_lead_assigned_network_error_is_transient(session, settings, monkey
     def explode(*_args, **_kwargs):
         raise httpx.ConnectError("connection refused")
 
-    monkeypatch.setattr("jawnix.metrics_emit.httpx.post", explode)
+    _patch_metrics_client(monkeypatch, explode)
     with pytest.raises(MetricsEmitTransientError, match="connection refused"):
         emit_lead_assigned(session, request.id, settings)
 
@@ -267,9 +287,7 @@ def test_emit_lead_assigned_5xx_is_transient(session, settings, monkeypatch):
     settings.metrics_ingest_url = "https://metrics.example/ingest/jawnix"
     settings.metrics_ingest_secret = "shared-secret"
     request = _make_single_event_request(session, "server-err-agent", "2145550605")
-    monkeypatch.setattr(
-        "jawnix.metrics_emit.httpx.post",
-        lambda *_args, **_kwargs: Response(502, text="bad gateway"),
+    _patch_metrics_client(monkeypatch, lambda *_args, **_kwargs: Response(502, text="bad gateway"),
     )
     with pytest.raises(MetricsEmitTransientError, match="502"):
         emit_lead_assigned(session, request.id, settings)
@@ -290,15 +308,13 @@ def test_emit_lead_assigned_warns_once_per_process_when_unconfigured(
 ):
     monkeypatch.setattr("jawnix.metrics_emit._unconfigured_warned", False)
     request = _make_single_event_request(session, "warn-agent", "2145550606")
-    monkeypatch.setattr(
-        "jawnix.metrics_emit.httpx.post",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+    _patch_metrics_client(monkeypatch, lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("should not POST when unconfigured")
         ),
     )
     with caplog.at_level("WARNING", logger="jawnix.metrics_emit"):
-        assert emit_lead_assigned(session, request.id, settings) == 0
-        assert emit_lead_assigned(session, request.id, settings) == 0
+        assert emit_lead_assigned(session, request.id, settings).posted == 0
+        assert emit_lead_assigned(session, request.id, settings).posted == 0
     warnings = [
         record
         for record in caplog.records
@@ -329,9 +345,7 @@ def test_emit_lead_assigned_http_failure_raises(session, settings, monkeypatch):
         )
     )
     session.flush()
-    monkeypatch.setattr(
-        "jawnix.metrics_emit.httpx.post",
-        lambda *_args, **_kwargs: Response(503, text="unavailable"),
+    _patch_metrics_client(monkeypatch, lambda *_args, **_kwargs: Response(503, text="unavailable"),
     )
     with pytest.raises(RuntimeError, match="503"):
         emit_lead_assigned(session, request.id, settings)
@@ -394,7 +408,7 @@ def test_worker_processes_emit_lead_assigned_job(tmp_path, monkeypatch):
 
     monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
     monkeypatch.setattr("jawnix.worker.get_settings", lambda: settings)
-    monkeypatch.setattr("jawnix.metrics_emit.httpx.post", capture)
+    _patch_metrics_client(monkeypatch, capture)
 
     process_job(job_id)
 
@@ -469,9 +483,7 @@ def test_worker_transient_emit_failure_requeues_then_succeeds(tmp_path, monkeypa
 
     monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
     monkeypatch.setattr("jawnix.worker.get_settings", lambda: settings)
-    monkeypatch.setattr(
-        "jawnix.metrics_emit.httpx.post",
-        lambda *_args, **_kwargs: responses.pop(0),
+    _patch_metrics_client(monkeypatch, lambda *_args, **_kwargs: responses.pop(0),
     )
 
     before = datetime.now(timezone.utc)
@@ -514,9 +526,7 @@ def test_worker_emit_failure_does_not_fail_the_request(tmp_path, monkeypatch):
     )
     monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
     monkeypatch.setattr("jawnix.worker.get_settings", lambda: settings)
-    monkeypatch.setattr(
-        "jawnix.metrics_emit.httpx.post",
-        lambda *_args, **_kwargs: Response(503, text="unavailable"),
+    _patch_metrics_client(monkeypatch, lambda *_args, **_kwargs: Response(503, text="unavailable"),
     )
 
     process_job(job_id)
@@ -527,4 +537,170 @@ def test_worker_emit_failure_does_not_fail_the_request(tmp_path, monkeypatch):
         assert job.status == JobStatus.failed.value
         assert "503" in job.last_error
         assert request.status == "generated"
+    engine.dispose()
+
+
+def test_emit_lead_assigned_chunks_and_returns_cursor(
+    session, settings, monkeypatch
+):
+    settings.metrics_ingest_url = "https://metrics.example/ingest/jawnix"
+    settings.metrics_ingest_secret = "shared-secret"
+    agent = Agent(slug="chunk-agent", name="Chunk Agent")
+    session.add(agent)
+    session.flush()
+    session.add_all(
+        [
+            Lead(phone="2145550701", title="One", state="TX"),
+            Lead(phone="2145550702", title="Two", state="TX"),
+            Lead(phone="2145550703", title="Three", state="TX"),
+        ]
+    )
+    request = make_request(session, agent, 3)
+    delivered = datetime(2026, 8, 5, 12, 0, 0, tzinfo=timezone.utc)
+    leads = list(session.scalars(select(Lead).order_by(Lead.id)))
+    for lead in leads:
+        session.add(
+            DistributionEvent(
+                lead_id=lead.id,
+                agent_id=agent.id,
+                request_id=request.id,
+                phone=lead.phone,
+                title=lead.title,
+                state=lead.state,
+                delivered_at=delivered,
+                source="request",
+            )
+        )
+    session.flush()
+    event_ids = list(
+        session.scalars(
+            select(DistributionEvent.id)
+            .where(DistributionEvent.request_id == request.id)
+            .order_by(DistributionEvent.id)
+        )
+    )
+    posts: list[str] = []
+
+    def capture(*_args, **kwargs):
+        posts.append(kwargs["json"]["dedup_key"])
+        return Response(201, {"status": "accepted"})
+
+    _patch_metrics_client(monkeypatch, capture)
+
+    first = emit_lead_assigned(session, request.id, settings, limit=2)
+    assert first.posted == 2
+    assert first.next_after_id == event_ids[1]
+    assert posts == [str(event_ids[0]), str(event_ids[1])]
+
+    second = emit_lead_assigned(
+        session,
+        request.id,
+        settings,
+        after_id=first.next_after_id,
+        limit=2,
+    )
+    assert second.posted == 1
+    assert second.next_after_id is None
+    assert posts == [str(eid) for eid in event_ids]
+
+
+def test_worker_requeues_emit_continuation_between_chunks(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'emit-chunk-worker.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    with factory.begin() as session:
+        agent = Agent(slug="worker-chunk", name="Worker Chunk")
+        session.add(agent)
+        session.flush()
+        leads = [
+            Lead(phone=f"21455508{i:02d}", title=f"L{i}", state="TX")
+            for i in range(3)
+        ]
+        session.add_all(leads)
+        session.flush()
+        request = LeadRequest(
+            user_id=uuid.uuid4(),
+            agent=agent,
+            lead_count=3,
+            state_mode="selected",
+            states_snapshot=["TX"],
+            delivery_email="chunk@example.com",
+            status="generated",
+        )
+        session.add(request)
+        session.flush()
+        for lead in leads:
+            session.add(
+                DistributionEvent(
+                    lead_id=lead.id,
+                    agent_id=agent.id,
+                    request_id=request.id,
+                    phone=lead.phone,
+                    title=lead.title,
+                    state=lead.state,
+                    delivered_at=datetime(
+                        2026, 8, 5, 15, 0, 0, tzinfo=timezone.utc
+                    ),
+                    source="request",
+                )
+            )
+        job = Job(
+            kind=EMIT_LEAD_ASSIGNED_JOB,
+            request_id=request.id,
+            status=JobStatus.running.value,
+        )
+        session.add(job)
+        session.flush()
+        job_id = job.id
+        request_id = request.id
+
+    settings = Settings(
+        JAWNIX_METRICS_INGEST_URL="https://metrics.example/ingest/jawnix",
+        JAWNIX_METRICS_INGEST_SECRET="worker-secret",
+    )
+    monkeypatch.setattr("jawnix.worker.SessionLocal", factory)
+    monkeypatch.setattr("jawnix.worker.get_settings", lambda: settings)
+    monkeypatch.setattr("jawnix.metrics_emit.EMIT_CHUNK_SIZE", 2)
+    _patch_metrics_client(monkeypatch, lambda *_args, **_kwargs: Response(201, {"status": "accepted"}),
+    )
+
+    process_job(job_id)
+
+    with factory() as session:
+        first = session.get(Job, job_id)
+        assert first.status == JobStatus.complete.value
+        followups = list(
+            session.scalars(
+                select(Job)
+                .where(
+                    Job.kind == EMIT_LEAD_ASSIGNED_JOB,
+                    Job.request_id == request_id,
+                    Job.id != job_id,
+                )
+                .order_by(Job.id)
+            )
+        )
+        assert len(followups) == 1
+        assert followups[0].status == JobStatus.queued.value
+        assert "after_id" in followups[0].payload
+        continuation_id = followups[0].id
+        followups[0].status = JobStatus.running.value
+        followups[0].attempts = 1
+        session.commit()
+
+    process_job(continuation_id)
+
+    with factory() as session:
+        continuation = session.get(Job, continuation_id)
+        assert continuation.status == JobStatus.complete.value
+        leftover = list(
+            session.scalars(
+                select(Job).where(
+                    Job.kind == EMIT_LEAD_ASSIGNED_JOB,
+                    Job.request_id == request_id,
+                    Job.status == JobStatus.queued.value,
+                )
+            )
+        )
+        assert leftover == []
     engine.dispose()

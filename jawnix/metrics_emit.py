@@ -1,19 +1,26 @@
 """Emit lead.assigned events to the Summit metrics ingest endpoint.
 
-One job per Batch Request (enqueued beside deliver_request) POSTs one event per
-DistributionEvent. At-least-once delivery is fine: metrics dedups on
-distribution_event.id. lead.opened / lead.accepted do not exist here.
+One logical emit per Batch Request (enqueued beside deliver_request) POSTs one
+event per DistributionEvent. Work is split into small chunks so the single
+worker can interleave Telegram / email jobs between chunks instead of blocking
+on tens of thousands of sequential HTTP calls.
+
+At-least-once delivery is fine: metrics dedups on distribution_event.id.
+lead.opened / lead.accepted do not exist here.
 
 Design note (accepted): the POSTs run inside the worker's job transaction.
 If the transaction rolls back after some POSTs succeeded, the retry re-POSTs
 the same dedup keys and metrics discards the duplicates, so no isolation of
-network I/O from the transaction is needed.
+network I/O from the transaction is needed. Chunk continuations also re-POST
+from ``after_id``; metrics dedup makes overlapping edges safe.
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -27,6 +34,14 @@ log = logging.getLogger("jawnix.metrics_emit")
 
 EMIT_LEAD_ASSIGNED_JOB = "emit_lead_assigned"
 
+# Cap how long one worker claim spends on metrics so notify / email jobs can
+# run between chunks. With concurrent posts, 100 events finishes quickly while
+# still yielding the worker between chunks for Telegram/delivery work.
+EMIT_CHUNK_SIZE = 100
+# Parallel POSTs inside one chunk. Metrics dedups on distribution_event.id, so
+# ordering within a chunk does not matter.
+EMIT_CONCURRENCY = 8
+
 # Metrics dedups on distribution_event.id, so at-least-once retries are safe.
 # Be generous before giving up; a failed job needs a manual requeue.
 EMIT_MAX_ATTEMPTS = 10
@@ -39,6 +54,18 @@ _unconfigured_warned = False
 
 class MetricsEmitTransientError(RuntimeError):
     """Network failure or 5xx from metrics ingest; the job should be retried."""
+
+
+@dataclass(frozen=True)
+class EmitLeadAssignedResult:
+    """One chunk of emit work.
+
+    ``next_after_id`` is set when more DistributionEvents remain; the worker
+    enqueues another ``emit_lead_assigned`` job with that cursor.
+    """
+
+    posted: int
+    next_after_id: int | None
 
 
 def emit_retry_delay(attempts: int) -> timedelta:
@@ -102,12 +129,19 @@ def emit_lead_assigned(
     session: Session,
     request_id: uuid.UUID,
     settings: Settings,
-) -> int:
-    """POST lead.assigned for every DistributionEvent on the request.
+    *,
+    after_id: int | None = None,
+    limit: int | None = None,
+) -> EmitLeadAssignedResult:
+    """POST lead.assigned for up to ``limit`` DistributionEvents on the request.
 
-    Returns the number of events posted. When metrics ingest is not configured,
-    returns 0 without error so undeployed hosts do not fail the job.
+    Starts after ``after_id`` when continuing a prior chunk. Returns how many
+    events were posted and the cursor for the next chunk (or None when done).
+
+    When metrics ingest is not configured, returns posted=0 without error so
+    undeployed hosts do not fail the job.
     """
+    chunk_limit = EMIT_CHUNK_SIZE if limit is None else limit
     if not settings.metrics_ingest_url or not settings.metrics_ingest_secret:
         global _unconfigured_warned
         if not _unconfigured_warned:
@@ -121,56 +155,86 @@ def emit_lead_assigned(
             "Metrics ingest not configured; skipping emit_lead_assigned for %s",
             request_id,
         )
-        return 0
+        return EmitLeadAssignedResult(posted=0, next_after_id=None)
 
-    events = list(
-        session.scalars(
-            select(DistributionEvent)
-            .where(DistributionEvent.request_id == request_id)
-            .order_by(DistributionEvent.id)
-        )
+    if chunk_limit < 1:
+        raise ValueError("emit_lead_assigned limit must be >= 1")
+
+    query = (
+        select(DistributionEvent)
+        .where(DistributionEvent.request_id == request_id)
+        .order_by(DistributionEvent.id)
     )
-    if not events:
+    if after_id is not None:
+        query = query.where(DistributionEvent.id > after_id)
+    # Fetch one extra row so we know whether another chunk is needed without
+    # a separate COUNT query on large request batches.
+    events = list(session.scalars(query.limit(chunk_limit + 1)))
+    if not events and after_id is None:
         raise LookupError(
             f"No DistributionEvents for request {request_id}; cannot emit lead.assigned."
         )
+    if not events:
+        return EmitLeadAssignedResult(posted=0, next_after_id=None)
 
+    chunk = events[:chunk_limit]
+    has_more = len(events) > chunk_limit
+
+    headers = {
+        "X-Ingest-Secret": settings.metrics_ingest_secret,
+        "Content-Type": "application/json",
+    }
+    workers = max(1, min(EMIT_CONCURRENCY, len(chunk)))
     posted = 0
-    for event in events:
-        body = lead_assigned_body(event)
-        try:
-            response = httpx.post(
-                settings.metrics_ingest_url,
-                headers={
-                    "X-Ingest-Secret": settings.metrics_ingest_secret,
-                    "Content-Type": "application/json",
-                },
-                json=body,
-                timeout=30,
-            )
-        except httpx.HTTPError as exc:
-            raise MetricsEmitTransientError(
-                f"Metrics ingest unreachable for distribution_event "
-                f"{event.id}: {exc!r}"
-            ) from exc
-        # 201 accepted, 200 duplicate, 422 with a held body (unmapped agent,
-        # persisted for replay) — all mean metrics stored the event. Any other
-        # 4xx means the event was rejected and retrying the same body cannot
-        # help, so fail loudly. 5xx / network errors are retried.
-        if response.status_code in {200, 201}:
-            posted += 1
-            continue
-        if response.status_code == 422 and _is_held_response(response):
-            posted += 1
-            continue
-        detail = (response.text or "")[:500]
-        if response.status_code >= 500:
-            raise MetricsEmitTransientError(
-                f"Metrics ingest failed with HTTP {response.status_code} "
-                f"for distribution_event {event.id}: {detail}"
-            )
-        raise RuntimeError(
-            f"Metrics ingest rejected distribution_event {event.id} "
-            f"with HTTP {response.status_code}: {detail}"
+    with httpx.Client(timeout=30) as client:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(
+                    _post_lead_assigned,
+                    client,
+                    settings.metrics_ingest_url,
+                    headers,
+                    event,
+                )
+                for event in chunk
+            ]
+            for future in as_completed(futures):
+                future.result()
+                posted += 1
+    next_after_id = chunk[-1].id if has_more else None
+    return EmitLeadAssignedResult(posted=posted, next_after_id=next_after_id)
+
+
+def _post_lead_assigned(
+    client: httpx.Client,
+    url: str,
+    headers: dict[str, str],
+    event: DistributionEvent,
+) -> None:
+    """POST one lead.assigned event; raise transient/permanent errors."""
+    body = lead_assigned_body(event)
+    try:
+        response = client.post(url, headers=headers, json=body)
+    except httpx.HTTPError as exc:
+        raise MetricsEmitTransientError(
+            f"Metrics ingest unreachable for distribution_event "
+            f"{event.id}: {exc!r}"
+        ) from exc
+    # 201 accepted, 200 duplicate, 422 with a held body (unmapped agent,
+    # persisted for replay) — all mean metrics stored the event. Any other
+    # 4xx means the event was rejected and retrying the same body cannot
+    # help, so fail loudly. 5xx / network errors are retried.
+    if response.status_code in {200, 201}:
+        return
+    if response.status_code == 422 and _is_held_response(response):
+        return
+    detail = (response.text or "")[:500]
+    if response.status_code >= 500:
+        raise MetricsEmitTransientError(
+            f"Metrics ingest failed with HTTP {response.status_code} "
+            f"for distribution_event {event.id}: {detail}"
         )
-    return posted
+    raise RuntimeError(
+        f"Metrics ingest rejected distribution_event {event.id} "
+        f"with HTTP {response.status_code}: {detail}"
+    )
