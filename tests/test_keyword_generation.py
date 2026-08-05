@@ -122,6 +122,41 @@ def test_exact_near_and_historical_duplicates_are_filtered_with_adaptive_context
     assert any(item["candidate"] == "PLUMBERS" for item in retry["rejected_candidates"])
 
 
+def test_production_sized_history_is_visible_to_generation():
+    requests: list[dict] = []
+    historical = [f"Historical Niche {index:04d}" for index in range(2_853)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests.append(payload)
+        instruction = json.loads(payload["messages"][1]["content"])
+        requested = instruction["candidate_count"]
+        visible = set(instruction["excluded_keywords"])
+        hidden = [term for term in historical if term not in visible]
+        if hidden:
+            call = len(requests)
+            terms = [
+                *hidden[: requested - 2],
+                *candidates(10_000 + call * 100, 2),
+            ]
+        else:
+            terms = candidates(20_000, requested)
+        return completion(terms)
+
+    provider = OpenRouterGenerationProvider(
+        generation_settings(),
+        transport=httpx.MockTransport(handler),
+    )
+    result = provider.generate_keywords(
+        mode="broad",
+        excluded_keywords=historical,
+    )
+
+    assert len(result.terms) == 25
+    first_instruction = json.loads(requests[0]["messages"][1]["content"])
+    assert set(first_instruction["excluded_keywords"]) == set(historical)
+
+
 @pytest.mark.parametrize(
     ("responses", "code", "message", "expected_calls"),
     [
