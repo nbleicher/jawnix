@@ -671,6 +671,11 @@ validated dataset can be replayed forward idempotently with `--apply`; this
 archives the exact restored bytes, records the publication and Inventory Sync
 attempt, and synchronizes PostgreSQL without exposing partial inventory.
 
+The 2026-08-05 operational exercise restored a current production dump and
+legacy Scraper Dataset from the independently encrypted Peely repository, then
+proved both version-order paths against the restored database. See the
+[restore-drill record](rehearsals/2026-08-05-restore-drill.md).
+
 Legacy native datasets created before versioned publication metadata are
 backed up with the `legacy-metadata-missing` Restic tag and an independent
 `scraper-dataset.sha256` snapshot. Restore those bytes only through the

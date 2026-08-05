@@ -9,8 +9,10 @@ control plane, workers, schedules, keyword history, rollover decision, and
 model credential. The legacy Scale stack is stopped and retained only for the
 seven-day rollback period.
 
-Cutover source: `scraper-cutover-complete-20260804T234259Z`, commit
-`e1a55e29839581d7300351929025db5d4d8c69b7`. The preparatory cutover source was
+Final cutover source: `scraper-cutover-complete-20260805T023357Z`, commit
+`8910538065793c0d596d1b506ac30d7e452eff2d`. Earlier immutable completion tags
+remain at `e1a55e29839581d7300351929025db5d4d8c69b7` and
+`4f8b07b1f3e9e8a42a63041435b0c3c635f551b3`; the preparatory cutover source was
 `scraper-cutover-20260804T230235Z`, commit
 `21d79ff3caac9094b70cd7152f37149fab74a885`.
 
@@ -76,7 +78,7 @@ original state was restored.
 
 ## Verification
 
-- CI passed on PRs #175, #176, and #177. The final run passed backend,
+- CI passed on PRs #175 through #180. The final runs passed backend,
   frontend typecheck/unit/e2e, Docker image, scraper-control contract, and
   scraper-worker checks. The local production-control suite passed 45 tests.
 - Authenticated production reads returned 200 for health, workspace, keywords,
@@ -101,6 +103,12 @@ original state was restored.
   volumes returned intact, all six Compose services recovered, PostgreSQL was
   healthy, migration head remained current, and public health/readiness passed
   independently from the worker host.
+- After the first campaign drained, the production scheduler autonomously
+  generated and activated exactly 25 new keywords, enqueued the campaign, and
+  recorded `scraper_keyword_rollover_completed`. The first observed queue
+  sample used the new keyword version, reported `working`, advanced to 1,600
+  of 20,150 coverage jobs, and showed 34 queued plus 12 running jobs with all
+  eight workers healthy.
 
 ## Production discoveries
 
@@ -128,16 +136,17 @@ results:
    prior configuration retained as
    `wg0.conf.pre-scraper-cutover-20260805`. A new handshake and bidirectional
    private ping passed after the change.
-
-The first post-recovery automatic rollover attempt authenticated to the typed
-control, called OpenRouter three times from the application host, and recorded
-an audited `generation_failed` outcome because the model did not return 25
-sufficiently distinct terms against 2,853 exclusions. This was not a missing
-credential or cross-host ownership failure. The scheduler retained the current
-campaign and did not invent or activate an invalid list. The final no-op save
-then resumed the current campaign at 8,033 of 20,150 coverage jobs; rollover
-correctly reports `working`, so the scheduler will reconsider generation only
-after this campaign drains.
+7. Rollover validation checked all 2,853 historical exclusions while the model
+   prompt exposed only 500, making legitimate suggestions look invalid after
+   generation. PR #179 exposes up to 5,000 exclusions and adds the
+   production-sized regression.
+8. A stochastic response could still echo many visible exclusions. PR #180
+   expands the candidate pool and keyword-generation retry budget while
+   retaining the separate three-call niche-proposal budget. A production-
+   shaped duplicate-heavy seam and the autonomous production rollover both
+   passed. The final tagged deployment reports five keyword attempts, three
+   niche attempts, migration head `20260804_0044`, and green public health and
+   readiness.
 
 The in-app signed-in browser was unavailable during the window, so the final
 control writes use the authenticated typed API rather than the admin UI. No UI
