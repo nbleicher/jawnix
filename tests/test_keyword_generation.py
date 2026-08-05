@@ -157,20 +157,57 @@ def test_production_sized_history_is_visible_to_generation():
     assert set(first_instruction["excluded_keywords"]) == set(historical)
 
 
+def test_duplicate_heavy_generation_has_a_broader_five_attempt_budget():
+    requested_counts: list[int] = []
+    historical = [f"Covered Niche {index:03d}" for index in range(100)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        instruction = json.loads(payload["messages"][1]["content"])
+        requested = instruction["candidate_count"]
+        requested_counts.append(requested)
+        call = len(requested_counts)
+        return completion(
+            [
+                *historical[: requested - 5],
+                *candidates(30_000 + call * 100, 5),
+            ]
+        )
+
+    provider = OpenRouterGenerationProvider(
+        generation_settings(),
+        transport=httpx.MockTransport(handler),
+    )
+    result = provider.generate_keywords(
+        mode="broad",
+        excluded_keywords=historical,
+    )
+
+    assert len(result.terms) == 25
+    assert result.candidate_metrics["attemptCount"] == 5
+    assert requested_counts == [75, 60, 60, 60, 60]
+
+
 @pytest.mark.parametrize(
     ("responses", "code", "message", "expected_calls"),
     [
         (
-            [httpx.Response(200, json={"choices": [{"message": {"content": "not-json"}}]})] * 3,
+            [
+                httpx.Response(
+                    200,
+                    json={"choices": [{"message": {"content": "not-json"}}]},
+                )
+            ]
+            * 5,
             GenerationErrorCode.MALFORMED,
             "malformed keyword data",
-            3,
+            5,
         ),
         (
-            [completion([], finish_reason="length")] * 3,
+            [completion([], finish_reason="length")] * 5,
             GenerationErrorCode.TRUNCATED,
             "output limit",
-            3,
+            5,
         ),
         (
             [httpx.Response(429, json={"error": {"message": "secret detail"}})] * 3,
@@ -180,7 +217,7 @@ def test_production_sized_history_is_visible_to_generation():
         ),
     ],
 )
-def test_provider_failures_retry_at_most_three_times_without_leaking_details(
+def test_provider_failures_use_a_bounded_budget_without_leaking_details(
     responses,
     code,
     message,
@@ -225,7 +262,7 @@ def test_transport_timeout_is_typed_and_retried_within_the_operation_budget():
         provider.generate_keywords(mode="broad", excluded_keywords=[])
 
     assert raised.value.code == GenerationErrorCode.TIMEOUT
-    assert calls == 3
+    assert calls == 5
     assert "private timeout" not in raised.value.message
 
 
@@ -274,7 +311,7 @@ def test_strict_exactly_25_failure_never_pads_or_returns_a_partial_result():
         "AI could not produce 25 sufficiently distinct keywords; try again"
     )
     assert raised.value.metrics["acceptedCount"] == 0
-    assert calls == 3
+    assert calls == 5
 
 
 def test_niche_proposals_retry_malformed_output_behind_the_same_interface():

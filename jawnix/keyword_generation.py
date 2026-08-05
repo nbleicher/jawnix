@@ -30,7 +30,8 @@ from .models import KeywordGenerationDraftRecord, KeywordHistory
 
 
 KEYWORD_GENERATION_COUNT = 25
-KEYWORD_GENERATION_MAX_ATTEMPTS = 3
+KEYWORD_GENERATION_MAX_ATTEMPTS = 5
+NICHE_PROPOSAL_MAX_ATTEMPTS = 3
 KEYWORD_DRAFT_TTL = timedelta(hours=24)
 KEYWORD_DRAFT_RETENTION = timedelta(days=90)
 _GENERATION_LOCK_NAMESPACE = 0x4A41574E  # "JAWN", shared convention.
@@ -560,7 +561,7 @@ class OpenRouterGenerationProvider:
 
         for attempt_number in range(1, KEYWORD_GENERATION_MAX_ATTEMPTS + 1):
             remaining_count = count - len(accepted)
-            requested_count = min(80, max(40, remaining_count * 2))
+            requested_count = min(80, max(60, remaining_count * 3))
             try:
                 content = self._request(
                     messages=self._keyword_messages(
@@ -685,8 +686,8 @@ class OpenRouterGenerationProvider:
         deadline = self._deadline()
         batch_size = max(
             20,
-            (len(segments) + KEYWORD_GENERATION_MAX_ATTEMPTS - 1)
-            // KEYWORD_GENERATION_MAX_ATTEMPTS,
+            (len(segments) + NICHE_PROPOSAL_MAX_ATTEMPTS - 1)
+            // NICHE_PROPOSAL_MAX_ATTEMPTS,
         )
         batches = [
             segments[offset:offset + batch_size]
@@ -695,7 +696,7 @@ class OpenRouterGenerationProvider:
         proposals_by_id: dict[str, str] = {}
         batch_index = 0
         last_error: KeywordGenerationError | None = None
-        for attempt_number in range(1, KEYWORD_GENERATION_MAX_ATTEMPTS + 1):
+        for attempt_number in range(1, NICHE_PROPOSAL_MAX_ATTEMPTS + 1):
             batch = batches[batch_index]
             expected = {str(item["id"]) for item in batch}
             retry_context = (
