@@ -67,6 +67,43 @@ function detail(overrides: Partial<RequestDetail> = {}): RequestDetail {
     deliveredAt: null,
     artifact: null,
     distribution: { committed: 0, expected: 250, complete: false },
+    // Settled by default so existing detail tests do not start a poll loop.
+    live: { settled: true, refreshSeconds: 10, jobs: [], log: [] },
+    milestones: {
+      milestones: [
+        {
+          key: "submitted",
+          label: "Submitted",
+          description: "We have your request.",
+          state: "current",
+          occurred_at: "2026-07-01T10:00:00Z",
+        },
+        {
+          key: "under_review",
+          label: "Under Review",
+          description: "Checking quantity and states.",
+          state: "upcoming",
+          occurred_at: null,
+        },
+        {
+          key: "preparing_batch",
+          label: "Preparing Batch",
+          description: "Selecting leads.",
+          state: "upcoming",
+          occurred_at: null,
+        },
+        {
+          key: "delivered",
+          label: "Delivered",
+          description: "Available in the portal.",
+          state: "upcoming",
+          occurred_at: null,
+        },
+      ],
+      current_key: "submitted",
+      pause: null,
+      outcome: null,
+    },
     telegram: { decisionPending: false },
     history: [],
     activityTimeline: {
@@ -510,6 +547,226 @@ describe("the Batch Request detail", () => {
     expect(screen.getByText("admin-1")).toBeVisible();
     expect(screen.getByText("pending")).toBeVisible();
     expect(screen.getByText("approved")).toBeVisible();
+  });
+
+  it("renders the Progress milestone graph", () => {
+    renderRoute(<AdminFulfillmentRequestRoute />, detail());
+
+    expect(
+      screen.getByRole("heading", { level: 2, name: "Progress" }),
+    ).toBeVisible();
+    const graph = screen.getByLabelText("Batch Request progress");
+    expect(graph).toBeVisible();
+    expect(within(graph).getByText("Submitted")).toBeVisible();
+    expect(within(graph).getByText("Under Review")).toBeVisible();
+  });
+
+  it("shows a running job in the live activity strip", () => {
+    renderRoute(
+      <AdminFulfillmentRequestRoute />,
+      detail({
+        live: {
+          settled: false,
+          refreshSeconds: 10,
+          jobs: [
+            {
+              kind: "allocate_request",
+              label: "Allocating inventory",
+              status: "running",
+              attempts: 1,
+              runAfter: null,
+              lastError: null,
+            },
+          ],
+          log: [
+            {
+              id: "job:1",
+              at: "2026-07-01T10:05:00Z",
+              kind: "job",
+              label: "Allocating inventory",
+              detail: "running",
+              tone: "info",
+            },
+            {
+              id: "audit:1",
+              at: "2026-07-01T10:01:00Z",
+              kind: "decision",
+              label: "Batch request approve",
+              detail: "Inventory verified.",
+              tone: "neutral",
+            },
+            {
+              id: "status:1",
+              at: "2026-07-01T10:00:00Z",
+              kind: "status",
+              label: "Approved; allocation is queued.",
+              detail: "Approved",
+              tone: "info",
+            },
+          ],
+        },
+      }),
+    );
+
+    const log = screen.getByLabelText("Live activity log, most recent first");
+    expect(log).toBeVisible();
+    expect(within(log).getByText("Allocating inventory")).toBeVisible();
+    expect(within(log).getByText("Batch request approve")).toBeVisible();
+    expect(within(log).getByText("Inventory verified.")).toBeVisible();
+    expect(screen.getByLabelText("Active jobs")).toBeVisible();
+    expect(
+      within(screen.getByLabelText("Active jobs")).getByText("running"),
+    ).toBeVisible();
+  });
+
+  it("surfaces a failed job error in the live strip", () => {
+    renderRoute(
+      <AdminFulfillmentRequestRoute />,
+      detail({
+        live: {
+          settled: false,
+          refreshSeconds: 10,
+          jobs: [
+            {
+              kind: "notify_request",
+              label: "Sending the Telegram approval message",
+              status: "failed",
+              attempts: 3,
+              runAfter: null,
+              lastError: "Telegram sendMessage failed: 503",
+            },
+          ],
+          log: [
+            {
+              id: "job:9",
+              at: "2026-07-01T10:05:00Z",
+              kind: "job",
+              label: "Sending the Telegram approval message",
+              detail: "failed · attempt 3 · Telegram sendMessage failed: 503",
+              tone: "danger",
+            },
+          ],
+        },
+      }),
+    );
+
+    const log = screen.getByLabelText("Live activity log, most recent first");
+    expect(
+      within(log).getByText("Sending the Telegram approval message"),
+    ).toBeVisible();
+    expect(
+      within(log).getByText(/Telegram sendMessage failed: 503/),
+    ).toBeVisible();
+  });
+
+  it("keeps the activity log to five visible rows with overflow scroll", () => {
+    const log = Array.from({ length: 8 }, (_, index) => ({
+      id: `job:${index}`,
+      at: `2026-07-01T10:0${index}:00Z`,
+      kind: "job" as const,
+      label: `Step ${index}`,
+      detail: "complete",
+      tone: "success" as const,
+    }));
+    renderRoute(
+      <AdminFulfillmentRequestRoute />,
+      detail({
+        live: { settled: true, refreshSeconds: 10, jobs: [], log },
+      }),
+    );
+
+    const panel = screen.getByLabelText("Live activity log, most recent first");
+    expect(panel).toHaveStyle({ maxHeight: "calc(5 * 2.5rem)" });
+    expect(within(panel).getByText("Step 0")).toBeVisible();
+    expect(within(panel).getByText("Step 7")).toBeVisible();
+  });
+
+  it("renders Distribution composition cells when byState is present", () => {
+    renderRoute(
+      <AdminFulfillmentRequestRoute />,
+      detail({
+        distribution: {
+          committed: 3,
+          expected: 3,
+          complete: true,
+          byState: [
+            { state: "TX", niche: "Roofing", count: 2 },
+            { state: "TX", niche: "Unmapped", count: 1 },
+          ],
+        },
+      }),
+    );
+
+    const section = screen.getByRole("region", { name: "Distribution" });
+    expect(within(section).getByText("Roofing")).toBeVisible();
+    expect(within(section).getByText("Unmapped")).toBeVisible();
+    expect(within(section).getByText("2 committed")).toBeVisible();
+  });
+
+  it("omits the Distribution section when nothing is committed", () => {
+    renderRoute(<AdminFulfillmentRequestRoute />, detail());
+
+    expect(
+      screen.queryByRole("region", { name: "Distribution" }),
+    ).toBeNull();
+  });
+
+  it("tolerates a payload without Progress fields", () => {
+    const payload = detail();
+    delete payload.milestones;
+    delete payload.live;
+    renderRoute(<AdminFulfillmentRequestRoute />, payload);
+
+    expect(
+      screen.queryByRole("heading", { level: 2, name: "Progress" }),
+    ).toBeNull();
+    expect(screen.getByText("Northstar Insurance")).toBeVisible();
+  });
+
+  it("starts a refresh interval only while unsettled", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    const clearIntervalSpy = vi.spyOn(window, "clearInterval");
+
+    const unsettled = detail({
+      live: { settled: false, refreshSeconds: 10, jobs: [] },
+    });
+    const router = createMemoryRouter(
+      [
+        {
+          id: "request",
+          path: "/admin/fulfillment/requests/:requestId",
+          loader: () => unsettled,
+          element: <AdminFulfillmentRequestRoute />,
+        },
+      ],
+      {
+        initialEntries: [
+          "/admin/fulfillment/requests/11111111-1111-1111-1111-111111111111",
+        ],
+        hydrationData: { loaderData: { request: unsettled } },
+      },
+    );
+    const view = render(<RouterProvider router={router} />);
+
+    await waitFor(() => {
+      expect(
+        setIntervalSpy.mock.calls.some((call) => call[1] === 10_000),
+      ).toBe(true);
+    });
+    view.unmount();
+    expect(clearIntervalSpy).toHaveBeenCalled();
+
+    setIntervalSpy.mockClear();
+    renderRoute(
+      <AdminFulfillmentRequestRoute />,
+      detail({ live: { settled: true, refreshSeconds: 10, jobs: [] } }),
+    );
+    expect(
+      setIntervalSpy.mock.calls.some((call) => call[1] === 10_000),
+    ).toBe(false);
+
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
   });
 });
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { Link, useLoaderData, useRevalidator } from "react-router";
@@ -27,6 +27,10 @@ import {
   loadEntityActivity,
 } from "./AdminActivity";
 import type { ActivityPage } from "./AdminActivity";
+import type { MilestoneGraphData } from "./batchRequests";
+import { MilestoneGraph } from "./MilestoneGraph";
+
+import "./AdminFulfillmentProgressLog.css";
 
 /**
  * The administrator Fulfillment workspace (#57).
@@ -283,12 +287,56 @@ export interface HistoryEntry {
   after: Record<string, unknown> | null;
 }
 
+/** One background job still moving for this Batch Request. */
+export interface LiveJob {
+  kind: string;
+  label: string;
+  status: string;
+  attempts: number;
+  runAfter: string | null;
+  lastError: string | null;
+}
+
+/** Live activity strip projected by the server. Optional for deploy-skew. */
+export interface LiveActivity {
+  settled: boolean;
+  refreshSeconds: number;
+  jobs: LiveJob[];
+  /** Newest-first trail of jobs, status, and decisions. Optional for skew. */
+  log?: ProgressLogEntry[];
+}
+
+/** One row of the Progress activity log. */
+export interface ProgressLogEntry {
+  id: string;
+  at: string | null;
+  kind: string;
+  label: string;
+  detail: string | null;
+  tone: StatusTone;
+}
+
+/** One cell of the committed Distribution Event composition. */
+export interface DistributionCell {
+  state: string;
+  niche: string;
+  count: number;
+}
+
 export interface RequestDetail extends RequestSummary {
   activityTimeline: ActivityPage;
   approvedAt: string | null;
   deliveredAt: string | null;
   artifact: ArtifactState | null;
-  distribution: { committed: number; expected: number; complete: boolean };
+  distribution: {
+    committed: number;
+    expected: number;
+    complete: boolean;
+    byState?: DistributionCell[];
+  };
+  /** Optional for deploy-skew: an older backend still renders the page. */
+  milestones?: MilestoneGraphData;
+  live?: LiveActivity;
   telegram: { decisionPending: boolean };
   history: HistoryEntry[];
 }
@@ -324,6 +372,107 @@ function statusLabel(status: string): string {
 
 function statusTone(status: string): StatusTone {
   return STATUS_TONES[status] ?? "neutral";
+}
+
+const LIVE_JOB_TONES: Record<string, StatusTone> = {
+  queued: "info",
+  running: "info",
+  failed: "danger",
+};
+
+const LOG_VISIBLE_ROWS = 5;
+
+function ProgressActivityLog({ live }: { live: LiveActivity | undefined }) {
+  const rows = live?.log ?? [];
+  if (!rows.length) {
+    return (
+      <div className="jx-progress-log jx-progress-log__empty" role="status">
+        <Text size="sm" tone="muted">
+          {live?.settled
+            ? "This request is settled; nothing is running."
+            : "Nothing has been recorded for this request yet."}
+        </Text>
+      </div>
+    );
+  }
+  return (
+    <ol
+      className="jx-progress-log"
+      aria-label="Live activity log, most recent first"
+      // Hint assistive tech that ~5 rows are in view; the rest scroll.
+      style={{ maxHeight: `calc(${LOG_VISIBLE_ROWS} * 2.5rem)` }}
+    >
+      {rows.map((row) => (
+        <li className="jx-progress-log__row" key={row.id}>
+          <time className="jx-progress-log__at" dateTime={row.at ?? undefined}>
+            {formatLogTime(row.at)}
+          </time>
+          <div className="jx-progress-log__body">
+            <span className="jx-progress-log__label">{row.label}</span>
+            {row.detail ? (
+              <span className="jx-progress-log__detail">{row.detail}</span>
+            ) : null}
+          </div>
+          <StatusBadge tone={row.tone || "neutral"}>
+            {logBadge(row)}
+          </StatusBadge>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function formatLogTime(value: string | null): string {
+  if (!value) return "—";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toISOString().replace("T", " ").slice(11, 19) + " UTC";
+}
+
+function logBadge(row: ProgressLogEntry): string {
+  if (row.kind === "job") {
+    return row.detail?.split(" · ")[0] || "job";
+  }
+  if (row.kind === "status") {
+    return row.detail || "status";
+  }
+  return "decision";
+}
+
+function LiveActivityStrip({ live }: { live: LiveActivity | undefined }) {
+  if (live == null) {
+    return null;
+  }
+  if (!live.jobs.length) {
+    return null;
+  }
+  return (
+    <Stack gap={2} aria-label="Active jobs">
+      {live.jobs.map((job) => (
+        <Cluster key={`${job.kind}-${job.status}-${job.attempts}`} gap={2}>
+          <StatusBadge tone={LIVE_JOB_TONES[job.status] ?? "neutral"}>
+            {job.status}
+          </StatusBadge>
+          <Text size="sm">{job.label}</Text>
+          {job.attempts > 1 ? (
+            <Text size="sm" tone="muted">
+              attempt {job.attempts}
+            </Text>
+          ) : null}
+          {job.lastError ? (
+            <Text size="sm" tone="danger">
+              {job.lastError}
+            </Text>
+          ) : null}
+          {job.status === "queued" && job.runAfter ? (
+            <Text size="sm" tone="muted">
+              after {formatDate(job.runAfter)}
+            </Text>
+          ) : null}
+        </Cluster>
+      ))}
+    </Stack>
+  );
 }
 
 function errorMessage(error: unknown): string {
@@ -1002,7 +1151,22 @@ export function AdminFulfillmentRoute() {
 
 export function AdminFulfillmentRequestRoute() {
   const item = useLoaderData<RequestDetail>();
+  const revalidator = useRevalidator();
   useDocumentTitle(`Batch Request · ${item.customerIdentity}`);
+
+  const live = item.live;
+  const refreshSeconds = live?.refreshSeconds ?? 10;
+  const shouldPoll = live != null && !live.settled;
+
+  useEffect(() => {
+    if (!shouldPoll) return;
+    const interval = window.setInterval(() => {
+      if (revalidator.state === "idle") void revalidator.revalidate();
+    }, refreshSeconds * 1000);
+    return () => window.clearInterval(interval);
+  }, [shouldPoll, refreshSeconds, revalidator]);
+
+  const byState = item.distribution.byState ?? [];
 
   return (
     <Page
@@ -1013,6 +1177,24 @@ export function AdminFulfillmentRequestRoute() {
       }
     >
       <Stack gap={6}>
+        {item.milestones ? (
+          <Section
+            title="Progress"
+            description="Live trail of jobs and decisions for this Batch Request. Five rows show; scroll for earlier activity."
+          >
+            <Card>
+              <Stack gap={4}>
+                <MilestoneGraph
+                  graph={item.milestones}
+                  label="Batch Request progress"
+                />
+                <ProgressActivityLog live={live} />
+                <LiveActivityStrip live={live} />
+              </Stack>
+            </Card>
+          </Section>
+        ) : null}
+
         <Section
           title="Request"
           description="The Customer, scope, and current state this decision applies to."
@@ -1059,6 +1241,25 @@ export function AdminFulfillmentRequestRoute() {
             />
           </Card>
         </Section>
+
+        {byState.length ? (
+          <Section
+            title="Distribution"
+            description="Committed Distribution Events by state and Niche for this Batch Request."
+          >
+            <Grid minColumnWidth="12rem" gap={3} aria-label="Distribution by state">
+              {byState.map((cell) => (
+                <Card as="article" padding={3} key={`${cell.state}-${cell.niche}`}>
+                  <Stack gap={1}>
+                    <Text size="sm" tone="muted">{cell.state}</Text>
+                    <Heading level={3} size="sm">{cell.niche}</Heading>
+                    <Text weight="bold">{cell.count.toLocaleString()} committed</Text>
+                  </Stack>
+                </Card>
+              ))}
+            </Grid>
+          </Section>
+        ) : null}
 
         <Section
           title="Actions"

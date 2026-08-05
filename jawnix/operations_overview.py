@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -22,8 +22,16 @@ from .acquisition import (
     nightly_reviews_needing_attention,
     workspace as acquisition_workspace,
 )
-from .fulfillment import workspace as fulfillment_workspace
-from .models import EligibilityHold, Job, JobStatus, LeadReport, NightlyReview
+from .fulfillment import OPEN_STATUSES, workspace as fulfillment_workspace
+from .models import (
+    EligibilityHold,
+    Job,
+    JobStatus,
+    LeadReport,
+    LeadRequest,
+    NightlyReview,
+    Notification,
+)
 
 
 log = logging.getLogger(__name__)
@@ -507,7 +515,7 @@ def read_jobs_source(db: Session) -> OperationSource:
         )
         for job in jobs
     ]
-    queue = _queue(
+    failed_queue = _queue(
         key="failedJobs",
         title="Failed jobs",
         description=(
@@ -522,6 +530,73 @@ def read_jobs_source(db: Session) -> OperationSource:
             "affected record or owning workspace."
         ),
     )
+
+    # Open Batch Requests that never got a Telegram Notification row. Threshold
+    # is computed in Python so SQLite and Postgres agree on "older than 10m".
+    stale_before = datetime.now(timezone.utc) - timedelta(minutes=10)
+    unnotified_query = (
+        select(LeadRequest)
+        .outerjoin(Notification, Notification.request_id == LeadRequest.id)
+        .where(
+            LeadRequest.status.in_(OPEN_STATUSES),
+            LeadRequest.created_at <= stale_before,
+            Notification.id.is_(None),
+        )
+        .order_by(LeadRequest.created_at.asc())
+    )
+    unnotified_count = int(
+        db.scalar(
+            select(func.count())
+            .select_from(LeadRequest)
+            .outerjoin(Notification, Notification.request_id == LeadRequest.id)
+            .where(
+                LeadRequest.status.in_(OPEN_STATUSES),
+                LeadRequest.created_at <= stale_before,
+                Notification.id.is_(None),
+            )
+        )
+        or 0
+    )
+    unnotified = list(db.scalars(unnotified_query.limit(25)))
+    unnotified_items = [
+        OperationItem(
+            id=str(item.id),
+            title=(
+                f"Batch Request · {_request_customer_label(item)}"
+            ),
+            summary=(
+                "No Telegram notification has been recorded for this open "
+                "Batch Request. Re-notify from Fulfillment if the worker "
+                "gave up or never ran."
+            ),
+            status="Unnotified",
+            tone="danger",
+            next_action="Re-notify from Fulfillment",
+            recorded_at=item.created_at,
+            action=OperationAction(
+                label="Open Batch Request",
+                href=f"/app/admin/fulfillment/requests/{item.id}",
+            ),
+        )
+        for item in unnotified
+    ]
+    unnotified_queue = _queue(
+        key="unnotifiedRequests",
+        title="Unnotified Batch Requests",
+        description=(
+            "Open Batch Requests older than ten minutes with no Telegram "
+            "notification recorded."
+        ),
+        items=unnotified_items,
+        count=unnotified_count,
+        empty_title="Every open Batch Request has a Telegram notification",
+        empty_description=(
+            "A request that stays pending without a notification will appear "
+            "here after ten minutes."
+        ),
+    )
+
+    queues = [failed_queue, unnotified_queue]
     return OperationSource(
         key="backgroundJobs",
         title="Background jobs",
@@ -530,13 +605,23 @@ def read_jobs_source(db: Session) -> OperationSource:
             "recovery."
         ),
         status="available",
-        count=queue.count,
-        queues=[queue],
+        count=sum(queue.count for queue in queues),
+        queues=queues,
         workspace=OperationAction(
             label="Review Activity",
             href="/app/admin/activity",
         ),
     )
+
+
+def _request_customer_label(item: LeadRequest) -> str:
+    profile = item.profile
+    if profile is None:
+        return str(item.id)
+    name = " ".join(
+        part for part in (profile.first_name, profile.last_name) if part
+    ).strip()
+    return name or profile.email or str(item.id)
 
 
 def read_acquisition_source(db: Session) -> OperationSource:

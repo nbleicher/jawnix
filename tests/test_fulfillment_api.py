@@ -144,6 +144,148 @@ class TestRequestDetail:
         assert entry["before"] == {"status": "pending"}
         assert entry["after"] == {"status": "approved"}
 
+    def test_renotify_enqueues_update_notification_and_records_activity(
+        self, session
+    ):
+        from jawnix.models import Job
+
+        _, _, request = customer_with_request(session)
+        session.commit()
+        client = as_admin(session)
+        try:
+            response = client.post(
+                f"/api/admin/requests/{request.id}/notify",
+                json={"reason": "Telegram never arrived."},
+            )
+            assert response.status_code == 200
+            body = response.json()
+            missing = client.post(
+                f"/api/admin/requests/{uuid.uuid4()}/notify",
+                json={"reason": "missing"},
+            )
+        finally:
+            app.dependency_overrides.clear()
+
+        assert body["requestId"] == str(request.id)
+        assert body["jobKind"] == "update_notification"
+        job = session.get(Job, body["jobId"])
+        assert job is not None
+        assert job.kind == "update_notification"
+        assert job.request_id == request.id
+        audit = session.scalar(
+            select(AuditEntry).where(
+                AuditEntry.action == "batch_request_notify"
+            )
+        )
+        assert audit is not None
+        assert audit.target_id == str(request.id)
+        assert audit.reason == "Telegram never arrived."
+        assert missing.status_code == 404
+
+    def test_detail_projects_milestones_live_activity_and_distribution(
+        self, session
+    ):
+        from jawnix.models import DistributionEvent, Job, JobStatus, Lead
+
+        customer, _, request = customer_with_request(session, 2, ["TX", "FL"])
+        lead_a = Lead(phone="2145550101", title="A", state="TX")
+        lead_b = Lead(phone="2145550102", title="B", state="FL")
+        session.add_all([lead_a, lead_b])
+        session.flush()
+        session.add_all(
+            [
+                DistributionEvent(
+                    lead_id=lead_a.id,
+                    agent_id=customer.id,
+                    request_id=request.id,
+                    phone=lead_a.phone,
+                    state="TX",
+                    source_niche="Roofing",
+                    delivered_at=datetime.now(timezone.utc),
+                    source="request",
+                ),
+                DistributionEvent(
+                    lead_id=lead_b.id,
+                    agent_id=customer.id,
+                    request_id=request.id,
+                    phone=lead_b.phone,
+                    state="FL",
+                    source_niche="",
+                    delivered_at=datetime.now(timezone.utc),
+                    source="request",
+                ),
+                Job(
+                    kind="update_notification",
+                    request_id=request.id,
+                    status=JobStatus.queued.value,
+                ),
+            ]
+        )
+        session.commit()
+        client = as_admin(session)
+        try:
+            body = client.get(f"/api/admin/requests/{request.id}").json()
+        finally:
+            app.dependency_overrides.clear()
+
+        assert body["milestones"]["current_key"] == "submitted"
+        assert [m["key"] for m in body["milestones"]["milestones"]] == [
+            "submitted",
+            "under_review",
+            "preparing_batch",
+            "delivered",
+        ]
+        assert body["live"]["settled"] is False
+        assert body["live"]["refreshSeconds"] == 10
+        assert body["live"]["jobs"][0]["kind"] == "update_notification"
+        assert (
+            body["live"]["jobs"][0]["label"]
+            == "Updating the Telegram message"
+        )
+        log_kinds = {row["kind"] for row in body["live"]["log"]}
+        assert "job" in log_kinds
+        assert "status" in log_kinds
+        assert any(
+            row["label"] == "Updating the Telegram message"
+            for row in body["live"]["log"]
+        )
+        by_state = {
+            (cell["state"], cell["niche"]): cell["count"]
+            for cell in body["distribution"]["byState"]
+        }
+        assert by_state[("TX", "Roofing")] == 1
+        assert by_state[("FL", "Unmapped")] == 1
+
+    def test_terminal_request_is_settled_without_active_jobs(self, session):
+        _, _, request = customer_with_request(session)
+        request.status = RequestStatus.delivered.value
+        session.commit()
+        client = as_admin(session)
+        try:
+            body = client.get(f"/api/admin/requests/{request.id}").json()
+        finally:
+            app.dependency_overrides.clear()
+
+        assert body["live"]["settled"] is True
+        assert body["live"]["jobs"] == []
+        assert body["milestones"]["current_key"] == "delivered"
+        assert body["milestones"]["milestones"][-1]["state"] == "complete"
+
+    def test_waiting_inventory_is_unsettled_with_pause(self, session):
+        _, _, request = customer_with_request(session)
+        request.status = RequestStatus.waiting_inventory.value
+        request.approved_at = datetime.now(timezone.utc)
+        session.commit()
+        client = as_admin(session)
+        try:
+            body = client.get(f"/api/admin/requests/{request.id}").json()
+        finally:
+            app.dependency_overrides.clear()
+
+        assert body["live"]["settled"] is False
+        assert body["milestones"]["pause"] is not None
+        assert body["milestones"]["pause"]["kind"] == "inventory_wait"
+
 
 class TestOfferedActions:
     def test_a_pending_request_offers_only_its_valid_actions(self, session):

@@ -41,7 +41,13 @@ from .models import (
     SourceRecommendation,
     utcnow,
 )
-from .telegram import TelegramClient
+from .telegram import (
+    TELEGRAM_NOTIFY_MAX_ATTEMPTS,
+    TelegramClient,
+    TelegramEditTargetMissingError,
+    TelegramTransientError,
+    telegram_retry_delay,
+)
 from .transitions import TransitionError, transition_request
 
 
@@ -55,6 +61,16 @@ TELEGRAM_DECISION_JOB_KINDS = frozenset(
         "telegram_inventory_conflict_action",
         "telegram_recommendation_action",
         "telegram_exclusion_action",
+    }
+)
+
+#: Jobs that post or edit a Telegram Batch Request message. Transient failures
+#: requeue; permanent failures alert the operator via Telegram.
+NOTIFY_REQUEST_JOB_KINDS = frozenset(
+    {
+        "notify_request",
+        "update_notification",
+        "licensed_states_changed",
     }
 )
 
@@ -115,22 +131,35 @@ def _enqueue_telegram_action_failure(session, job: Job) -> None:
     This is transport recovery only. It does not decide, retry, or mutate the
     target record; the same domain command remains the sole decision path.
     Stale and duplicate actions are successful no-ops and never reach here.
+
+    Permanent failures of notify_request / update_notification also alert
+    here: the Batch Request itself is unaffected, but the operator otherwise
+    has no signal that Telegram never saw it.
     """
-    if job.kind not in TELEGRAM_DECISION_JOB_KINDS:
+    if job.kind not in (TELEGRAM_DECISION_JOB_KINDS | NOTIFY_REQUEST_JOB_KINDS):
         return
     if job.payload.get("failure_notification_job_id"):
         return
+    if job.kind in NOTIFY_REQUEST_JOB_KINDS:
+        request_id = job.request_id or "unknown"
+        message = (
+            f"Jawnix could not deliver the Telegram notification for "
+            f"Batch Request {request_id}. The request itself is unaffected. "
+            "Open the Fulfillment workspace to re-notify."
+        )
+    else:
+        message = (
+            f"Jawnix could not complete the Telegram "
+            f"{_telegram_action_label(job)} action. "
+            "The record was not changed. Open Jawnix to review its "
+            "current state before trying again."
+        )
     notification = enqueue_job(
         session,
         "notify_telegram_action_failure",
         payload={
             "failed_job_id": job.id,
-            "message": (
-                f"Jawnix could not complete the Telegram "
-                f"{_telegram_action_label(job)} action. "
-                "The record was not changed. Open Jawnix to review its "
-                "current state before trying again."
-            ),
+            "message": message,
         },
     )
     # A manually retried failed job must not fan out another failure message.
@@ -153,8 +182,18 @@ def _update_notification(session, request: LeadRequest, telegram: TelegramClient
                 message_id=message_id,
             )
         )
-    else:
-        telegram.update_request(request, notification.destination_id, notification.message_id)
+        return
+    try:
+        telegram.update_request(
+            request, notification.destination_id, notification.message_id
+        )
+    except TelegramEditTargetMissingError:
+        # The original message was deleted; post a fresh one and rewrite the
+        # unique Notification row in place so a later edit can find it.
+        chat_id, message_id = telegram.post_request(request)
+        notification.destination_id = chat_id
+        notification.message_id = message_id
+        notification.updated_at = utcnow()
 
 
 def _process_initial_nightly_review_notification(
@@ -334,11 +373,7 @@ def process_job(job_id: int) -> None:
                 return
             request = session.get(LeadRequest, job.request_id) if job.request_id else None
             telegram = TelegramClient(settings)
-            if job.kind in {
-                "notify_request",
-                "update_notification",
-                "licensed_states_changed",
-            }:
+            if job.kind in NOTIFY_REQUEST_JOB_KINDS:
                 if request is None:
                     raise LookupError("Request was not found.")
                 _update_notification(session, request, telegram)
@@ -634,6 +669,22 @@ def process_job(job_id: int) -> None:
                 # it never touches the customer request's status.
                 job.status = JobStatus.queued.value
                 job.run_after = utcnow() + emit_retry_delay(job.attempts)
+                job.locked_at = None
+                job.locked_by = ""
+                job.last_error = str(exc)[:4000]
+                return
+            if (
+                job.kind in NOTIFY_REQUEST_JOB_KINDS
+                and isinstance(exc, TelegramTransientError)
+                and job.attempts < TELEGRAM_NOTIFY_MAX_ATTEMPTS
+            ):
+                # Transient Telegram failure (timeout / 429 / 5xx): reschedule
+                # with backoff. Honors Telegram's Retry-After when present.
+                # Permanent errors and exhausted attempts fall through so the
+                # operator gets a failure alert.
+                delay = exc.retry_after or telegram_retry_delay(job.attempts)
+                job.status = JobStatus.queued.value
+                job.run_after = utcnow() + delay
                 job.locked_at = None
                 job.locked_by = ""
                 job.last_error = str(exc)[:4000]
