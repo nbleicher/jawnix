@@ -1,5 +1,48 @@
 # Production acceptance record
 
+## 2026-08-05 record reconciliation (#173 items 16–17)
+
+### UI launch gates (recorded 2026-07-31 on issues #70 and #71)
+
+The integrated launch gates for the UI rebuild passed on 2026-07-31: backend
+492 passed / 14 skipped with a clean `tsc`, Vitest 217/217, and Playwright
+425 passed / 1 skipped across the Pixel 7 and desktop projects including the
+axe WCAG 2.2 AA sweep and visual regressions. The operator confirmed the
+keyboard-only, manual screen-reader, and sub-one-minute task-time gates. The
+one-time User Account migration criteria were recorded N/A: roughly ten
+Customers were invited manually through the admin screens instead, with the
+migration code and schema retained. The controlled cutover executed
+2026-07-31; the post-cutover admin-landing regression was fixed the same day
+(PR #118); stabilization was declared 2026-08-02 after 542 of 542 clean
+monitor runs; the legacy static pages were retired 2026-08-03 (P8).
+
+### Closure of the 2026-07-26 verification caveats
+
+- **Production-size migration reconciliation** — satisfied by the 2026-07-31
+  rehearsal (production dump restored from Restic, additive migrations
+  applied, counts reconciled) and re-proven by the 2026-07-25 cutover and
+  2026-08-04 go-live reconciliations.
+- **Older-rejection and newer-replay restore paths exercised operationally**
+  — satisfied by the 2026-08-05 production restore drill.
+- **Both-store Restic restore** — satisfied by the 2026-08-05 drill's full
+  restore from the Peely SSD repository with `restic check` across its
+  snapshots.
+- **Staging/live smoke evidence** — distribution and feedback recorded
+  2026-07-25 (smoke request) and 2026-08-04 (go-live); acquisition satisfied
+  by the 2026-08-04 Scraper ownership cutover's live typed-control checks and
+  resumed-pipeline observations.
+
+### Recorded divergences from the founding specs (#26/#27)
+
+Where the implementation differs from the original issue text, CONTEXT.md is
+the authority: the live feedback surface is the ten-value Lead Disposition
+catalog with a separate Good/Poor Quality Rating rather than the four-action
+minimal set; Appointment Booked requires no date or time; Source Performance
+disposition rates use Worked Leads as their denominator with the prescriptive
+threshold counted in Worked Leads; and PR #170's flat three-day hold for
+deactivated and unknown recipients deliberately supersedes the permanent
+no-repeat wording, as recorded in the 2026-08-04 go-live section below.
+
 ## 2026-08-05 production restore drill
 
 Item 12 passed operationally. The August 5 production database, Scraper
