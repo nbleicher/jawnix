@@ -29,7 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import Settings
-from .jobs import higher_priority_job_waiting
+from .jobs import WORKER_LANE_METRICS, higher_priority_job_waiting
 from .models import DistributionEvent
 
 log = logging.getLogger("jawnix.metrics_emit")
@@ -163,7 +163,7 @@ def emit_lead_assigned(
     if chunk_limit < 1:
         raise ValueError("emit_lead_assigned limit must be >= 1")
 
-    if higher_priority_job_waiting(session):
+    if higher_priority_job_waiting(session, lane=WORKER_LANE_METRICS):
         log.info(
             "Deferring emit_lead_assigned for %s; higher-priority job waiting",
             request_id,
@@ -205,7 +205,9 @@ def emit_lead_assigned(
         while index < len(chunk):
             if posted > 0 and (
                 time.monotonic() >= deadline
-                or higher_priority_job_waiting(session)
+                or higher_priority_job_waiting(
+                    session, lane=WORKER_LANE_METRICS
+                )
             ):
                 break
             wave = chunk[index : index + workers]

@@ -53,6 +53,16 @@ services:
   worker:
     <<: *app
     command: ["python", "-m", "jawnix.worker"]
+    environment:
+      JAWNIX_WORKER_ID: worker-1
+      JAWNIX_WORKER_LANE: default
+
+  metrics-worker:
+    <<: *app
+    command: ["python", "-m", "jawnix.worker"]
+    environment:
+      JAWNIX_WORKER_ID: metrics-worker-1
+      JAWNIX_WORKER_LANE: metrics
 
   scheduler:
     <<: *app

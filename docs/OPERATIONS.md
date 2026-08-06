@@ -369,7 +369,8 @@ its `checksum` to equal the verified file digest. Rerun it and require
    rollover must enable and disable successfully without that secret on the
    acquisition host; failure is an immediate rollback condition.
 8. From the tagged Jawnix source revision, build the application services, run
-   `docker compose run --rm migrate`, and recreate `api`, `worker`, `scheduler`,
+   `docker compose run --rm migrate`, and recreate `api`, `worker`,
+   `metrics-worker`, `scheduler`,
    `backup`, and `caddy` with `docker compose up -d`. Point Jawnix at the typed
    control endpoint and exercise generation, reads, CSV exports, monitoring,
    keyword preview/save/enqueue, pipeline pause/resume, runtime preview/save,

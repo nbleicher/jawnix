@@ -66,6 +66,8 @@ class Settings(BaseSettings):
     global_cooldown_days: int = Field(default=7, alias="JAWNIX_GLOBAL_COOLDOWN_DAYS")
     worker_poll_seconds: float = Field(default=2.0, alias="JAWNIX_WORKER_POLL_SECONDS")
     worker_id: str = Field(default="worker-1", alias="JAWNIX_WORKER_ID")
+    # default = Telegram/email/allocate/deliver; metrics = emit_lead_assigned only.
+    worker_lane: str = Field(default="default", alias="JAWNIX_WORKER_LANE")
     job_lock_timeout_seconds: int = Field(default=900, alias="JAWNIX_JOB_LOCK_TIMEOUT_SECONDS")
     # Metrics platform ingest for lead.assigned (PRD §4.1). Empty URL or secret
     # skips emission so hosts without metrics configured do not fail the job.
