@@ -257,7 +257,7 @@ class TestRequestDetail:
         assert by_state[("FL", "Unmapped")] == 1
         assert body["live"]["blocker"] is None
 
-    def test_live_blocker_when_worker_busy_on_another_request(self, session):
+    def test_live_blocker_ignores_metrics_lane_for_telegram_jobs(self, session):
         from jawnix.models import Job, JobStatus
 
         _, _, waiting = customer_with_request(session)
@@ -266,6 +266,37 @@ class TestRequestDetail:
             [
                 Job(
                     kind="emit_lead_assigned",
+                    request_id=blocking.id,
+                    status=JobStatus.running.value,
+                    locked_at=datetime.now(timezone.utc),
+                    locked_by="metrics-worker-1",
+                    attempts=1,
+                ),
+                Job(
+                    kind="notify_request",
+                    request_id=waiting.id,
+                    status=JobStatus.queued.value,
+                ),
+            ]
+        )
+        session.commit()
+        client = as_admin(session)
+        try:
+            body = client.get(f"/api/admin/requests/{waiting.id}").json()
+        finally:
+            app.dependency_overrides.clear()
+
+        assert body["live"]["blocker"] is None
+
+    def test_live_blocker_when_worker_busy_on_another_request(self, session):
+        from jawnix.models import Job, JobStatus
+
+        _, _, waiting = customer_with_request(session)
+        _, _, blocking = customer_with_request(session, 1, ["TX"])
+        session.add_all(
+            [
+                Job(
+                    kind="fulfill_round_robin",
                     request_id=blocking.id,
                     status=JobStatus.running.value,
                     locked_at=datetime.now(timezone.utc),
@@ -288,7 +319,7 @@ class TestRequestDetail:
 
         blocker = body["live"]["blocker"]
         assert blocker is not None
-        assert blocker["kind"] == "emit_lead_assigned"
+        assert blocker["kind"] == "fulfill_round_robin"
         assert "another batch" in blocker["detail"]
         assert str(blocking.id) in blocker["detail"]
 

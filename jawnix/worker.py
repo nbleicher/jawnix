@@ -745,11 +745,20 @@ def process_job(job_id: int) -> None:
 
 def run() -> None:
     settings = get_settings()
-    log.info("Worker %s started", settings.worker_id)
+    log.info(
+        "Worker %s started (lane=%s)",
+        settings.worker_id,
+        settings.worker_lane,
+    )
     while True:
         job_id = None
         with SessionLocal.begin() as session:
-            job = claim_next_job(session, settings.worker_id, settings.job_lock_timeout_seconds)
+            job = claim_next_job(
+                session,
+                settings.worker_id,
+                settings.job_lock_timeout_seconds,
+                lane=settings.worker_lane,
+            )
             if job:
                 job_id = job.id
         if job_id is None:

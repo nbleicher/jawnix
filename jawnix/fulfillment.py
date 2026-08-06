@@ -34,6 +34,7 @@ from sqlalchemy import func, nullslast, or_, select
 from sqlalchemy.orm import Session
 
 from .eligibility import active_holds, report_summaries, suppressed_leads
+from .jobs import job_lane
 from .milestones import build_milestones
 from .models import (
     AuditEntry,
@@ -527,12 +528,11 @@ _LOG_JOB_TONES: dict[str, str] = {
 def _live_worker_blocker(
     db: Session, item: LeadRequest, live_jobs: list[Job]
 ) -> dict[str, object] | None:
-    """Explain why this request's jobs sit queued while the worker is elsewhere.
+    """Explain why this request's jobs sit queued on their worker lane.
 
-    Progress only lists jobs for *this* request. When the single worker is
-    busy on another request (or a global job), those rows just say "queued"
-    with no reason — which is what operators saw when emit_lead_assigned for
-    a 50k batch blocked Telegram for hours.
+    Progress only lists jobs for *this* request. Metrics emit runs on a
+    separate worker, so an emit job for another batch must not be reported as
+    blocking Telegram/email work here.
     """
     queued_here = [
         job
@@ -542,38 +542,53 @@ def _live_worker_blocker(
     if not queued_here:
         return None
 
-    running = db.scalar(
-        select(Job)
-        .where(
-            Job.status == JobStatus.running.value,
-            or_(
-                Job.request_id.is_(None),
-                Job.request_id != item.id,
-            ),
-        )
-        .order_by(nullslast(Job.locked_at), Job.id.asc())
-        .limit(1)
-    )
-    blocker = running
-    if blocker is None:
-        earliest_ours = min(job.id for job in queued_here)
-        blocker = db.scalar(
+    lanes = {job_lane(job.kind) for job in queued_here}
+
+    def same_lane(kind: str) -> bool:
+        return job_lane(kind) in lanes
+
+    # Prefer the oldest same-lane running job; ignore other lanes.
+    running_candidates = list(
+        db.scalars(
             select(Job)
             .where(
-                Job.id < earliest_ours,
-                Job.status.in_(
-                    {
-                        JobStatus.queued.value,
-                        JobStatus.running.value,
-                    }
-                ),
+                Job.status == JobStatus.running.value,
                 or_(
                     Job.request_id.is_(None),
                     Job.request_id != item.id,
                 ),
             )
-            .order_by(Job.run_after.asc(), Job.id.asc())
-            .limit(1)
+            .order_by(nullslast(Job.locked_at), Job.id.asc())
+        )
+    )
+    blocker = next(
+        (job for job in running_candidates if same_lane(job.kind)),
+        None,
+    )
+    if blocker is None:
+        earliest_ours = min(job.id for job in queued_here)
+        ahead_candidates = list(
+            db.scalars(
+                select(Job)
+                .where(
+                    Job.id < earliest_ours,
+                    Job.status.in_(
+                        {
+                            JobStatus.queued.value,
+                            JobStatus.running.value,
+                        }
+                    ),
+                    or_(
+                        Job.request_id.is_(None),
+                        Job.request_id != item.id,
+                    ),
+                )
+                .order_by(Job.run_after.asc(), Job.id.asc())
+            )
+        )
+        blocker = next(
+            (job for job in ahead_candidates if same_lane(job.kind)),
+            None,
         )
     if blocker is None:
         return None

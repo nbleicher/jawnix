@@ -710,9 +710,10 @@ def test_worker_requeues_emit_continuation_between_chunks(tmp_path, monkeypatch)
     engine.dispose()
 
 
-def test_emit_defers_immediately_when_higher_priority_job_waiting(
+def test_emit_on_metrics_lane_does_not_defer_for_notify_jobs(
     session, settings, monkeypatch
 ):
+    """Metrics has its own worker; queued Telegram must not pause emit."""
     settings.metrics_ingest_url = "https://metrics.example/ingest/jawnix"
     settings.metrics_ingest_secret = "shared-secret"
     request = _make_single_event_request(session, "defer-agent", "2145550901")
@@ -724,16 +725,14 @@ def test_emit_defers_immediately_when_higher_priority_job_waiting(
         )
     )
     session.flush()
-    calls = 0
+    posts: list[str] = []
 
-    def boom(*_args, **_kwargs):
-        nonlocal calls
-        calls += 1
-        raise AssertionError("should not POST while notify is waiting")
+    def capture(*_args, **kwargs):
+        posts.append(kwargs["json"]["dedup_key"])
+        return Response(201, {"status": "accepted"})
 
-    _patch_metrics_client(monkeypatch, boom)
-    result = emit_lead_assigned(session, request.id, settings, after_id=10)
-    assert result.posted == 0
-    assert result.done is False
-    assert result.next_after_id == 10
-    assert calls == 0
+    _patch_metrics_client(monkeypatch, capture)
+    result = emit_lead_assigned(session, request.id, settings)
+    assert result.posted == 1
+    assert result.done is True
+    assert len(posts) == 1
