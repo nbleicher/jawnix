@@ -632,14 +632,18 @@ def process_job(job_id: int) -> None:
                     settings,
                     after_id=after_id,
                 )
-                # Large batches emit in chunks so Telegram/email jobs can run
-                # between HTTP bursts instead of waiting for every event.
-                if emit_result.next_after_id is not None:
+                # Requeue whenever work remains (more events, time budget, or
+                # a higher-priority job arrived). Empty payload continues from
+                # the start; after_id is the exclusive cursor.
+                if not emit_result.done:
+                    payload: dict = {}
+                    if emit_result.next_after_id is not None:
+                        payload["after_id"] = emit_result.next_after_id
                     enqueue_job(
                         session,
                         EMIT_LEAD_ASSIGNED_JOB,
                         job.request_id,
-                        {"after_id": emit_result.next_after_id},
+                        payload,
                     )
             elif job.kind == MILESTONE_EMAIL_JOB:
                 if request is None:

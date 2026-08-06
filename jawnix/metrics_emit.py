@@ -1,9 +1,9 @@
 """Emit lead.assigned events to the Summit metrics ingest endpoint.
 
 One logical emit per Batch Request (enqueued beside deliver_request) POSTs one
-event per DistributionEvent. Work is split into small chunks so the single
-worker can interleave Telegram / email jobs between chunks instead of blocking
-on tens of thousands of sequential HTTP calls.
+event per DistributionEvent. Work is split into small timed waves so the single
+worker can interleave Telegram / email jobs even when metrics ingest is slow
+or timing out.
 
 At-least-once delivery is fine: metrics dedups on distribution_event.id.
 lead.opened / lead.accepted do not exist here.
@@ -18,6 +18,7 @@ from ``after_id``; metrics dedup makes overlapping edges safe.
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -28,19 +29,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .config import Settings
+from .jobs import higher_priority_job_waiting
 from .models import DistributionEvent
 
 log = logging.getLogger("jawnix.metrics_emit")
 
 EMIT_LEAD_ASSIGNED_JOB = "emit_lead_assigned"
 
-# Cap how long one worker claim spends on metrics so notify / email jobs can
-# run between chunks. With concurrent posts, 100 events finishes quickly while
-# still yielding the worker between chunks for Telegram/delivery work.
-EMIT_CHUNK_SIZE = 100
-# Parallel POSTs inside one chunk. Metrics dedups on distribution_event.id, so
-# ordering within a chunk does not matter.
-EMIT_CONCURRENCY = 8
+# Small waves + short timeouts keep one claim from blocking Telegram for
+# minutes when metrics ingest hangs (ReadTimeout on a 30s client was the
+# failure mode that starved notify_request after chunking/priority landed).
+EMIT_CHUNK_SIZE = 24
+EMIT_CONCURRENCY = 4
+EMIT_HTTP_TIMEOUT_SECONDS = 5.0
+EMIT_TIME_BUDGET_SECONDS = 8.0
 
 # Metrics dedups on distribution_event.id, so at-least-once retries are safe.
 # Be generous before giving up; a failed job needs a manual requeue.
@@ -58,13 +60,16 @@ class MetricsEmitTransientError(RuntimeError):
 
 @dataclass(frozen=True)
 class EmitLeadAssignedResult:
-    """One chunk of emit work.
+    """One claim of emit work.
 
-    ``next_after_id`` is set when more DistributionEvents remain; the worker
-    enqueues another ``emit_lead_assigned`` job with that cursor.
+    ``done`` is True only when every DistributionEvent for the request has been
+    posted (or metrics is unconfigured). When ``done`` is False, the worker
+    requeues with ``next_after_id`` as the exclusive cursor (``None`` means
+    continue from the start of the request).
     """
 
     posted: int
+    done: bool
     next_after_id: int | None
 
 
@@ -133,13 +138,11 @@ def emit_lead_assigned(
     after_id: int | None = None,
     limit: int | None = None,
 ) -> EmitLeadAssignedResult:
-    """POST lead.assigned for up to ``limit`` DistributionEvents on the request.
+    """POST lead.assigned for a short, interruptible burst of events.
 
-    Starts after ``after_id`` when continuing a prior chunk. Returns how many
-    events were posted and the cursor for the next chunk (or None when done).
-
-    When metrics ingest is not configured, returns posted=0 without error so
-    undeployed hosts do not fail the job.
+    Starts after ``after_id`` when continuing a prior claim. Yields early when
+    a higher-priority job is waiting or the wall-clock budget is exhausted so
+    Telegram/email stay responsive even if metrics ingest is slow.
     """
     chunk_limit = EMIT_CHUNK_SIZE if limit is None else limit
     if not settings.metrics_ingest_url or not settings.metrics_ingest_secret:
@@ -155,10 +158,19 @@ def emit_lead_assigned(
             "Metrics ingest not configured; skipping emit_lead_assigned for %s",
             request_id,
         )
-        return EmitLeadAssignedResult(posted=0, next_after_id=None)
+        return EmitLeadAssignedResult(posted=0, done=True, next_after_id=None)
 
     if chunk_limit < 1:
         raise ValueError("emit_lead_assigned limit must be >= 1")
+
+    if higher_priority_job_waiting(session):
+        log.info(
+            "Deferring emit_lead_assigned for %s; higher-priority job waiting",
+            request_id,
+        )
+        return EmitLeadAssignedResult(
+            posted=0, done=False, next_after_id=after_id
+        )
 
     query = (
         select(DistributionEvent)
@@ -167,42 +179,78 @@ def emit_lead_assigned(
     )
     if after_id is not None:
         query = query.where(DistributionEvent.id > after_id)
-    # Fetch one extra row so we know whether another chunk is needed without
-    # a separate COUNT query on large request batches.
     events = list(session.scalars(query.limit(chunk_limit + 1)))
     if not events and after_id is None:
         raise LookupError(
             f"No DistributionEvents for request {request_id}; cannot emit lead.assigned."
         )
     if not events:
-        return EmitLeadAssignedResult(posted=0, next_after_id=None)
+        return EmitLeadAssignedResult(posted=0, done=True, next_after_id=None)
 
     chunk = events[:chunk_limit]
-    has_more = len(events) > chunk_limit
+    more_beyond_chunk = len(events) > chunk_limit
 
     headers = {
         "X-Ingest-Secret": settings.metrics_ingest_secret,
         "Content-Type": "application/json",
     }
     workers = max(1, min(EMIT_CONCURRENCY, len(chunk)))
+    timeout = httpx.Timeout(EMIT_HTTP_TIMEOUT_SECONDS)
+    deadline = time.monotonic() + EMIT_TIME_BUDGET_SECONDS
     posted = 0
-    with httpx.Client(timeout=30) as client:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = [
-                pool.submit(
-                    _post_lead_assigned,
-                    client,
-                    settings.metrics_ingest_url,
-                    headers,
-                    event,
-                )
-                for event in chunk
-            ]
-            for future in as_completed(futures):
-                future.result()
-                posted += 1
-    next_after_id = chunk[-1].id if has_more else None
-    return EmitLeadAssignedResult(posted=posted, next_after_id=next_after_id)
+    cursor = after_id
+    index = 0
+
+    with httpx.Client(timeout=timeout) as client:
+        while index < len(chunk):
+            if posted > 0 and (
+                time.monotonic() >= deadline
+                or higher_priority_job_waiting(session)
+            ):
+                break
+            wave = chunk[index : index + workers]
+            before_wave_cursor = cursor
+            before_wave_posted = posted
+            try:
+                with ThreadPoolExecutor(max_workers=len(wave)) as pool:
+                    futures = {
+                        pool.submit(
+                            _post_lead_assigned,
+                            client,
+                            settings.metrics_ingest_url,
+                            headers,
+                            event,
+                        ): event
+                        for event in wave
+                    }
+                    for future in as_completed(futures):
+                        future.result()
+                        posted += 1
+                cursor = max(event.id for event in wave)
+            except MetricsEmitTransientError:
+                # Keep progress from earlier waves only. Retry this wave from
+                # scratch (dedup makes overlaps safe); never skip a failed id.
+                if before_wave_posted > 0:
+                    log.warning(
+                        "Metrics ingest transient error after %s posts for %s; "
+                        "yielding at after_id=%s",
+                        before_wave_posted,
+                        request_id,
+                        before_wave_cursor,
+                    )
+                    return EmitLeadAssignedResult(
+                        posted=before_wave_posted,
+                        done=False,
+                        next_after_id=before_wave_cursor,
+                    )
+                raise
+            index += len(wave)
+
+    if index < len(chunk) or more_beyond_chunk:
+        return EmitLeadAssignedResult(
+            posted=posted, done=False, next_after_id=cursor
+        )
+    return EmitLeadAssignedResult(posted=posted, done=True, next_after_id=None)
 
 
 def _post_lead_assigned(

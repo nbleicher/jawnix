@@ -21,6 +21,23 @@ def enqueue_job(session: Session, kind: str, request_id: uuid.UUID | None = None
     return job
 
 
+def higher_priority_job_waiting(session: Session, *, now: datetime | None = None) -> bool:
+    """True when a non-metrics job is ready for the worker right now."""
+    now = now or datetime.now(timezone.utc)
+    return (
+        session.scalar(
+            select(Job.id)
+            .where(
+                Job.status == JobStatus.queued.value,
+                Job.run_after <= now,
+                Job.kind.notin_(_LOW_PRIORITY_JOB_KINDS),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
 def claim_next_job(session: Session, worker_id: str, lock_timeout_seconds: int = 900) -> Job | None:
     now = datetime.now(timezone.utc)
     stale_before = now - timedelta(seconds=lock_timeout_seconds)
