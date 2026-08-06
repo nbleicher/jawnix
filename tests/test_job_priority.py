@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from jawnix.jobs import claim_next_job
+from jawnix.jobs import claim_next_job, higher_priority_job_waiting
 from jawnix.models import Job, JobStatus
 
 
@@ -31,3 +31,24 @@ def test_claim_prefers_notify_over_emit_lead_assigned(session):
     assert claimed is not None
     assert claimed.id == notify.id
     assert claimed.kind == "notify_request"
+
+
+def test_higher_priority_job_waiting_ignores_emit(session):
+    session.add(
+        Job(
+            kind="emit_lead_assigned",
+            request_id=uuid.uuid4(),
+            status=JobStatus.queued.value,
+        )
+    )
+    session.flush()
+    assert higher_priority_job_waiting(session) is False
+    session.add(
+        Job(
+            kind="notify_request",
+            request_id=uuid.uuid4(),
+            status=JobStatus.queued.value,
+        )
+    )
+    session.flush()
+    assert higher_priority_job_waiting(session) is True

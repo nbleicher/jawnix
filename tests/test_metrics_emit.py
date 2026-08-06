@@ -134,6 +134,7 @@ def test_emit_lead_assigned_posts_each_event(session, settings, monkeypatch):
     posted = emit_lead_assigned(session, request.id, settings)
 
     assert posted.posted == 2
+    assert posted.done is True
     assert posted.next_after_id is None
     assert len(posts) == 2
     assert all(
@@ -186,6 +187,7 @@ def test_emit_lead_assigned_skips_when_unconfigured(session, settings, monkeypat
     _patch_metrics_client(monkeypatch, boom)
     result = emit_lead_assigned(session, request.id, settings)
     assert result.posted == 0
+    assert result.done is True
     assert result.next_after_id is None
     assert calls == 0
 
@@ -589,6 +591,7 @@ def test_emit_lead_assigned_chunks_and_returns_cursor(
 
     first = emit_lead_assigned(session, request.id, settings, limit=2)
     assert first.posted == 2
+    assert first.done is False
     assert first.next_after_id == event_ids[1]
     assert posts == [str(event_ids[0]), str(event_ids[1])]
 
@@ -600,6 +603,7 @@ def test_emit_lead_assigned_chunks_and_returns_cursor(
         limit=2,
     )
     assert second.posted == 1
+    assert second.done is True
     assert second.next_after_id is None
     assert posts == [str(eid) for eid in event_ids]
 
@@ -704,3 +708,32 @@ def test_worker_requeues_emit_continuation_between_chunks(tmp_path, monkeypatch)
         )
         assert leftover == []
     engine.dispose()
+
+
+def test_emit_defers_immediately_when_higher_priority_job_waiting(
+    session, settings, monkeypatch
+):
+    settings.metrics_ingest_url = "https://metrics.example/ingest/jawnix"
+    settings.metrics_ingest_secret = "shared-secret"
+    request = _make_single_event_request(session, "defer-agent", "2145550901")
+    session.add(
+        Job(
+            kind="notify_request",
+            request_id=uuid.uuid4(),
+            status=JobStatus.queued.value,
+        )
+    )
+    session.flush()
+    calls = 0
+
+    def boom(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("should not POST while notify is waiting")
+
+    _patch_metrics_client(monkeypatch, boom)
+    result = emit_lead_assigned(session, request.id, settings, after_id=10)
+    assert result.posted == 0
+    assert result.done is False
+    assert result.next_after_id == 10
+    assert calls == 0
