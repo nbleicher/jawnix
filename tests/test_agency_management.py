@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, insert, select
 
 from jawnix.allocation import allocate_request
 from jawnix.api import app
@@ -573,3 +573,78 @@ def test_history_lead_counts_persist_and_refresh_only_at_scale(
     session.commit()
     assert am._history_lead_count(session, subjects) == 9
     assert refreshes == [key]
+
+
+def test_assignment_preview_never_binds_history_lead_ids_as_parameters(
+    session,
+    settings,
+):
+    """History lead ids must stay inside SQL, not become bound parameters.
+
+    Production previews 500ed with "number of parameters must be between 0
+    and 65535" once a Customer's shared history crossed that many distributed
+    Leads, because each id was shipped back to Postgres as its own parameter.
+    """
+    import jawnix.agency_management as am
+
+    origin = Agency(slug="origin", name="Origin")
+    destination = Agency(slug="destination", name="Destination")
+    moved = Customer(slug="moved", name="Moved Customer", agency=origin)
+    session.add_all([origin, destination, moved])
+    session.flush()
+
+    old = datetime.now(timezone.utc) - timedelta(days=30)
+    session.execute(
+        insert(Lead),
+        [
+            {
+                "phone": f"214{n:07d}",
+                "title": f"Lead {n}",
+                "state": "TX",
+                "last_distributed_at": old,
+            }
+            for n in range(300)
+        ],
+    )
+    lead_ids = list(session.scalars(select(Lead.id)))
+    session.execute(
+        insert(DistributionEvent),
+        [
+            {
+                "lead_id": lead_id,
+                "agent_id": moved.id,
+                "agency_id": origin.id,
+                "customer_name": moved.name,
+                "agency_name": origin.name,
+                "delivered_at": old,
+                "source": "test",
+            }
+            for lead_id in lead_ids
+        ],
+    )
+    session.commit()
+
+    parameter_counts: list[int] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        parameter_counts.append(len(parameters or ()))
+
+    engine = session.get_bind()
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        preview = am.assignment_preview(
+            session,
+            customer=moved,
+            destination=destination,
+            settings=settings,
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    assert preview["consequences"] == {
+        "customerHistoryBlockedForDestination": 300,
+        "destinationHistoryBlockedForCustomer": 0,
+        "historyMergeIsPermanent": True,
+    }
+    assert preview["sharedHistory"]["distributedLeadsAfter"] == 300
+    assert max(parameter_counts) < 100

@@ -1103,30 +1103,14 @@ def test_late_feedback_keeps_correction_history_and_performance_denominators(
         performance = client.get("/api/admin/source-performance")
         assert performance.status_code == 200
         body = performance.json()
-        assert body["cohorts"] == body["segments"]
-        assert body["cohorts"] == [
-            {
-                "segment": "roofing|TX|maps",
-                "niche": "roofing",
-                "distributionPeriod": delivered.delivered_at.strftime(
-                    "%Y-%m"
-                ),
-                "delivered": 1,
-                "worked": 1,
-                "rated": 1,
-                "good": 1,
-                "poor": 0,
-                "positiveResponses": 1,
-                "appointmentsBooked": 0,
-                "goodRate": 1.0,
-                "positiveResponseRate": 1.0,
-                "appointmentRate": 0.0,
-                "qualityStatus": "insufficient_data",
-                "conversionStatus": "insufficient_data",
-            }
-        ]
+        # The Admin screen renders global/legacy + nightly rows. Cohorts stay
+        # available from source_performance_snapshot for offline analysis; the
+        # HTTP path must not materialize every DistributionEvent (#blank page).
+        assert body["cohorts"] == []
+        assert body["segments"] == []
         assert body["global"]["prescriptive"] is False
         assert body["global"]["worked"] == 1
+        assert body["global"]["delivered"] == 1
         assert body["global"]["rates"] == {
             "good": 1.0,
             "positiveResponse": 1.0,

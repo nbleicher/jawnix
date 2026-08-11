@@ -1993,10 +1993,10 @@ def source_performance(
         action_state=action_state,
         latest=latest,
     )
-    from .performance import source_performance_snapshot
+    from .performance import source_performance_summary
 
     return {
-        **source_performance_snapshot(db),
+        **source_performance_summary(db),
         "rows": [_performance_response(item) for item in rows],
     }
 

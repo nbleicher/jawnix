@@ -102,6 +102,8 @@ def _preview(client: TestClient, *, states: list[str]) -> dict:
 
 
 def test_account_workspace_is_loader_ready_and_searchable_by_name(session, settings):
+    from jawnix.licensed_states import _version
+
     user_id, _, profile, *_ = _customer_with_requests(session)
     client = _client(session, settings, user_id=user_id, email=profile.email)
     try:
@@ -109,10 +111,76 @@ def test_account_workspace_is_loader_ready_and_searchable_by_name(session, setti
         assert response.status_code == 200
         body = response.json()
         assert body["states"] == ["FL", "TX"]
-        assert body["version"] == profile.updated_at.isoformat()
+        assert body["version"] == _version(profile)
         assert {"code": "DC", "name": "District of Columbia"} in body["options"]
         assert {"code": "TX", "name": "Texas"} in body["options"]
         assert len(body["options"]) == 51
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_identity_profile_save_does_not_invalidate_licensed_state_review(
+    session,
+    settings,
+):
+    """New accounts often save a name/phone before confirming Licensed States.
+
+    The review version used to be profile.updated_at, so that identity PATCH
+    made the subsequent Licensed State preview/apply answer 409 and the Account
+    page wiped the checked states — which read as "states do not save".
+    """
+    user_id = uuid.uuid4()
+    customer = Agent(
+        slug=f"new-account-{user_id}",
+        name="New Account Customer",
+        licensed_states=[],
+    )
+    profile = CustomerProfile(
+        user_id=user_id,
+        email=f"{user_id}@example.com",
+        first_name="",
+        last_name="",
+        licensed_states=[],
+        agent=customer,
+        mapping_confirmed_at=utcnow(),
+    )
+    session.add_all([customer, profile])
+    session.commit()
+
+    client = _client(session, settings, user_id=user_id, email=profile.email)
+    try:
+        workspace = client.get("/api/me/licensed-states")
+        assert workspace.status_code == 200
+        version = workspace.json()["version"]
+
+        identity = client.patch(
+            "/api/me/profile",
+            json={
+                "first_name": "Robby",
+                "last_name": "Rodriguez",
+                "phone": "2145550100",
+                "licensed_states": [],
+            },
+        )
+        assert identity.status_code == 200
+
+        preview = client.post(
+            "/api/me/licensed-states/preview",
+            json={"states": ["TX", "FL"], "expected_version": version},
+        )
+        assert preview.status_code == 200, preview.text
+        applied = client.post(
+            "/api/me/licensed-states/apply",
+            json={"review_token": preview.json()["review_token"]},
+        )
+        assert applied.status_code == 200, applied.text
+        assert applied.json()["account"]["states"] == ["FL", "TX"]
+
+        session.refresh(profile)
+        session.refresh(customer)
+        assert profile.licensed_states == ["FL", "TX"]
+        assert customer.licensed_states == ["FL", "TX"]
+        assert profile.first_name == "Robby"
     finally:
         app.dependency_overrides.clear()
 

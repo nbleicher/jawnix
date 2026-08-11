@@ -435,6 +435,7 @@ export function ScraperKeywordsRoute() {
             title="Keyword editor"
             description={`${workspace.current.length.toLocaleString()} keywords are active. Blank lines, comments beginning with #, and case-insensitive duplicates are removed.`}
             summary={`${workspace.current.length.toLocaleString()} active`}
+            defaultOpen
           >
             <div id="keyword-editor" className="keyword-editor">
               <Stack gap={4}>

@@ -170,6 +170,27 @@ WHERE ($1='' OR h.keyword ILIKE '%' || $1 || '%') AND ($2='' OR lower(h.state)=$
 GROUP BY h.keyword,h.state,h.last_enqueued
 """
 
+# Default / keyword_history-native sorts page the ledger first, then join
+# enqueue_log for the 500-row page. Joining 5M+ enqueue rows before LIMIT
+# blanked the Campaign History workspace after the Scraper cutover.
+HISTORY_PAGE = """
+WITH page AS (
+  SELECT h.keyword, h.state, h.last_enqueued
+  FROM keyword_history h
+  WHERE ($1='' OR h.keyword ILIKE '%' || $1 || '%')
+    AND ($2='' OR lower(h.state)=$2)
+  ORDER BY {page_order} NULLS LAST
+  LIMIT 500
+)
+SELECT p.keyword, upper(p.state) AS state, p.last_enqueued,
+       count(DISTINCT e.cell) FILTER (WHERE e.status='posted') AS cells_posted,
+       min(e.enqueued_at) AS first_enqueued, max(e.updated_at) AS latest_enqueued
+FROM page p
+LEFT JOIN enqueue_log e
+  ON e.keyword=p.keyword AND e.state=p.state
+GROUP BY p.keyword, p.state, p.last_enqueued
+"""
+
 PHONE_MATRIX = """
 SELECT upper(COALESCE(state,'unknown')) AS state, COALESCE(keyword,'unknown') AS keyword,
        count(DISTINCT phone) AS phones

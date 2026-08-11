@@ -112,7 +112,19 @@ class _ReviewClaims(BaseModel):
 
 
 def _version(profile: CustomerProfile) -> str:
-    return profile.updated_at.isoformat()
+    """Content-address the current Licensed States.
+
+    Identity edits (name, phone) bump ``profile.updated_at``. Using that
+    timestamp as the review version made a common new-account flow — save a
+    name, then confirm Licensed States — refuse the preview with a stale
+    concurrent-change error and wipe the Customer's checked selections.
+    """
+    return hashlib.sha256(
+        json.dumps(
+            normalize_states(profile.licensed_states),
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
 
 
 def _options() -> list[LicensedStateOption]:

@@ -189,15 +189,11 @@ function renderOverview(data: MonitoringSnapshot) {
       hydrationData: { loaderData: { scraper: data } },
     },
   );
-  const view = render(
+  return render(
     <ThemeProvider>
       <RouterProvider router={router} />
     </ThemeProvider>,
   );
-  view.container.querySelectorAll("details").forEach((item) => {
-    item.open = true;
-  });
-  return view;
 }
 
 function mockPipeline(response: unknown, ok = true) {
@@ -244,6 +240,22 @@ describe("every monitoring read survives the rebuild", () => {
     expect(overall).toHaveTextContent("Attention needed");
     expect(overall).toHaveTextContent("Only 6 of 8 workers are running");
     expect(overall).toHaveTextContent("Queue depth exceeds its warning threshold");
+  });
+
+  it("shows Workers and the live log without requiring the operator to expand panels", () => {
+    // #156 collapsed every monitoring panel by default. Attention named the
+    // problem ("1 worker is unhealthy") while the Workers list and Database
+    // activity log that identify it stayed hidden behind closed <details>.
+    renderOverview(snapshot());
+
+    const workers = screen.getByRole("group", { name: "Workers" });
+    expect(workers).toHaveProperty("open", true);
+    expect(workers).toHaveTextContent("gms-worker-2");
+    expect(workers).toHaveTextContent("stale");
+
+    const log = screen.getByRole("group", { name: "Database activity" });
+    expect(log).toHaveProperty("open", true);
+    expect(log).toHaveTextContent("dentist");
   });
 
   it("keeps host telemetry, services, totals, activity, fleet, alerts and states", () => {

@@ -78,6 +78,17 @@ EXPECTED_ROUTES = {
 def test_history_join_keeps_state_columns_indexable():
     assert "e.state=h.state" in queries.HISTORY_BASE
     assert "lower(e.state)" not in queries.HISTORY_BASE
+    assert "e.state=p.state" in queries.HISTORY_PAGE
+    assert "LIMIT 500" in queries.HISTORY_PAGE
+
+
+def test_history_default_sort_pages_before_joining_enqueue_log():
+    # The default Campaign History path must not join enqueue_log against the
+    # full keyword_history table before LIMIT — that blanked the workspace once
+    # production held millions of enqueue rows.
+    assert "WITH page AS" in queries.HISTORY_PAGE
+    assert "FROM keyword_history h" in queries.HISTORY_PAGE
+    assert "LEFT JOIN enqueue_log e" in queries.HISTORY_PAGE
 
 
 def assert_contract(response, model):

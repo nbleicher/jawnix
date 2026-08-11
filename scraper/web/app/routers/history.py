@@ -15,11 +15,33 @@ SORT_COLUMNS = {
     "latest_enqueued": "latest_enqueued",
 }
 
+# Sorts that can be decided from keyword_history alone page first, then join.
+# Aggregate sorts still need the full join (rare operator path).
+PAGE_SORT_COLUMNS = {
+    "keyword": "h.keyword",
+    "state": "h.state",
+    "last_enqueued": "h.last_enqueued",
+}
+
 
 async def history_rows(request: Request, search: str, state: str, sort: str, direction: str):
-    column = SORT_COLUMNS.get(sort, SORT_COLUMNS["last_enqueued"])
     order = "ASC" if direction.lower() == "asc" else "DESC"
-    sql = f"{queries.HISTORY_BASE} ORDER BY {column} {order} NULLS LAST LIMIT 500"
+    page_column = PAGE_SORT_COLUMNS.get(sort)
+    if page_column is not None:
+        final_column = {
+            "keyword": "keyword",
+            "state": "state",
+            "last_enqueued": "last_enqueued",
+        }[sort]
+        sql = (
+            queries.HISTORY_PAGE.format(
+                page_order=f"{page_column} {order}",
+            )
+            + f" ORDER BY {final_column} {order} NULLS LAST"
+        )
+    else:
+        column = SORT_COLUMNS.get(sort, SORT_COLUMNS["last_enqueued"])
+        sql = f"{queries.HISTORY_BASE} ORDER BY {column} {order} NULLS LAST LIMIT 500"
     return [dict(row) for row in await fetch(request, sql, search.strip(), state.lower().strip())]
 
 

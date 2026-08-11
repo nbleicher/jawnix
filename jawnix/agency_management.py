@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from .activity import record_activity
@@ -179,10 +179,14 @@ def _history_subject_key(subjects: HistorySubjects) -> str:
     return f"customers:{customers}|agencies:{agencies}"
 
 
-def _count_history_leads(db: Session, subjects: HistorySubjects) -> int:
-    # Counted in SQL: materializing the ids (as assignment_preview must for
-    # its set algebra) ships millions of rows per request. The UNION of the
-    # two single-column predicates runs both branches as index-only scans.
+def _history_lead_select(subjects: HistorySubjects) -> Select | None:
+    """Distinct history Lead ids as a SELECT that never leaves the database.
+
+    Materializing these ids into Python bound each one as its own query
+    parameter downstream, which 500ed assignment previews once production
+    history crossed psycopg's 65,535-parameter limit. The UNION of the two
+    single-column predicates runs both branches as index-only scans.
+    """
     branches = []
     if subjects.agency_ids:
         branches.append(
@@ -197,12 +201,17 @@ def _count_history_leads(db: Session, subjects: HistorySubjects) -> int:
             )
         )
     if not branches:
+        return None
+    if len(branches) > 1:
+        union = branches[0].union(*branches[1:]).subquery()
+        return select(union.c.lead_id)
+    return branches[0].distinct()
+
+
+def _count_history_leads(db: Session, subjects: HistorySubjects) -> int:
+    leads = _history_lead_select(subjects)
+    if leads is None:
         return 0
-    leads = (
-        branches[0].union(*branches[1:])
-        if len(branches) > 1
-        else branches[0].distinct()
-    )
     return int(
         db.scalar(select(func.count()).select_from(leads.subquery())) or 0
     )
@@ -266,19 +275,6 @@ def _history_lead_count(db: Session, subjects: HistorySubjects) -> int:
         _store_history_lead_count(db, key=key, count=count)
         db.commit()
     return count
-
-
-def _history_lead_clauses(subjects: HistorySubjects) -> list:
-    clauses = []
-    if subjects.customer_ids:
-        clauses.append(
-            DistributionEvent.agent_id.in_(subjects.customer_ids)
-        )
-    if subjects.agency_ids:
-        clauses.append(
-            DistributionEvent.agency_id.in_(subjects.agency_ids)
-        )
-    return clauses
 
 
 def agency_directory(
@@ -583,27 +579,28 @@ def agency_details(
     }
 
 
-def _history_lead_ids(
+def _exclusive_history_lead_count(
     db: Session,
     subjects: HistorySubjects,
-) -> set[int]:
-    clauses = _history_lead_clauses(subjects)
-    if not clauses:
-        return set()
-    return set(
-        db.scalars(
-            select(DistributionEvent.lead_id)
-            .where(or_(*clauses))
-            .distinct()
-        )
-    )
+    other: HistorySubjects,
+) -> int:
+    """Distinct history Leads of ``subjects`` that ``other`` has never seen."""
+    own = _history_lead_select(subjects)
+    if own is None:
+        return 0
+    ids = own.subquery()
+    stmt = select(func.count()).select_from(ids)
+    other_leads = _history_lead_select(other)
+    if other_leads is not None:
+        stmt = stmt.where(ids.c.lead_id.not_in(other_leads))
+    return int(db.scalar(stmt) or 0)
 
 
 def _eligible_inventory_count(
     db: Session,
     *,
     customer: Customer,
-    blocked_lead_ids: set[int],
+    blocked_leads: Select | None,
     settings: Settings,
     as_of: datetime | None = None,
 ) -> int:
@@ -622,8 +619,8 @@ def _eligible_inventory_count(
         .with_only_columns(Lead.id)
         .order_by(None)
     )
-    if blocked_lead_ids:
-        query = query.where(~Lead.id.in_(blocked_lead_ids))
+    if blocked_leads is not None:
+        query = query.where(Lead.id.not_in(blocked_leads))
     eligible = query.subquery()
     return int(db.scalar(select(func.count()).select_from(eligible)) or 0)
 
@@ -641,9 +638,11 @@ def assignment_preview(
         if destination is not None
         else HistorySubjects(frozenset(), frozenset(), frozenset())
     )
-    source_leads = _history_lead_ids(db, source)
-    target_leads = _history_lead_ids(db, target)
-    combined_leads = source_leads | target_leads
+    combined = HistorySubjects(
+        keys=source.keys | target.keys,
+        customer_ids=source.customer_ids | target.customer_ids,
+        agency_ids=source.agency_ids | target.agency_ids,
+    )
     preview_as_of = datetime.now(timezone.utc)
     return {
         "customer": {
@@ -681,29 +680,29 @@ def assignment_preview(
             "eligibleBefore": _eligible_inventory_count(
                 db,
                 customer=customer,
-                blocked_lead_ids=source_leads,
+                blocked_leads=_history_lead_select(source),
                 settings=settings,
                 as_of=preview_as_of,
             ),
             "eligibleAfter": _eligible_inventory_count(
                 db,
                 customer=customer,
-                blocked_lead_ids=combined_leads,
+                blocked_leads=_history_lead_select(combined),
                 settings=settings,
                 as_of=preview_as_of,
             ),
         },
         "sharedHistory": {
-            "customersAfter": len(source.customer_ids | target.customer_ids),
-            "agenciesAfter": len(source.agency_ids | target.agency_ids),
-            "distributedLeadsAfter": len(combined_leads),
+            "customersAfter": len(combined.customer_ids),
+            "agenciesAfter": len(combined.agency_ids),
+            "distributedLeadsAfter": _count_history_leads(db, combined),
         },
         "consequences": {
-            "customerHistoryBlockedForDestination": len(
-                source_leads - target_leads
+            "customerHistoryBlockedForDestination": (
+                _exclusive_history_lead_count(db, source, target)
             ),
-            "destinationHistoryBlockedForCustomer": len(
-                target_leads - source_leads
+            "destinationHistoryBlockedForCustomer": (
+                _exclusive_history_lead_count(db, target, source)
             ),
             "historyMergeIsPermanent": destination is not None,
         },

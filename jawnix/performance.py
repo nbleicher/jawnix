@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections import defaultdict
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -13,6 +13,27 @@ from .models import (
     LeadOutcome,
     SourceRecommendation,
 )
+
+
+def _keyword_from_segment(segment: str) -> str:
+    return segment.partition("::")[2] or segment
+
+
+def _active_outcomes_subquery():
+    """Active LeadOutcome rows as a SELECT — ids never leave the database."""
+
+    superseded = select(LeadOutcome.supersedes_outcome_id).where(
+        LeadOutcome.supersedes_outcome_id.is_not(None)
+    )
+    return (
+        select(
+            LeadOutcome.distribution_event_id.label("event_id"),
+            LeadOutcome.metric,
+            LeadOutcome.kind,
+        )
+        .where(LeadOutcome.id.not_in(superseded))
+        .subquery()
+    )
 
 
 def keyword_outcome_analytics(
@@ -24,22 +45,64 @@ def keyword_outcome_analytics(
 
     Positive outcomes are divided by every delivered lead. A keyword with no
     delivery receives ``None`` rather than a misleading zero-percent score.
+
+    Aggregates in SQL so the Keywords workspace does not materialize every
+    DistributionEvent (or outcome id) into Python — that path blanked the page
+    at production scale after the Scraper cutover, and binding millions of ids
+    as query parameters hits the same 65,535-parameter ceiling that broke
+    Agency assignment preview.
     """
 
-    snapshot = source_performance_snapshot(session)
-    rows: dict[str, dict[str, object]] = {}
-    for cohort in snapshot["cohorts"]:
-        keyword = str(cohort["segment"]).partition("::")[2] or str(
-            cohort["segment"]
+    delivered_rows = session.execute(
+        select(
+            DistributionEvent.source_segment_key,
+            func.count().label("delivered"),
         )
+        .where(DistributionEvent.source_kind == "google_maps")
+        .group_by(DistributionEvent.source_segment_key)
+    ).all()
+
+    active_outcomes = _active_outcomes_subquery()
+    positive_events = (
+        select(LeadDispositionTransition.distribution_event_id.label("event_id"))
+        .where(
+            LeadDispositionTransition.disposition.in_(
+                ("positive_response", "appointment_booked")
+            )
+        )
+        .union(
+            select(active_outcomes.c.event_id).where(
+                active_outcomes.c.metric == "positive_response"
+            )
+        )
+        .subquery()
+    )
+    positive_by_segment = {
+        str(segment): int(count)
+        for segment, count in session.execute(
+            select(
+                DistributionEvent.source_segment_key,
+                func.count().label("positive"),
+            )
+            .where(
+                DistributionEvent.source_kind == "google_maps",
+                DistributionEvent.id.in_(select(positive_events.c.event_id)),
+            )
+            .group_by(DistributionEvent.source_segment_key)
+        )
+    }
+
+    rows: dict[str, dict[str, object]] = {}
+    for segment, delivered in delivered_rows:
+        keyword = _keyword_from_segment(str(segment))
         key = keyword.casefold()
         row = rows.setdefault(
             key,
             {"keyword": keyword, "delivered": 0, "positive": 0},
         )
-        row["delivered"] = int(row["delivered"]) + int(cohort["delivered"])
-        row["positive"] = int(row["positive"]) + int(
-            cohort["positiveResponses"]
+        row["delivered"] = int(row["delivered"]) + int(delivered)
+        row["positive"] = int(row["positive"]) + positive_by_segment.get(
+            str(segment), 0
         )
     for keyword in keywords or []:
         rows.setdefault(
@@ -67,6 +130,185 @@ def keyword_outcome_analytics(
             str(row["keyword"]).casefold(),
         ),
     )
+
+
+def source_performance_summary(session: Session) -> dict:
+    """All-time Source Performance totals without loading every event row.
+
+    The Admin Source Performance screen needs ``global`` / ``legacy`` beside
+    the nightly ``rows``. Loading every DistributionEvent into Python for that
+    summary hung the route at production scale. Cohorts stay available from
+    :func:`source_performance_snapshot` for offline analysis; this path only
+    returns the aggregates the screen renders.
+    """
+
+    google_delivered = (
+        session.scalar(
+            select(func.count())
+            .select_from(DistributionEvent)
+            .where(DistributionEvent.source_kind == "google_maps")
+        )
+        or 0
+    )
+    legacy_delivered = (
+        session.scalar(
+            select(func.count())
+            .select_from(DistributionEvent)
+            .where(DistributionEvent.source_kind != "google_maps")
+        )
+        or 0
+    )
+
+    active_outcomes = _active_outcomes_subquery()
+    google_events = (
+        select(DistributionEvent.id.label("event_id"))
+        .where(DistributionEvent.source_kind == "google_maps")
+        .subquery()
+    )
+    disposition_events = (
+        select(
+            LeadDispositionTransition.distribution_event_id.label("event_id")
+        )
+        .distinct()
+        .subquery()
+    )
+    legacy_signal_events = (
+        select(active_outcomes.c.event_id)
+        .where(
+            active_outcomes.c.metric.in_(
+                ("positive_response", "appointment_booked")
+            )
+        )
+        .distinct()
+        .subquery()
+    )
+    worked = (
+        session.scalar(
+            select(func.count())
+            .select_from(google_events)
+            .where(
+                or_(
+                    google_events.c.event_id.in_(
+                        select(disposition_events.c.event_id)
+                    ),
+                    google_events.c.event_id.in_(
+                        select(legacy_signal_events.c.event_id)
+                    ),
+                )
+            )
+        )
+        or 0
+    )
+
+    rated_good = (
+        session.scalar(
+            select(func.count())
+            .select_from(google_events)
+            .where(
+                google_events.c.event_id.in_(
+                    select(active_outcomes.c.event_id).where(
+                        active_outcomes.c.metric == "quality",
+                        active_outcomes.c.kind == "good",
+                    )
+                )
+            )
+        )
+        or 0
+    )
+    rated_poor = (
+        session.scalar(
+            select(func.count())
+            .select_from(google_events)
+            .where(
+                google_events.c.event_id.in_(
+                    select(active_outcomes.c.event_id).where(
+                        active_outcomes.c.metric == "quality",
+                        active_outcomes.c.kind == "poor",
+                    )
+                )
+            )
+        )
+        or 0
+    )
+    rated = rated_good + rated_poor
+
+    positive = (
+        session.scalar(
+            select(func.count())
+            .select_from(google_events)
+            .where(
+                or_(
+                    google_events.c.event_id.in_(
+                        select(
+                            LeadDispositionTransition.distribution_event_id
+                        ).where(
+                            LeadDispositionTransition.disposition.in_(
+                                ("positive_response", "appointment_booked")
+                            )
+                        )
+                    ),
+                    google_events.c.event_id.in_(
+                        select(active_outcomes.c.event_id).where(
+                            active_outcomes.c.metric == "positive_response"
+                        )
+                    ),
+                )
+            )
+        )
+        or 0
+    )
+    booked = (
+        session.scalar(
+            select(func.count())
+            .select_from(google_events)
+            .where(
+                or_(
+                    google_events.c.event_id.in_(
+                        select(
+                            LeadDispositionTransition.distribution_event_id
+                        ).where(
+                            LeadDispositionTransition.disposition
+                            == "appointment_booked"
+                        )
+                    ),
+                    google_events.c.event_id.in_(
+                        select(active_outcomes.c.event_id).where(
+                            active_outcomes.c.metric == "appointment_booked"
+                        )
+                    ),
+                )
+            )
+        )
+        or 0
+    )
+
+    return {
+        "cohorts": [],
+        "segments": [],
+        "global": {
+            "delivered": int(google_delivered),
+            "worked": int(worked),
+            "rated": int(rated),
+            "good": int(rated_good),
+            "poor": int(rated_poor),
+            "positiveResponses": int(positive),
+            "appointmentsBooked": int(booked),
+            "rates": {
+                "good": (rated_good / rated if rated else 0.0),
+                "positiveResponse": (
+                    positive / worked if worked else 0.0
+                ),
+                "appointmentBooked": (
+                    booked / worked if worked else 0.0
+                ),
+            },
+            "prescriptive": False,
+        },
+        "legacy": {
+            "delivered": int(legacy_delivered),
+            "excludedFromRecommendations": True,
+        },
+    }
 
 
 def source_performance_snapshot(session: Session) -> dict:

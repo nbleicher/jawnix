@@ -154,12 +154,20 @@ function Panel({
   /** Marks a panel whose numbers change constantly, as upstream does. */
   live?: boolean;
 }) {
+  // Monitoring panels start open. #156 collapsed them by default so the
+  // Overview could be scanned, but Attention ("1 worker is unhealthy") then
+  // named a problem while the Workers list and live log that identify it
+  // stayed hidden. Operators can still collapse a panel after reading it;
+  // openness lives in state so a feed refresh does not force it back open.
+  const [open, setOpen] = useState(true);
   const data = feed?.region.data ?? null;
   const stale = feed ? !feed.live : true;
   return (
     <details
       className="ops-panel"
       aria-label={title}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
       {...(id ? { id } : {})}
     >
       <summary className="ops-panel__head">
