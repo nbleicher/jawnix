@@ -15,9 +15,7 @@
   gap: var(--jx-space-3);
   padding: var(--jx-space-2) var(--jx-space-4);
   border-bottom: 1px solid var(--jx-color-border);
-  background:
-    linear-gradient(100deg, color-mix(in srgb, var(--jx-color-film-magenta) 8%, transparent), transparent 44%),
-    var(--jx-color-surface);
+  background: var(--jx-color-surface);
 }
 
 .jx-terminal__identity,

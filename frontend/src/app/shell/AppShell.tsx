@@ -1,5 +1,6 @@
 import { Outlet, useNavigation } from "react-router";
 
+import { BrandLockup } from "../../brand/BrandLockup";
 import { ErrorBoundary } from "../../design-system/primitives/feedback";
 import { Navigation } from "./Navigation";
 import type { ReactNode } from "react";
@@ -33,10 +34,7 @@ export function AppShell({ audience, destinations, headerActions }: AppShellProp
       </a>
 
       <header className="jx-shell__banner">
-        <div className="jx-shell__brand">
-          <span className="jx-shell__wordmark">Jawnix</span>
-          <span className="jx-shell__audience">{audience}</span>
-        </div>
+        <BrandLockup />
         {headerActions ? (
           <div className="jx-shell__header-actions">{headerActions}</div>
         ) : null}

@@ -16,84 +16,30 @@ const WCAG_AA_TAGS = [
   "wcag22aa",
 ];
 
-test.describe("Opaline authentication scene", () => {
-  test("reduced motion renders one static, accessible frame", async ({ page }) => {
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.addInitScript(() => {
-      let seed = 116;
-      Math.random = () => {
-        seed = (seed * 16807) % 2147483647;
-        return (seed - 1) / 2147483646;
-      };
-    });
+test.describe("Match authentication", () => {
+  test("sign-in is a static plate with no WebGL scene", async ({ page }) => {
     await mockCustomerAuth(page);
     await page.goto("./sign-in");
 
-    const scene = page.locator(".jx-opaline-scene");
-    const canvas = scene.locator("canvas");
-    await expect(scene).toHaveAttribute("data-opaline-state", "static");
-    await expect(canvas).toBeVisible();
-
-    const firstFrame = await canvas.screenshot();
-    await page.waitForTimeout(200);
-    const secondFrame = await canvas.screenshot();
-    expect(secondFrame.equals(firstFrame)).toBe(true);
+    await expect(page.locator(".jx-opaline-scene")).toHaveCount(0);
+    await expect(page.locator("canvas")).toHaveCount(0);
+    await expect(page.getByRole("img", { name: "JAWNIX routing plate" })).toHaveCount(0);
+    await expect(page.locator(".jx-routing-plate")).toBeAttached();
+    await expect(page.getByText("JAWNIX", { exact: true })).toBeVisible();
 
     const results = await new AxeBuilder({ page })
       .withTags(WCAG_AA_TAGS)
       .analyze();
     expect(results.violations).toEqual([]);
-    await expect(page).toHaveScreenshot("opaline-sign-in.png", {
+    await expect(page).toHaveScreenshot("match-sign-in.png", {
       animations: "disabled",
       caret: "hide",
     });
   });
 
-  test("keeps animating while a field is focused", async ({ page }) => {
-    await mockCustomerAuth(page);
-    await page.goto("./sign-in");
-
-    const scene = page.locator(".jx-opaline-scene");
-    const canvas = scene.locator("canvas");
-    await expect(scene).toHaveAttribute("data-opaline-state", "animated");
-
-    // Focusing a field must not freeze the scene: it stays live throughout
-    // credential entry, so two frames captured while the email field holds
-    // focus differ.
-    await page.getByLabel("Email address (required)").focus();
-    await expect(scene).not.toHaveAttribute("data-opaline-paused", "true");
-    const firstFrame = await canvas.screenshot();
-    await page.waitForTimeout(300);
-    const laterFrame = await canvas.screenshot();
-    expect(laterFrame.equals(firstFrame)).toBe(false);
-  });
-
-  test("WebGL failure keeps the gradient fallback and invitation form usable", async ({
-    page,
-  }) => {
-    await page.addInitScript({
-      content: `
-        const getContext = HTMLCanvasElement.prototype.getContext;
-        HTMLCanvasElement.prototype.getContext = function (type, ...args) {
-          if (type === "webgl" || type === "experimental-webgl" || type === "webgl2") {
-            return null;
-          }
-          return getContext.call(this, type, ...args);
-        };
-      `,
-    });
+  test("invitation form stays usable without a scene", async ({ page }) => {
     await mockCustomerAuth(page);
     await page.goto(`./accept-invitation${invitationHash()}`);
-
-    const scene = page.locator(".jx-opaline-scene");
-    await expect(scene).toHaveAttribute("data-opaline-state", "fallback");
-    await expect(scene.locator("canvas")).toHaveCSS("opacity", "0");
-    const background = await scene.evaluate(
-      (element) => getComputedStyle(element).backgroundImage,
-    );
-    expect(background).toContain("linear-gradient");
-    expect(background).toContain("rgb(18, 6, 13)");
-    expect(background).toContain("rgb(3, 4, 12)");
 
     await page
       .getByLabel("Password (required)", { exact: true })
@@ -111,35 +57,18 @@ test.describe("Opaline authentication scene", () => {
       .analyze();
     expect(results.violations).toEqual([]);
   });
-
-  test("working-app routes never request the auth scene", async ({ page }) => {
-    const scripts: string[] = [];
-    page.on("response", (response) => {
-      if (response.request().resourceType() === "script") {
-        scripts.push(response.url());
-      }
-    });
-    await mockCustomerAuth(page);
-    await page.goto("./account");
-    await expect(
-      page.getByRole("heading", { level: 1, name: "Account" }),
-    ).toBeVisible();
-    await expect(page.locator(".jx-opaline-scene")).toHaveCount(0);
-    expect(
-      scripts.filter((url) => /CustomerAuth|opaline-three/.test(url)),
-    ).toEqual([]);
-  });
 });
 
 test.describe("Customer sign-in and session lifecycle", () => {
-  test("uses Opaline with the chosen Fraunces display face", async ({ page }) => {
+  test("uses Match light and DM Sans", async ({ page }) => {
     await mockCustomerAuth(page);
     await page.goto("./sign-in");
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
     await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toHaveCSS(
       "font-family",
-      /Fraunces Variable/,
+      /DM Sans/,
     );
   });
 
@@ -153,6 +82,10 @@ test.describe("Customer sign-in and session lifecycle", () => {
     await page.locator("body").press("Tab");
     await expect(
       page.getByRole("link", { name: "Skip to main content" }),
+    ).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(
+      page.getByRole("button", { name: "Switch to dark desk" }),
     ).toBeFocused();
     await page.keyboard.press("Tab");
     await page.keyboard.type("customer@example.com");

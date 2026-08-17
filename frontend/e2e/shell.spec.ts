@@ -75,21 +75,22 @@ test.describe("Customer shell", () => {
 
   test("updates the document title on navigation", async ({ page }) => {
     await page.goto("./");
-    await expect(page).toHaveTitle("Overview · Jawnix");
+    await expect(page).toHaveTitle("Overview · JAWNIX");
 
     await page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "Requests" }).click();
-    await expect(page).toHaveTitle("Requests · Jawnix");
+    await expect(page).toHaveTitle("Requests · JAWNIX");
   });
 });
 
 test.describe("Administration shell", () => {
-  test("shares the customer portal's Opaline palette and Fraunces display face", async ({ page }) => {
+  test("shares the Match language and DM Sans", async ({ page }) => {
     await page.goto("./admin/overview");
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
     await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toHaveCSS(
       "font-family",
-      /Fraunces Variable/,
+      /DM Sans/,
     );
   });
 
@@ -218,20 +219,20 @@ test.describe("Administration shell", () => {
     }
   });
 
-  test("the Scraper workspace and administration share Opaline", async ({ page }) => {
+  test("the Scraper workspace and administration share Match", async ({ page }) => {
     await page.goto("./admin/overview");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
 
     await page.goto("./admin/acquisition/scraper");
     await expect(page.getByRole("heading", {
       level: 1,
       name: "Verify access to Scraper Operations",
     })).toBeVisible();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
 
     const nav = page.getByRole("navigation", { name: "Administration" });
     await nav.getByRole("link", { name: "Fulfillment" }).click();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
   });
 
   test("signs the administrator out from the shell chrome", async ({ page }) => {

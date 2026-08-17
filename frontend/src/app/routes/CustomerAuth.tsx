@@ -18,12 +18,11 @@ import {
   signInWithPassword,
   updateProviderPassword,
 } from "../auth/providerSession";
+import { BrandLockup, RoutingPlate } from "../../brand/BrandLockup";
 import { Button } from "../../design-system/primitives/Button";
 import { AuthPanel } from "../../design-system/primitives/auth";
 import { Field, Input } from "../../design-system/primitives/form";
-import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
-import { OpalineScene } from "./opaline/OpalineScene";
 import "./CustomerAuth.css";
 
 const SIGN_IN_ERROR =
@@ -31,51 +30,19 @@ const SIGN_IN_ERROR =
 const INVITATION_ERROR =
   "This invitation cannot be used. Ask your administrator for a new invitation, or sign in if you already set your password.";
 
-// The scene stays live when a field is merely focused — clicking an input must
-// not freeze it. It calms only during active typing: WebGL and credential entry
-// compete for the main thread (starkly so on software-rendered GL), so pausing
-// while keys are flowing keeps input responsive. It resumes shortly after the
-// last keystroke, and immediately when focus leaves the form.
-const TYPING_PAUSE_MS = 1500;
-
 function AuthRouteFrame({ children }: { children: ReactNode }) {
-  useRouteTheme("opaline");
-  const [typing, setTyping] = useState(false);
-  const resumeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
-
-  useEffect(() => () => clearTimeout(resumeTimer.current), []);
-
-  function noteKeystroke() {
-    setTyping(true);
-    clearTimeout(resumeTimer.current);
-    resumeTimer.current = setTimeout(() => setTyping(false), TYPING_PAUSE_MS);
-  }
-
-  function resumeIfFocusLeft(event: React.FocusEvent<HTMLElement>) {
-    if (!event.currentTarget.contains(event.relatedTarget)) {
-      clearTimeout(resumeTimer.current);
-      setTyping(false);
-    }
-  }
-
   return (
     <div className="jx-auth-route">
-      <OpalineScene paused={typing} />
       <a className="jx-auth-route__skip-link" href="#jx-auth-main">
         Skip to main content
       </a>
       <header className="jx-auth-route__banner">
-        <span className="jx-auth-route__brand">Jawnix</span>
+        <BrandLockup />
       </header>
-      <main
-        className="jx-auth-route__main"
-        id="jx-auth-main"
-        onBlurCapture={resumeIfFocusLeft}
-        onKeyDownCapture={noteKeystroke}
-        tabIndex={-1}
-      >
+      <div className="jx-auth-route__plate" aria-hidden="true">
+        <RoutingPlate />
+      </div>
+      <main className="jx-auth-route__main" id="jx-auth-main" tabIndex={-1}>
         {children}
       </main>
     </div>

@@ -159,7 +159,7 @@
   width: 12rem;
   aspect-ratio: 1;
   border-radius: 48% 52% 55% 45%;
-  background: var(--jx-gradient-film);
+  background: var(--jx-color-accent);
   filter: blur(8px) saturate(1.2);
   opacity: 0.28;
   transform: rotate(-18deg);
@@ -283,7 +283,7 @@
   border-color: transparent;
   background:
     linear-gradient(var(--jx-color-surface), var(--jx-color-surface)) padding-box,
-    var(--jx-gradient-film) border-box;
+    var(--jx-color-accent) border-box;
 }
 
 .type-prototype__status {

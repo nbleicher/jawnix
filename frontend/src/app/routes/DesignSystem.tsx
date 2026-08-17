@@ -1,15 +1,7 @@
-import { Button } from "../../design-system/primitives/Button";
-import { Cluster, Page, Section } from "../../design-system/primitives/layout";
-import { useTheme } from "../../design-system/theme/ThemeProvider";
-import type { Theme } from "../../design-system/theme/ThemeProvider";
+import { BrandLockup } from "../../brand/BrandLockup";
+import { Page, Section } from "../../design-system/primitives/layout";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import type { GallerySection } from "./gallery/types";
-
-const THEMES: { value: Theme; label: string }[] = [
-  { value: "jawnix", label: "Jawnix" },
-  { value: "opaline", label: "Opaline" },
-  { value: "terminal", label: "Terminal" },
-];
 
 /*
  * Sections are discovered, not imported.
@@ -51,26 +43,12 @@ const SECTIONS: GallerySection[] = Object.entries(modules)
  */
 export function DesignSystemRoute() {
   useDocumentTitle("Design system");
-  const { theme, setTheme } = useTheme();
 
   return (
     <Page
       title="Design system"
-      description="Every shell primitive, in all three themes. Used as the accessibility and visual-regression fixture."
-      actions={
-        <Cluster gap={2}>
-          {THEMES.map((option) => (
-            <Button
-              key={option.value}
-              variant={theme === option.value ? "primary" : "secondary"}
-              aria-pressed={theme === option.value}
-              onClick={() => setTheme(option.value)}
-            >
-              {option.label}
-            </Button>
-          ))}
-        </Cluster>
-      }
+      description="Every shell primitive, in both Match schemes. Scheme via the plate, not a theme picker."
+      actions={<BrandLockup />}
     >
       {SECTIONS.map(({ title, description, Component }) => (
         <Section key={title} title={title} {...(description ? { description } : {})}>

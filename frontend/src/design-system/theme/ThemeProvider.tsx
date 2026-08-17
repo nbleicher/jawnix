@@ -2,32 +2,68 @@ import { createContext, use, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 /**
- * `jawnix` is the light administration language, `opaline` is the customer
- * portal, and `terminal` is the dark GMS/OPS acquisition workspace. All three
- * resolve the same token contract in tokens.css.
+ * One language. Light and dark are schemes, not product brands.
+ * The plate in the lockup is the control; routes do not pin a theme.
  */
-export type Theme = "jawnix" | "opaline" | "terminal";
+export type Theme = "match";
+export type Scheme = "light" | "dark";
+
+export const SCHEME_STORAGE_KEY = "jx-match-scheme";
 
 interface ThemeContextValue {
   theme: Theme;
-  setTheme: (theme: Theme) => void;
+  scheme: Scheme;
+  setScheme: (scheme: Scheme) => void;
+  toggleScheme: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export interface ThemeProviderProps {
   children: ReactNode;
-  defaultTheme?: Theme;
+  /** Tests pin a scheme. Production reads localStorage and defaults to light. */
+  defaultScheme?: Scheme;
 }
 
-export function ThemeProvider({ children, defaultTheme = "jawnix" }: ThemeProviderProps) {
-  const [theme, setTheme] = useState<Theme>(defaultTheme);
+function readStoredScheme(): Scheme {
+  try {
+    return window.localStorage.getItem(SCHEME_STORAGE_KEY) === "dark"
+      ? "dark"
+      : "light";
+  } catch {
+    return "light";
+  }
+}
+
+export function ThemeProvider({
+  children,
+  defaultScheme,
+}: ThemeProviderProps) {
+  const [scheme, setSchemeState] = useState<Scheme>(
+    () => defaultScheme ?? readStoredScheme(),
+  );
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+    const root = document.documentElement;
+    root.setAttribute("data-theme", "match");
+    root.setAttribute("data-scheme", scheme);
+    try {
+      window.localStorage.setItem(SCHEME_STORAGE_KEY, scheme);
+    } catch {
+      // Private mode can refuse storage; the in-memory scheme still applies.
+    }
+  }, [scheme]);
 
-  const value = useMemo(() => ({ theme, setTheme }), [theme]);
+  const value = useMemo<ThemeContextValue>(
+    () => ({
+      theme: "match",
+      scheme,
+      setScheme: setSchemeState,
+      toggleScheme: () =>
+        setSchemeState((current) => (current === "dark" ? "light" : "dark")),
+    }),
+    [scheme],
+  );
 
   return <ThemeContext value={value}>{children}</ThemeContext>;
 }
@@ -38,23 +74,4 @@ export function useTheme(): ThemeContextValue {
     throw new Error("useTheme must be used within a ThemeProvider.");
   }
   return context;
-}
-
-/**
- * Declares the theme a route requires.
- *
- * Theme is a property of the surface, not a user preference: the Customer
- * portal is always the product language and Acquisition is always the terminal
- * workspace. Expressing that as a declaration keeps the policy in one place —
- * an earlier version scattered the same `useEffect` across each shell *and*
- * offered a manual toggle, which the effect silently reverted on the next
- * render.
- */
-export function useRouteTheme(theme: Theme, restoreTheme?: Theme): void {
-  const { setTheme } = useTheme();
-
-  useEffect(() => {
-    setTheme(theme);
-    return restoreTheme ? () => setTheme(restoreTheme) : undefined;
-  }, [restoreTheme, theme, setTheme]);
 }

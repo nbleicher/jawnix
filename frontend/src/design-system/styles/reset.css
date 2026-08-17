@@ -14,6 +14,14 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+html,
+body {
+  transition:
+    background-color var(--jx-motion-scheme) var(--jx-motion-ease),
+    color var(--jx-motion-scheme) var(--jx-motion-ease),
+    border-color var(--jx-motion-scheme) var(--jx-motion-ease);
+}
+
 body {
   margin: 0;
   min-height: 100dvh;
@@ -80,7 +88,7 @@ textarea {
 :focus-visible {
   outline: 3px solid var(--jx-color-focus-ring);
   outline-offset: 2px;
-  border-radius: var(--jx-radius-sm);
+  border-radius: var(--jx-radius-focus);
 }
 
 /* Remove the default ring only where :focus-visible is supported, so older

@@ -37,7 +37,8 @@ test.describe("Customer Overview attention queue", () => {
   test("shows only actionable items under Opaline", async ({ page }) => {
     await openOverview(page);
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
     for (const item of CUSTOMER_OVERVIEW.items) {
       await expect(page.getByRole("heading", { name: item.title })).toBeVisible();
     }

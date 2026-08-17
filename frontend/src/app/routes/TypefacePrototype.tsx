@@ -10,7 +10,6 @@ import "@fontsource-variable/fraunces";
 import "@fontsource-variable/space-grotesk";
 import "@fontsource-variable/bricolage-grotesque";
 
-import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import "./TypefacePrototype.css";
 
 const CANDIDATES = [
@@ -214,7 +213,6 @@ function PrototypeSwitcher({ candidate }: { candidate: Candidate }) {
 }
 
 export function TypefacePrototypeRoute() {
-  useRouteTheme("opaline", "jawnix");
   const [searchParams] = useSearchParams();
   const candidate = CANDIDATES.find((item) => item.key === searchParams.get("variant")) ?? CANDIDATES[0];
 

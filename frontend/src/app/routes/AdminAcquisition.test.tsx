@@ -126,7 +126,7 @@ describe("the Acquisition workspace keeps the GMS/OPS identity", () => {
     expect(
       screen.getByRole("region", { name: "Acquisition workspace" }),
     ).toBeVisible();
-    expect(screen.getByText("GMS / OPS")).toBeVisible();
+    expect(screen.getByText("Operations")).toBeVisible();
   });
 
   it("says in words when work is held rather than relying on colour", () => {

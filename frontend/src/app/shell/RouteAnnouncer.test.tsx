@@ -71,6 +71,6 @@ describe("useDocumentTitle", () => {
   it("sets a suffixed document title", () => {
     renderApp();
 
-    expect(document.title).toBe("Overview · Jawnix");
+    expect(document.title).toBe("Overview · JAWNIX");
   });
 });

@@ -144,20 +144,11 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
     });
   }
 
-  test("the design-system gallery is clean in the terminal theme too", async ({ page }) => {
+  test("the design-system gallery is clean in the dark Match scheme", async ({ page }) => {
     await page.goto("./design-system");
-    await page.getByRole("button", { name: "Terminal" }).click();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "terminal");
-
-    const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
-
-    expect(results.violations).toEqual([]);
-  });
-
-  test("the design-system gallery is clean in the Opaline theme too", async ({ page }) => {
-    await page.goto("./design-system");
-    await page.getByRole("button", { name: "Opaline" }).click();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await page.getByRole("button", { name: "Switch to dark desk" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "dark");
 
     const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
 

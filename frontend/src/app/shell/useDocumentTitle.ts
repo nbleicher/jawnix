@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-export const TITLE_SUFFIX = "Jawnix";
+export const TITLE_SUFFIX = "JAWNIX";
 
 /**
  * Sets the document title for a routed screen.

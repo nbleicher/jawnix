@@ -252,7 +252,7 @@ in-memory, and the frontend is untouched with all suites green.
 
 Runs in parallel with Stage A after step 0.1 passes. Slices ship live and
 incrementally; the theme lands first so every later slice is built under
-Opaline. Acceptance per slice is defined in #116; all existing axe/WCAG 2.2 AA,
+The Match (Opaline is deleted — no restore path). Acceptance per slice is defined in #116; all existing axe/WCAG 2.2 AA,
 keyboard, and visual-regression gates keep running throughout. Slices go live
 by tagging `main` and deploying via `ops/deploy.sh` after you merge — batching
 a few merged slices per deploy is fine.
@@ -363,6 +363,8 @@ axe/keyboard/visual gates passing. Open a PR to main.
 ```
 
 ### Step P7 — Opaline Three.js scene on sign-in and accept-invitation
+
+**Struck.** Opaline is deleted. Sign-in is a static routing plate. No restore path.
 
 **You:** review and merge (anytime after P1).
 

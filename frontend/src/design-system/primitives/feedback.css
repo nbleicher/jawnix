@@ -110,11 +110,10 @@
   color: var(--jx-color-danger);
 }
 
-[data-theme="jawnix"] .jx-error__description,
-[data-theme="jawnix"] .jx-error__reference {
-  /* The soft danger background is lighter than the surface these tones were
-     tuned against; the darker ink keeps AA contrast. */
-  color: #7f1d1d;
+[data-scheme="light"] .jx-error__description,
+[data-scheme="light"] .jx-error__reference {
+  /* Soft kill on paper is lighter than the page; keep body ink on the card. */
+  color: var(--jx-color-text);
 }
 
 .jx-error__reference {

@@ -13,7 +13,7 @@
   background: var(--jx-color-surface);
   color: var(--jx-color-accent);
   border: 2px solid var(--jx-color-accent);
-  border-radius: var(--jx-radius-md);
+  border-radius: var(--jx-radius-focus);
   font-size: var(--jx-text-sm);
   font-weight: var(--jx-weight-semibold);
   text-decoration: none;
@@ -39,29 +39,6 @@
   padding: var(--jx-space-3) var(--jx-space-4);
   background: var(--jx-color-surface);
   border-bottom: 1px solid var(--jx-color-border);
-}
-
-.jx-shell__brand {
-  display: flex;
-  align-items: baseline;
-  gap: var(--jx-space-2);
-  min-width: 0;
-}
-
-.jx-shell__wordmark {
-  font-size: var(--jx-text-lg);
-  font-weight: var(--jx-weight-bold);
-  letter-spacing: -0.01em;
-  color: var(--jx-color-text-strong);
-}
-
-.jx-shell__audience {
-  font-size: var(--jx-text-xs);
-  font-weight: var(--jx-weight-bold);
-  letter-spacing: var(--jx-tracking-label);
-  text-transform: uppercase;
-  color: var(--jx-color-text-muted);
-  white-space: nowrap;
 }
 
 .jx-shell__header-actions {

@@ -33,8 +33,8 @@ const SCRAPER_DESTINATIONS: TerminalDestination[] = [
 ];
 
 /**
- * GMS/OPS frame for native acquisition screens, inheriting the Opaline app
- * theme while retaining a compact operational identity.
+ * Operational frame for acquisition screens. Same Match colors, mono body.
+ * The application lockup stays in the shell — this frame is not a second brand.
  *
  * The rail only links to working destinations, so an outage or an early
  * foundation never exposes partial controls.
@@ -49,7 +49,7 @@ export function TerminalWorkspace({
   return (
     <section className="jx-terminal" aria-label={label}>
       <div className="jx-terminal__masthead">
-        <span className="jx-terminal__identity">GMS / OPS</span>
+        <span className="jx-terminal__identity">Operations</span>
         <span className={`jx-terminal__status jx-terminal__status--${tone}`}>
           {status}
         </span>

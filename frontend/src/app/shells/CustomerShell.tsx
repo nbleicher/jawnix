@@ -8,7 +8,6 @@ import {
   ActionLink,
   Button,
 } from "../../design-system/primitives/Button";
-import { useRouteTheme } from "../../design-system/theme/ThemeProvider";
 import { CreditWalletProvider } from "../billing/CreditWalletContext";
 import { CreditWalletWidget } from "../billing/CreditWalletWidget";
 
@@ -22,8 +21,6 @@ const DESTINATIONS: NavigationDestination[] = [
 ];
 
 export function CustomerShell() {
-  // The Customer portal is always the Opaline product language.
-  useRouteTheme("opaline");
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
 

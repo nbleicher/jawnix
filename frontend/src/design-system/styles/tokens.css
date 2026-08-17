@@ -1,47 +1,28 @@
 /*
- * Jawnix design tokens.
+ * The Match token contract.
  *
- * Three themes share one token contract, so every primitive is written once and
- * re-themed by swapping `data-theme` on <html>:
- *   - `jawnix`   — the main navy/blue product language (light).
- *   - `opaline`  — the customer portal's dark ember/indigo identity.
- *   - `terminal` — the dark GMS/OPS acquisition workspace.
+ * One theme name (`match`) and a second attribute for the pair:
+ *   data-theme="match"
+ *   data-scheme="light|dark"
  *
- * Every foreground/background pair below meets WCAG 2.2 AA (4.5:1 for body
- * copy, 3:1 for large text, UI components, and focus indicators).
+ * Light is the book's print invert (default). Dark is the book's screen pair.
+ * Scraper keeps these colors and a mono body; it is not a third brand.
  */
 
 :root {
-  /* Typography — sans for interface copy, mono reserved for identifiers and
-     dense numeric data. */
-  --jx-font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  --jx-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --jx-font-display: "Fraunces Variable", Georgia, "Times New Roman", serif;
+  --jx-font-sans: "DM Sans", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+  --jx-font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --jx-font-display: "DM Sans", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+  --jx-font-body: var(--jx-font-sans);
 
-  /* Opaline's interference colors are identity tokens, not general-purpose
-     decoration. Use them for statuses and deliberate special moments only. */
-  --jx-color-film-amber: #ffaa2e;
-  --jx-color-film-magenta: #ef4fd8;
-  --jx-color-film-cyan: #3fd2ff;
-  --jx-color-film-blue: #2130e8;
-  --jx-gradient-film: linear-gradient(
-    110deg,
-    var(--jx-color-film-amber),
-    var(--jx-color-film-magenta),
-    var(--jx-color-film-cyan),
-    var(--jx-color-film-blue)
-  );
-
-  /* Type scale — 1.200 minor third off a 16px base, expressed in rem so it
-     scales with user font-size preferences (WCAG 1.4.4). */
-  --jx-text-xs: 0.75rem;
-  --jx-text-sm: 0.875rem;
+  /* Plate 07 — 11 · 13 · 16 · 20 · 25 · 32 · 44. No clamp() between steps. */
+  --jx-text-xs: 0.6875rem;
+  --jx-text-sm: 0.8125rem;
   --jx-text-md: 1rem;
-  --jx-text-lg: 1.125rem;
-  --jx-text-xl: 1.375rem;
-  --jx-text-2xl: 1.75rem;
-  --jx-text-3xl: 2.125rem;
+  --jx-text-lg: 1.25rem;
+  --jx-text-xl: 1.5625rem;
+  --jx-text-2xl: 2rem;
+  --jx-text-3xl: 2.75rem;
 
   --jx-leading-tight: 1.25;
   --jx-leading-normal: 1.5;
@@ -52,9 +33,9 @@
   --jx-weight-semibold: 600;
   --jx-weight-bold: 700;
 
-  --jx-tracking-label: 0.05em;
+  --jx-tracking-label: 0.08em;
+  --jx-tracking-wordmark: -0.02em;
 
-  /* Spacing — 4px base step. */
   --jx-space-0: 0;
   --jx-space-1: 0.25rem;
   --jx-space-2: 0.5rem;
@@ -65,24 +46,23 @@
   --jx-space-7: 3rem;
   --jx-space-8: 4rem;
 
-  /* Radii */
-  --jx-radius-sm: 6px;
-  --jx-radius-md: 8px;
-  --jx-radius-lg: 14px;
-  --jx-radius-pill: 999px;
+  /* Desk, not app-store squircle. Focus may use 2px. */
+  --jx-radius-sm: 0;
+  --jx-radius-md: 0;
+  --jx-radius-lg: 0;
+  --jx-radius-pill: 0;
+  --jx-radius-focus: 2px;
 
-  /* Touch targets — WCAG 2.2 target size, raised to the 44px product rule. */
   --jx-touch-target: 44px;
 
-  /* Layout */
   --jx-shell-max-width: 90rem;
   --jx-sidebar-width: 16rem;
   --jx-content-max-width: 72rem;
 
-  /* Motion — every duration collapses to 0 under reduced motion (see reset). */
   --jx-motion-fast: 120ms;
   --jx-motion-base: 200ms;
   --jx-motion-slow: 320ms;
+  --jx-motion-scheme: 1800ms;
   --jx-motion-ease: cubic-bezier(0.2, 0.7, 0.3, 1);
 
   --jx-z-sticky: 100;
@@ -92,153 +72,94 @@
 }
 
 /* --------------------------------------------------------------------------
- * Opaline theme (dark) — customer-facing ember and indigo surfaces.
- *
- * The film cyan remains #3fd2ff. It is paired with near-black text when used
- * as a fill (11.1:1) and clears AA as text on every surface (11.2:1 on the
- * darkest ember). Status foregrounds are lifted where the exact interference
- * stop would not clear AA; the exact ramp remains available above for borders,
- * gradients, and other non-text special moments.
+ * Light — default face. Book print invert.
+ * Paper / panel / ink / ping print / bid print / TTL print / kill print.
  * ------------------------------------------------------------------------ */
-[data-theme="opaline"] {
-  color-scheme: dark;
-
-  --jx-font-body: var(--jx-font-sans);
-
-  --jx-color-page: #03040c;
-  --jx-color-surface: #12060d;
-  --jx-color-surface-strong: #191124;
-  --jx-color-surface-recessed: #08050e;
-
-  --jx-color-border: #342338;
-  --jx-color-border-strong: #5a405c;
-
-  /* 15.3:1 on surface */
-  --jx-color-text: #e8dfe8;
-  /* 18.1:1 on surface */
-  --jx-color-text-strong: #f8f3f8;
-  /* 8.7:1 on surface */
-  --jx-color-text-muted: #b5a7b7;
-
-  /* 11.2:1 on surface; filled controls use 11.1:1 near-black copy. */
-  --jx-color-accent: #3fd2ff;
-  --jx-color-accent-strong: #78e0ff;
-  --jx-color-accent-soft: #08232d;
-  --jx-color-accent-contrast: #070c16;
-
-  /* The semantic status family is the Opaline interference ramp. */
-  --jx-color-success: #3fd2ff;
-  --jx-color-success-soft: #08232d;
-  --jx-color-warning: #ffaa2e;
-  --jx-color-warning-soft: #2a1806;
-  --jx-color-danger: #ff7de6;
-  --jx-color-danger-soft: #2b1029;
-  --jx-color-info: #3fd2ff;
-  --jx-color-info-soft: #08232d;
-  --jx-color-neutral: #aeb4ff;
-  --jx-color-neutral-soft: #11164a;
-
-  --jx-color-focus-ring: #3fd2ff;
-  --jx-color-overlay: rgba(3, 4, 12, 0.82);
-
-  --jx-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.66), 0 8px 24px -12px rgba(33, 48, 232, 0.28);
-  --jx-shadow-lg: 0 28px 64px -28px rgba(0, 0, 0, 0.92), 0 12px 32px -18px rgba(239, 79, 216, 0.32);
-}
-
-/* --------------------------------------------------------------------------
- * Jawnix theme (light) — navy and blue core brand.
- * ------------------------------------------------------------------------ */
-:root:not([data-theme]),
-[data-theme="jawnix"] {
+:root,
+:root:not([data-scheme]),
+[data-theme="match"]:not([data-scheme]),
+[data-scheme="light"] {
   color-scheme: light;
 
-  --jx-font-body: var(--jx-font-sans);
-
-  --jx-color-page: #f4f7fc;
+  --jx-color-page: #f4f6f7;
   --jx-color-surface: #ffffff;
-  --jx-color-surface-strong: #f1f5f9;
-  --jx-color-surface-recessed: #f8fafc;
+  --jx-color-surface-strong: #ffffff;
+  --jx-color-surface-recessed: #ffffff;
 
-  --jx-color-border: #dbe2ee;
-  --jx-color-border-strong: #b9c5d8;
+  --jx-color-border: #c5ccd1;
+  --jx-color-border-strong: #a8b0b6;
 
-  /* 14.6:1 on surface */
-  --jx-color-text: #1e293b;
-  /* 17.3:1 on surface */
-  --jx-color-text-strong: #0f1b2d;
-  /* 5.4:1 on surface — AA for body copy */
-  --jx-color-text-muted: #5b6b80;
+  --jx-color-text: #0e1114;
+  --jx-color-text-strong: #0e1114;
+  --jx-color-text-muted: #5c666c;
 
-  /* 5.2:1 on surface */
-  --jx-color-accent: #2563eb;
-  --jx-color-accent-strong: #1d4ed8;
-  --jx-color-accent-soft: #eaf1ff;
+  --jx-color-accent: #1b4fd6;
+  --jx-color-accent-strong: #153eb0;
+  --jx-color-accent-soft: #e8eefa;
   --jx-color-accent-contrast: #ffffff;
 
-  --jx-color-success: #047857;
-  --jx-color-success-soft: #dcfce7;
-  --jx-color-warning: #a2560a;
-  --jx-color-warning-soft: #fef3c7;
-  --jx-color-danger: #b91c1c;
-  --jx-color-danger-soft: #fee2e2;
-  --jx-color-info: #1d4ed8;
-  --jx-color-info-soft: #e0ecff;
-  --jx-color-neutral: #475569;
-  --jx-color-neutral-soft: #e9eef5;
+  --jx-color-success: #0f8a5a;
+  --jx-color-success-soft: #e6f4ee;
+  --jx-color-warning: #c4890a;
+  --jx-color-warning-soft: #f8f0d8;
+  --jx-color-danger: #b42318;
+  --jx-color-danger-soft: #f8e6e4;
+  --jx-color-info: #1b4fd6;
+  --jx-color-info-soft: #e8eefa;
+  --jx-color-neutral: #5c666c;
+  --jx-color-neutral-soft: #eef1f3;
 
-  --jx-color-focus-ring: #1d4ed8;
-  --jx-color-overlay: rgba(15, 27, 45, 0.55);
+  --jx-color-focus-ring: #1b4fd6;
+  --jx-color-overlay: rgba(14, 17, 20, 0.45);
 
-  --jx-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 4px 12px -6px rgba(15, 23, 42, 0.1);
-  --jx-shadow-lg: 0 24px 48px -20px rgba(15, 23, 42, 0.28), 0 8px 20px -12px rgba(15, 23, 42, 0.16);
+  --jx-shadow-sm: none;
+  --jx-shadow-lg: none;
 }
 
 /* --------------------------------------------------------------------------
- * Terminal theme (dark) — the GMS/OPS acquisition workspace.
- * Mono-first, high-contrast phosphor palette. Distinct from the product
- * language but bound by the same token contract and the same AA floor.
+ * Dark — desk. Book screen pair.
  * ------------------------------------------------------------------------ */
-[data-theme="terminal"] {
+[data-scheme="dark"] {
   color-scheme: dark;
 
+  --jx-color-page: #0e1114;
+  --jx-color-surface: #161b20;
+  --jx-color-surface-strong: #1c2329;
+  --jx-color-surface-recessed: #0a0c0e;
+
+  --jx-color-border: #2a3238;
+  --jx-color-border-strong: #3a444c;
+
+  --jx-color-text: #e8edf0;
+  --jx-color-text-strong: #e8edf0;
+  --jx-color-text-muted: #8b969e;
+
+  --jx-color-accent: #4c8dff;
+  --jx-color-accent-strong: #7aadff;
+  --jx-color-accent-soft: #152238;
+  --jx-color-accent-contrast: #0e1114;
+
+  --jx-color-success: #3ddc97;
+  --jx-color-success-soft: #12261c;
+  --jx-color-warning: #f0b429;
+  --jx-color-warning-soft: #2a220c;
+  --jx-color-danger: #e24b4a;
+  --jx-color-danger-soft: #2a1414;
+  --jx-color-info: #4c8dff;
+  --jx-color-info-soft: #152238;
+  --jx-color-neutral: #8b969e;
+  --jx-color-neutral-soft: #161b20;
+
+  --jx-color-focus-ring: #4c8dff;
+  --jx-color-overlay: rgba(10, 12, 14, 0.72);
+
+  --jx-shadow-sm: none;
+  --jx-shadow-lg: none;
+}
+
+/* Scraper / acquisition workspace: same colors, mono body. Not a third theme. */
+.jx-ops,
+.jx-terminal {
   --jx-font-body: var(--jx-font-mono);
   --jx-font-display: var(--jx-font-mono);
-
-  --jx-color-page: #04070a;
-  --jx-color-surface: #0a1014;
-  --jx-color-surface-strong: #101a20;
-  --jx-color-surface-recessed: #070c10;
-
-  --jx-color-border: #1e2f38;
-  --jx-color-border-strong: #35505c;
-
-  /* 15.1:1 on surface */
-  --jx-color-text: #d8e8de;
-  /* 18.1:1 on surface */
-  --jx-color-text-strong: #f2fbf6;
-  /* 7.5:1 on surface */
-  --jx-color-text-muted: #90a89c;
-
-  /* 11.0:1 on surface */
-  --jx-color-accent: #4ade80;
-  --jx-color-accent-strong: #86efac;
-  --jx-color-accent-soft: #0f2418;
-  --jx-color-accent-contrast: #04120a;
-
-  --jx-color-success: #4ade80;
-  --jx-color-success-soft: #0f2418;
-  --jx-color-warning: #fbbf24;
-  --jx-color-warning-soft: #2a2008;
-  --jx-color-danger: #f87171;
-  --jx-color-danger-soft: #2b1113;
-  --jx-color-info: #67e8f9;
-  --jx-color-info-soft: #06242b;
-  --jx-color-neutral: #94a3b8;
-  --jx-color-neutral-soft: #16222b;
-
-  --jx-color-focus-ring: #4ade80;
-  --jx-color-overlay: rgba(2, 6, 8, 0.75);
-
-  --jx-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.6), 0 4px 12px -6px rgba(0, 0, 0, 0.7);
-  --jx-shadow-lg: 0 24px 48px -20px rgba(0, 0, 0, 0.85), 0 8px 20px -12px rgba(0, 0, 0, 0.7);
 }

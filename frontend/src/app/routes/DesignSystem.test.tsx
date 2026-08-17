@@ -80,13 +80,14 @@ describe("design-system gallery", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
 
-  it("renders every discovered component under the Opaline theme", async () => {
+  it("renders every discovered component under the dark Match scheme", async () => {
     const user = userEvent.setup();
     renderGallery();
 
-    await user.click(screen.getByRole("button", { name: "Opaline" }));
+    await user.click(screen.getByRole("button", { name: "Switch to dark desk" }));
 
-    expect(document.documentElement).toHaveAttribute("data-theme", "opaline");
+    expect(document.documentElement).toHaveAttribute("data-theme", "match");
+    expect(document.documentElement).toHaveAttribute("data-scheme", "dark");
     expect(sectionTitlesInOrder()).toHaveLength(Object.keys(modules).length);
   });
 });

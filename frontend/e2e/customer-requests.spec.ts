@@ -398,7 +398,7 @@ test.describe("Batch Request detail deep links", () => {
 
   test("matches the Opaline visual baseline", async ({ page }) => {
     await openRequestDetail(page);
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
 
     await expect(page).toHaveScreenshot("customer-request-detail.png", {
       animations: "disabled",

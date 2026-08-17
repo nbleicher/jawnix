@@ -70,8 +70,7 @@
    scanline overlay blends into its background and drags the ratio under.
    Inverting to a dark fill with red text clears it comfortably and reads
    closer to the rest of the terminal surface. */
-[data-theme="terminal"] .jx-button--danger,
-[data-theme="opaline"] .jx-button--danger {
+[data-scheme="dark"] .jx-button--danger {
   background: var(--jx-color-danger-soft);
   border-color: var(--jx-color-danger);
   color: var(--jx-color-danger);

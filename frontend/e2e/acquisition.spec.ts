@@ -27,11 +27,11 @@ test.describe("The GMS/OPS identity is consistent", () => {
   test("acquisition wears the Opaline operations frame", async ({ page }) => {
     await page.goto("./admin/acquisition");
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
     await expect(
       page.getByRole("region", { name: "Acquisition workspace" }),
     ).toBeVisible();
-    await expect(page.getByText("GMS / OPS")).toBeVisible();
+    await expect(page.getByText("Operations")).toBeVisible();
   });
 
   test("the rail reaches Scraper Operations and back out", async ({ page }) => {
@@ -50,14 +50,14 @@ test.describe("The GMS/OPS identity is consistent", () => {
 
   test("leaving acquisition preserves the admin Opaline theme", async ({ page }) => {
     await page.goto("./admin/acquisition");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
 
     await page
       .getByRole("navigation", { name: "Administration" })
       .getByRole("link", { name: "Overview" })
       .click();
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "opaline");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
   });
 });
 

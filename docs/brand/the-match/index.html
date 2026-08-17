@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JAWNIX — The Match</title>
+<meta name="description" content="JAWNIX brand book. Digital lead vending: ping, bid, post. Exclusive or shared. Delivered to the buyer’s CRM.">
+<link rel="icon" href="mark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    --bg: #0E1114;
+    --rail: #0A0C0E;
+    --panel: #161B20;
+    --line: #2A3238;
+    --ink: #E8EDF0;
+    --mute: #8B969E;
+    --dim: #5C666C;
+    --ping: #4C8DFF;
+    --bid: #3DDC97;
+    --ttl: #F0B429;
+    --kill: #E24B4A;
+    --paper: #F4F6F7;
+    --panel-l: #FFFFFF;
+    --ink-l: #0E1114;
+    --mute-l: #5C666C;
+    --line-l: #C5CCD1;
+    --ping-l: #1B4FD6;
+    --bid-l: #0F8A5A;
+    --sans: "DM Sans", sans-serif;
+    --mono: "DM Mono", ui-monospace, monospace;
+  }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body { font-family: var(--sans); font-size: 16px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  .page { max-width: 980px; margin: 0 auto; padding: 0 1.25rem 5rem; }
+  .k { font-family: var(--mono); font-size: 0.6875rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ping); }
+  .mono { font-family: var(--mono); }
+  .mute { color: var(--mute); }
+  .dim { color: var(--dim); }
+  h1, h2, h3 { letter-spacing: -0.03em; font-weight: 600; line-height: 1.15; margin: 0; }
+  h1 { font-size: 2.75rem; }
+  h2 { font-size: 2rem; }
+  h3 { font-size: 1.25rem; }
+  p { max-width: 62ch; margin: 0 0 0.85rem; color: var(--mute); }
+  .lede { font-size: 1.25rem; line-height: 1.35; color: var(--ink); max-width: 44rem; }
+  a { color: var(--ping); }
+  .bar {
+    display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 0.6875rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--mute); padding: 0.9rem 0; border-bottom: 1px solid var(--line);
+  }
+  .cover { padding: 2.4rem 0 2.8rem; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 2rem; }
+  .tag { color: var(--bid); font-size: 1.5625rem; font-weight: 500; margin: 0.4rem 0 0.8rem; }
+  .ch { padding: 2.6rem 0; border-bottom: 1px solid var(--line); }
+  .ch-head { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: 1rem; align-items: end; margin-bottom: 1.2rem; }
+  .g2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.2rem; }
+  .panel { background: var(--panel); border: 1px solid var(--line); padding: 1rem 1.1rem; }
+  .sw { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.55rem; }
+  .sw article { border: 1px solid var(--line); background: var(--rail); }
+  .chip { height: 3.4rem; display: flex; align-items: flex-end; padding: 0.35rem 0.5rem; font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase; }
+  .sw p { font-family: var(--mono); font-size: 0.62rem; color: var(--dim); margin: 0; padding: 0.4rem 0.5rem 0.5rem; }
+  .lock { display: grid; place-items: center; min-height: 7rem; border: 1px solid var(--line); background: var(--rail); padding: 1.2rem; }
+  .lock.paper { background: var(--paper); }
+  .lock img { max-width: 100%; height: auto; }
+  .files { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4rem 1rem; font-family: var(--mono); font-size: 0.8125rem; }
+  .files a { text-decoration: none; }
+  .files span { color: var(--mute); }
+  table.spec { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+  table.spec th, table.spec td { text-align: left; padding: 0.4rem 0.35rem; border-bottom: 1px solid var(--line); color: var(--mute); vertical-align: top; }
+  table.spec th { font-family: var(--mono); font-size: 0.6875rem; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 500; color: var(--dim); }
+  .construct { background: var(--rail); border: 1px solid var(--line); padding: 1rem; }
+  .construct svg { width: min(520px, 100%); display: block; }
+  @media (max-width: 800px) {
+    .cover, .g2, .sw, .files { grid-template-columns: 1fr; }
+    h1 { font-size: 2rem; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="bar">
+    <span>JAWNIX · buyer desk</span>
+    <span>The Match · accepted 16 Aug 2026</span>
+    <span>landed in-repo · regenerated</span>
+  </div>
+
+  <header class="cover" id="ch-00">
+    <div>
+      <div class="k">Brand book · digital lead vending</div>
+      <h1>JAWNIX</h1>
+      <p class="tag">Ping. Bid. Post.</p>
+      <p class="lede">We buy attention, turn a form or a call into a lead, and sell that lead to one buyer or a few — in real time. Not a hotel. Not a soap film. A match.</p>
+      <p>JAWNIX is always all caps. Exclusive, shared, or return. Never “hot.” Returns are credits, not “didn’t close.”</p>
+    </div>
+    <aside class="panel">
+      <img src="logo.svg" alt="JAWNIX" style="width:min(360px,100%);height:auto;display:block">
+      <p class="mono dim" style="margin:0.8rem 0 0">One plate · ping window · bid hole · post mass</p>
+      <p class="mono mute" style="margin:0.35rem 0 0">Four seats · ACCEPT · 16 Aug 2026</p>
+    </aside>
+  </header>
+
+  <section class="ch" id="ch-01">
+    <header class="ch-head"><div class="k">01</div><h2>What this book is</h2></header>
+    <p class="lede">The identity of the desk. The product that ships this language is a batch allocation desk — Batch Request, Lead Report, Disposition, Allocation. Do not relabel those screens Ping / Bid / Post.</p>
+    <p>The pipe in this book is real: a ping (ZIP + vertical, no name) fans out, buyers bid in 1800ms, the winner gets a post into their CRM. Exclusive is one buyer. Shared is two to five. That is how the trade talks. The mark is that pipe as a plate. The website uses the plate as color and chrome. It keeps the product nouns on screen.</p>
+    <p>Regenerated 17 Aug 2026 from the accepted law. The cloud originals lived at <span class="mono">/root/jawnix/brand-books/01-the-match/</span>. This folder is the copy in git. Do not invent a third mark.</p>
+  </section>
+
+  <section class="ch" id="ch-02">
+    <header class="ch-head"><div class="k">02</div><h2>Color</h2></header>
+    <p>Two schemes, one language. Dark is the screen pair. Light is the print invert — the default front face of the website. Not a pastel wash. Not the old navy theme.</p>
+    <p class="k" style="margin:1rem 0 0.5rem">Light · print invert · default face</p>
+    <div class="sw">
+      <article><div class="chip" style="background:#F4F6F7;color:#0E1114">Paper</div><p>#F4F6F7</p></article>
+      <article><div class="chip" style="background:#FFFFFF;color:#0E1114">Panel</div><p>#FFFFFF</p></article>
+      <article><div class="chip" style="background:#0E1114">Ink</div><p>#0E1114</p></article>
+      <article><div class="chip" style="background:#1B4FD6">Ping print</div><p>#1B4FD6</p></article>
+      <article><div class="chip" style="background:#0F8A5A">Bid print</div><p>#0F8A5A</p></article>
+      <article><div class="chip" style="background:#C4890A;color:#0E1114">TTL print</div><p>#C4890A if AA needs it</p></article>
+      <article><div class="chip" style="background:#B42318">Kill print</div><p>#B42318 if AA needs it</p></article>
+      <article><div class="chip" style="background:#5C666C">Mute</div><p>#5C666C</p></article>
+      <article><div class="chip" style="background:#C5CCD1;color:#0E1114">Line</div><p>#C5CCD1</p></article>
+      <article><div class="chip" style="background:#FFFFFF;color:#0E1114;border:1px solid #C5CCD1">Rail</div><p>#FFFFFF</p></article>
+    </div>
+    <p class="k" style="margin:1.2rem 0 0.5rem">Dark · screen pair</p>
+    <div class="sw">
+      <article><div class="chip" style="background:#0E1114">Page</div><p>#0E1114</p></article>
+      <article><div class="chip" style="background:#161B20">Panel</div><p>#161B20</p></article>
+      <article><div class="chip" style="background:#E8EDF0;color:#0E1114">Ink</div><p>#E8EDF0</p></article>
+      <article><div class="chip" style="background:#4C8DFF">Ping</div><p>#4C8DFF</p></article>
+      <article><div class="chip" style="background:#3DDC97;color:#0E1114">Bid</div><p>#3DDC97</p></article>
+      <article><div class="chip" style="background:#F0B429;color:#0E1114">TTL</div><p>#F0B429</p></article>
+      <article><div class="chip" style="background:#E24B4A">Kill</div><p>#E24B4A</p></article>
+      <article><div class="chip" style="background:#8B969E;color:#0E1114">Mute</div><p>#8B969E</p></article>
+      <article><div class="chip" style="background:#2A3238">Line</div><p>#2A3238</p></article>
+      <article><div class="chip" style="background:#0A0C0E">Rail</div><p>#0A0C0E</p></article>
+    </div>
+    <p style="margin-top:1rem">Body copy uses Ink, not Mute. Ping as a fill needs Ink on the label. Light kill and TTL may use the darker print steps so small type clears 4.5:1.</p>
+  </section>
+
+  <section class="ch" id="ch-03">
+    <header class="ch-head"><div class="k">03</div><h2>Type</h2></header>
+    <p>DM Sans and DM Mono only. No serif. No Inter. No Fraunces. Scale 11 · 13 · 16 · 20 · 25 · 32 · 44. Wordmark is DM Sans 600, tracking −0.02em, outlined in the SVG files so they do not depend on a webfont.</p>
+    <div class="table-wrap">
+      <table class="spec">
+        <thead><tr><th>Role</th><th>Face</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td>Sans / display</td><td>DM Sans 400 / 600</td><td>UI and headings. JAWNIX in 600.</td></tr>
+          <tr><td>Mono</td><td>DM Mono 400 / 500</td><td>IDs, money, clocks, audience labels.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="ch" id="ch-04">
+    <header class="ch-head"><div class="k">04</div><h2>Mark</h2></header>
+    <p class="lede">One silhouette. Not three nodes with hairline joints.</p>
+    <p>Module M=8. Plate 14M × 6M. Left chamber: ping window 4M × 5M, Ping. Middle: bid hole, radius 1M, Bid. Right: post mass 6M, Ink. Walls 0.5M. ViewBox padded 2.4 so strokes are not clipped. Below 48px use <span class="mono">mark-sm.svg</span> (same plate, 0.75M walls). Clear space = one ping chamber.</p>
+    <div class="construct" style="margin:1rem 0">
+      <svg viewBox="0 0 420 160" role="img" aria-label="JAWNIX mark construction">
+        <rect width="420" height="160" fill="#0A0C0E"/>
+        <g transform="translate(20 36)">
+          <image href="mark.svg" width="116.8" height="52.8"/>
+        </g>
+        <text x="20" y="132" fill="#4C8DFF" font-family="DM Mono, monospace" font-size="9">PING WINDOW 4M×5M</text>
+        <text x="148" y="132" fill="#3DDC97" font-family="DM Mono, monospace" font-size="9">BID HOLE r=1M</text>
+        <text x="260" y="132" fill="#E8EDF0" font-family="DM Mono, monospace" font-size="9">POST MASS 6M</text>
+        <text x="20" y="148" fill="#8B969E" font-family="DM Mono, monospace" font-size="9">M=8 · 14M×6M · walls 0.5M · pad 2.4</text>
+      </svg>
+    </div>
+  </section>
+
+  <section class="ch" id="ch-05">
+    <header class="ch-head"><div class="k">05</div><h2>Lockups</h2></header>
+    <p>Buyer-facing chrome uses lockup A: mark + JAWNIX. D (wordmark only) only when the mark is already in the frame. Card and mail use <span class="mono">logo.svg</span> or <span class="mono">logo-light.svg</span>. The plate is also the scheme toggle on the website.</p>
+    <div class="g2">
+      <div>
+        <div class="lock"><img src="logo.svg" alt="JAWNIX lockup, screen pair"></div>
+        <p class="mono dim" style="margin:0.45rem 0 0">A · logo.svg · screen</p>
+      </div>
+      <div>
+        <div class="lock paper"><img src="logo-light.svg" alt="JAWNIX lockup, print pair"></div>
+        <p class="mono dim" style="margin:0.45rem 0 0">A · logo-light.svg · print</p>
+      </div>
+      <div>
+        <div class="lock"><img src="logo-stack.svg" alt="JAWNIX stacked lockup" style="max-height:5.5rem"></div>
+        <p class="mono dim" style="margin:0.45rem 0 0">B · logo-stack.svg</p>
+      </div>
+      <div>
+        <div class="lock"><img src="logo-mono.svg" alt="JAWNIX mono lockup"></div>
+        <p class="mono dim" style="margin:0.45rem 0 0">C · logo-mono.svg</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="ch" id="ch-06">
+    <header class="ch-head"><div class="k">06</div><h2>Voice</h2></header>
+    <div class="g2">
+      <div class="panel">
+        <h3>Say</h3>
+        <p>Exclusive. Shared. Return. Lead. Batch. Disposition. Allocation. Credit. JAWNIX.</p>
+      </div>
+      <div class="panel">
+        <h3>Do not say</h3>
+        <p>Hot. Didn’t close. Jawnix in title case. Ping / Bid / Post as the names of product screens.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="ch" id="ch-07">
+    <header class="ch-head"><div class="k">07</div><h2>Files</h2></header>
+    <p>Canonical copies live here. The same SVGs are mirrored to <span class="mono">frontend/src/brand/</span> for the shell. Regenerate with <span class="mono">_generate.py</span> — do not redraw by hand.</p>
+    <div class="files">
+      <div><a href="mark.svg" download>mark.svg</a> <span>full plate, 0.5M walls</span></div>
+      <div><a href="mark-sm.svg" download>mark-sm.svg</a> <span>same plate, 0.75M walls, &lt;48px</span></div>
+      <div><a href="logo.svg" download>logo.svg</a> <span>plate + JAWNIX, screen</span></div>
+      <div><a href="logo-light.svg" download>logo-light.svg</a> <span>plate + JAWNIX, print</span></div>
+      <div><a href="logo-stack.svg" download>logo-stack.svg</a> <span>plate over wordmark</span></div>
+      <div><a href="logo-mono.svg" download>logo-mono.svg</a> <span>one-ink</span></div>
+      <div><a href="wordmark.svg" download>wordmark.svg</a> <span>JAWNIX only</span></div>
+    </div>
+  </section>
+
+  <footer class="ch" style="border-bottom:0">
+    <p class="mono dim">Accepted by four seats 16 Aug 2026. Landed in this repo 17 Aug 2026 from the accepted plate law. Not Swiss International. Not Textro Interval. Not Metabolism. Not Opaline.</p>
+  </footer>
+</div>
+</body>
+</html>
