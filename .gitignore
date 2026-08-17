@@ -13,6 +13,9 @@ __pycache__/
 supabase/.temp/
 .DS_Store
 
+# Local Lavish plan surfaces. Not a deploy input.
+.lavish/
+
 # Frontend. The lockfile is committed; build output and caches are not.
 node_modules/
 frontend/dist/
