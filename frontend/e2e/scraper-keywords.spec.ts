@@ -180,7 +180,11 @@ async function openKeywords(page: Page, options: OpenOptions = {}) {
 }
 
 async function openDisclosure(page: Page, name: string) {
-  await page.getByRole("region", { name }).locator("summary").click();
+  const details = page.getByRole("region", { name }).locator("details");
+  if (!(await details.evaluate((node) => (node as HTMLDetailsElement).open))) {
+    await details.locator("summary").click();
+  }
+  await expect(details).toHaveJSProperty("open", true);
 }
 
 test.describe("Keyword editor and import", () => {
