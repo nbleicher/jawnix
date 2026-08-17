@@ -144,7 +144,8 @@
   --jx-color-success-soft: #12261c;
   --jx-color-warning: #f0b429;
   --jx-color-warning-soft: #2a220c;
-  --jx-color-danger: #e24b4a;
+  /* Book screen kill lightened until 13px error text clears 4.5:1 on the panel. */
+  --jx-color-danger: #e54e4d;
   --jx-color-danger-soft: #1f0e0e;
   --jx-color-info: #4c8dff;
   --jx-color-info-soft: #152238;
