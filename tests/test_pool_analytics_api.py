@@ -196,8 +196,12 @@ def test_pool_breakdown_subtracts_global_exclusions(session, settings):
 
 
 def test_customer_availability_honors_filters_and_is_cached_with_as_of(
-    session, settings
+    session, settings, monkeypatch
 ):
+    monkeypatch.setattr(
+        "jawnix.pool_analytics.utcnow",
+        lambda: AS_OF,
+    )
     customer = Agent(
         slug="avail-customer",
         name="Avail",

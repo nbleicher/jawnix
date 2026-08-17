@@ -19,7 +19,7 @@ from jawnix.models import AuditEntry, KeywordHistory
 
 from scraper_fake import GenerationFake, ScraperFake
 
-NOW = datetime.now(timezone.utc)
+NOW = datetime(2026, 8, 17, 12, 0, tzinfo=timezone.utc)
 
 
 def run(session, settings, fake, provider, now=NOW):

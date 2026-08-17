@@ -62,8 +62,9 @@ def _record_failure(
     *,
     reason: str,
     details: dict,
+    now: datetime,
 ) -> None:
-    record_activity(
+    entry = record_activity(
         session,
         action="scraper_keyword_rollover_failed",
         target_type=ROLLOVER_TARGET,
@@ -72,6 +73,8 @@ def _record_failure(
         reason=reason,
         details=details,
     )
+    # Cooldown reads created_at against the same clock the runner was given.
+    entry.created_at = now
 
 
 async def _record_error_event(
@@ -121,6 +124,7 @@ async def run_automatic_keyword_rollover(
             session,
             reason="Automatic keyword rollover requires Jawnix generation",
             details={"outcome": "not_configured"},
+            now=now,
         )
         await _record_error_event(operations, message)
         return {"outcome": "not_configured"}
@@ -162,6 +166,7 @@ async def run_automatic_keyword_rollover(
                 "message": error.message,
                 "exclusions": counts,
             },
+            now=now,
         )
         await _record_error_event(operations, error.message)
         return {"outcome": "generation_failed", "message": error.message}
@@ -187,6 +192,7 @@ async def run_automatic_keyword_rollover(
                 "outcome": "save_failed",
                 "upstreamStatus": error.status_code,
             },
+            now=now,
         )
         await _record_error_event(
             operations,
