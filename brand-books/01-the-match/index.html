@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JAWNIX — The Match</title>
+<meta name="description" content="JAWNIX brand book. Digital lead vending: ping, bid, post. Exclusive or shared. Delivered to the buyer’s CRM.">
+<link rel="icon" href="mark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+<style>
+:root, html[data-theme="light"] {
+  --bg: #F4F6F7;
+  --panel: #FFFFFF;
+  --line: #D4DCE0;
+  --ink: #0E1114;
+  --mute: #5C666C;
+  --dim: #8B969E;
+  --bid: #0F8A5A;
+  --ping: #1B4FD6;
+  --post: #0E1114;
+  --warn: #C48512;
+  --kill: #C53636;
+  --stage: #EEF1F3;
+  --rail-bg: #FFFFFF;
+  --keys-bg: rgba(244,246,247,0.94);
+  --sans: "DM Sans", sans-serif;
+  --mono: "DM Mono", ui-monospace, monospace;
+  --t0: 0.6875rem;
+  --t1: 0.8125rem;
+  --t2: 1rem;
+  --t3: 1.25rem;
+  --t4: 1.5625rem;
+  --t5: 2rem;
+  --t6: 2.5rem;
+  --rail: 4.6rem;
+  --measure: 62ch;
+}
+html[data-theme="dark"] {
+  --bg: #0E1114;
+  --panel: #161B20;
+  --line: #2A3238;
+  --ink: #E8EDF0;
+  --mute: #8B969E;
+  --dim: #5C666C;
+  --bid: #3DDC97;
+  --ping: #4C8DFF;
+  --post: #E8EDF0;
+  --warn: #F0B429;
+  --kill: #E24B4A;
+  --stage: #0A0C0E;
+  --rail-bg: #0A0C0E;
+  --keys-bg: rgba(14,17,20,0.92);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body {
+  font-family: var(--sans);
+  font-optical-sizing: auto;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--ping); color: var(--bg); }
+a { color: inherit; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+
+.rail {
+  position: fixed; inset: 0 auto 0 0; width: var(--rail); z-index: 40;
+  background: var(--rail-bg); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding: 0.85rem 0.4rem 0.8rem;
+}
+.rail svg { width: 100%; display: block; }
+.rail nav { display: flex; flex-direction: column; gap: 0.06rem; }
+.rail nav a {
+  font-family: var(--mono); font-size: var(--t0); color: var(--dim);
+  text-decoration: none; padding: 0.18rem 0.2rem; border-left: 2px solid transparent;
+}
+.rail nav a.on, .rail nav a:hover { color: var(--ink); border-left-color: var(--bid); }
+.rail-foot { font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.08em; color: var(--dim); text-transform: uppercase; }
+.toggle { display: none; font-family: var(--mono); font-size: var(--t0); background: var(--ping); color: var(--bg); border: 0; padding: 0.35rem 0.15rem; writing-mode: vertical-rl; cursor: pointer; }
+.keys { position: fixed; right: 1rem; bottom: 1rem; z-index: 35; font-family: var(--mono); font-size: var(--t0); color: var(--dim); background: var(--keys-bg); border: 1px solid var(--line); padding: 0.4rem 0.55rem; pointer-events: none; }
+.wrap { margin-left: var(--rail); }
+
+.cover {
+  min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto;
+  border-bottom: 1px solid var(--line);
+}
+.bar {
+  display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute);
+  padding: 0.85rem 1.4rem; border-bottom: 1px solid var(--line);
+}
+.stage {
+  display: grid; grid-template-columns: 1.3fr 0.9fr; min-height: 0;
+}
+.term {
+  padding: 1.2rem 1.4rem; border-right: 1px solid var(--line);
+  font-family: var(--mono); font-size: var(--t1); line-height: 1.55;
+}
+.term .ok { color: var(--bid); }
+.term .bl { color: var(--ping); }
+.term .wd { color: var(--warn); }
+.term .er { color: var(--kill); }
+.term .mu { color: var(--dim); }
+.meta { padding: 1.6rem 1.6rem 1.4rem; display: flex; flex-direction: column; justify-content: space-between; background: var(--panel); }
+.meta .k { font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.12em; text-transform: uppercase; color: var(--mute); }
+.meta h1 { font-size: var(--t6); font-weight: 600; letter-spacing: -0.015em; margin: 0.3rem 0 0.5rem; }
+.meta .tag { font-size: var(--t4); font-weight: 500; margin: 0 0 0.8rem; color: var(--ink); }
+.meta p { margin: 0 0 1rem; color: var(--mute); max-width: 36ch; }
+.meta dl { margin: 0; font-family: var(--mono); font-size: var(--t0); display: grid; grid-template-columns: 6.2rem 1fr; gap: 0.3rem 0.7rem; color: var(--mute); }
+.meta dd { margin: 0; color: var(--ink); }
+
+.ch { padding: 3rem 2rem 3.4rem; border-bottom: 1px solid var(--line); }
+.ch.alt { background: var(--panel); }
+.ch-head { display: grid; grid-template-columns: 7rem 1fr auto; gap: 1rem; align-items: end; margin-bottom: 1.4rem; }
+.n { font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ping); }
+h2 { font-size: var(--t5); font-weight: 600; letter-spacing: -0.015em; margin: 0; }
+h3 { font-size: var(--t3); font-weight: 600; margin: 1.5rem 0 0.45rem; }
+h4 { font-size: var(--t2); font-weight: 600; margin: 1rem 0 0.3rem; }
+.lede { font-size: var(--t3); font-weight: 500; line-height: 1.35; max-width: var(--measure); margin: 0 0 1rem; color: var(--ink); }
+p { max-width: var(--measure); margin: 0 0 0.85rem; color: var(--ink); }
+.note { font-family: var(--sans); font-size: var(--t0); color: var(--dim); max-width: 70ch; }
+.note.ids { font-family: var(--mono); }
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem 2rem; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+ul.plain { list-style: none; margin: 0 0 1rem; padding: 0; max-width: var(--measure); }
+ul.plain li { padding: 0.28rem 0; border-top: 1px solid var(--line); color: var(--mute); }
+
+.toc { display: grid; grid-template-columns: 1fr 18rem; gap: 2rem; }
+.toc ol { list-style: none; margin: 0; padding: 0; }
+.toc a { display: grid; grid-template-columns: 2.2rem 1fr auto; gap: 0.8rem; padding: 0.42rem 0; border-top: 1px solid var(--line); text-decoration: none; }
+.toc .tn { font-family: var(--mono); font-size: var(--t0); color: var(--ping); }
+.toc .tx { font-family: var(--mono); font-size: var(--t0); color: var(--dim); }
+.side { border: 1px solid var(--line); padding: 1rem; background: var(--bg); }
+.side h3 { margin-top: 0; }
+
+.sw { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.7rem; margin: 1.1rem 0; }
+.sw article { border: 1px solid var(--line); background: var(--bg); }
+.chip { height: 4.6rem; display: flex; align-items: flex-end; padding: 0.4rem 0.55rem; font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.08em; text-transform: uppercase; }
+.sw dl { margin: 0; padding: 0.5rem 0.55rem 0.65rem; font-family: var(--mono); font-size: var(--t0); display: grid; grid-template-columns: 2.4rem 1fr; gap: 0.12rem 0.4rem; color: var(--mute); }
+.sw dt { color: var(--dim); } .sw dd { margin: 0; color: var(--ink); }
+
+table.spec { width: 100%; border-collapse: collapse; font-size: var(--t1); margin: 1rem 0; }
+table.spec th, table.spec td { text-align: left; padding: 0.38rem 0.3rem; border-bottom: 1px solid var(--line); color: var(--mute); }
+table.spec th { font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 500; color: var(--dim); }
+.mono { font-family: var(--mono); }
+
+.pay {
+  background: var(--stage); border: 1px solid var(--line); padding: 0.9rem 1rem;
+  font-family: var(--mono); font-size: var(--t1); line-height: 1.55; color: var(--ink);
+  overflow: auto;
+}
+.pay .k { color: var(--ping); }
+.pay .s { color: var(--bid); }
+.pay .c { color: var(--dim); }
+
+.stage2 { background: var(--stage); padding: 1.6rem 1rem; display: grid; place-items: center; border: 1px solid var(--line); }
+.ticket {
+  width: min(440px, 100%); background: var(--panel); border: 1px solid var(--line);
+}
+.ticket .hd { display: flex; justify-content: space-between; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.1em; text-transform: uppercase; color: var(--mute); }
+.ticket .hd .ok { color: var(--bid); }
+.ticket .bd { padding: 0.85rem 0.85rem 1rem; }
+.ticket h4 { margin: 0 0 0.2rem; }
+.ticket .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 0.8rem; margin-top: 0.75rem; }
+.ticket .kk { font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.ticket .vv { font-family: var(--mono); font-size: var(--t1); color: var(--ink); }
+.inv { width: min(700px, 100%); background: var(--panel); border: 1px solid var(--line); padding: 1.2rem 1.3rem; }
+.inv table { width: 100%; border-collapse: collapse; font-size: var(--t1); margin-top: 0.7rem; }
+.inv th { font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.1em; text-transform: uppercase; text-align: left; color: var(--dim); font-weight: 500; border-bottom: 1px solid var(--line); padding: 0.32rem 0.2rem; }
+.inv td { padding: 0.38rem 0.2rem; border-bottom: 1px solid var(--line); color: var(--mute); }
+.inv .r { text-align: right; }
+.inv .tot { font-family: var(--mono); font-size: var(--t2); text-align: right; margin-top: 0.7rem; color: var(--bid); }
+.card {
+  width: 85mm; height: 55mm; background: var(--panel); border: 1px solid var(--line); padding: 0.7rem 0.8rem; position: relative;
+}
+.card .nm { font-size: var(--t3); font-weight: 600; letter-spacing: -0.015em; color: var(--ink); margin-top: 0.55rem; }
+.card .role { font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.1em; text-transform: uppercase; color: var(--mute); }
+.card .who { position: absolute; left: 0.8rem; bottom: 0.65rem; font-family: var(--mono); font-size: var(--t1); color: var(--mute); }
+.card-back { width: 85mm; height: 55mm; background: var(--panel); border: 1px solid var(--line); display: grid; place-items: center; }
+.sig {
+  background: var(--panel); border: 1px solid var(--line); padding: 0.7rem 0.85rem; min-width: 20rem; border-collapse: collapse;
+}
+.sig .nm { font-size: var(--t2); font-weight: 600; letter-spacing: -0.015em; color: var(--ink); }
+.sig .role { font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.1em; text-transform: uppercase; color: var(--mute); margin-top: 0.1rem; }
+.sig .lines { font-family: var(--mono); font-size: var(--t1); color: var(--mute); margin-top: 0.4rem; }
+.dash {
+  width: min(820px, 100%); background: var(--panel); border: 1px solid var(--line);
+}
+.dash .top { display: flex; justify-content: space-between; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: var(--t0); color: var(--mute); }
+.dash .cols, .dash .row { display: grid; grid-template-columns: 5.5rem 1fr 5.2rem 5.4rem 3.2rem 4rem; gap: 0.4rem; padding: 0.4rem 0.8rem; font-family: var(--mono); font-size: var(--t1); }
+.dash .cols { border-bottom: 1px solid var(--line); font-size: var(--t0); letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+.dash .row { border-bottom: 1px solid var(--line); }
+.dash .row span:last-child { color: var(--bid); text-align: right; }
+.mis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.7rem; }
+.mis figure { margin: 0; border: 1px solid var(--line); background: var(--bg); }
+.mis .bad { height: 6.4rem; display: grid; place-items: center; color: var(--dim); position: relative; }
+.mis .bad::after { content: ""; position: absolute; inset: 20% 14%; border: 1px solid var(--kill); transform: rotate(-16deg); }
+.mis figcaption { padding: 0.5rem 0.55rem 0.65rem; font-size: var(--t0); color: var(--mute); }
+
+.lockups { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin: 1.1rem 0; }
+.lockup { border: 1px solid var(--line); background: var(--bg); padding: 1.5rem 0.9rem 0.9rem; position: relative; min-height: 8.5rem; }
+.lockup .cap { position: absolute; top: 0.4rem; left: 0.55rem; font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+.lockup .yard { outline: 1px dashed var(--line); padding: 40px; min-height: 5.4rem; display: flex; align-items: center; justify-content: center; gap: 0.75rem; }
+.lockup.stack .yard { flex-direction: column; }
+.lockup img { display: block; height: 42px; width: auto; }
+.ways { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.7rem; margin: 1.1rem 0; }
+.way { border: 1px solid var(--line); }
+.way .pad { height: 6.4rem; display: grid; place-items: center; }
+.way img { height: 36px; width: auto; }
+.way figcaption { padding: 0.45rem 0.55rem 0.6rem; font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.dl { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0 0.4rem; }
+.dl a { font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.1em; text-transform: uppercase; border: 1px solid var(--line); padding: 0.45rem 0.7rem; text-decoration: none; color: var(--ink); }
+.dl a:hover { border-color: var(--bid); color: var(--bid); }
+.theme-btn {
+  font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.1em; text-transform: uppercase;
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  padding: 0.32rem 0.55rem; cursor: pointer;
+}
+.theme-btn:hover { border-color: var(--ping); color: var(--ping); }
+html[data-theme="dark"] .on-light { display: none !important; }
+html[data-theme="light"] .on-dark { display: none !important; }
+.minima { display: flex; flex-wrap: wrap; gap: 1.4rem; margin: 1.1rem 0; }
+.min-box { border: 1px solid var(--line); padding: 0.7rem 0.85rem 0.9rem; background: var(--bg); }
+.min-box .lab { font-family: var(--mono); font-size: var(--t0); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); margin-bottom: 0.5rem; }
+.min-print img { height: 24mm; width: auto; display: block; }
+.min-screen img { height: 48px; width: auto; display: block; }
+.constr { background: var(--stage); border: 1px solid var(--line); overflow: auto; margin: 1rem 0; }
+
+@media (max-width: 1100px) {
+  .rail { width: 2.8rem; }
+  .rail nav { display: none; }
+  .toggle { display: block; }
+  .rail.open { width: 6.2rem; }
+  .rail.open nav { display: flex; }
+  .wrap { margin-left: 2.8rem; }
+  .stage, .g2, .g3, .toc, .sw, .mis, .lockups, .ways, .ch-head, .dash .row { grid-template-columns: 1fr; }
+  .ch { padding: 2.2rem 1.1rem 2.6rem; }
+}
+@media print {
+  @page { size: A4; margin: 12mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .rail, .keys, .toggle { display: none !important; }
+  .wrap { margin: 0; }
+  :root, html, html[data-theme="dark"] {
+    --bg: #F4F6F7;
+    --panel: #FFFFFF;
+    --line: #D4DCE0;
+    --ink: #0E1114;
+    --mute: #5C666C;
+    --dim: #8B969E;
+    --bid: #0F8A5A;
+    --ping: #1B4FD6;
+    --post: #0E1114;
+    --warn: #C48512;
+    --kill: #C53636;
+    --stage: #EEF1F3;
+  }
+  .on-dark { display: none !important; }
+  .on-light { display: unset !important; }
+  .cover { min-height: auto; }
+  .ch { break-after: page; page-break-after: always; }
+  body, .ch, .cover, .meta, .panel, .stage2, .constr, .yard, .pad, .dash, .ticket, .inv, .lockup { background: #fff !important; color: #111 !important; }
+  .term { background: #EEF1F3 !important; color: #111 !important; }
+  p, td { color: #111 !important; }
+  .theme-btn { display: none !important; }
+}
+</style>
+</head>
+<body>
+<a class="sr" href="#ch-01">Skip</a>
+<aside class="rail" id="rail">
+  <div>
+    <img class="on-light" src="mark.svg" alt="" style="width:100%;height:auto"><img class="on-dark" src="mark-dark.svg" alt="" style="width:100%;height:auto">
+    <button class="toggle" type="button" id="toggle">Plates</button>
+  </div>
+  <nav id="nav">
+    <a href="#ch-00">00</a><a href="#ch-01">01</a><a href="#ch-02">02</a><a href="#ch-03">03</a>
+    <a href="#ch-04">04</a><a href="#ch-05">05</a><a href="#ch-06">06</a><a href="#ch-07">07</a>
+    <a href="#ch-08">08</a><a href="#ch-09">09</a><a href="#ch-10">10</a><a href="#ch-11">11</a>
+    <a href="#ch-12">12</a>
+  </nav>
+  <div class="rail-foot">JNX<br>PING/POST</div>
+</aside>
+<div class="keys" hidden>← → &nbsp; 0–9 &nbsp; T E C &nbsp; D theme</div>
+<main class="wrap">
+
+<section class="cover" id="ch-00">
+  <div class="bar">
+    <span>JAWNIX · buyer desk</span>
+    <span>frozen · 16 Aug 2026 · 19:14:02 CT</span>
+    <span>media → ping → bid 1800ms → post → CRM · keys 0–9 T E C D</span>
+    <button type="button" class="theme-btn" id="theme" aria-pressed="false">Dark</button>
+  </div>
+  <div class="stage">
+    <div class="term" aria-label="Routing log">
+      <div class="mu"># jawnix-router  0.9.4  ·  tree home/roof  ·  ZIP 60614</div>
+      <div class="bl">PING   nx-4418  zip=60614  vert=home.roof  intent=form</div>
+      <div class="mu">        no PII  ·  fanout 14 buyers  ·  window 1800ms</div>
+      <div>BID    northline     $240  exclusive  filter=ok  hours=open</div>
+      <div>BID    peak-hvac     $95   shared     filter=ok</div>
+      <div class="mu">BID    lakeview      —     timeout</div>
+      <div class="wd">BID    summit-ex     $180  exclusive  reject=cap</div>
+      <div class="ok">WIN    northline     exclusive  $240  ·  losers never see PII</div>
+      <div class="bl">POST   nx-4418  →  https://crm.northline.example/leads</div>
+      <div class="ok">ACK    201  ·  412ms  ·  consent=ts  ·  exclusive hold 18h from post</div>
+      <div class="mu">SCRAP  none</div>
+    </div>
+    <aside class="meta">
+      <div>
+        <div class="k">Brand book · digital lead vending</div>
+        <img class="on-light" src="logo.svg" alt="JAWNIX" style="width:min(280px,100%);height:auto;margin:0.55rem 0 0.7rem"><img class="on-dark" src="logo-dark.svg" alt="JAWNIX" style="width:min(280px,100%);height:auto;margin:0.55rem 0 0.7rem">
+        <h1 class="sr">JAWNIX</h1>
+        <p class="tag">Ping. Bid. Post.</p>
+        <p>We buy attention in paid and owned media, turn a form or a call into a lead, and sell that lead to one buyer or a few — in real time, through an API. Not a building. Not a courtyard. A match.</p>
+      </div>
+      <dl>
+        <dt>Category</dt><dd>Digital lead vending</dd>
+        <dt>Unit</dt><dd>Lead (form, call, transfer)</dd>
+        <dt>Sale</dt><dd>Exclusive · shared · remnant</dd>
+        <dt>Pipe</dt><dd>Ping / post · webhook · CRM</dd>
+      </dl>
+    </aside>
+  </div>
+  <div class="bar">
+    <span>Insurance · Home · Legal · Education · Finance</span>
+    <span>CPL · filters · TCPA timestamp · returns</span>
+    <span><a href="#ch-01">01 Contents</a></span>
+  </div>
+</section>
+
+<section class="ch" id="ch-01">
+  <header class="ch-head"><div class="n">01</div><h2>Contents</h2><div class="n">index</div></header>
+  <div class="toc">
+    <ol>
+      <li><a href="#ch-00"><span class="tn">00</span><span>Cover / frozen tree</span><span class="tx">log</span></a></li>
+      <li><a href="#ch-01"><span class="tn">01</span><span>Contents</span><span class="tx">index</span></a></li>
+      <li><a href="#ch-02"><span class="tn">02</span><span>What we actually sell</span><span class="tx">product</span></a></li>
+      <li><a href="#ch-03"><span class="tn">03</span><span>The pipe</span><span class="tx">ping-post</span></a></li>
+      <li><a href="#ch-04"><span class="tn">04</span><span>Voice</span><span class="tx">desk</span></a></li>
+      <li><a href="#ch-05"><span class="tn">05</span><span>Logo</span><span class="tx">mark + JAWNIX</span></a></li>
+      <li><a href="#ch-06"><span class="tn">06</span><span>Color</span><span class="tx">states</span></a></li>
+      <li><a href="#ch-07"><span class="tn">07</span><span>Type</span><span class="tx">UI</span></a></li>
+      <li><a href="#ch-08"><span class="tn">08</span><span>The lead</span><span class="tx">record</span></a></li>
+      <li><a href="#ch-09"><span class="tn">09</span><span>Buyer filters</span><span class="tx">rules</span></a></li>
+      <li><a href="#ch-10"><span class="tn">10</span><span>Applications</span><span class="tx">screens</span></a></li>
+      <li><a href="#ch-11"><span class="tn">11</span><span>Do / Do not</span><span class="tx">ethics</span></a></li>
+      <li><a href="#ch-12"><span class="tn">12</span><span>Colophon</span><span class="tx">press</span></a></li>
+    </ol>
+    <aside class="side">
+      <div class="n">Industry, not metaphor</div>
+      <h3>Same pipe as the category</h3>
+      <p>QuinStreet, EverQuote, Modernize, QuoteWizard, NextGen: media in, match out, pay per result. JAWNIX is that trade. The book describes the trade.</p>
+    </aside>
+  </div>
+</section>
+
+<section class="ch alt" id="ch-02">
+  <header class="ch-head"><div class="n">02</div><h2>What we actually sell</h2><div class="n">product</div></header>
+  <p class="lede">A consumer hits submit on a page we paid for or own. We sell that inquiry to an operator who can take the job. The operator pays per lead, sometimes per call. That is the whole company.</p>
+  <div class="g2">
+    <div>
+      <h3>How the lead is born</h3>
+      <p>Paid search, SEO, display, partners. The consumer is in-market: a roof, an auto policy, a loan, a case. They fill a form or they call. We do not sell a “journey.” We sell the record that form created, or the live transfer of that call.</p>
+      <h3>Who buys</h3>
+      <p>Insurance agents and carriers. Home-service contractors. Legal intake. Education. Lenders. Call centers. They set ZIP, hours, vertical, exclusive vs shared, and a bid cap. They take delivery in a CRM, not on a letterhead.</p>
+      <h3>Formats</h3>
+      <ul class="plain">
+        <li>Form fill — name, phone, email, ZIP, vertical, timestamp, consent</li>
+        <li>Inbound call / live transfer — same data, plus talk time</li>
+        <li>Click — used rarely; we are a lead desk first</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Exclusive, shared, remnant</h3>
+      <p>Exclusive: one buyer. Higher CPL. Hold 18 hours from post. Shared: two to five buyers get the same record. No hold. Speed-to-lead 60 seconds or the unit is waste. Remnant (R): leftover after a failed exclusive — 2 hours, then scrap. Ask which path you bought. Get it in writing.</p>
+      <h3>What we do not sell</h3>
+      <p>Aged lists we pretend are fresh. “Hot.” A handshake photo. A second copy of an exclusive. A name after TTL with the clock reset. If the number is disconnected, out of area, or missing consent, it is a return — not a story.</p>
+      <p class="note">Category peers run the same machine under friendlier nouns. We use the nouns the buyer already uses on a ping tree.</p>
+    </div>
+  </div>
+</section>
+
+<section class="ch" id="ch-03">
+  <header class="ch-head"><div class="n">03</div><h2>The pipe</h2><div class="n">ping-post</div></header>
+  <p class="lede">Most internet leads are sold in two HTTP calls. Ping: enough to bid, not enough to call. Post: the full record, only to who paid.</p>
+  <div class="g2">
+    <div>
+      <h3>Ping</h3>
+      <div class="pay">
+        <span class="c">// no name, no phone, no email</span><br>
+        {<br>
+        &nbsp;&nbsp;<span class="k">"id"</span>: <span class="s">"nx-4418"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"zip"</span>: <span class="s">"60614"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"vertical"</span>: <span class="s">"home.roof"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"source"</span>: <span class="s">"form"</span><br>
+        }
+      </div>
+      <p>Fan-out to every buyer whose filter matches. Window is 1800ms. A timeout is a no-bid. Losers never see PII.</p>
+    </div>
+    <div>
+      <h3>Post</h3>
+      <div class="pay">
+        {<br>
+        &nbsp;&nbsp;<span class="k">"id"</span>: <span class="s">"nx-4418"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"name"</span>: <span class="s">"R. Alvarez"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"phone"</span>: <span class="s">"+1-312-555-0140"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"email"</span>: <span class="s">"r.a@example.com"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"consent_ts"</span>: <span class="s">"2026-08-17T00:14:01Z"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"buyer"</span>: <span class="s">"northline"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"exclusive"</span>: <span class="s">true</span>,<br>
+        &nbsp;&nbsp;<span class="k">"price_usd"</span>: 240,<br>
+        &nbsp;&nbsp;<span class="k">"ttl_start"</span>: <span class="s">"2026-08-17T00:14:02Z"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"ttl_hours"</span>: 18<br>
+        }
+      </div>
+      <p>Webhook or REST into the buyer CRM. Shared posts the same body to N winners at N prices.</p>
+    </div>
+  </div>
+  <div class="g2" style="margin-top:1.2rem">
+    <div>
+      <h3>Bid response · 1800ms</h3>
+      <div class="pay">
+        {<br>
+        &nbsp;&nbsp;<span class="k">"id"</span>: <span class="s">"nx-4418"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"buyer"</span>: <span class="s">"northline"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"price_usd"</span>: 240,<br>
+        &nbsp;&nbsp;<span class="k">"exclusive"</span>: <span class="s">true</span>,<br>
+        &nbsp;&nbsp;<span class="k">"reject"</span>: <span class="s">null</span><br>
+        }<br>
+        <span class="c">// reject: "cap" | "hours" | "filter" · timeout = no body</span>
+      </div>
+      <p>No body in 1800ms is a timeout = no-bid. Tree ranks exclusive bids against the sum of shared bids, then posts to the winner. If that post does not ACK 2xx, try the next bid in rank. Losers never see PII.</p>
+    </div>
+    <div>
+      <h3>Call / transfer post</h3>
+      <div class="pay">
+        {<br>
+        &nbsp;&nbsp;<span class="k">"id"</span>: <span class="s">"nx-4420"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"source"</span>: <span class="s">"transfer"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"talk_s"</span>: 94,<br>
+        &nbsp;&nbsp;<span class="k">"duration_s"</span>: 112,<br>
+        &nbsp;&nbsp;<span class="k">"disposition"</span>: <span class="s">"connected"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"consent_ts"</span>: <span class="s">"2026-08-17T00:22:14Z"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"exclusive"</span>: <span class="s">true</span>,<br>
+        &nbsp;&nbsp;<span class="k">"ttl_start"</span>: <span class="s">"2026-08-17T00:22:18Z"</span>,<br>
+        &nbsp;&nbsp;<span class="k">"ttl_hours"</span>: 18<br>
+        }
+      </div>
+      <p>Same ping (no PII). Same bid window. Post adds talk time, duration, disposition. A transfer without talk_s does not post.</p>
+    </div>
+  </div>
+  <p class="note">Platforms the category already runs: ping trees, boberdoo-class routers, Phonexa-class call. We do not need their logos. We need their facts on our screens.</p>
+</section>
+
+<section class="ch alt" id="ch-04">
+  <header class="ch-head"><div class="n">04</div><h2>Voice</h2><div class="n">desk</div></header>
+  <p class="lede">Write like the log. Named IDs. Dollars. Filters. No “empower.” No “journey.”</p>
+  <div class="g2">
+    <div>
+      <h3>Use</h3>
+      <ul class="plain">
+        <li>Lead, inquiry, form fill, live transfer</li>
+        <li>Ping, bid, post, ACK, tree, filter</li>
+        <li>Exclusive, shared, remnant, return</li>
+        <li>CPL, bid cap, ZIP, vertical, TTL, speed-to-lead</li>
+        <li>Consent timestamp, TCPA, DNC</li>
+      </ul>
+      <h3>Refuse</h3>
+      <ul class="plain">
+        <li>Hot, crush, nurture, delight</li>
+        <li>As found, courtyard, capsule-as-poetry</li>
+        <li>Trusted partner, your journey starts here</li>
+        <li>Any line that would run on a homeowner landing page</li>
+      </ul>
+    </div>
+    <div>
+      <h3>To a buyer</h3>
+      <p>Twelve exclusive home/roof leads, inbound form, ZIP 606xx. $240 CPL. 18-hour exclusive from post. Posted to your webhook. Shared from the same tree are a separate line at $42, speed-to-lead 60s. Remnant is a third line at $18, 2h then scrap. Returns: disconnected, wrong ZIP, no consent. We do not reset TTL.</p>
+      <h3>Internal</h3>
+      <p>nx-4418 won exclusive at 240. Cap blocked summit. Lakeview timed out. Media cost on the click path was 91. Keep the tree on exclusive until shared sum beats it.</p>
+    </div>
+  </div>
+</section>
+
+<section class="ch" id="ch-05">
+  <header class="ch-head"><div class="n">05</div><h2>Logo</h2><div class="n">mark + JAWNIX</div></header>
+  <p class="lede">The name is JAWNIX — one word, always all caps. The mark is a 14M × 6M plate: ping window, bid hole, post mass. Buyer-facing surfaces use lockup A. D (wordmark only) is allowed only when the mark is already in the chrome.</p>
+
+  <div class="stage2" style="margin-bottom:1.2rem">
+    <img class="on-light" src="logo.svg" alt="JAWNIX logo" style="width:min(520px,92%);height:auto">
+    <img class="on-dark" src="logo-dark.svg" alt="JAWNIX logo" style="width:min(520px,92%);height:auto">
+  </div>
+  <div class="dl">
+    <a href="logo.svg" download>logo.svg</a>
+    <a href="logo-dark.svg" download>logo-dark.svg</a>
+    <a href="logo-light.svg" download>logo-light.svg</a>
+    <a href="mark.svg" download>mark.svg</a>
+    <a href="mark-sm.svg" download>mark-sm.svg</a>
+    <a href="mark-dark.svg" download>mark-dark.svg</a>
+    <a href="wordmark.svg" download>wordmark.svg</a>
+    <a href="wordmark-dark.svg" download>wordmark-dark.svg</a>
+    <a href="logo-stack.svg" download>logo-stack.svg</a>
+    <a href="logo-stack-dark.svg" download>logo-stack-dark.svg</a>
+    <a href="logo-mono.svg" download>logo-mono.svg</a>
+    <a href="construction.svg" download>construction.svg</a>
+    <a href="logo.png" download>logo.png</a>
+    <a href="logo-dark.png" download>logo-dark.png</a>
+    <a href="logo-stack.png" download>logo-stack.png</a>
+    <a href="logo-mono.png" download>logo-mono.png</a>
+    <a href="mark.png" download>mark.png</a>
+    <a href="mark-sm.png" download>mark-sm.png</a>
+    <a href="wordmark.png" download>wordmark.png</a>
+  </div>
+  <p class="note">logo.svg is the light master. PNG masters are knockout (alpha in the window and hole) — do not bake #F4F6F7 into the punches. Files are outlined DM Sans 600, opsz 40, tracking −0.015em. Pair kerns: JA −0.02, AW −0.055, WN −0.02, NI −0.055, IX −0.03. Hostnames stay lowercase: jawnix.com.</p>
+
+  <h3>Construction</h3>
+  <p>The mark is a 14M × 6M plate (5M ping window, 3M bid hole, 6M post mass). M = 8. Wall 0.5M. Stroke 2.4. Ticks at 5M and 8M. The word is JAWNIX, cap 56, tracking −0.015em plus the pair table. Gap from plate to word is 28. Below 48 px the plate is the whole mark — do not set live type. Use mark-sm.svg under 64 px.</p>
+  <div class="constr">
+    <img src="construction.svg" alt="JAWNIX plate construction: 5M ping, 3M bid, 6M post, M=8" style="width:100%;height:auto;display:block">
+  </div>
+
+  <h3>Lockups A–D</h3>
+  <p class="note">Dashed yard = clear space of one mark height. Primary lockup is A (plate + JAWNIX). C is the plate. D is the one-word mark.</p>
+  <div class="lockups">
+    <article class="lockup">
+      <span class="cap">A · Horizontal (primary)</span>
+      <div class="yard"><img class="on-light" src="logo.svg" alt="JAWNIX horizontal lockup"><img class="on-dark" src="logo-dark.svg" alt="JAWNIX horizontal lockup"></div>
+    </article>
+    <article class="lockup stack">
+      <span class="cap">B · Stacked</span>
+      <div class="yard">
+        <img class="on-light" src="logo-stack.svg" alt="JAWNIX stacked" style="height:88px">
+        <img class="on-dark" src="logo-stack-dark.svg" alt="JAWNIX stacked" style="height:88px">
+      </div>
+    </article>
+    <article class="lockup">
+      <span class="cap">C · Mark only</span>
+      <div class="yard"><img class="on-light" src="mark.svg" alt="JAWNIX mark"><img class="on-dark" src="mark-dark.svg" alt="JAWNIX mark"></div>
+    </article>
+    <article class="lockup">
+      <span class="cap">D · Wordmark only</span>
+      <div class="yard"><img class="on-light" src="wordmark.svg" alt="JAWNIX"><img class="on-dark" src="wordmark-dark.svg" alt="JAWNIX"></div>
+    </article>
+  </div>
+
+  <h3>Colorways</h3>
+  <div class="ways">
+    <figure class="way">
+      <div class="pad" style="background:#F4F6F7"><img src="logo.svg" alt=""></div>
+      <figcaption>Light · default</figcaption>
+    </figure>
+    <figure class="way">
+      <div class="pad" style="background:#0E1114"><img src="logo-dark.svg" alt=""></div>
+      <figcaption>Dark · toggle only</figcaption>
+    </figure>
+    <figure class="way">
+      <div class="pad" style="background:#F4F6F7"><img src="logo-mono.svg" alt=""></div>
+      <figcaption>Mono · one-ink on paper</figcaption>
+    </figure>
+    <figure class="way">
+      <div class="pad" style="background:#F4F6F7"><img src="mark.svg" alt=""></div>
+      <figcaption>Mark · favicon / rail</figcaption>
+    </figure>
+  </div>
+  <p>Paper is the light lockup. Do not print the dark masters on stock. Ping and bid on the plate are the pipe, not a palette to flood. Do not wash a page with bid green.</p>
+
+  <h3>Clear space and minima</h3>
+  <div class="minima">
+    <div class="min-box min-print">
+      <div class="lab">Minimum print · 24 mm · shown at 24 mm</div>
+      <img src="mark.svg" alt="JAWNIX mark at 24 millimetre print minimum">
+    </div>
+    <div class="min-box min-screen">
+      <div class="lab">Minimum screen · 48 px · shown at 48 px</div>
+      <img src="mark.svg" alt="JAWNIX mark at 48 pixel screen minimum">
+    </div>
+  </div>
+  <p>One mark-height of empty field on every side. Below 48 px use the plate alone. Never set Jawnix, jawn, or jAwNiX. Never letterspace the word into two pieces.</p>
+
+  <h3>Misuse</h3>
+  <div class="mis">
+    <figure>
+      <div class="bad"><span style="font-size:1.1rem">jawn</span></div>
+      <figcaption>Do not set the slang as the brand. The brand is JAWNIX.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad"><span style="font-size:1.1rem;letter-spacing:0.18em;font-weight:600">JAWNIX</span></div>
+      <figcaption>Do not open the spacing. A–W must not read as JA / WNIX.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad"><img src="mark.svg" alt="" style="height:28px;filter:blur(0);border-radius:12px;outline:2px solid #7c5cff;padding:4px"></div>
+      <figcaption>Do not round the boxes into app tiles or a letter in a squircle.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad"><span style="font-family:Georgia,serif">JAWNIX</span></div>
+      <figcaption>Do not set the wordmark in a serif, italic, or outline.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad"><span style="font-size:1.1rem;letter-spacing:0.08em">ROOF</span><img src="mark.svg" alt="" style="height:22px;width:auto;margin-left:0.35rem"></div>
+      <figcaption>Do not pair the mark with a vertical cartoon. We sell the record.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad" style="background:#4C8DFF;width:100%;min-height:3.2rem;display:grid;place-items:center"><img src="mark.svg" alt="" style="height:22px;width:auto"></div>
+      <figcaption>Do not use ping blue as a full-bleed “trust” field. That is a quote site.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="ch alt" id="ch-06">
+  <header class="ch-head"><div class="n">06</div><h2>Color</h2><div class="n">states</div></header>
+  <p class="lede">Light field first. Dark is a toggle (key D), not the default. Pipe colors are states: green is a win, blue is a ping, yellow is a clock, red is a kill.</p>
+  <div class="sw">
+    <article><div class="chip" style="background:#F4F6F7;color:#0E1114">Bg #F4F6F7</div><dl><dt>RGB</dt><dd>244 246 247</dd><dt>CMYK</dt><dd>1 1 1 4</dd><dt>Use</dt><dd>--bg field</dd></dl></article>
+    <article><div class="chip" style="background:#FFFFFF;color:#0E1114">Panel #FFFFFF</div><dl><dt>RGB</dt><dd>255 255 255</dd><dt>CMYK</dt><dd>0 0 0 0</dd><dt>Use</dt><dd>--panel</dd></dl></article>
+    <article><div class="chip" style="background:#EEF1F3;color:#0E1114">Stage #EEF1F3</div><dl><dt>RGB</dt><dd>238 241 243</dd><dt>CMYK</dt><dd>2 1 0 5</dd><dt>Use</dt><dd>--stage</dd></dl></article>
+    <article><div class="chip" style="background:#0E1114">Ink #0E1114</div><dl><dt>RGB</dt><dd>14 17 20</dd><dt>CMYK</dt><dd>30 15 0 92</dd><dt>Use</dt><dd>--ink · post mass</dd></dl></article>
+    <article><div class="chip" style="background:#5C666C">Mute #5C666C</div><dl><dt>RGB</dt><dd>92 102 108</dd><dt>CMYK</dt><dd>15 6 0 58</dd><dt>Use</dt><dd>--mute</dd></dl></article>
+    <article><div class="chip" style="background:#8B969E;color:#0E1114">Dim #8B969E</div><dl><dt>RGB</dt><dd>139 150 158</dd><dt>CMYK</dt><dd>12 5 0 38</dd><dt>Use</dt><dd>--dim</dd></dl></article>
+    <article><div class="chip" style="background:#1B4FD6">Ping #1B4FD6</div><dl><dt>RGB</dt><dd>27 79 214</dd><dt>CMYK</dt><dd>87 63 0 16</dd><dt>Use</dt><dd>--ping · window</dd></dl></article>
+    <article><div class="chip" style="background:#0F8A5A">Bid #0F8A5A</div><dl><dt>RGB</dt><dd>15 138 90</dd><dt>CMYK</dt><dd>89 0 35 46</dd><dt>Use</dt><dd>--bid · hole</dd></dl></article>
+    <article><div class="chip" style="background:#C48512;color:#0E1114">Warn #C48512</div><dl><dt>RGB</dt><dd>196 133 18</dd><dt>CMYK</dt><dd>0 32 91 23</dd><dt>Use</dt><dd>--warn clock</dd></dl></article>
+    <article><div class="chip" style="background:#C53636">Kill #C53636</div><dl><dt>RGB</dt><dd>197 54 54</dd><dt>CMYK</dt><dd>0 73 73 23</dd><dt>Use</dt><dd>--kill</dd></dl></article>
+    <article><div class="chip" style="background:#D4DCE0;color:#0E1114">Line #D4DCE0</div><dl><dt>RGB</dt><dd>212 220 224</dd><dt>CMYK</dt><dd>5 2 0 12</dd><dt>Use</dt><dd>--line</dd></dl></article>
+    <article><div class="chip" style="background:#0E1114">Dark field #0E1114</div><dl><dt>RGB</dt><dd>14 17 20</dd><dt>CMYK</dt><dd>30 15 0 92</dd><dt>Use</dt><dd>toggle --bg</dd></dl></article>
+    <article><div class="chip" style="background:#161B20">Dark panel #161B20</div><dl><dt>RGB</dt><dd>22 27 32</dd><dt>CMYK</dt><dd>31 16 0 87</dd><dt>Use</dt><dd>toggle --panel</dd></dl></article>
+    <article><div class="chip" style="background:#2A3238">Dark line #2A3238</div><dl><dt>RGB</dt><dd>42 50 56</dd><dt>CMYK</dt><dd>25 11 0 78</dd><dt>Use</dt><dd>toggle --line</dd></dl></article>
+    <article><div class="chip" style="background:#E8EDF0;color:#0E1114">Dark ink #E8EDF0</div><dl><dt>RGB</dt><dd>232 237 240</dd><dt>CMYK</dt><dd>3 1 0 6</dd><dt>Use</dt><dd>toggle --ink</dd></dl></article>
+    <article><div class="chip" style="background:#4C8DFF">Dark ping #4C8DFF</div><dl><dt>RGB</dt><dd>76 141 255</dd><dt>CMYK</dt><dd>70 45 0 0</dd><dt>Use</dt><dd>toggle --ping</dd></dl></article>
+    <article><div class="chip" style="background:#3DDC97;color:#0E1114">Dark bid #3DDC97</div><dl><dt>RGB</dt><dd>61 220 151</dd><dt>CMYK</dt><dd>72 0 31 14</dd><dt>Use</dt><dd>toggle --bid</dd></dl></article>
+  </div>
+  <h3>Combination</h3>
+  <p>Field × ink × one state. Light default: #F4F6F7 + #0E1114 + ping or bid or warn or kill — never two states on one surface. Dark toggle: #0E1114 + #E8EDF0 + #4C8DFF / #3DDC97 / #F0B429 / #E24B4A. Do not flood bid green. Do not use ping blue as a trust wash.</p>
+</section>
+
+<section class="ch" id="ch-07">
+  <header class="ch-head"><div class="n">07</div><h2>Type</h2><div class="n">UI</div></header>
+  <p class="lede">DM Sans for the desk. DM Mono for IDs, payloads, money. No serif. No display face that wants a poster.</p>
+  <p style="font-size:var(--t5);font-weight:600;letter-spacing:-0.015em;color:var(--ink);margin:0 0 0.4rem">Ping. Bid. Post.</p>
+  <p>JAWNIX manufactures inquiries in digital media and vends them as exclusive or shared leads through a real-time tree.</p>
+  <p class="mono" style="color:var(--bid)">NX-4418  HOME/ROOF  EXCL  $240  TTL 18h  POST 201</p>
+  <h3>Scale — 1.25 from 16</h3>
+  <p>11 · 13 · 16 · 20 · 25 · 32 · 40. UI sizes only. Do not invent a clamp between steps.</p>
+  <div class="g2" style="margin:1rem 0">
+    <div>
+      <p style="font-size:var(--t0);margin:0 0 0.2rem">t0 11 · plate index</p>
+      <p style="font-size:var(--t1);margin:0 0 0.2rem">t1 13 · payload / ID</p>
+      <p style="font-size:var(--t2);margin:0 0 0.2rem">t2 16 · body</p>
+      <p style="font-size:var(--t3);font-weight:500;margin:0 0 0.2rem">t3 20 · lede</p>
+      <p style="font-size:var(--t4);font-weight:500;margin:0 0 0.2rem">t4 25 · tag</p>
+      <p style="font-size:var(--t5);font-weight:600;letter-spacing:-0.015em;margin:0 0 0.2rem">t5 32 · chapter</p>
+      <p style="font-size:var(--t6);font-weight:600;letter-spacing:-0.015em;margin:0">t6 40 · display</p>
+    </div>
+    <div class="mono">
+      <p style="font-size:var(--t0);margin:0 0 0.2rem">NX-4418 · t0</p>
+      <p style="font-size:var(--t1);margin:0 0 0.2rem">TTL 18h · t1</p>
+      <p style="font-size:var(--t2);margin:0">$240 EXCL · t2</p>
+    </div>
+  </div>
+  <table class="spec">
+    <thead><tr><th>Role</th><th>Face</th><th>Size</th><th>Token</th></tr></thead>
+    <tbody>
+      <tr><td>Display</td><td>DM Sans 600</td><td>40</td><td class="mono">--t6 · track −0.015em</td></tr>
+      <tr><td>Chapter</td><td>DM Sans 600</td><td>32</td><td class="mono">--t5</td></tr>
+      <tr><td>Tag</td><td>DM Sans 500</td><td>25</td><td class="mono">--t4</td></tr>
+      <tr><td>Lede</td><td>DM Sans 500</td><td>20</td><td class="mono">--t3</td></tr>
+      <tr><td>Body</td><td>DM Sans 400</td><td>16</td><td class="mono">--t2</td></tr>
+      <tr><td>Wordmark</td><td>DM Sans 600 opsz 40</td><td>56 cap</td><td class="mono">−0.015em + MATCH_KERN</td></tr>
+      <tr><td>Payload / ID</td><td>DM Mono 400</td><td>13</td><td class="mono">--t1</td></tr>
+      <tr><td>Plate index</td><td>DM Mono 500</td><td>11</td><td class="mono">--t0</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="ch alt" id="ch-08">
+  <header class="ch-head"><div class="n">08</div><h2>The lead</h2><div class="n">record</div></header>
+  <p class="lede">A lead is a row with a clock. If a field is empty, it does not post.</p>
+  <div class="g2">
+    <div>
+      <h3>Required to post</h3>
+      <ul class="plain">
+        <li>Name, phone or email, ZIP</li>
+        <li>Vertical + source (form / call / transfer)</li>
+        <li>Consent timestamp</li>
+        <li>Buyer, price, exclusive|shared</li>
+        <li>TTL start</li>
+      </ul>
+      <h3>Grades we actually use</h3>
+      <p><strong>A</strong> exclusive inbound form, filters clean. <strong>B</strong> exclusive, partner or call. <strong>C</strong> shared. <strong>R</strong> remnant after a failed exclusive — 2h then scrap. Returns are not a grade. They are a credit.</p>
+    </div>
+    <div>
+      <h3>TTL and speed</h3>
+      <p>Exclusive hold is 18 hours from post. Shared has no hold — speed-to-lead 60 seconds or the unit is waste. Remnant (R) lives 2 hours, then scrap. After-hours hold (filter hold=true) is a queue, not a ping: the form sits until the desk opens, then the tree pings, then TTL starts. A hold is not a second exclusive clock.</p>
+      <h3>Returns</h3>
+      <p>Disconnected, wrong geography, duplicate inside 18h exclusive / 24h shared, missing consent. Not “didn’t close.” Closing is their job. Data is ours.</p>
+    </div>
+  </div>
+</section>
+
+<section class="ch" id="ch-09">
+  <header class="ch-head"><div class="n">09</div><h2>Buyer filters</h2><div class="n">rules</div></header>
+  <p class="lede">The tree only pings buyers who can take the job. A filter miss is silence, not a discount.</p>
+  <table class="spec">
+    <thead><tr><th>Filter</th><th>What it does</th><th>If it fails</th></tr></thead>
+    <tbody>
+      <tr><td>ZIP / radius</td><td>Service area</td><td>No ping</td></tr>
+      <tr><td>Vertical</td><td>Roof ≠ HVAC</td><td>No ping</td></tr>
+      <tr><td>Hours</td><td>Desk open</td><td>Default: no ping. hold=true queues until open; TTL starts at post, not at form. See §08.</td></tr>
+      <tr><td>Cap</td><td>Daily $ or unit cap</td><td>Bid rejected</td></tr>
+      <tr><td>Exclusive flag</td><td>One buyer vs N</td><td>Different price path</td></tr>
+      <tr><td>Min bid</td><td>Floor on the tree</td><td>No post</td></tr>
+    </tbody>
+  </table>
+  <p class="note">Shared vs exclusive is compared per lead: one exclusive bid against the sum of shared bids. The tree picks revenue, then posts. The buyer sees only their path.</p>
+</section>
+
+<section class="ch alt" id="ch-10">
+  <header class="ch-head"><div class="n">10</div><h2>Applications</h2><div class="n">screens</div></header>
+  <p class="lede">These are software surfaces. If they look like a contractor flyer or a hotel card, they are wrong.</p>
+
+  <h3>Buyer portal row</h3>
+  <div class="stage2" style="margin-bottom:1.6rem">
+    <div class="dash">
+      <div class="top"><span><img class="on-light" src="mark-sm.svg" alt="JAWNIX" style="height:28px;width:auto;vertical-align:middle"><img class="on-dark" src="mark-dark.svg" alt="JAWNIX" style="height:28px;width:auto;vertical-align:middle"> · JAWNIX desk</span><span>home / roof · mixed tree</span><span>window 1800ms</span></div>
+      <div class="cols"><span>ID</span><span>Geo · source</span><span>Path</span><span>Clock</span><span>ACK</span><span>CPL</span></div>
+      <div class="row"><span>nx-4418</span><span>60614 · inbound form</span><span>A excl</span><span>hold 18h</span><span>201</span><span>$240</span></div>
+      <div class="row"><span>nx-4419</span><span>60640 · partner</span><span>B excl</span><span>hold 18h</span><span>201</span><span>$180</span></div>
+      <div class="row"><span>nx-4401</span><span>60613 · partner</span><span>C shared</span><span>STL 60s</span><span>201</span><span>$42</span></div>
+      <div class="row"><span>nx-4394</span><span>60622 · remnant</span><span>R</span><span>life 2h</span><span>201</span><span>$18</span></div>
+    </div>
+  </div>
+
+  <h3>Posted lead</h3>
+  <div class="stage2" style="margin-bottom:1.6rem">
+    <div class="ticket">
+      <div class="hd"><span><img class="on-light" src="mark-sm.svg" alt="" style="height:28px;width:auto;vertical-align:middle"><img class="on-dark" src="mark-dark.svg" alt="" style="height:28px;width:auto;vertical-align:middle"> POST nx-4418</span><span class="ok">A · EXCLUSIVE · $240</span></div>
+      <div class="bd">
+        <h4>Home · roofing</h4>
+        <p class="mono" style="color:var(--dim);margin:0">Northline webhook · 412ms · 201</p>
+        <div class="grid">
+          <div><div class="kk">Name</div><div class="vv">R. Alvarez</div></div>
+          <div><div class="kk">Phone</div><div class="vv">+1 312 555 0140</div></div>
+          <div><div class="kk">ZIP</div><div class="vv">60614</div></div>
+          <div><div class="kk">Consent</div><div class="vv">2026-08-17T00:14:01Z</div></div>
+          <div><div class="kk">TTL</div><div class="vv">18h from post</div></div>
+          <div><div class="kk">Source</div><div class="vv">form · paid search</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Invoice</h3>
+  <div class="stage2" style="margin-bottom:1.6rem">
+    <div class="inv">
+      <div style="display:flex;justify-content:space-between">
+        <div><img class="on-light" src="wordmark.svg" alt="JAWNIX" style="height:16px;width:auto"><img class="on-dark" src="wordmark-dark.svg" alt="JAWNIX" style="height:16px;width:auto"><div class="note ids">INV-2208 · 16 Aug 2026</div></div>
+        <div class="note ids" style="text-align:right">Bill to: Northline<br>Exclusive desk · Net 14</div>
+      </div>
+      <table>
+        <thead><tr><th>IDs</th><th>Source</th><th>Path</th><th class="r">Qty</th><th class="r">CPL</th><th class="r">Amount</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">nx-4412–4418</td><td>form / paid</td><td>A exclusive</td><td class="r">7</td><td class="r mono">240</td><td class="r mono">1,680</td></tr>
+          <tr><td class="mono">nx-4408</td><td>disconnect</td><td>return credit</td><td class="r">1</td><td class="r mono">−240</td><td class="r mono">−240</td></tr>
+        </tbody>
+      </table>
+      <div class="tot">1,440 USD</div>
+    </div>
+  </div>
+
+  <h3>Card · 85 × 55 mm</h3>
+  <p class="note">ISO credit-card. Bleed 3 mm. Safe 4 mm. Front: wordmark (not lockup A at 20 px), name 11 pt, desk 8 pt, mail/phone/host 9 pt. Back: mark-sm at 48 px. No slogan.</p>
+  <div class="stage2" style="margin-bottom:1.6rem">
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;justify-content:center">
+      <div class="card">
+        <img class="on-light" src="wordmark.svg" alt="JAWNIX" style="height:14px;width:auto"><img class="on-dark" src="wordmark-dark.svg" alt="JAWNIX" style="height:14px;width:auto">
+        <div class="nm">A. Chen</div>
+        <div class="role">Routing desk</div>
+        <div class="who">a.chen@jawnix.com<br>+1 312 555 0100 · jawnix.com</div>
+      </div>
+      <div class="card-back">
+        <img class="on-light" src="mark-sm.svg" alt="JAWNIX" style="height:48px;width:auto"><img class="on-dark" src="mark-dark.svg" alt="JAWNIX" style="height:48px;width:auto">
+      </div>
+    </div>
+  </div>
+
+  <h3>Email signature</h3>
+  <p class="note">HTML table. Plate mark-sm at 32 px tall (75 × 32). Inline color — Outlook ignores the book CSS. No CSS border as the brand. No bid-green rail. Name 16 px ink. Role 11 px mute. Mail, phone, host 13 px mute. Lowercase hosts.</p>
+  <div class="stage2" style="margin-bottom:1.6rem">
+    <table class="sig" role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#FFFFFF">
+      <tr>
+        <td style="vertical-align:top;padding:0 12px 0 0">
+          <img class="on-light" src="mark-sm.svg" alt="JAWNIX" width="75" height="32">
+          <img class="on-dark" src="mark-dark.svg" alt="JAWNIX" width="75" height="32">
+        </td>
+        <td style="vertical-align:top">
+          <div style="font-family:'DM Sans',sans-serif;font-size:16px;font-weight:600;letter-spacing:-0.015em;color:#0E1114;line-height:1.3">A. Chen</div>
+          <div style="font-family:'DM Mono',monospace;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:#5C666C;margin-top:2px">Routing desk</div>
+          <div style="font-family:'DM Mono',monospace;font-size:13px;color:#5C666C;margin-top:8px;line-height:1.45">a.chen@jawnix.com<br>+1 312 555 0100<br>jawnix.com</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+</section>
+
+<section class="ch" id="ch-11">
+  <header class="ch-head"><div class="n">11</div><h2>Do / Do not</h2><div class="n">ethics</div></header>
+  <div class="mis">
+    <figure>
+      <div class="bad"><span style="letter-spacing:0.12em">ROOF</span></div>
+      <figcaption>Do not illustrate the vertical. We sell the record, not a roof cartoon.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad"><span style="color:#4C8DFF">trust blue wash</span></div>
+      <figcaption>Do not become an insurance-compare site. That is the consumer face, not the desk.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad"><span>hot leads!!!</span></div>
+      <figcaption>Do not write hot. Write exclusive, shared, or return.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad"><span style="font-family:Georgia,serif">JAWNIX</span></div>
+      <figcaption>Do not set the name in a serif. This is software.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad"><span>brick / gold / pink</span></div>
+      <figcaption>Do not costume the company as a building or a hotel.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad"><span>reset TTL</span></div>
+      <figcaption>Do not resell an exclusive after the clock. That is a different, worse company.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="ch alt" id="ch-12">
+  <header class="ch-head"><div class="n">12</div><h2>Colophon</h2><div class="n">press</div></header>
+  <div class="g2">
+    <div>
+      <p>This book describes a digital lead vendor. Media in. Ping without PII. Bid. Post to a CRM. Exclusive 18h from post, shared 60s, remnant 2h then scrap. Returns for bad data. Verticals: insurance, home, legal, education, finance. The category already has a language. We use it.</p>
+      <p>Type: DM Sans for the desk, DM Mono for IDs. Light first. 2026. Sibling Metabolism is off this shelf.</p>
+    </div>
+    <div>
+      <p class="note">Keys 0–9 → 00–09 · T E C → 10–12 · D theme. Quote pages are a different, quieter surface. This book is the buyer desk.</p>
+    </div>
+  </div>
+</section>
+</main>
+<script>
+(function () {
+  var ids = ["ch-00","ch-01","ch-02","ch-03","ch-04","ch-05","ch-06","ch-07","ch-08","ch-09","ch-10","ch-11","ch-12"];
+  var nav = document.getElementById("nav");
+  function mark(id) {
+    nav.querySelectorAll("a").forEach(function (a) {
+      a.classList.toggle("on", a.getAttribute("href") === "#" + id);
+    });
+  }
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) mark(e.target.id); });
+    }, { rootMargin: "-40% 0px -50% 0px" });
+    ids.forEach(function (id) { var el = document.getElementById(id); if (el) io.observe(el); });
+  }
+  document.getElementById("toggle").addEventListener("click", function () {
+    document.getElementById("rail").classList.toggle("open");
+  });
+  var root = document.documentElement;
+  var themeBtn = document.getElementById("theme");
+  function setTheme(next) {
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("jnx-theme", next); } catch (err) {}
+    if (themeBtn) {
+      themeBtn.textContent = next === "dark" ? "Light" : "Dark";
+      themeBtn.setAttribute("aria-pressed", next === "dark" ? "true" : "false");
+    }
+  }
+  try {
+    var saved = localStorage.getItem("jnx-theme");
+    if (saved === "dark" || saved === "light") setTheme(saved);
+  } catch (err) {}
+  if (themeBtn) themeBtn.addEventListener("click", function () {
+    setTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "D" || e.key === "d") {
+      if (e.target && /input|textarea/i.test(e.target.tagName)) return;
+      setTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+    }
+    var n = parseInt(e.key, 10);
+    if (!isNaN(n) && ids[n]) location.hash = ids[n];
+    if (e.key === "T" || e.key === "t") location.hash = "ch-10";
+    if (e.key === "E" || e.key === "e") location.hash = "ch-11";
+    if (e.key === "C" || e.key === "c") location.hash = "ch-12";
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      var cur = ids.findIndex(function (id) {
+        var a = nav.querySelector('a[href="#' + id + '"]');
+        return a && a.classList.contains("on");
+      });
+      if (cur < 0) cur = 0;
+      location.hash = ids[e.key === "ArrowRight" ? Math.min(ids.length - 1, cur + 1) : Math.max(0, cur - 1)];
+    }
+  });
+})();
+</script>
+</body>
+</html>

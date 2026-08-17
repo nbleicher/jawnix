@@ -1,0 +1,2786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JAWNIX — Metabolism / The Brand Book</title>
+<meta name="description" content="JAWNIX Metabolism brand book. Digital lead vending: ping, bid, post. Exclusive or shared. Drawn after Metabolism 1960.">
+<link rel="icon" href="mark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans+JP:wght@300;400;500;600;700&family=Shippori+Antique&display=swap" rel="stylesheet">
+<style>
+:root {
+  --sumi: #141210;
+  --sumi-rgb: 20, 18, 16;
+  --washi: #E8E2D6;
+  --washi-rgb: 232, 226, 214;
+  --bone: #F3EEE4;
+  --beton: #C4BBAE;
+  --beton-rgb: 196, 187, 174;
+  --formwork: #8E877A;
+  --kenitex: #C24A22;
+  --kenitex-rgb: 194, 74, 34;
+  --steel: #8B9294;
+  --verdigris: #3F6B56;
+  --verdigris-rgb: 63, 107, 86;
+  --umber: #3D3832;
+  --rule: rgba(20, 18, 16, 0.18);
+  --rule-strong: rgba(20, 18, 16, 0.42);
+  --display: "Shippori Antique", "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --sans: "IBM Plex Sans JP", "IBM Plex Sans", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --mod: 1.25;
+  --t-xs: 0.6875rem;   /* 11 */
+  --t-sm: 0.8125rem;   /* 13 */
+  --t-md: 1rem;        /* 16 */
+  --t-lg: 1.25rem;     /* 20 */
+  --t-xl: 1.5625rem;   /* 25 */
+  --t-2xl: 1.953rem;   /* 31 */
+  --t-3xl: 2.441rem;   /* 39 */
+  --t-4xl: 3.052rem;   /* 49 */
+  --t-5xl: 3.815rem;   /* 61 */
+  --t-6xl: 4.768rem;   /* 76 */
+  --u: 1rem;           /* 1.0 core unit */
+  --capsule-w: calc(var(--u) * 4);
+  --capsule-h: calc(var(--u) * 2.5);
+  --core: calc(var(--u) * 4.5);
+  --gutter: calc(var(--u) * 2);
+  --measure: 62ch;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --dock: 7.2s;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--washi);
+  color: var(--sumi);
+  font-family: var(--sans);
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.65;
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-image:
+    repeating-linear-gradient(90deg, transparent, transparent 79px, rgba(20,18,16,0.035) 79px, rgba(20,18,16,0.035) 80px),
+    repeating-linear-gradient(0deg, transparent, transparent 11px, rgba(20,18,16,0.02) 11px, rgba(20,18,16,0.02) 12px);
+  background-attachment: fixed;
+}
+
+::selection { background: var(--kenitex); color: var(--bone); }
+
+a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 0.22em; }
+a:hover { color: var(--kenitex); }
+
+.sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+
+/* ——— Persistent core (contents) ——— */
+.core {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--core);
+  height: 100vh;
+  z-index: 40;
+  background: var(--sumi);
+  color: var(--beton);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.1rem 0.55rem 1rem;
+  border-right: 1px solid rgba(194,74,34,0.55);
+}
+.core-mark { width: 100%; }
+.core-mark img, .core-mark svg { width: 100%; height: auto; display: block; }
+.core-jp {
+  writing-mode: vertical-rl;
+  font-family: var(--display);
+  font-size: 0.78rem;
+  letter-spacing: 0.38em;
+  color: var(--kenitex);
+  align-self: center;
+  margin: 0.6rem 0;
+}
+.core nav { display: flex; flex-direction: column; gap: 0.15rem; }
+.core nav a {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  color: var(--steel);
+  text-decoration: none;
+  padding: 0.18rem 0.15rem;
+  border-left: 2px solid transparent;
+  line-height: 1.2;
+}
+.core nav a[aria-current="true"],
+.core nav a.is-docked {
+  color: var(--bone);
+  border-left-color: var(--kenitex);
+}
+.core nav a:hover { color: var(--kenitex); }
+.core-foot {
+  font-family: var(--mono);
+  font-size: 0.52rem;
+  letter-spacing: 0.08em;
+  color: var(--formwork);
+  text-transform: uppercase;
+}
+.core-toggle {
+  display: none;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--kenitex);
+  color: var(--bone);
+  border: 0;
+  padding: 0.4rem 0.15rem;
+  cursor: pointer;
+  writing-mode: vertical-rl;
+  align-self: center;
+}
+
+.keys {
+  position: fixed;
+  right: 1.1rem;
+  bottom: 1.1rem;
+  z-index: 35;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  color: var(--formwork);
+  background: rgba(232,226,214,0.88);
+  border: 1px solid var(--rule);
+  padding: 0.45rem 0.6rem;
+  pointer-events: none;
+}
+
+.wrap {
+  margin-left: var(--core);
+  min-height: 100vh;
+}
+
+/* ——— Cover plate ——— */
+.cover {
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+  background: var(--beton);
+  color: var(--sumi);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+.cover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(20,18,16,0.07) 0, rgba(20,18,16,0.07) 1px, transparent 1px, transparent 48px),
+    repeating-linear-gradient(0deg, rgba(20,18,16,0.045) 0, rgba(20,18,16,0.045) 1px, transparent 1px, transparent 12px);
+  pointer-events: none;
+}
+.cover-top, .cover-bot, .cover-stage { position: relative; z-index: 1; }
+.cover-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 1.4rem 2rem 0;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--umber);
+}
+.cover-top span { display: block; }
+.cover-stage {
+  display: grid;
+  grid-template-columns: 4.2rem 1fr 16rem;
+  gap: 1.5rem;
+  padding: 1rem 2rem 0;
+  min-height: 0;
+  align-items: stretch;
+}
+.cover-jp {
+  writing-mode: vertical-rl;
+  font-family: var(--display);
+  font-size: var(--t-lg);
+  letter-spacing: 0.22em;
+  line-height: 1;
+  color: var(--formwork);
+  align-self: end;
+  height: 18vh;
+  opacity: 0.35;
+}
+.plate {
+  position: relative;
+  border: 1px solid var(--rule-strong);
+  background: var(--washi);
+  min-height: 68vh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.plate-label {
+  position: absolute;
+  top: 0.7rem;
+  left: 0.8rem;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--formwork);
+}
+.plate-dim {
+  position: absolute;
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  color: var(--formwork);
+}
+.plate-dim.n { top: 0.7rem; right: 0.8rem; }
+.plate-dim.s { bottom: 0.7rem; left: 50%; transform: translateX(-50%); }
+.plate-dim.e { right: 0.55rem; top: 50%; writing-mode: vertical-rl; }
+.cover-meta {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 0.2rem 0 0.4rem;
+  border-left: 1px solid var(--rule-strong);
+  padding-left: 1.2rem;
+}
+.cover-meta h1,
+.wordmark {
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: var(--t-2xl);
+  letter-spacing: 0.16em;
+  margin: 0 0 0.4rem;
+  line-height: 1;
+}
+.cover-meta .tag {
+  font-family: var(--display);
+  font-size: var(--t-lg);
+  line-height: 1.35;
+  margin: 0 0 1.2rem;
+}
+.cover-meta p {
+  font-size: 0.86rem;
+  max-width: 28ch;
+  margin: 0 0 0.8rem;
+  color: var(--umber);
+}
+.cover-meta dl {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cover-meta dt { color: var(--formwork); margin-top: 0.55rem; }
+.cover-meta dd { margin: 0.1rem 0 0; }
+.cover-bot {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 1rem 2rem 1.2rem;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--umber);
+  border-top: 1px solid var(--rule);
+}
+.joint-line {
+  position: absolute;
+  left: 0; right: 0;
+  top: 58%;
+  height: 2px;
+  background: var(--kenitex);
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* Docking construction */
+.dockyard { width: min(520px, 86%); height: min(520px, 70vh); }
+.dockyard svg { width: 100%; height: 100%; }
+
+@keyframes helix-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes dock-in {
+  0% { transform: translateX(72px); opacity: 0; }
+  18% { opacity: 1; }
+  32% { transform: translateX(0); }
+  78% { transform: translateX(0); opacity: 1; }
+  92% { transform: translateX(-8px) translateY(-36px); opacity: 0; }
+  100% { transform: translateX(72px); opacity: 0; }
+}
+@keyframes dock-in-b {
+  0%, 40% { transform: translateX(72px); opacity: 0; }
+  52% { opacity: 1; }
+  64% { transform: translateX(0); }
+  100% { transform: translateX(0); opacity: 1; }
+}
+@keyframes bolt-set {
+  0%, 28% { opacity: 0; }
+  36%, 80% { opacity: 1; }
+  90%, 100% { opacity: 0; }
+}
+.helix-g { transform-origin: 160px 200px; animation: helix-spin 96s linear infinite; }
+.cap-a { animation: dock-in var(--dock) var(--ease) infinite; transform-box: fill-box; transform-origin: center; }
+.cap-b { animation: dock-in-b 9.6s var(--ease) infinite; }
+.bolts { animation: bolt-set var(--dock) linear infinite; }
+
+/* ——— Chapters ——— */
+.chapter {
+  position: relative;
+  padding: 4.5rem 3.2rem 5.5rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--washi);
+}
+.chapter.alt { background: var(--bone); }
+.chapter.dark {
+  background: var(--sumi);
+  color: var(--washi);
+}
+.chapter.dark .kicker,
+.chapter.dark .lede,
+.chapter.dark .note { color: var(--steel); }
+.chapter.beton {
+  background: var(--beton);
+  background-image:
+    repeating-linear-gradient(90deg, rgba(20,18,16,0.08) 0, rgba(20,18,16,0.08) 1px, transparent 1px, transparent 52px),
+    repeating-linear-gradient(0deg, rgba(20,18,16,0.04) 0, rgba(20,18,16,0.04) 1px, transparent 1px, transparent 10px);
+}
+.chapter-head {
+  display: grid;
+  grid-template-columns: 7rem 1fr auto;
+  gap: 1.4rem;
+  align-items: end;
+  margin-bottom: 2.6rem;
+  padding-bottom: 1.1rem;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.chapter-num {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  color: var(--kenitex);
+  text-transform: uppercase;
+}
+.chapter-head h2 {
+  font-family: var(--display);
+  font-size: var(--t-3xl);
+  font-weight: 400;
+  line-height: 1.12;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+.chapter-jp {
+  font-family: var(--display);
+  font-size: 1.05rem;
+  letter-spacing: 0.28em;
+  writing-mode: vertical-rl;
+  height: 6.2rem;
+  color: var(--formwork);
+}
+.kicker {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--formwork);
+  margin: 0 0 0.8rem;
+}
+.wm-live { font-family: var(--sans); font-weight: 500; letter-spacing: 0.16em; }
+.lede {
+  font-family: var(--display);
+  font-size: var(--t-xl);
+  line-height: 1.45;
+  max-width: 46ch;
+  margin: 0 0 2rem;
+}
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2.4rem 3rem;
+}
+.grid-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1.6rem;
+}
+.tray {
+  display: grid;
+  grid-template-columns: 4fr 2.5fr;
+  gap: var(--gutter);
+  align-items: start;
+}
+.hang {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--u) * 1);
+  align-items: stretch;
+}
+.hang > .unit {
+  flex: 0 1 calc(var(--capsule-w) * 5.5);
+}
+
+p { margin: 0 0 1rem; max-width: var(--measure); }
+.chapter p:last-child { margin-bottom: 0; }
+
+h3 {
+  font-family: var(--display);
+  font-size: var(--t-xl);
+  font-weight: 400;
+  margin: 2.2rem 0 0.7rem;
+  letter-spacing: 0.02em;
+}
+h4 {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin: 1.4rem 0 0.45rem;
+  color: var(--kenitex);
+}
+
+blockquote.man {
+  margin: 0 0 2rem;
+  padding: 1.4rem 0 1.4rem 1.4rem;
+  border-left: 3px solid var(--kenitex);
+  font-family: var(--display);
+  font-size: var(--t-lg);
+  line-height: 1.5;
+  max-width: 52ch;
+}
+blockquote.man cite {
+  display: block;
+  margin-top: 0.8rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-style: normal;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--formwork);
+}
+
+.note {
+  font-family: var(--sans);
+  font-size: var(--t-xs);
+  letter-spacing: 0.02em;
+  color: var(--umber);
+  max-width: 48ch;
+}
+.note.ids {
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+}
+
+ul.plain { margin: 0 0 1rem; padding: 0; list-style: none; max-width: var(--measure); }
+ul.plain li { padding: 0.28rem 0 0.28rem 1rem; position: relative; }
+ul.plain li::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0.7em;
+  width: 0.45rem; height: 2px;
+  background: var(--kenitex);
+}
+
+table.spec {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  margin: 0.6rem 0 1.4rem;
+}
+table.spec th, table.spec td {
+  text-align: left;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+table.spec th {
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--formwork);
+  font-weight: 500;
+}
+table.spec td:first-child, table.spec th:first-child { padding-left: 0; }
+table.spec .mono { font-family: var(--mono); font-size: 0.78rem; }
+
+.chip {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid var(--rule-strong);
+  padding: 0.15rem 0.4rem;
+  margin: 0 0.2rem 0.2rem 0;
+}
+
+/* Contents */
+.toc { display: grid; grid-template-columns: 1fr 18rem; gap: 3rem; }
+.toc-list { list-style: none; margin: 0; padding: 0; }
+.toc-list li { border-top: 1px solid var(--rule); }
+.toc-list a {
+  display: grid;
+  grid-template-columns: 3.2rem 1fr auto;
+  gap: 1rem;
+  padding: 0.85rem 0;
+  text-decoration: none;
+  align-items: baseline;
+}
+.toc-list a:hover .toc-en { color: var(--kenitex); }
+.toc-n { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; color: var(--kenitex); }
+.toc-en { font-family: var(--display); font-size: 1.35rem; }
+.toc-jp { font-family: var(--display); font-size: 0.85rem; color: var(--formwork); letter-spacing: 0.12em; }
+.toc-side {
+  border: 1px solid var(--rule-strong);
+  padding: 1.2rem 1.1rem;
+  background: var(--beton);
+  align-self: start;
+  position: sticky;
+  top: 1.4rem;
+}
+.toc-side h3 { margin-top: 0; font-size: 1.1rem; }
+.toc-side ol { margin: 0; padding-left: 1.1rem; font-size: 0.86rem; }
+.toc-side li { margin: 0.35rem 0; }
+
+/* School figures */
+.roster { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border: 1px solid var(--rule-strong); }
+.roster article {
+  padding: 1rem 0.95rem 1.15rem;
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  min-height: 11rem;
+}
+.roster article:nth-child(4n) { border-right: 0; }
+.roster .role {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--kenitex);
+  margin: 0 0 0.4rem;
+}
+.roster h3 { margin: 0 0 0.35rem; font-size: 1.15rem; }
+.roster p { font-size: 0.8rem; margin: 0; max-width: none; color: var(--umber); }
+
+.works {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1.2rem;
+  margin-top: 1.6rem;
+}
+.work {
+  border: 1px solid var(--rule-strong);
+  background: var(--bone);
+  min-height: 22rem;
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+}
+.work .draw { flex: 1; min-height: 14rem; background: var(--washi); border: 1px solid var(--rule); }
+.work h4 { margin: 0.6rem 0 0.2rem; }
+.work p { font-size: 0.78rem; max-width: none; margin: 0; }
+
+/* Color */
+.swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+.swatch { border: 1px solid var(--rule-strong); background: var(--bone); }
+.swatch .chip-face { height: 7.2rem; position: relative; }
+.swatch .chip-face .lab {
+  position: absolute;
+  left: 0.6rem; bottom: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.swatch dl { margin: 0; padding: 0.7rem 0.75rem 0.85rem; font-family: var(--mono); font-size: 0.68rem; }
+.swatch dt { color: var(--formwork); display: inline; margin-right: 0.4rem; }
+.swatch dd { display: inline; margin: 0; }
+.swatch .row { display: block; margin: 0.15rem 0; }
+
+/* Type specimens */
+.type-row { margin: 0 0 2rem; padding-bottom: 1.4rem; border-bottom: 1px solid var(--rule); }
+.type-row .meta {
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--formwork);
+  margin-bottom: 0.4rem;
+}
+.spec-ship { font-family: var(--display); }
+.spec-sans { font-family: var(--sans); }
+.spec-mono { font-family: var(--mono); }
+
+/* Mark */
+.mark-stage {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+.mark-board {
+  background: var(--bone);
+  border: 1px solid var(--rule-strong);
+  padding: 1.4rem;
+  min-height: 28rem;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.mark-board .cap {
+  position: absolute;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--formwork);
+  top: 0.7rem; left: 0.8rem;
+}
+.misuse { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+.misuse figure {
+  margin: 0;
+  border: 1px solid var(--rule);
+  background: var(--bone);
+  padding: 0.8rem;
+}
+.misuse .bad {
+  height: 8.5rem;
+  display: grid;
+  place-items: center;
+  position: relative;
+  background: #ddd6c8;
+}
+.misuse .bad::after {
+  content: "×";
+  position: absolute;
+  top: 0.3rem; right: 0.45rem;
+  font-family: var(--mono);
+  color: var(--kenitex);
+  font-size: 1.1rem;
+}
+.misuse figcaption { font-size: 0.78rem; margin-top: 0.5rem; color: var(--umber); }
+
+/* Capsule unit */
+.unit {
+  border: 1px solid var(--sumi);
+  background: var(--bone);
+  display: grid;
+  grid-template-columns: var(--capsule-h) 1fr;
+  width: calc(var(--capsule-w) * 5.5);
+  min-height: calc(var(--capsule-h) * 5.5);
+  max-width: 100%;
+  position: relative;
+}
+.unit .port {
+  background: var(--sumi);
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.unit .port .eye {
+  width: 3.1rem; height: 3.1rem;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 34%, #d7cfc0 0%, #8a8376 42%, #2a2622 72%);
+  box-shadow: inset 0 0 0 3px var(--formwork);
+}
+.unit .body { padding: 0.75rem 0.9rem 0.8rem; position: relative; }
+.unit .body::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--kenitex);
+}
+.unit .id {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--formwork);
+}
+.unit h3 { margin: 0.15rem 0 0.45rem; font-size: var(--t-lg); }
+.unit dl {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 0.15rem 0.4rem;
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+}
+.unit dt { color: var(--formwork); }
+.unit dd { margin: 0; }
+.bolts-row { display: flex; gap: 0.35rem; margin-top: 0.55rem; }
+.bolt {
+  width: 0.55rem; height: 0.55rem;
+  border: 1px solid var(--sumi);
+  border-radius: 50%;
+  background: var(--steel);
+}
+
+/* Applications */
+.desk {
+  background: var(--beton);
+  background-image:
+    repeating-linear-gradient(90deg, rgba(20,18,16,0.08) 0, rgba(20,18,16,0.08) 1px, transparent 1px, transparent 46px);
+  padding: 2rem 1.4rem 2.2rem;
+  border: 1px solid var(--rule-strong);
+  display: grid;
+  place-items: center;
+  margin-bottom: 0.7rem;
+}
+.app-cap {
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--formwork);
+  margin: 0 0 1.4rem;
+}
+
+.card {
+  width: calc(var(--capsule-w) * 5);
+  height: calc(var(--capsule-h) * 5);
+  max-width: 100%;
+  background: var(--washi);
+  border: 1px solid var(--sumi);
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 8px 10px 0 rgba(20,18,16,0.12);
+  position: relative;
+}
+.card::after {
+  content: "";
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 7px;
+  background: var(--kenitex);
+}
+.card .who { font-family: var(--sans); font-weight: 500; letter-spacing: 0.16em; font-size: var(--t-lg); }
+.card .role { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--formwork); }
+.card .foot { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.06em; display: flex; justify-content: space-between; }
+
+.letter {
+  width: min(520px, 100%);
+  height: 680px;
+  background: var(--bone);
+  border: 1px solid var(--sumi);
+  padding: 1.6rem 1.7rem 1.4rem;
+  box-shadow: 10px 12px 0 rgba(20,18,16,0.1);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.letter::before, .letter::after {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 10px;
+  background: var(--sumi);
+}
+.letter::before { left: 0; }
+.letter::after { right: 0; background: linear-gradient(var(--sumi) 0 62%, var(--kenitex) 62% 64%, var(--sumi) 64% 100%); }
+.letter .lh { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem; }
+.letter .bodytxt { font-size: 0.78rem; line-height: 1.7; flex: 1; }
+.letter .lf {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--formwork);
+  border-top: 1px solid var(--rule);
+  padding-top: 0.5rem;
+}
+
+.invoice {
+  width: min(560px, 100%);
+  background: var(--bone);
+  border: 1px solid var(--sumi);
+  padding: 1.3rem 1.4rem 1.1rem;
+  box-shadow: 10px 12px 0 rgba(20,18,16,0.1);
+}
+.invoice table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 0.68rem; }
+.invoice th { text-align: left; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--formwork); border-bottom: 1px solid var(--sumi); padding: 0.35rem 0.3rem; }
+.invoice td { padding: 0.4rem 0.3rem; border-bottom: 1px solid var(--rule); }
+.invoice .tot { display: flex; justify-content: space-between; margin-top: 0.8rem; font-family: var(--mono); font-size: 0.72rem; }
+
+.sig {
+  width: min(420px, 100%);
+  background: var(--bone);
+  border-top: 3px solid var(--kenitex);
+  padding: 0.8rem 0 0;
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 0.7rem;
+}
+.sig strong { font-weight: 500; letter-spacing: 0.08em; }
+.sig small { display: block; font-family: var(--mono); font-size: 0.62rem; color: var(--formwork); letter-spacing: 0.04em; }
+
+.landing {
+  width: min(720px, 100%);
+  background: var(--sumi);
+  color: var(--washi);
+  min-height: 380px;
+  padding: 1.6rem 1.8rem;
+  position: relative;
+  overflow: hidden;
+}
+.landing h3 {
+  font-family: var(--display);
+  font-size: var(--t-3xl);
+  color: var(--washi);
+  margin: 1.4rem 0 0.6rem;
+  max-width: 16ch;
+}
+.landing p { color: var(--steel); max-width: 36ch; }
+.landing .strip {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-top: 1px solid rgba(232,226,214,0.2);
+}
+.landing .strip div { padding: 0.55rem 0.7rem; border-right: 1px solid rgba(232,226,214,0.15); }
+.landing .strip b { display: block; color: var(--kenitex); font-weight: 500; margin-bottom: 0.15rem; }
+
+.panel {
+  width: min(640px, 100%);
+  height: 420px;
+  background: var(--beton);
+  border: 1px solid var(--sumi);
+  padding: 1.4rem 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+.panel .huge {
+  font-family: var(--display);
+  font-size: var(--t-6xl);
+  line-height: 0.92;
+  letter-spacing: 0.04em;
+  margin: 1.2rem 0 0;
+}
+.panel .rule { position: absolute; left: 0; right: 0; bottom: 28%; height: 3px; background: var(--kenitex); }
+
+.preso {
+  width: min(calc(var(--capsule-w) * 10), 100%);
+  aspect-ratio: 16 / 9;
+  background: var(--sumi);
+  color: var(--washi);
+  padding: 1.4rem 1.5rem;
+  display: grid;
+  grid-template-columns: 4fr 2.5fr;
+  gap: var(--u);
+  position: relative;
+}
+.preso::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  top: 58%;
+  height: 2px;
+  background: var(--kenitex);
+}
+.preso h3 { color: var(--washi); font-size: var(--t-2xl); margin: 0 0 0.6rem; max-width: 14ch; position: relative; z-index: 1; }
+.preso .rate {
+  position: relative;
+  z-index: 1;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--kenitex);
+  align-self: end;
+}
+
+.object {
+  width: 220px;
+  height: 140px;
+  background: linear-gradient(180deg, #9aa0a2 0%, #6f7577 55%, #5a6062 100%);
+  border: 2px solid #2c2a27;
+  border-radius: 2px 2px 6px 6px;
+  position: relative;
+  box-shadow: 12px 16px 0 rgba(20,18,16,0.18);
+}
+.object .win {
+  position: absolute;
+  left: 18px; top: 28px;
+  width: 58px; height: 58px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 32%, #e8e2d6 0%, #8e877a 40%, #1a1816 70%);
+  box-shadow: inset 0 0 0 4px #4a4742, 0 0 0 3px #2c2a27;
+}
+.object .ring {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 14px;
+  background: var(--kenitex);
+}
+.object .engrave {
+  position: absolute;
+  right: 28px; bottom: 18px;
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  color: #2c2a27;
+}
+
+/* Do / do not */
+.donot { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border: 1px solid var(--rule-strong); }
+.donot section { padding: 1.3rem 1.3rem 1.5rem; }
+.donot section:first-child { border-right: 1px solid var(--rule-strong); background: var(--bone); }
+.donot h3 { margin-top: 0; }
+.donot li { margin: 0.45rem 0; font-size: 0.92rem; }
+
+/* Diagrams */
+.diagram {
+  background: var(--bone);
+  border: 1px solid var(--rule-strong);
+  padding: 1rem;
+  min-height: 16rem;
+}
+.diagram svg { width: 100%; height: auto; display: block; }
+
+.scale {
+  display: flex;
+  align-items: baseline;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--rule);
+  padding-top: 1rem;
+}
+
+/* Growth modules */
+.modules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: end;
+}
+.mod {
+  background: var(--sumi);
+  color: var(--washi);
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--sumi);
+}
+.mod.joint { background: var(--kenitex); color: var(--bone); }
+.mod.life { background: var(--verdigris); }
+
+/* Colophon */
+.colo {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 2rem;
+  font-size: 0.86rem;
+}
+.colo h3 { margin-top: 0; }
+
+hr.joint {
+  border: 0;
+  height: 2px;
+  background: var(--kenitex);
+  margin: 2.2rem 0;
+}
+
+.lockups {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--capsule-h) * 1);
+  margin-top: 1.6rem;
+}
+.lockup {
+  background: var(--bone);
+  border: 1px solid var(--rule);
+  padding: var(--capsule-h);
+  position: relative;
+  min-height: calc(var(--capsule-h) * 6);
+}
+.lockup .yard {
+  outline: 1px dashed var(--formwork);
+  outline-offset: 0;
+  padding: var(--capsule-h);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 0.75);
+  min-height: calc(var(--capsule-h) * 4);
+}
+.lockup.stack .yard { flex-direction: column; align-items: flex-start; }
+.lockup .cap {
+  position: absolute;
+  top: 0.5rem; left: 0.6rem;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--formwork);
+}
+.lockup .wm {
+  font-family: var(--sans);
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  font-size: var(--t-lg);
+}
+.lockup .jp-v {
+  writing-mode: vertical-rl;
+  font-family: var(--display);
+  font-size: var(--t-xl);
+  letter-spacing: 0.18em;
+}
+.minima {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--capsule-w);
+  margin-top: 1.6rem;
+  align-items: end;
+}
+.min-box {
+  border: 1px solid var(--rule-strong);
+  background: var(--bone);
+  padding: 0.8rem 1rem 1rem;
+}
+.min-box .lab {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--formwork);
+  margin-bottom: 0.5rem;
+}
+.min-print svg { height: 24mm; width: auto; display: block; }
+.min-screen svg { height: 48px; width: auto; display: block; }
+.min-box .rule {
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  color: var(--kenitex);
+  margin-top: 0.45rem;
+}
+
+.awazu {
+  position: relative;
+  min-height: 34rem;
+  background: var(--washi);
+  overflow: hidden;
+  border: 1px solid var(--sumi);
+  margin: 2.4rem 0 0;
+}
+.awazu .stamp {
+  position: absolute;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sumi);
+}
+.awazu .over-jp {
+  position: absolute;
+  left: -0.4rem;
+  top: 1.2rem;
+  font-family: var(--display);
+  font-size: var(--t-6xl);
+  line-height: 0.88;
+  color: var(--kenitex);
+  mix-blend-mode: multiply;
+  letter-spacing: -0.04em;
+  pointer-events: none;
+}
+.awazu .over-en {
+  position: absolute;
+  right: -1.2rem;
+  top: 38%;
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: var(--t-4xl);
+  letter-spacing: 0.18em;
+  color: var(--sumi);
+  mix-blend-mode: multiply;
+  transform: rotate(-8deg);
+  opacity: 0.88;
+}
+.awazu .block {
+  position: absolute;
+  background: var(--sumi);
+  mix-blend-mode: multiply;
+}
+.awazu .frag {
+  position: absolute;
+  border: 1.2px solid var(--sumi);
+  background: var(--beton);
+}
+.awazu .torn {
+  position: absolute;
+  background: var(--kenitex);
+  mix-blend-mode: multiply;
+}
+.awazu .caption {
+  position: absolute;
+  left: 1rem;
+  bottom: 0.9rem;
+  right: 1rem;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--umber);
+  z-index: 2;
+}
+
+.card.back {
+  background: var(--sumi);
+  color: var(--washi);
+}
+.card.back::after { background: var(--kenitex); }
+.card.back .role, .card.back .foot { color: var(--steel); }
+.card.back dl {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.08em;
+  display: grid;
+  grid-template-columns: var(--capsule-h) 1fr;
+  gap: 0.2rem 0.5rem;
+}
+.card.back dt { color: var(--formwork); }
+.card.back dd { margin: 0; }
+.card-pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--u);
+  justify-content: center;
+}
+
+.ortho {
+  width: min(100%, calc(var(--capsule-w) * 14));
+  background: var(--bone);
+  border: 1px solid var(--sumi);
+  padding: 1rem;
+}
+.ortho svg { width: 100%; height: auto; display: block; }
+
+.unit.remnant { background: var(--sumi); color: var(--washi); }
+.unit.remnant .id, .unit.remnant dt { color: var(--steel); }
+.unit.remnant h3 { color: var(--washi); }
+
+@media (max-width: 1279px) {
+  .core { width: 3.1rem; padding: 0.7rem 0.28rem; }
+  .core nav { display: none; }
+  .core-toggle { display: block; }
+  .core.nav-open { width: 7.2rem; z-index: 50; }
+  .core.nav-open nav { display: flex; }
+  .wrap { margin-left: 3.1rem; }
+  .cover-stage {
+    grid-template-columns: 2.6rem 1fr;
+    grid-template-rows: auto auto;
+  }
+  .cover-jp { height: 14vh; font-size: var(--t-md); opacity: 0.3; }
+  .cover-meta {
+    display: flex;
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: 1px solid var(--rule-strong);
+    padding: 1rem 0 0.4rem;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .cover-meta h1 { font-size: var(--t-2xl); }
+  .cover-bot { flex-wrap: wrap; gap: 0.4rem; }
+  .grid-2, .grid-3, .toc, .mark-stage, .roster, .works, .swatches, .misuse, .donot, .colo, .tray {
+    grid-template-columns: 1fr;
+  }
+  .chapter { padding: 3rem 1.3rem 3.4rem; }
+  .chapter-head { grid-template-columns: 1fr; }
+  .chapter-jp { writing-mode: horizontal-tb; height: auto; }
+  .lockups { grid-template-columns: 1fr 1fr; }
+}
+
+@media print {
+  @page { size: A4; margin: 14mm 12mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .core, .keys, .core-toggle { display: none !important; }
+  .wrap { margin: 0; }
+  .cover { min-height: auto; page-break-after: always; background: var(--beton) !important; }
+  .chapter { page-break-before: always; padding: 0 0 18mm; border: 0; background: var(--washi) !important; }
+  .chapter.alt { background: var(--bone) !important; }
+  .chapter.beton { background: var(--beton) !important; }
+  .chapter.dark {
+    color: var(--washi) !important;
+    background: var(--sumi) !important;
+  }
+  .chapter.dark .kicker,
+  .chapter.dark .lede,
+  .chapter.dark .note { color: var(--steel) !important; }
+  .chapter.dark h2,
+  .chapter.dark h3 { color: var(--washi) !important; }
+  a { text-decoration: none; }
+  .plate { min-height: 140mm; }
+}
+
+.help {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(20,18,16,0.72);
+  z-index: 80;
+  place-items: center;
+}
+.help.open { display: grid; }
+.help article {
+  width: min(420px, 90vw);
+  background: var(--washi);
+  border: 1px solid var(--sumi);
+  padding: 1.4rem 1.5rem;
+}
+.help h3 { margin-top: 0; }
+.help kbd {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  border: 1px solid var(--rule-strong);
+  padding: 0.05rem 0.35rem;
+  background: var(--bone);
+}
+</style>
+</head>
+<body>
+<a class="sr" href="#ch-01">Skip to contents</a>
+
+<aside class="core" aria-label="Book core">
+  <div>
+    <div class="core-mark" aria-hidden="true">
+      <img src="mark-core.svg" alt="" style="width:100%;height:auto;display:block">
+    </div>
+    <div class="core-jp">新陳代謝</div>
+    <button class="core-toggle" type="button" id="core-toggle" aria-expanded="false" aria-controls="core-nav">Plates</button>
+  </div>
+  <nav id="core-nav">
+    <a href="#ch-00" data-ch="00">00</a>
+    <a href="#ch-01" data-ch="01">01</a>
+    <a href="#ch-02" data-ch="02">02</a>
+    <a href="#ch-03" data-ch="03">03</a>
+    <a href="#ch-04" data-ch="04">04</a>
+    <a href="#ch-05" data-ch="05">05</a>
+    <a href="#ch-06" data-ch="06">06</a>
+    <a href="#ch-07" data-ch="07">07</a>
+    <a href="#ch-08" data-ch="08">08</a>
+    <a href="#ch-09" data-ch="09">09</a>
+    <a href="#ch-10" data-ch="10">10</a>
+    <a href="#ch-11" data-ch="11">11</a>
+    <a href="#ch-12" data-ch="12">12</a>
+    <a href="#ch-13" data-ch="13">13</a>
+    <a href="#ch-14" data-ch="14">14</a>
+    <a href="#ch-15" data-ch="15">15</a>
+  </nav>
+  <div class="core-foot">JNX<br>1960–</div>
+</aside>
+
+<div class="keys" id="keys">← →  chapters &nbsp; ?  keys</div>
+
+<main class="wrap">
+
+<!-- 00 COVER -->
+<section class="cover" id="ch-00" data-title="Cover">
+  <header class="cover-top">
+    <div>
+      <span>Plate 00</span>
+      <span>Desk / Identity</span>
+    </div>
+    <div style="text-align:right">
+      <span>Edition plate</span>
+      <span>Edition 01 — Unbound</span>
+    </div>
+  </header>
+  <div class="cover-stage">
+    <div class="cover-jp" aria-hidden="true">新陳代謝</div>
+    <div class="plate" aria-label="Construction plate of the JAWNIX mark">
+      <div class="plate-label">Constr. / Core + Capsule / 1 : 40</div>
+      <div class="plate-dim s">CAPSULE 2.5 × 4.0 — FOUR BOLTS</div>
+      <div class="plate-dim e">UNFINISHED FLANGE</div>
+      <div class="joint-line" aria-hidden="true"></div>
+      <div class="dockyard">
+        <svg viewBox="0 0 320 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <line x1="40" y1="36" x2="40" y2="364" stroke="#8E877A" stroke-width="0.4" stroke-dasharray="2 3"/>
+          <line x1="280" y1="36" x2="280" y2="364" stroke="#8E877A" stroke-width="0.4" stroke-dasharray="2 3"/>
+          <line x1="24" y1="232" x2="296" y2="232" stroke="#C24A22" stroke-width="1.1"/>
+          <!-- core -->
+          <rect x="140" y="196" width="20" height="42" fill="#C4BBAE" stroke="#141210" stroke-width="1.1"/>
+          <line x1="146" y1="204" x2="146" y2="230" stroke="#8B9294" stroke-width="1"/>
+          <line x1="154" y1="204" x2="154" y2="230" stroke="#8B9294" stroke-width="1"/>
+          <rect x="140" y="196" width="20" height="8" fill="#C24A22"/>
+          <path d="M136 196h28M136 192h28" stroke="#141210" stroke-width="0.7"/>
+          <text x="172" y="162" fill="#8E877A" font-family="IBM Plex Mono" font-size="7">DESK TAG · CORE 1.0</text>
+          <rect x="140" y="110" width="5" height="8" fill="#141210"/>
+          <rect x="140" y="150" width="5" height="8" fill="#141210"/>
+          <rect x="140" y="190" width="5" height="8" fill="#141210"/>
+          <g class="cap-a">
+            <rect x="160" y="210" width="80" height="50" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/>
+            <rect x="160" y="210" width="5" height="50" fill="#C24A22"/>
+            <circle cx="184" cy="235" r="12" stroke="#141210" stroke-width="2" fill="#8E877A"/>
+            <circle cx="184" cy="235" r="6" fill="#141210"/>
+            <g class="bolts">
+              <circle cx="163" cy="216" r="2.2" fill="#C24A22" stroke="#141210" stroke-width="0.6"/>
+              <circle cx="163" cy="254" r="2.2" fill="#C24A22" stroke="#141210" stroke-width="0.6"/>
+              <circle cx="171" cy="216" r="2.2" fill="#C24A22" stroke="#141210" stroke-width="0.6"/>
+              <circle cx="171" cy="254" r="2.2" fill="#C24A22" stroke="#141210" stroke-width="0.6"/>
+            </g>
+            <text x="202" y="232" fill="#141210" font-family="IBM Plex Mono" font-size="7">UNIT NX</text>
+            <text x="202" y="244" fill="#8E877A" font-family="IBM Plex Mono" font-size="6">TTL 18h</text>
+          </g>
+          <g class="cap-b" opacity="0.55">
+            <rect x="160" y="148" width="80" height="50" fill="none" stroke="#8E877A" stroke-width="0.8" stroke-dasharray="3 2"/>
+            <circle cx="184" cy="173" r="10" stroke="#8E877A" stroke-width="1"/>
+            <text x="200" y="176" fill="#8E877A" font-family="IBM Plex Mono" font-size="6">NEXT 2.5×4</text>
+          </g>
+          <line x1="160" y1="268" x2="240" y2="268" stroke="#8E877A" stroke-width="0.5"/>
+          <text x="184" y="278" fill="#8E877A" font-family="IBM Plex Mono" font-size="6">4.0</text>
+          <line x1="248" y1="210" x2="248" y2="260" stroke="#8E877A" stroke-width="0.5"/>
+          <text x="252" y="238" fill="#8E877A" font-family="IBM Plex Mono" font-size="6">2.5</text>
+        </svg>
+      </div>
+    </div>
+    <aside class="cover-meta">
+      <div>
+        <p class="kicker" style="color:#8E877A">Brand book / Metabolism</p>
+        <h1 class="sr">JAWNIX</h1>
+        <img src="logo.svg" alt="JAWNIX" style="width:min(320px,100%);height:auto;margin:0.4rem 0 0.6rem">
+        <p class="tag">The frame remains.<br>The inventory turns.</p>
+        <p>Digital lead vending. Media in. Ping without PII. Bid. Post to the winner’s CRM. The 1960 frame is how the desk is drawn — not what we sell.</p>
+      </div>
+      <dl>
+        <dt>Category</dt>
+        <dd>Digital lead vending</dd>
+        <dt>Unit</dt>
+        <dd>Lead — form, call, transfer</dd>
+        <dt>Pipe</dt>
+        <dd>Ping / bid / post</dd>
+        <dt>Sale</dt>
+        <dd>Exclusive or shared</dd>
+      </dl>
+    </aside>
+  </div>
+  <footer class="cover-bot">
+    <span>Media → ping → bid → post → CRM · returns for bad data</span>
+    <span>Insurance · Home · Legal · Education · Finance</span>
+    <span><a href="#ch-01">01 Contents</a> · plates via core or keys</span>
+  </footer>
+</section>
+
+<!-- 01 CONTENTS -->
+<section class="chapter" id="ch-01" data-title="Contents">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 01</div>
+    <h2>Contents</h2>
+    <div class="chapter-jp">目次</div>
+  </header>
+  <div class="toc">
+    <ol class="toc-list">
+      <li><a href="#ch-00"><span class="toc-n">00</span><span class="toc-en">Cover plate</span><span class="toc-jp">表紙</span></a></li>
+      <li><a href="#ch-01"><span class="toc-n">01</span><span class="toc-en">Contents</span><span class="toc-jp">目次</span></a></li>
+      <li><a href="#ch-02"><span class="toc-n">02</span><span class="toc-en">The School</span><span class="toc-jp">学派</span></a></li>
+      <li><a href="#ch-03"><span class="toc-n">03</span><span class="toc-en">Manifesto / Positioning</span><span class="toc-jp">宣言</span></a></li>
+      <li><a href="#ch-04"><span class="toc-n">04</span><span class="toc-en">Rates of Change</span><span class="toc-jp">代謝周期</span></a></li>
+      <li><a href="#ch-05"><span class="toc-n">05</span><span class="toc-en">Voice</span><span class="toc-jp">語法</span></a></li>
+      <li><a href="#ch-06"><span class="toc-n">06</span><span class="toc-en">The Mark</span><span class="toc-jp">記号</span></a></li>
+      <li><a href="#ch-07"><span class="toc-n">07</span><span class="toc-en">Color</span><span class="toc-jp">色彩</span></a></li>
+      <li><a href="#ch-08"><span class="toc-n">08</span><span class="toc-en">Type</span><span class="toc-jp">活字</span></a></li>
+      <li><a href="#ch-09"><span class="toc-n">09</span><span class="toc-en">Grid &amp; Growth</span><span class="toc-jp">群造形</span></a></li>
+      <li><a href="#ch-10"><span class="toc-n">10</span><span class="toc-en">The Capsule</span><span class="toc-jp">カプセル</span></a></li>
+      <li><a href="#ch-11"><span class="toc-n">11</span><span class="toc-en">The Joint</span><span class="toc-jp">接合</span></a></li>
+      <li><a href="#ch-12"><span class="toc-n">12</span><span class="toc-en">Diagram Language</span><span class="toc-jp">図法</span></a></li>
+      <li><a href="#ch-13"><span class="toc-n">13</span><span class="toc-en">Applications</span><span class="toc-jp">展開</span></a></li>
+      <li><a href="#ch-14"><span class="toc-n">14</span><span class="toc-en">Do / Do Not</span><span class="toc-jp">可否</span></a></li>
+      <li><a href="#ch-15"><span class="toc-n">15</span><span class="toc-en">Colophon</span><span class="toc-jp">奥付</span></a></li>
+    </ol>
+    <aside class="toc-side">
+      <p class="kicker">Metabolism 1960</p>
+      <h3>The four essays</h3>
+      <ol>
+        <li>Ocean City — Kikutake</li>
+        <li>Space City — Kurokawa</li>
+        <li>Towards Group Form — Maki &amp; Otaka</li>
+        <li>Material and Man — Kawazoe</li>
+      </ol>
+      <p class="note" style="margin-top:1rem">Two thousand copies. Ninety pages. Sold at the door of the World Design Conference for ¥500. This book is the desk’s copy of that pamphlet: same doctrine, different inventory.</p>
+    </aside>
+  </div>
+</section>
+
+<!-- 02 THE SCHOOL -->
+<section class="chapter alt" id="ch-02" data-title="The School">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 02</div>
+    <h2>The School</h2>
+    <div class="chapter-jp">学派</div>
+  </header>
+  <p class="kicker">World Design Conference, Tokyo · 11–16 May 1960 · mapped to a ping tree</p>
+  <p class="lede"><span class="wm-live">JAWNIX</span> buys attention, takes a form or a call, and sells that lead. Ping: ZIP and vertical, no PII. Bid: 1800ms. Post: the full record to the winner’s webhook. Exclusive is one buyer. Shared is two to five. Returns are bad data, not a missed close. The 1960 school is the drawing method for that desk.</p>
+  <p>Category peers already run this machine: QuinStreet, EverQuote, Modernize, QuoteWizard, NextGen. We use their nouns. Architecture is one plate of analogy, not the product.</p>
+
+  <blockquote class="man">
+    Metabolism is the name of the group, in which each member proposes further designs of our coming world through his concrete designs and illustrations. We regard human society as a vital process — a continuous development from atom to nebula. The reason why we use such a biological word, metabolism, is that we believe design and technology should be a denotation of human society. We are not going to accept metabolism as a natural process, but try to encourage active metabolic development of our society through our proposals.
+    <cite>Metabolism 1960: The Proposals for New Urbanism — opening statement</cite>
+  </blockquote>
+
+  <div class="tray">
+    <div>
+      <h3>Why the word</h3>
+      <p>Noboru Kawazoe used <em>shinchintaisha</em> (新陳代謝) while talking through Kiyonori Kikutake’s Marine City: the exchange of materials and energy between an organism and the world outside it. In Japanese the word carries replacement — the old yielding to the new — without nostalgia for the old’s appearance. Kikutake looked the word up. The English was <em>metabolism</em>.</p>
+      <p>They had first considered calling themselves the Burnt Ash School, after the firebombed cities. They refused visual historicism. They kept a Buddhist idea of regeneration and a Japanese practice of rebuilding: the Ise Shrine, dismantled and remade on adjacent ground every twenty years. The sacred rocks remain. The timber turns. That is the doctrine. Not a pagoda motif. Not a rising-sun mark. A rate of change.</p>
+      <p>Kenzo Tange was mentor, not member. At CIAM ’59 in Otterlo he showed Kikutake’s Tower-shaped City and Sky House. At MIT he set a Boston Harbor studio that became the rehearsal for the Tokyo Bay plan: a linear city of looping highways and A-frame housing, artificial land thrown across water because the ground of the old city could not metabolize fast enough. In 1961 he put the plan on NHK. It was never built. It remains the clearest drawing of a city that refuses a finished state.</p>
+      <p>Fumihiko Maki, writing <em>Investigations in Collective Form</em> (1964), named three ways buildings have reason to be together: compositional form, megastructure, and group form. He coined <em>megastructure</em> in that text — “a large frame in which all the functions of a city or part of a city are housed” — and then warned against it. If the mega-form goes obsolete, it is a weight around the neck of urban society. Group form grows by linkage. The parts know why they cluster. JAWNIX keeps both: a desk that is a frame, a market that is a group form. We do not compose leads on a poster grid and call it a system.</p>
+    </div>
+    <div>
+      <h3>Why it is timeless</h3>
+      <p>Orthodox modernism used a mechanical analogy: the building as machine, finished at handover. Metabolism replaced it with an energy process found in all life — cycles of change, the renewal and destruction of tissue. Kurokawa later moved the same thought toward <em>symbiosis</em>: opposites held in an intermediate space, the <em>en</em> of the engawa, without forcing a compromise that erases either side.</p>
+      <p>The thought does not date because perishable units and permanent duties do not date. A shrine rebuilds. A capsule rusts. A lead expires. The question is always the same: what must last, what must be replaced, and whether the joint was designed so replacement can actually happen.</p>
+      <h3>Why this desk</h3>
+      <p>JAWNIX manufactures qualified demand and vends it as graded inventory. A lead is a short-life cell on a ping tree: ZIP and vertical go out with no PII; buyers bid in 1800ms; the winner gets the record by webhook. Exclusive is one dock. Shared is two to five. The desk — compliance, data, reputation — is the long-life core. Operators in insurance, home services, legal, education, and finance take those cells into their own frames. The metaphor is almost too exact. That is why it must be treated with the seriousness of a 1960 plate, not a mascot.</p>
+    </div>
+  </div>
+
+  <h3>The roster</h3>
+  <div class="roster">
+    <article>
+      <p class="role">Mentor</p>
+      <h3>Kenzo Tange</h3>
+      <p>Tokyo Bay Plan, 1960. Yamanashi Press and Broadcasting Center, 1966 — sixteen cylindrical cores, trays slotted between. Osaka Expo ’70 master plan. Joint-core as urban method.</p>
+    </article>
+    <article>
+      <p class="role">Capsule</p>
+      <h3>Kisho Kurokawa</h3>
+      <p>Space City. Helix City, 1961 — DNA as space frame for data. Floating City Kasumigaura. Nakagin Capsule Tower, 1972. Capsule Declaration, 1969. Later: symbiosis.</p>
+    </article>
+    <article>
+      <p class="role">Marine / Sky</p>
+      <h3>Kiyonori Kikutake</h3>
+      <p>Sky House, 1958 — four pylons, movenettes, a room later hung beneath. Marine City. Tower-shaped City. Expo Tower, 1970. Aquapolis, 1975. <em>Ka / kata / katachi</em>.</p>
+    </article>
+    <article>
+      <p class="role">Group form</p>
+      <h3>Fumihiko Maki</h3>
+      <p>Towards Group Form, with Otaka. <em>Investigations in Collective Form</em>. Hillside Terrace, 1967–1992 — growth by phase, not by one heroic frame.</p>
+    </article>
+    <article>
+      <p class="role">Artificial land</p>
+      <h3>Masato Otaka</h3>
+      <p>Shinjuku redevelopment on a slab over the station. Heavy, sculptural clusters. The ground you build when the ground is gone.</p>
+    </article>
+    <article>
+      <p class="role">Text</p>
+      <h3>Noboru Kawazoe</h3>
+      <p>Critic, former editor of <em>Shinkenchiku</em>. Named the group. “Material and Man.” Ise with Tange, 1953. The word before the buildings.</p>
+    </article>
+    <article>
+      <p class="role">Object</p>
+      <h3>Kenji Ekuan</h3>
+      <p>Industrial designer. Expo furniture and transport. The capsule as a manufactured thing, not only a drawing.</p>
+    </article>
+    <article>
+      <p class="role">Plate</p>
+      <h3>Kiyoshi Awazu</h3>
+      <p>Designed the 1960 booklet. Plate 02.1 below is this book’s attempt at that risk — overprint, collision, vernacular stamp, unfinished collage — not a citation in a roster.</p>
+    </article>
+  </div>
+
+  <p class="kicker" style="margin-top:2.4rem">Plate 02.1 — After Awazu / WoDeCo door, ¥500</p>
+  <div class="awazu" role="img" aria-label="Overprinted 1960-style plate: colliding Japanese and Latin, unfinished collage, Joint overprint">
+    <div class="over-jp">新陳<br>代謝</div>
+    <div class="over-en">METABOLISM</div>
+    <div class="block" style="left:58%;top:8%;width:22%;height:18%"></div>
+    <div class="block" style="left:6%;bottom:18%;width:14%;height:10%"></div>
+    <div class="torn" style="right:8%;bottom:22%;width:28%;height:3%"></div>
+    <div class="torn" style="left:42%;top:0;width:2%;height:46%"></div>
+    <div class="frag" style="left:36%;top:28%;width:calc(4 * 1.6rem);height:calc(2.5 * 1.6rem)">
+      <svg viewBox="0 0 80 50" width="100%" height="100%"><rect x="2" y="8" width="10" height="36" fill="#C4BBAE" stroke="#141210" stroke-width="1.2"/><rect x="12" y="18" width="40" height="20" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/><circle cx="24" cy="28" r="6" stroke="#141210" stroke-width="1.2"/><circle cx="13" cy="20" r="1.6" fill="#C24A22"/><circle cx="13" cy="36" r="1.6" fill="#C24A22"/></svg>
+    </div>
+    <div class="frag" style="right:18%;top:14%;width:5.2rem;height:8rem;transform:rotate(11deg);background:#E8E2D6">
+      <svg viewBox="0 0 40 80" width="100%" height="100%"><rect x="14" y="4" width="10" height="70" fill="#C4BBAE" stroke="#141210" stroke-width="1.2"/><rect x="14" y="4" width="10" height="4" fill="#C24A22"/><path d="M10 4h18" stroke="#141210" stroke-width="0.7"/></svg>
+    </div>
+    <div class="stamp" style="left:1rem;top:0.8rem">WoDeCo Tokyo 11–16 May 1960</div>
+    <div class="stamp" style="right:1rem;top:1.1rem;transform:rotate(6deg)">Bijutsu Shuppan-sha · ¥500 · 2000 copies</div>
+    <div class="stamp" style="left:38%;bottom:28%;transform:rotate(-4deg);border:1px solid #141210;padding:0.2rem 0.4rem;background:#E8E2D6;mix-blend-mode:multiply">ATOM → NEBULA · NOT A POSTER</div>
+    <div class="stamp" style="right:12%;bottom:36%;letter-spacing:0.28em">UNFINISHED / FLANGE OPEN</div>
+    <p class="caption">02.1 Overprint. Collision. Vernacular stamp. The 1960 booklet was sold at the door; this plate is the risk, not the citation.</p>
+  </div>
+
+  <h3>Works held as law</h3>
+  <div class="works">
+    <article class="work">
+      <div class="draw">
+        <svg viewBox="0 0 320 200" fill="none" aria-hidden="true">
+          <text x="8" y="14" fill="#8E877A" font-family="IBM Plex Mono" font-size="7">PLATE · NAKAGIN · TWO SHAFTS · 4 BOLTS</text>
+          <line x1="16" y1="188" x2="304" y2="188" stroke="#8E877A" stroke-width="0.5"/>
+          <rect x="88" y="22" width="22" height="166" fill="#C4BBAE" stroke="#141210" stroke-width="1.4"/>
+          <rect x="168" y="46" width="22" height="142" fill="#C4BBAE" stroke="#141210" stroke-width="1.4"/>
+          <line x1="95" y1="30" x2="95" y2="180" stroke="#8B9294" stroke-width="0.7"/>
+          <line x1="103" y1="30" x2="103" y2="180" stroke="#8B9294" stroke-width="0.7"/>
+          <line x1="175" y1="54" x2="175" y2="180" stroke="#8B9294" stroke-width="0.7"/>
+          <line x1="183" y1="54" x2="183" y2="180" stroke="#8B9294" stroke-width="0.7"/>
+          <rect x="88" y="22" width="22" height="5" fill="#C24A22"/>
+          <rect x="168" y="46" width="22" height="5" fill="#C24A22"/>
+          <g>
+            <rect x="110" y="48" width="48" height="22" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/>
+            <rect x="110" y="48" width="3" height="22" fill="#C24A22"/>
+            <circle cx="122" cy="59" r="5" stroke="#141210" stroke-width="1.2"/>
+            <circle cx="112" cy="51" r="1.4" fill="#C24A22"/><circle cx="116" cy="51" r="1.4" fill="#C24A22"/>
+            <circle cx="112" cy="67" r="1.4" fill="#C24A22"/><circle cx="116" cy="67" r="1.4" fill="#C24A22"/>
+          </g>
+          <g>
+            <rect x="110" y="78" width="48" height="22" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/>
+            <rect x="110" y="78" width="3" height="22" fill="#C24A22"/>
+            <circle cx="122" cy="89" r="5" stroke="#141210" stroke-width="1.2"/>
+            <circle cx="112" cy="81" r="1.4" fill="#C24A22"/><circle cx="116" cy="81" r="1.4" fill="#C24A22"/>
+            <circle cx="112" cy="97" r="1.4" fill="#C24A22"/><circle cx="116" cy="97" r="1.4" fill="#C24A22"/>
+          </g>
+          <g>
+            <rect x="110" y="118" width="48" height="22" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/>
+            <rect x="110" y="118" width="3" height="22" fill="#C24A22"/>
+            <circle cx="122" cy="129" r="5" stroke="#141210" stroke-width="1.2"/>
+          </g>
+          <g>
+            <rect x="190" y="70" width="48" height="22" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/>
+            <rect x="190" y="70" width="3" height="22" fill="#C24A22"/>
+            <circle cx="202" cy="81" r="5" stroke="#141210" stroke-width="1.2"/>
+            <circle cx="192" cy="73" r="1.4" fill="#C24A22"/><circle cx="196" cy="73" r="1.4" fill="#C24A22"/>
+            <circle cx="192" cy="89" r="1.4" fill="#C24A22"/><circle cx="196" cy="89" r="1.4" fill="#C24A22"/>
+          </g>
+          <g>
+            <rect x="190" y="108" width="48" height="22" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/>
+            <rect x="190" y="108" width="3" height="22" fill="#C24A22"/>
+            <circle cx="202" cy="119" r="5" stroke="#141210" stroke-width="1.2"/>
+          </g>
+          <text x="48" y="198" fill="#8E877A" font-family="IBM Plex Mono" font-size="7">A 13 · B 11 · GAP ≥ 1 MODULE</text>
+        </svg>
+      </div>
+      <h4>Nakagin Capsule Tower</h4>
+      <p>Kurokawa, Ginza, 1972. Two cores, 140 units, 2.5 × 4.0 m, four high-tension bolts, 1.3 m porthole. Shafts imagined at sixty years; capsules at twenty-five to thirty-five. None were ever swapped. Demolished 2022. The idea outlived the object.</p>
+    </article>
+    <article class="work">
+      <div class="draw">
+        <svg viewBox="0 0 320 200" fill="none" aria-hidden="true">
+          <text x="8" y="14" fill="#8E877A" font-family="IBM Plex Mono" font-size="7">PLATE · SKY HOUSE · FOUR PANELS · HUNG ROOM</text>
+          <line x1="20" y1="186" x2="300" y2="186" stroke="#8E877A" stroke-width="0.5"/>
+          <path d="M96 48 Q160 22 224 48" stroke="#141210" stroke-width="1.4" fill="none"/>
+          <rect x="96" y="48" width="128" height="72" fill="#C4BBAE" stroke="#141210" stroke-width="1.4"/>
+          <rect x="108" y="60" width="28" height="20" fill="#E8E2D6" stroke="#8B9294" stroke-width="0.7"/>
+          <rect x="184" y="60" width="28" height="20" fill="#E8E2D6" stroke="#8B9294" stroke-width="0.7"/>
+          <text x="110" y="73" fill="#8E877A" font-family="IBM Plex Mono" font-size="6">MOVENETTE</text>
+          <rect x="96" y="120" width="10" height="66" fill="#141210"/>
+          <rect x="214" y="120" width="10" height="66" fill="#141210"/>
+          <rect x="150" y="120" width="10" height="66" fill="#141210"/>
+          <rect x="172" y="120" width="10" height="66" fill="#141210"/>
+          <rect x="128" y="148" width="44" height="28" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/>
+          <rect x="146" y="148" width="8" height="6" fill="#C24A22"/>
+          <text x="132" y="166" fill="#141210" font-family="IBM Plex Mono" font-size="6">HUNG</text>
+          <line x1="96" y1="192" x2="224" y2="192" stroke="#C24A22" stroke-width="0.5"/>
+          <text x="140" y="200" fill="#C24A22" font-family="IBM Plex Mono" font-size="6">SQUARE FLOOR</text>
+        </svg>
+      </div>
+      <h4>Sky House</h4>
+      <p>Kikutake, Bunkyo, 1958. A square living floor on four concrete panels, kitchen and bath as movenettes. A children’s room later hung below, child-sized door between. The platform stayed. The service units moved. Seven adjustments in fifty years.</p>
+    </article>
+    <article class="work">
+      <div class="draw">
+        <svg viewBox="0 0 320 200" fill="none" aria-hidden="true">
+          <text x="8" y="14" fill="#8E877A" font-family="IBM Plex Mono" font-size="7">PLATE · HELIX CITY · SPACE FRAME FOR DATA</text>
+          <path d="M70 170 C90 140 90 60 110 40 C130 20 150 20 160 40 C170 60 170 140 190 170 C210 200 230 200 240 170 C250 140 250 60 230 40" stroke="#141210" stroke-width="1.4" fill="none"/>
+          <path d="M90 170 C110 140 110 60 130 40 C150 20 170 20 180 40 C190 60 190 140 210 170 C230 200 250 190 250 160" stroke="#3F6B56" stroke-width="1.1" fill="none"/>
+          <path d="M80 100 L250 100 M100 70 L230 130 M100 130 L230 70" stroke="#8B9294" stroke-width="0.7"/>
+          <circle cx="110" cy="40" r="3" fill="#C24A22"/>
+          <circle cx="160" cy="40" r="3" fill="#C24A22"/>
+          <circle cx="190" cy="170" r="3" fill="#C24A22"/>
+          <circle cx="130" cy="100" r="2.4" fill="#141210"/>
+          <circle cx="200" cy="100" r="2.4" fill="#141210"/>
+          <circle cx="160" cy="70" r="2.4" fill="#141210"/>
+          <circle cx="160" cy="130" r="2.4" fill="#141210"/>
+          <rect x="148" y="88" width="24" height="15" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/>
+          <text x="70" y="198" fill="#8E877A" font-family="IBM Plex Mono" font-size="7">THIRD SYSTEM · V + H · NODE = JOINT</text>
+        </svg>
+      </div>
+      <h4>Helix City</h4>
+      <p>Kurokawa, 1961. Double helix as a third spatial system — not only vertical, not only horizontal. “Just as in the chromosomes (DNA), the helix acts as a space frame for data transmission.” Compact city; forest kept. Superstructure recycles substructure.</p>
+    </article>
+    <article class="work">
+      <div class="draw">
+        <svg viewBox="0 0 320 200" fill="none" aria-hidden="true">
+          <text x="8" y="14" fill="#8E877A" font-family="IBM Plex Mono" font-size="7">PLATE · FLOATING CITY · ARTIFICIAL LAND ON WATER</text>
+          <ellipse cx="160" cy="150" rx="118" ry="22" fill="#8B9294" fill-opacity="0.25" stroke="#141210" stroke-width="1.2"/>
+          <ellipse cx="160" cy="138" rx="100" ry="16" fill="#C4BBAE" stroke="#141210" stroke-width="1.4"/>
+          <circle cx="70" cy="138" r="14" stroke="#141210" stroke-width="1.2" fill="#E8E2D6"/>
+          <circle cx="250" cy="138" r="14" stroke="#141210" stroke-width="1.2" fill="#E8E2D6"/>
+          <rect x="118" y="48" width="16" height="90" fill="#C4BBAE" stroke="#141210" stroke-width="1.4"/>
+          <rect x="152" y="36" width="16" height="102" fill="#C4BBAE" stroke="#141210" stroke-width="1.4"/>
+          <rect x="186" y="56" width="16" height="82" fill="#C4BBAE" stroke="#141210" stroke-width="1.4"/>
+          <rect x="118" y="138" width="16" height="28" fill="#141210" opacity="0.35"/>
+          <rect x="152" y="138" width="16" height="36" fill="#141210" opacity="0.35"/>
+          <rect x="186" y="138" width="16" height="22" fill="#141210" opacity="0.35"/>
+          <rect x="152" y="36" width="16" height="4" fill="#C24A22"/>
+          <text x="64" y="198" fill="#8E877A" font-family="IBM Plex Mono" font-size="7">RIM INDUSTRY · CYLINDERS INTO THE SEA</text>
+        </svg>
+      </div>
+      <h4>Floating City, Kasumigaura</h4>
+      <p>Kurokawa, 1961. And Kikutake’s Marine City, 1958: a city that floats free of a nation, multiplies by cell division, and sinks itself when aged. Artificial land on water. Industry on the rim. Housing as cylinders into the sea.</p>
+    </article>
+    <article class="work">
+      <div class="draw">
+        <svg viewBox="0 0 320 200" fill="none" aria-hidden="true">
+          <text x="8" y="14" fill="#8E877A" font-family="IBM Plex Mono" font-size="7">PLATE · YAMANASHI · 16 CORES · UNFINISHED TOPS</text>
+          <g fill="#C4BBAE" stroke="#141210" stroke-width="1.2">
+            <rect x="36" y="70" width="14" height="110" rx="7"/><rect x="68" y="48" width="14" height="132" rx="7"/>
+            <rect x="100" y="86" width="14" height="94" rx="7"/><rect x="132" y="40" width="14" height="140" rx="7"/>
+            <rect x="164" y="62" width="14" height="118" rx="7"/><rect x="196" y="92" width="14" height="88" rx="7"/>
+            <rect x="228" y="54" width="14" height="126" rx="7"/><rect x="260" y="78" width="14" height="102" rx="7"/>
+          </g>
+          <g fill="#C4BBAE" stroke="#141210" stroke-width="1.2">
+            <rect x="52" y="100" width="14" height="80" rx="7"/><rect x="84" y="110" width="14" height="70" rx="7"/>
+            <rect x="116" y="96" width="14" height="84" rx="7"/><rect x="148" y="88" width="14" height="92" rx="7"/>
+            <rect x="180" y="120" width="14" height="60" rx="7"/><rect x="212" y="104" width="14" height="76" rx="7"/>
+            <rect x="244" y="112" width="14" height="68" rx="7"/><rect x="276" y="98" width="14" height="82" rx="7"/>
+          </g>
+          <rect x="50" y="86" width="78" height="18" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/>
+          <rect x="148" y="70" width="70" height="18" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/>
+          <rect x="196" y="128" width="62" height="14" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/>
+          <rect x="68" y="48" width="14" height="4" fill="#C24A22"/>
+          <rect x="132" y="40" width="14" height="4" fill="#C24A22"/>
+          <rect x="228" y="54" width="14" height="4" fill="#C24A22"/>
+          <line x1="36" y1="184" x2="290" y2="184" stroke="#8E877A" stroke-width="0.5"/>
+          <text x="36" y="198" fill="#8E877A" font-family="IBM Plex Mono" font-size="7">Ø 5 m · 17 × 15 GRID · TRAYS SLOT · TOPS OPEN</text>
+        </svg>
+      </div>
+      <h4>Yamanashi Press Center</h4>
+      <p>Tange, Kofu, 1966. Sixteen cores, five metres in diameter, on a 17 × 15 m grid. Horizontal trays of press, studio, office. Cores cut at unequal heights so growth remains visible. Expanded 1974. The unfinished top is a sentence.</p>
+    </article>
+    <article class="work">
+      <div class="draw">
+        <svg viewBox="0 0 320 200" fill="none" aria-hidden="true">
+          <text x="8" y="14" fill="#8E877A" font-family="IBM Plex Mono" font-size="7">PLATE · EXPO ’70 · SPACE FRAME · OPEN FLANGE</text>
+          <path d="M28 78 L80 40 L160 28 L240 40 L292 78 L240 70 L160 62 L80 70 Z" fill="#C4BBAE" stroke="#141210" stroke-width="1.4"/>
+          <path d="M80 40 L80 70 M160 28 L160 62 M240 40 L240 70 M80 70 L160 62 L240 70" stroke="#8B9294" stroke-width="0.7"/>
+          <rect x="48" y="78" width="224" height="10" fill="#8E877A"/>
+          <rect x="148" y="88" width="12" height="72" fill="#141210"/>
+          <circle cx="154" cy="108" r="5" stroke="#C24A22" stroke-width="1.1" fill="#E8E2D6"/>
+          <circle cx="154" cy="128" r="5" stroke="#C24A22" stroke-width="1.1" fill="#E8E2D6"/>
+          <circle cx="154" cy="148" r="5" stroke="#C24A22" stroke-width="1.1" fill="#E8E2D6"/>
+          <rect x="200" y="100" width="36" height="20" fill="#E8E2D6" stroke="#141210" stroke-width="1.2"/>
+          <path d="M236 100h10 M236 120h10" stroke="#141210" stroke-width="0.7"/>
+          <text x="202" y="113" fill="#141210" font-family="IBM Plex Mono" font-size="6">TAKARA</text>
+          <text x="28" y="198" fill="#8E877A" font-family="IBM Plex Mono" font-size="7">PLAZA ROOF · TOWER CABINS · FLANGE LEFT OPEN</text>
+        </svg>
+      </div>
+      <h4>Osaka Expo ’70</h4>
+      <p>Tange’s Festival Plaza under a space-frame roof. Kikutake’s Expo Tower: cabins on a ball-joint stem. Kurokawa’s Takara Beautillion, assembled in six days, flange ends left open. Toshiba-IHI: tetrahedra that could grow in fourteen directions. Apotheosis — and the last carnival before the oil crisis.</p>
+    </article>
+  </div>
+  <p class="note" style="margin-top:1.4rem">This book is not Archigram. Archigram was pop, mechanic, information, the comic of the gadget. Metabolism was social structure, Buddhist regeneration, and the rates at which a city may change. We do not borrow their lightning bolt. We borrow their joint.</p>
+</section>
+
+<!-- 03 MANIFESTO -->
+<section class="chapter dark" id="ch-03" data-title="Manifesto">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 03</div>
+    <h2>Manifesto / Positioning</h2>
+    <div class="chapter-jp">宣言</div>
+  </header>
+  <p class="lede" style="color:#C4BBAE"><span class="wm-live">JAWNIX</span> buys media, takes form fills, inbound calls, and live transfers, and vends those leads through a real-time tree. Ping without PII. Bid. Post to the winner’s CRM. Exclusive or shared. Returns for disconnect, wrong ZIP, missing consent. We will not accept a dead number as a natural historical process.</p>
+
+  <div class="grid-2">
+    <div>
+      <h3 style="color:#E8E2D6">The frame</h3>
+      <p>The frame is what must not turn over with the stock. Compliance. Provenance of data. The reputation that lets an operator dock a unit without inspecting the factory every morning. The methods by which a human inquiry becomes a graded good. Kurokawa gave the Nakagin shafts sixty years. We give the desk the same duty: outlast every capsule that hangs on it.</p>
+      <p>The frame is not a brand campaign. It is artificial land — Kawazoe’s concrete slab, ocean, or wall onto which units plug. Operators do not buy our personality. They buy access to a wall that holds.</p>
+      <h3 style="color:#E8E2D6">The capsule</h3>
+      <p>The capsule is the perishable unit of qualified demand. It is manufactured, graded, and vended. It has a social lifespan, not only a mechanical one: the window in which an inquiry is still an inquiry. After that it is tissue the organism has already shed.</p>
+      <p>A capsule is meaningless without what it holds — Kurokawa’s distinction between a coffee cup and a spacecraft. A rupture in the unit (bad origin, silent consent, a dead telephone) destroys the internal climate. The operator and the unit depend on each other for the duration of the dock. Then the unit is replaced. The operator remains.</p>
+    </div>
+    <div>
+      <h3 style="color:#E8E2D6">What we are</h3>
+      <ul class="plain">
+        <li>A digital lead vendor. Same pipe as QuinStreet, EverQuote, Modernize, QuoteWizard, NextGen.</li>
+        <li>Media in. Form, call, or live transfer. Ping → bid → post to a CRM.</li>
+        <li>Exclusive (one buyer, higher CPL) or shared (two to five, speed-to-lead under a minute).</li>
+        <li>Insurance, home services, legal, education, finance. Exact. Unsentimental.</li>
+      </ul>
+      <h3 style="color:#E8E2D6">What we are not</h3>
+      <ul class="plain">
+        <li>A bro shop, a growth-hack stall, or a lifestyle agency.</li>
+        <li>A SaaS toy that “unlocks pipeline.”</li>
+        <li>A robotics company, a protocol, or a Tokyo souvenir.</li>
+        <li>A promise that inventory does not expire.</li>
+      </ul>
+      <h3 style="color:#E8E2D6">The sentence</h3>
+      <p style="font-family:var(--display);font-size:1.6rem;line-height:1.3;max-width:18ch;color:#E8E2D6">The frame remains. The inventory turns.</p>
+      <p class="note">Secondary, for the desk and the invoice: Qualified demand, vended as graded inventory.</p>
+    </div>
+  </div>
+  <hr class="joint">
+  <p class="note">Audience, two sides of one joint: the buyer of capsules (the operator) and the internal desk that makes them. Copy is written so either can read it without translation into cheer.</p>
+</section>
+
+<!-- 04 RATES -->
+<section class="chapter" id="ch-04" data-title="Rates of Change">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 04</div>
+    <h2>Rates of Change</h2>
+    <div class="chapter-jp">代謝周期</div>
+  </header>
+  <p class="lede">Kurokawa divided Nakagin into three components because they die at different speeds: the ferroconcrete shafts, the moveable capsules, the service equipment. A brand that uses one clock for all three is not metabolist. It is merely modular.</p>
+  <div class="tray">
+    <div>
+      <p>He was careful: the capsule’s lifespan was social, not mechanical. Tenants would change. Needs would change. The shaft could remain. The same distinction governs a lead. The telephone still rings after the inquiry is dead. The record still exists after the exclusive window has closed. We do not confuse the survival of a row in a table with the survival of demand.</p>
+      <p>Ise rebuilds every twenty years on adjacent ground. The rocks stay. The timber is new. Tange and Kawazoe were invited to the 1953 rebuilding. They took from it a method, not a motif: regeneration without visual historicism. JAWNIX may not quote a shrine in a mark. It may quote the cycle.</p>
+      <p>Nakagin’s capsules were never replaced. One reason was structural: about thirty centimetres between units, brackets below, four bolts above. A single capsule could not come out without the ones over it. The joint had been drawn as replaceable and built as stacked. This book treats that failure as law. If a grade, a contract, or a routing rule cannot be swapped without dismantling the desk, it is not a capsule. It is a tray poured into the core.</p>
+    </div>
+    <div>
+      <table class="spec">
+        <thead>
+          <tr><th>Component</th><th>JAWNIX name</th><th>Intended life</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Shaft / core</td><td class="mono">FRAME</td><td>Reputation, compliance architecture, data duty. Measured in years.</td></tr>
+          <tr><td>Capsule</td><td class="mono">UNIT</td><td>A graded lead. Exclusive 18h from post. Shared: no hold. Remnant 2h. Return: credit.</td></tr>
+          <tr><td>Joint</td><td class="mono">DOCK</td><td>Exclusive = 18h one buyer. Shared = 2–5, speed-to-lead 60s. Then cut.</td></tr>
+          <tr><td>Umbilical</td><td class="mono">SERVICE</td><td>Routing, consent proof, reporting. Medium life. Replaceable without new shafts.</td></tr>
+          <tr><td>Flange</td><td class="mono">GROWTH</td><td>Unfinished capacity: a vertical, a buyer, a grade not yet hung.</td></tr>
+        </tbody>
+      </table>
+      <p class="note">Name the clock on every document. If a page cannot say what lasts and what turns, it is decoration.</p>
+    </div>
+  </div>
+  <div class="modules" style="margin-top:1.6rem" aria-hidden="true">
+    <div class="mod" style="width:4.5rem;height:9rem">FRAME<br>60</div>
+    <div class="mod joint" style="width:7.2rem;height:4.5rem">UNIT 2.5×4</div>
+    <div class="mod" style="width:3.2rem;height:3.2rem;background:#8B9294;color:#141210">SVC</div>
+    <div class="mod life" style="width:2.4rem;height:2.4rem">TTL</div>
+    <div class="mod" style="width:7.2rem;height:4.5rem;background:#C4BBAE;color:#141210">NEXT UNIT</div>
+  </div>
+</section>
+
+<!-- 05 VOICE -->
+<section class="chapter alt" id="ch-05" data-title="Voice">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 05</div>
+    <h2>Voice</h2>
+    <div class="chapter-jp">語法</div>
+  </header>
+  <p class="lede">Write as Kurokawa wrote the Capsule Declaration: in articles, not slogans. Specify the unit. Name the joint. Do not cheer. Do not console. The reader is an adult buying perishable goods.</p>
+
+  <div class="grid-2">
+    <div>
+      <h3>Three movements — ka, kata, katachi</h3>
+      <p>Kikutake, after the physicist Mitsuo Taketani, designed in three stages. <em>Ka</em>: the general system. <em>Kata</em>: the abstract image. <em>Katachi</em>: the solution as built. JAWNIX speech follows the same descent. Do not begin a letter with the built unit if the system has not been stated. Do not leave a system hanging without a unit the operator can dock.</p>
+      <ul class="plain">
+        <li><strong>Ka</strong> — We buy media and vend leads through a ping tree.</li>
+        <li><strong>Kata</strong> — Exclusive home/roof, ZIP 606xx, $240 CPL, 18-hour hold, posted to your webhook.</li>
+        <li><strong>Katachi</strong> — NX-4401 won exclusive at 240. ACK 201 in 412ms. Consent on file. Losers never saw PII.</li>
+      </ul>
+      <h3>Lexicon</h3>
+      <table class="spec">
+        <thead><tr><th>Use first (desk)</th><th>Then (doctrine)</th><th>Do not use</th></tr></thead>
+        <tbody>
+          <tr><td>Lead, inquiry, form fill, live transfer</td><td>Capsule, unit</td><td>Hot, journey, prospect-as-vibe</td></tr>
+          <tr><td>Ping, bid, post, ACK, tree, filter</td><td>Dock, joint, umbilical</td><td>Unlock, plug-and-play, synergy</td></tr>
+          <tr><td>Exclusive, shared, remnant, return</td><td>Scrap, replace</td><td>Nurture, evergreen, always-on</td></tr>
+          <tr><td>CPL, bid cap, ZIP, vertical, TTL, speed-to-lead</td><td>Grade, origin, yield</td><td>Crush, smash, hunt</td></tr>
+          <tr><td>Consent timestamp, TCPA, DNC, webhook, CRM</td><td>Frame, desk, duty</td><td>Platform-as-mystique, ecosystem</td></tr>
+          <tr><td>Buyer, operator</td><td>—</td><td>Rockstar, ninja, growth team</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h3>Rules of the mouth</h3>
+      <ul class="plain">
+        <li>Sentences are short enough to stamp on a capsule plate.</li>
+        <li>Claims carry a number, a grade, or a clock. If they cannot, they wait.</li>
+        <li>No exclamation. No emoji. No tilde of warmth.</li>
+        <li>Japanese may appear as texture and as the word 新陳代謝. It is not garnish and not a translation of “innovation.”</li>
+        <li>We do not say “cells” in public copy unless the plate is this book. In the market the unit is a capsule or a lead. The biology stays in the doctrine.</li>
+        <li>Humour, if any, is dry and structural. Never cute.</li>
+      </ul>
+      <h3>Three specimens</h3>
+      <h4>Desk memorandum</h4>
+      <p>Legal / Illinois shared is clearing faster than exclusive. Keep the tree on exclusive until the shared sum beats $240. No remnant posts after 16:00. Returns today: one disconnect. We do not reset TTL.</p>
+      <h4>Letter to an operator</h4>
+      <p>Twelve exclusive home/roof leads, inbound form, ZIP 606xx. $240 CPL. 18-hour exclusive. Posted to your webhook. Shared from the same tree is a separate line at $42. Returns: disconnected, wrong ZIP, no consent. Closing is yours. Data is ours.</p>
+      <h4>Capsule label</h4>
+      <p class="note ids">NX-4401 · HOME / PA · FORM · EXCL $240 · TTL 18:00 · CONSENT TS · POST 201 · PING HAD NO PII</p>
+    </div>
+  </div>
+</section>
+
+<!-- 06 MARK -->
+<section class="chapter" id="ch-06" data-title="The Mark">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 06</div>
+    <h2>The Mark</h2>
+    <div class="chapter-jp">記号</div>
+  </header>
+  <p class="lede">The name is <span class="wm-live">JAWNIX</span>, always all caps. The mark is a construction: one core, one capsule, four bolts, a porthole, an unfinished flange. Together they are the logo. Hostnames and mail stay lowercase: jawnix.com.</p>
+  <div class="mark-stage" style="margin-bottom:1.2rem">
+    <div class="mark-board" style="padding:1.4rem 1.6rem">
+      <span class="cap">Primary lockup / Washi</span>
+      <img src="logo.svg" alt="JAWNIX logo: core-and-capsule mark and wordmark" style="width:min(420px,100%);height:auto;display:block">
+    </div>
+  </div>
+  <p class="note">Download the outlined files. Do not reset JAWNIX in live type on a lockup — tracking 0.16em is already cut. Never Shippori for the proper noun.</p>
+  <p style="margin:0.6rem 0 1.2rem">
+    <a href="logo.svg" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">logo.svg</a>
+    <a href="logo-stack.svg" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">logo-stack.svg</a>
+    <a href="mark.svg" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">mark.svg</a>
+    <a href="mark-reverse.svg" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">mark-reverse.svg</a>
+    <a href="mark-core.svg" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">mark-core.svg</a>
+    <a href="wordmark.svg" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">wordmark.svg</a>
+    <a href="logo-reverse.svg" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">logo-reverse.svg</a>
+    <a href="logo.png" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">logo.png</a>
+    <a href="logo-stack.png" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">logo-stack.png</a>
+    <a href="logo-reverse.png" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">logo-reverse.png</a>
+    <a href="mark.png" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">mark.png</a>
+    <a href="mark-reverse.png" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">mark-reverse.png</a>
+    <a href="mark-core.png" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none;margin-right:0.4rem">mark-core.png</a>
+    <a href="wordmark.png" download style="font-family:var(--mono);font-size:var(--t-xs);letter-spacing:0.12em;text-transform:uppercase;border:1px solid var(--rule-strong);padding:0.4rem 0.65rem;text-decoration:none">wordmark.png</a>
+  </p>
+
+
+  <h3>How the mark reads the trade</h3>
+  <p>The mark is not a ping-box diagram. That belongs to The Match. This construction is the desk: a permanent core, a short-life lead hung on it. A buyer must still be able to name the sale from the plate.</p>
+  <table class="spec">
+    <thead><tr><th>Part</th><th>On the wall</th><th>On the tree</th></tr></thead>
+    <tbody>
+      <tr><td>Core / flange</td><td>Desk — compliance, data, reputation. Left open.</td><td>The router that outlasts any one lead.</td></tr>
+      <tr><td>Capsule</td><td>One graded unit</td><td>The lead: form, call, or live transfer.</td></tr>
+      <tr><td>Four bolts</td><td>Dedicated hang</td><td>Exclusive hold. Shared is two to five hangs.</td></tr>
+      <tr><td>Porthole</td><td>You can see in</td><td>Origin, ZIP, consent timestamp — visible, not sealed.</td></tr>
+      <tr><td>Joint edge</td><td>Coat for a short life</td><td>TTL. After the clock the unit is scrap or a return.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="mark-stage">
+    <div class="mark-board">
+      <span class="cap">Mark / Positive / Washi</span>
+      <img src="mark.svg" alt="JAWNIX mark positive" style="width:min(280px,90%);height:auto;display:block;margin:1.2rem auto">
+    </div>
+    <div class="mark-board" style="background:#141210">
+      <span class="cap" style="color:#8E877A">Mark / Reverse / Sumi</span>
+      <img src="mark-reverse.svg" alt="JAWNIX mark reverse" style="width:min(280px,90%);height:auto;display:block;margin:1.2rem auto">
+    </div>
+  </div>
+
+  <h3>Construction</h3>
+  <div class="diagram">
+    <svg viewBox="0 0 900 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Construction diagram of the JAWNIX mark">
+      <rect width="900" height="420" fill="#F3EEE4"/>
+      <text x="24" y="28" fill="#8E877A" font-family="IBM Plex Mono" font-size="11" letter-spacing="2">PLATE 06.1 — DRAWN FROM mark.svg · CORE 1.0 · CAPSULE 2.5 × 4 · FOUR BOLTS</text>
+      <g stroke="#C4BBAE" stroke-width="0.4">
+        <path d="M40 60 H860 M40 100 H860 M40 140 H860 M40 180 H860 M40 220 H860 M40 260 H860 M40 300 H860 M40 340 H860"/>
+        <path d="M80 50 V380 M120 50 V380 M160 50 V380 M200 50 V380 M240 50 V380 M280 50 V380 M320 50 V380 M360 50 V380 M400 50 V380"/>
+      </g>
+      <image href="mark.svg" x="80" y="110" width="320" height="244"/>
+      <text x="80" y="100" fill="#8E877A" font-family="IBM Plex Mono" font-size="10">UNFINISHED FLANGE — CORE 1.0 — DO NOT CLOSE — SAME FILE AS mark.svg</text>
+      <line x1="168" y1="360" x2="368" y2="360" stroke="#C24A22" stroke-width="0.8"/>
+      <text x="248" y="378" fill="#C24A22" font-family="IBM Plex Mono" font-size="10">4.0 CAPSULE</text>
+      <line x1="400" y1="200" x2="400" y2="320" stroke="#C24A22" stroke-width="0.8"/>
+      <text x="408" y="264" fill="#C24A22" font-family="IBM Plex Mono" font-size="10">2.5</text>
+      <image href="wordmark.svg" x="480" y="120" width="280" height="42"/>
+      <text x="480" y="180" fill="#8E877A" font-family="IBM Plex Mono" font-size="11">WORDMARK · IBM PLEX SANS JP 500 · TRACK 0.16em · NEVER SHIPPORI</text>
+      <text x="480" y="210" fill="#3D3832" font-family="IBM Plex Sans JP" font-size="13">Clear space = one capsule height (2.5) — drawn as the dashed yard below.</text>
+      <text x="480" y="232" fill="#3D3832" font-family="IBM Plex Sans JP" font-size="13">Minima are objects: 24 mm print and 48 px screen, shown at true size.</text>
+      <text x="480" y="254" fill="#3D3832" font-family="IBM Plex Sans JP" font-size="13">At 48 px keep the full construction, bolts included. Below 48 px, mark-core.svg.</text>
+      <text x="480" y="276" fill="#3D3832" font-family="IBM Plex Sans JP" font-size="13">Porthole is a true circle. Bolts are four. Flange stays open. Spine is short.</text>
+    </svg>
+  </div>
+
+  <h3>Lockups A–D — production files</h3>
+  <p class="note">Dashed yard = clear space of one capsule height (<span class="spec-mono">2.5 × --u</span>). Wordmark is IBM Plex Sans JP 500, tracked 0.16em.</p>
+  <div class="lockups">
+    <article class="lockup">
+      <span class="cap">A · Horizontal</span>
+      <div class="yard">
+        <img src="logo.svg" alt="JAWNIX horizontal lockup" style="height:52px;width:auto">
+      </div>
+    </article>
+    <article class="lockup stack">
+      <span class="cap">B · Stacked</span>
+      <div class="yard">
+        <img src="logo-stack.svg" alt="JAWNIX stacked" style="height:96px;width:auto">
+      </div>
+    </article>
+    <article class="lockup">
+      <span class="cap">C · Mark only</span>
+      <div class="yard">
+        <img src="mark.svg" alt="JAWNIX mark" style="height:72px;width:auto">
+      </div>
+    </article>
+    <article class="lockup">
+      <span class="cap">D · Wordmark only</span>
+      <div class="yard">
+        <img src="wordmark.svg" alt="JAWNIX" style="height:36px;width:auto">
+      </div>
+    </article>
+  </div>
+  <div class="minima">
+    <div class="min-box min-print">
+      <div class="lab">Minimum print · 24 mm tall · shown at 24 mm</div>
+      <img src="mark.svg" alt="JAWNIX mark at 24 mm" style="height:24mm;width:auto">
+      <div class="rule">If it is smaller than this object, do not print the full construction.</div>
+    </div>
+    <div class="min-box min-screen">
+      <div class="lab">Minimum screen · 48 px tall · shown at 48 px</div>
+      <img src="mark.svg" alt="JAWNIX mark at 48 px" style="height:48px;width:auto">
+      <div class="rule">Below this object, use the core and flange alone.</div>
+    </div>
+  </div>
+
+  <h3>Clear space, minimum, lockups</h3>
+  <div class="grid-3">
+    <div>
+      <h4>Clear space</h4>
+      <p>One capsule height — the 2.5 module — on every side. No type, no rule, no other mark enters that yard. The unfinished flange is part of the mark; do not crop it for “balance.”</p>
+    </div>
+    <div>
+      <h4>Minimum</h4>
+      <p>Print: 24 mm tall for the full construction. Screen: 48 px for the full construction including four bolts. Smaller: core and flange only. Never redraw the porthole as a solid disc to “read smaller.”</p>
+    </div>
+    <div>
+      <h4>Wordmark</h4>
+      <p>JAWNIX in IBM Plex Sans JP Medium, tracking 0.16em, never italic, never outlined. Do not set the name in Shippori. Shippori is for titles and Japanese texture, not for the proper noun on a card.</p>
+    </div>
+  </div>
+
+  <h3>Misuse</h3>
+  <div class="misuse">
+    <figure>
+      <div class="bad">
+        <svg viewBox="0 0 80 60" width="80"><rect x="10" y="10" width="60" height="40" rx="12" fill="#C24A22"/><circle cx="32" cy="30" r="8" fill="#fff"/></svg>
+      </div>
+      <figcaption>Do not round the capsule into an application tile. The corners are cut, not softened.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad">
+        <svg viewBox="0 0 80 60" width="80"><rect x="28" y="6" width="12" height="48" fill="#7c3aed"/><rect x="40" y="24" width="28" height="16" fill="#a78bfa"/></svg>
+      </div>
+      <figcaption>Do not recolour with violet, neon, or “tech” gradients. Joint (#C24A22) is the only joint colour. It is not Kenitex.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad">
+        <svg viewBox="0 0 80 60" width="80"><rect x="34" y="8" width="12" height="44" fill="#C4BBAE"/><rect x="46" y="22" width="24" height="16" fill="#E8E2D6" stroke="#141210"/></svg>
+      </div>
+      <figcaption>Do not omit the flange or the four bolts. A closed top is a finished building. We do not finish.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad">
+        <svg viewBox="0 0 80 60" width="80"><circle cx="40" cy="30" r="18" fill="#C4BBAE" stroke="#C24A22" stroke-width="3"/><text x="40" y="34" text-anchor="middle" font-size="8" fill="#141210">J</text></svg>
+      </div>
+      <figcaption>Do not monogram. JAWNIX is not a letter in a porthole. The porthole is a window, not a seal.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad">
+        <svg viewBox="0 0 80 60" width="80"><rect x="20" y="18" width="40" height="24" fill="#141210"/><circle cx="32" cy="30" r="6" fill="#fff"/><text x="48" y="34" font-size="10" fill="#fff">:)</text></svg>
+      </div>
+      <figcaption>Do not put a face in the window. The capsule is inventory, not a character.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad">
+        <svg viewBox="0 0 80 60" width="80"><rect x="8" y="20" width="64" height="20" fill="#C4BBAE"/><text x="40" y="34" text-anchor="middle" font-size="7" fill="#141210">JAWNIX™</text></svg>
+      </div>
+      <figcaption>Do not lock the wordmark into a stadium banner or add a trademark cross as decoration.</figcaption>
+    </figure>
+    <figure>
+      <div class="bad">
+        <svg viewBox="0 0 80 60" width="80"><text x="40" y="34" text-anchor="middle" font-size="11" fill="#141210" font-family="IBM Plex Sans JP">Jawnix</text></svg>
+      </div>
+      <figcaption>Do not title-case the name. The brand is JAWNIX. Mail and hostnames stay lowercase.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- 07 COLOR -->
+<section class="chapter alt" id="ch-07" data-title="Color">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 07</div>
+    <h2>Color</h2>
+    <div class="chapter-jp">色彩</div>
+  </header>
+  <p class="lede">Exposed concrete, ink, a rust joint, galvanized steel, one biological note of oxidized copper. Diagrammatic. Industrial. Colour is named after materials, not moods.</p>
+  <p>Nakagin’s Kenitex was a beige spray coat on galvanized panels — not this colour. #C24A22 is an invented joint colour. We name it Joint, not Kenitex, and we do not pretend it is rust from the tower. Verdigris is the single living accent: copper that has already begun to change. It is used as chlorophyll would be used on a plate: sparingly, to mark life, never as a field.</p>
+
+  <div class="swatches">
+    <article class="swatch">
+      <div class="chip-face" style="background:#141210"><span class="lab" style="color:#E8E2D6">Sumi</span></div>
+      <dl>
+        <span class="row"><dt>HEX</dt><dd>#141210</dd></span>
+        <span class="row"><dt>RGB</dt><dd>20 / 18 / 16</dd></span>
+        <span class="row"><dt>CMYK</dt><dd>0 / 10 / 20 / 92</dd></span>
+        <span class="row"><dt>Use</dt><dd>Ink, cores, reverse plates</dd></span>
+      </dl>
+    </article>
+    <article class="swatch">
+      <div class="chip-face" style="background:#E8E2D6"><span class="lab">Washi</span></div>
+      <dl>
+        <span class="row"><dt>HEX</dt><dd>#E8E2D6</dd></span>
+        <span class="row"><dt>RGB</dt><dd>232 / 226 / 214</dd></span>
+        <span class="row"><dt>CMYK</dt><dd>0 / 3 / 8 / 9</dd></span>
+        <span class="row"><dt>Use</dt><dd>Catalogue paper, capsule body</dd></span>
+      </dl>
+    </article>
+    <article class="swatch">
+      <div class="chip-face" style="background:#F3EEE4"><span class="lab">Bone</span></div>
+      <dl>
+        <span class="row"><dt>HEX</dt><dd>#F3EEE4</dd></span>
+        <span class="row"><dt>RGB</dt><dd>243 / 238 / 228</dd></span>
+        <span class="row"><dt>CMYK</dt><dd>0 / 2 / 6 / 5</dd></span>
+        <span class="row"><dt>Use</dt><dd>Drawing paper, inner tray, alt plates</dd></span>
+      </dl>
+    </article>
+    <article class="swatch">
+      <div class="chip-face" style="background:#C4BBAE"><span class="lab">Béton</span></div>
+      <dl>
+        <span class="row"><dt>HEX</dt><dd>#C4BBAE</dd></span>
+        <span class="row"><dt>RGB</dt><dd>196 / 187 / 174</dd></span>
+        <span class="row"><dt>CMYK</dt><dd>0 / 5 / 11 / 23</dd></span>
+        <span class="row"><dt>Use</dt><dd>Artificial land, cores, desks</dd></span>
+      </dl>
+    </article>
+    <article class="swatch">
+      <div class="chip-face" style="background:#8E877A"><span class="lab">Formwork</span></div>
+      <dl>
+        <span class="row"><dt>HEX</dt><dd>#8E877A</dd></span>
+        <span class="row"><dt>RGB</dt><dd>142 / 135 / 122</dd></span>
+        <span class="row"><dt>CMYK</dt><dd>0 / 5 / 14 / 44</dd></span>
+        <span class="row"><dt>Use</dt><dd>Board-formed shadow, secondary type</dd></span>
+      </dl>
+    </article>
+    <article class="swatch">
+      <div class="chip-face" style="background:#C24A22"><span class="lab" style="color:#F3EEE4">Joint</span></div>
+      <dl>
+        <span class="row"><dt>HEX</dt><dd>#C24A22</dd></span>
+        <span class="row"><dt>RGB</dt><dd>194 / 74 / 34</dd></span>
+        <span class="row"><dt>CMYK</dt><dd>0 / 62 / 82 / 24</dd></span>
+        <span class="row"><dt>Use</dt><dd>Joints, bolts, the only alarm</dd></span>
+      </dl>
+    </article>
+    <article class="swatch">
+      <div class="chip-face" style="background:#8B9294"><span class="lab">Steel</span></div>
+      <dl>
+        <span class="row"><dt>HEX</dt><dd>#8B9294</dd></span>
+        <span class="row"><dt>RGB</dt><dd>139 / 146 / 148</dd></span>
+        <span class="row"><dt>CMYK</dt><dd>6 / 1 / 0 / 42</dd></span>
+        <span class="row"><dt>Use</dt><dd>Service lines, rules, mono labels</dd></span>
+      </dl>
+    </article>
+    <article class="swatch">
+      <div class="chip-face" style="background:#3F6B56"><span class="lab" style="color:#F3EEE4">Verdigris</span></div>
+      <dl>
+        <span class="row"><dt>HEX</dt><dd>#3F6B56</dd></span>
+        <span class="row"><dt>RGB</dt><dd>63 / 107 / 86</dd></span>
+        <span class="row"><dt>CMYK</dt><dd>41 / 0 / 20 / 58</dd></span>
+        <span class="row"><dt>Use</dt><dd>Life, helix, TTL still living</dd></span>
+      </dl>
+    </article>
+    <article class="swatch">
+      <div class="chip-face" style="background:#3D3832"><span class="lab" style="color:#E8E2D6">Umber</span></div>
+      <dl>
+        <span class="row"><dt>HEX</dt><dd>#3D3832</dd></span>
+        <span class="row"><dt>RGB</dt><dd>61 / 56 / 50</dd></span>
+        <span class="row"><dt>CMYK</dt><dd>0 / 8 / 18 / 76</dd></span>
+        <span class="row"><dt>Use</dt><dd>Secondary ink on washi</dd></span>
+      </dl>
+    </article>
+  </div>
+
+  <h3>Combinations</h3>
+  <div class="grid-3">
+    <div>
+      <h4>Primary pair</h4>
+      <p>Béton + Sumi. The shaft and the ink. Most pages, most objects. Washi as the paper the plate is printed on.</p>
+    </div>
+    <div>
+      <h4>Joint pair</h4>
+      <p>Joint on Béton or Washi, never as a flood field larger than a flange. If the page is mostly rust, the joint has swallowed the frame.</p>
+    </div>
+    <div>
+      <h4>Life pair</h4>
+      <p>Verdigris only with Sumi, Steel, or Washi. Never next to Joint in equal weight. One accent per plate.</p>
+    </div>
+    <div>
+      <h4>Paper pair</h4>
+      <p>Bone is one step lighter than Washi: the drawing laid on the catalogue. A plate is Washi or Bone, not both as equal fields. Mark boards, diagrams, and alt chapters sit on Bone; the book’s outer sheet is Washi.</p>
+    </div>
+  </div>
+  <p class="note">Forbidden palettes: Swiss red-black-white as a system; purple-black startup night; neon cyan; cherry-blossom pink; gold-and-black “Tokyo luxury.” If a colour cannot be poured, bolted, or oxidized, it is not ours.</p>
+</section>
+
+<!-- 08 TYPE -->
+<section class="chapter" id="ch-08" data-title="Type">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 08</div>
+    <h2>Type</h2>
+    <div class="chapter-jp">活字</div>
+  </header>
+  <p class="lede">Three families, three duties. Shippori Antique for the plate and the Japanese texture. IBM Plex Sans JP for the desk. IBM Plex Mono for the capsule. No fourth family. No Helvetica hero.</p>
+
+  <div class="type-row">
+    <div class="meta">Display / Japanese texture — Shippori Antique 400</div>
+    <p class="spec-ship" style="font-size:var(--t-3xl);line-height:1.15;margin:0;max-width:22ch">The frame remains. The inventory turns.</p>
+    <p class="spec-ship" style="font-size:var(--t-2xl);margin:0.6rem 0 0">新陳代謝 カプセル 人工土地 群造形 螺旋 接合</p>
+  </div>
+  <div class="type-row">
+    <div class="meta">Interface / Latin grotesque — IBM Plex Sans JP 300–700</div>
+    <p class="spec-sans" style="font-size:var(--t-lg);margin:0;max-width:40ch">JAWNIX manufactures qualified demand and vends it as graded inventory to operators.</p>
+    <p class="spec-sans" style="font-size:1rem;margin:0.5rem 0 0;max-width:62ch">Plex Sans JP is the only grotesque. It holds Latin and Japanese in one cut, which is why it sits on the desk. Weights: 300 for captions, 400 for body, 500 for the wordmark, 600 for small titles. Never 100. Never italic for emphasis; use Joint or Mono.</p>
+  </div>
+  <div class="type-row">
+    <div class="meta">Data / capsules / specs — IBM Plex Mono 400–500</div>
+    <p class="spec-mono" style="font-size:1rem;margin:0">NX-4401  GRADE A  HOME/PA  EXCLUSIVE  TTL 18:00:00  JOINT 4-BOLT</p>
+    <p class="spec-mono" style="font-size:0.8rem;margin:0.4rem 0 0;color:#8E877A">PLATE 08.2  MODULE 2.5×4  TRACK +0.08em  LINING FIGURES ONLY</p>
+  </div>
+
+  <h3>Modular scale — increment 1.25</h3>
+  <p>Not a musical fifth. Not a Swiss 1.2 poster scale. 1.25 is a growth increment: each size is a new ring on the helix, not a harmonic. Body sits at 16 px / 12 pt. Titles take the jumps; they do not invent sizes between them.</p>
+  <div class="scale spec-sans">
+    <span style="font-size:0.6875rem">11</span>
+    <span style="font-size:0.8125rem">13</span>
+    <span style="font-size:1rem">16</span>
+    <span style="font-size:1.25rem">20</span>
+    <span style="font-size:1.5625rem">25</span>
+    <span style="font-size:1.953rem">31</span>
+    <span style="font-size:2.441rem">39</span>
+    <span style="font-size:3.052rem">49</span>
+    <span style="font-size:3.815rem">61</span>
+    <span style="font-size:4.768rem">76</span>
+  </div>
+  <table class="spec">
+    <thead><tr><th>Role</th><th>Family</th><th>Size</th><th>Step</th><th>Tracking / measure</th></tr></thead>
+    <tbody>
+      <tr><td>Cover Japanese</td><td>Shippori Antique</td><td>61</td><td class="mono">--t-5xl</td><td>0.22em, vertical</td></tr>
+      <tr><td>Exhibition / Awazu</td><td>Shippori Antique</td><td>76</td><td class="mono">--t-6xl</td><td>−0.04em to 0.04em</td></tr>
+      <tr><td>Chapter title</td><td>Shippori Antique</td><td>39</td><td class="mono">--t-3xl</td><td>0.02em, 18–24ch</td></tr>
+      <tr><td>Lede</td><td>Shippori Antique</td><td>25</td><td class="mono">--t-xl</td><td>0, 46ch</td></tr>
+      <tr><td>Body</td><td>Plex Sans JP 400</td><td>16</td><td class="mono">--t-md</td><td>0.01em, 62ch, 1.65</td></tr>
+      <tr><td>Wordmark JAWNIX</td><td>Plex Sans JP 500</td><td>31</td><td class="mono">--t-2xl</td><td>0.16em · never Shippori</td></tr>
+      <tr><td>Wordmark on card</td><td>Plex Sans JP 500</td><td>20</td><td class="mono">--t-lg</td><td>0.16em</td></tr>
+      <tr><td>Capsule data</td><td>Plex Mono 400</td><td>13</td><td class="mono">--t-sm</td><td>0.08–0.14em</td></tr>
+      <tr><td>Plate numbers</td><td>Plex Mono 500</td><td>11</td><td class="mono">--t-xs</td><td>0.18em, uppercase</td></tr>
+    </tbody>
+  </table>
+  <p class="note">Optical sizes: Shippori is one cut. Do not fake a display cut by tightening it below 20. Below 16, Japanese in Shippori is texture only; readable Japanese at small size is Plex Sans JP.</p>
+</section>
+
+<!-- 09 GRID -->
+<section class="chapter beton" id="ch-09" data-title="Grid and Growth">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 09</div>
+    <h2>Grid &amp; Growth</h2>
+    <div class="chapter-jp">群造形</div>
+  </header>
+  <p class="lede">Not a Swiss poster grid. Maki’s three forms are the law: compositional form is rejected for the market; megastructure is the desk; group form is how operators and units cluster.</p>
+
+  <div class="grid-2">
+    <div>
+      <h3>Compositional form — rejected</h3>
+      <p>Buildings (or leads) arranged as isolated objects on a plane, related after the fact by alignment. This is how a mediocre media kit looks: cards equally spaced, a hero, a footer. JAWNIX does not compose inventory as a still life. A lead that is only “placed” has no reason to be next to another lead.</p>
+      <h3>Megastructure — the desk</h3>
+      <p>A large frame housing functions. Tange’s joint cores; Kurokawa’s shafts; this book’s left-hand core. The danger, which Maki named, is obsolescence of the whole. So the frame must be service, compliance, and reputation — things that can accept new trays — not a campaign slogan poured as architecture.</p>
+      <h3>Group form — the market</h3>
+      <p>Units that have reasons to be together and grow by linkage. Hillside Terrace over twenty-five years. A buyer in home services links to a grade and an origin, then to a second origin, then to a shared cluster when exclusive yield dries. The page grows the same way: a chapter is a cluster, not a column count.</p>
+    </div>
+    <div>
+      <h3>The increment</h3>
+      <p>The spatial module is the Nakagin capsule: <strong>2.5 × 4</strong>. All hanging units — tickets, cards, data strips — start from that ratio. The core is 1.0 wide. Clear space is 2.5. A page may add units; it may not invent a new ratio because a layout “needs air.”</p>
+      <p>Artificial land is the horizontal slab: a béton band on which mockups sit, a letter’s two black cores, the cover’s joint line. Helix increment is rotational, not linear: a diagram may turn 15° to show growth, never to decorate.</p>
+      <h4>Page anatomy</h4>
+      <ul class="plain">
+        <li>Left core: persistent contents. Permanent. Do not hide it for “immersion.”</li>
+        <li>Trays: chapters slot between unseen cores, like Yamanashi floors.</li>
+        <li>Flange: every section ends able to accept another section.</li>
+        <li>Group: applications cluster; they are not a twelve-column gallery.</li>
+      </ul>
+      <p class="note">If you find yourself counting twelve columns, you have left the school.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 10 CAPSULE -->
+<section class="chapter" id="ch-10" data-title="The Capsule">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 10</div>
+    <h2>The Capsule</h2>
+    <div class="chapter-jp">カプセル</div>
+  </header>
+  <p class="lede">The lead is a replaceable unit. It is manufactured off-site, graded, and hung on the desk with four bolts. It has origin, grade, joint type, and time-to-live. After TTL it is scrap, even if the row remains.</p>
+
+  <div class="tray">
+    <div>
+      <p>Kurokawa: the capsule is not a coffee cup. It is a climate. A rupture — bad consent, a wrong origin, a number that does not answer — collapses the interior. The operator who docks a dead unit does not receive a “less good lead.” He receives a breach in the wall.</p>
+      <p>Dimensions of the identity unit follow Nakagin’s truck-legal box: 2.5 × 4. The circular window is origin made visible — you can see into the unit; you cannot pretend it is a sealed mystery. The four bolts are the joint. The rust edge is Joint — an invented coat: this object was finished to be weatherproof for a short life, not to be monumental.</p>
+      <p><em>Ka</em> is the category of demand. <em>Kata</em> is the grade and joint. <em>Katachi</em> is the numbered capsule on a specific wall. Never sell katachi as if it were ka. “We have leads” is not a sentence we use.</p>
+    </div>
+    <div>
+      <table class="spec">
+        <thead><tr><th>Field</th><th>Law</th></tr></thead>
+        <tbody>
+          <tr><td>Ping</td><td>ZIP, vertical, source, exclusive flag. No name, no phone, no email.</td></tr>
+          <tr><td>Bid</td><td>Window 1800ms. Timeout is a no-bid. Losers never see PII.</td></tr>
+          <tr><td>Post</td><td>Full record to the winning webhook. ACK or the next bid.</td></tr>
+          <tr><td>Joint</td><td>Exclusive = one buyer, higher CPL. Shared = two to five, speed-to-lead &lt;60s.</td></tr>
+          <tr><td>Return</td><td>Disconnect, wrong ZIP, duplicate, missing consent. Not “didn’t close.”</td></tr>
+          <tr><td>TTL</td><td>Clock from post. We do not reset it. After TTL the unit is scrap.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <h3>Grades — structural law, not a vertical costume</h3>
+  <table class="spec">
+    <thead><tr><th>Grade</th><th>Law</th><th>Clock</th></tr></thead>
+    <tbody>
+      <tr><td>A</td><td>Exclusive inbound form. Filters clean.</td><td>18h hold from post</td></tr>
+      <tr><td>B</td><td>Exclusive. Partner or call / transfer.</td><td>18h hold from post</td></tr>
+      <tr><td>C</td><td>Shared. Two to five buyers.</td><td>No hold. Speed-to-lead 60s</td></tr>
+      <tr><td>R</td><td>Remnant after a failed exclusive. Still a lead.</td><td>2h then scrap</td></tr>
+      <tr><td>Return</td><td>Disconnect, wrong ZIP, duplicate, no consent. Not a grade.</td><td>Credit. Not “didn’t close.”</td></tr>
+    </tbody>
+  </table>
+  <p class="note">Home / PA and Auto / TX below are examples of origin, not definitions of grade. Grade does not change because the vertical changes.</p>
+  <h3>Pipe — ping / bid / post</h3>
+  <p>Ping: ZIP, vertical, source, exclusive flag. No PII. Fan-out 1800ms. Bid: price, exclusive|shared, or reject (cap / hours / filter / timeout). Tree ranks one exclusive against the sum of shared. Post: full record to the winner webhook. No 2xx ACK → next bid in rank. Returns are a credit, not scrap-as-poetry.</p>
+  <div class="hang">
+    <article class="unit">
+      <div class="port"><div class="eye"></div></div>
+      <div class="body">
+        <div class="id">NX-4401</div>
+        <h3>Grade A</h3>
+        <dl>
+          <dt>Origin</dt><dd>Home / PA</dd>
+          <dt>Joint</dt><dd>Exclusive</dd>
+          <dt>TTL</dt><dd>18:00:00</dd>
+          <dt>Yield</dt><dd>Primary</dd>
+        </dl>
+        <div class="bolts-row"><i class="bolt"></i><i class="bolt"></i><i class="bolt"></i><i class="bolt"></i></div>
+      </div>
+    </article>
+    <article class="unit">
+      <div class="port"><div class="eye"></div></div>
+      <div class="body">
+        <div class="id">NX-4418</div>
+        <h3>Grade B</h3>
+        <dl>
+          <dt>Origin</dt><dd>Auto / TX</dd>
+          <dt>Joint</dt><dd>Exclusive</dd>
+          <dt>TTL</dt><dd>18:00:00</dd>
+          <dt>Yield</dt><dd>Standard</dd>
+        </dl>
+        <div class="bolts-row"><i class="bolt"></i><i class="bolt"></i><i class="bolt"></i><i class="bolt"></i></div>
+      </div>
+    </article>
+    <article class="unit">
+      <div class="port"><div class="eye"></div></div>
+      <div class="body">
+        <div class="id">NX-4502</div>
+        <h3>Grade C</h3>
+        <dl>
+          <dt>Origin</dt><dd>Legal / IL · batch</dd>
+          <dt>Joint</dt><dd>Shared cluster</dd>
+          <dt>TTL</dt><dd>none · 60s</dd>
+          <dt>Yield</dt><dd>Volume</dd>
+        </dl>
+        <div class="bolts-row"><i class="bolt"></i><i class="bolt"></i><i class="bolt"></i><i class="bolt"></i></div>
+      </div>
+    </article>
+    <article class="unit remnant">
+      <div class="port"><div class="eye"></div></div>
+      <div class="body">
+        <div class="id">NX-4599</div>
+        <h3>Grade R</h3>
+        <dl>
+          <dt>Origin</dt><dd>Edu / FL · remnant</dd>
+          <dt>Joint</dt><dd>Shared — last dock</dd>
+          <dt>TTL</dt><dd>02:00:00</dd>
+          <dt>Yield</dt><dd>Work or scrap</dd>
+        </dl>
+        <div class="bolts-row"><i class="bolt"></i><i class="bolt"></i><i class="bolt"></i><i class="bolt"></i></div>
+      </div>
+    </article>
+  </div>
+  <p style="margin-top:1.2rem">Grade R is remnant: TTL under two hours, discounted, dock immediately or scrap. It is not a shame grade. It is honest tissue at the end of its cycle. We do not relabel R as A to keep a wall looking full. A full wall of dead units is Nakagin in 2015.</p>
+</section>
+
+<!-- 11 JOINT -->
+<section class="chapter alt" id="ch-11" data-title="The Joint">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 11</div>
+    <h2>The Joint</h2>
+    <div class="chapter-jp">接合</div>
+  </header>
+  <p class="lede">The commercial moment is the post. Ping goes out with no PII. Buyers bid. The winner’s CRM gets the record. Exclusive is one dock, higher CPL. Shared is two to five docks; if the first dial is after sixty seconds the shared lead is waste. Kurokawa’s <em>en</em> is the webhook: two systems meet without erasing each other.</p>
+  <div class="grid-2">
+    <div>
+      <p>Exclusive means a dedicated joint: the capsule hangs on one operator’s wall. Shared means a clustered hang: several operators may receive the same climate, and the grade and price must say so. Mixing exclusive and shared on one invoice line is a false bolt — it looks fastened and is not.</p>
+      <p>The umbilical carries consent, source, and routing. About one module long, like Nakagin’s flexible pipe. If the umbilical is hidden “for elegance,” the unit cannot be serviced. Hidden service is how capsules rot on the shaft.</p>
+      <p>The thirty-centimetre lesson: design the gap so a unit can leave without removing its neighbours. In contracts this means a kill switch that does not require rewriting the frame. In routing this means a capsule can be unscrewed from a buyer without taking the vertical down.</p>
+    </div>
+    <div>
+      <div class="diagram">
+        <svg viewBox="0 0 420 220" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="40" y="20" width="36" height="180" fill="#C4BBAE" stroke="#141210"/>
+          <rect x="76" y="88" width="120" height="56" fill="#E8E2D6" stroke="#141210"/>
+          <rect x="76" y="88" width="8" height="56" fill="#C24A22"/>
+          <circle cx="104" cy="116" r="12" stroke="#141210" fill="#8E877A"/>
+          <path d="M196 116 C240 116 240 60 280 60" stroke="#8B9294" stroke-width="2" fill="none"/>
+          <rect x="280" y="44" width="100" height="32" fill="#141210"/>
+          <text x="290" y="64" fill="#E8E2D6" font-family="IBM Plex Mono" font-size="9">OPERATOR</text>
+          <text x="86" y="160" fill="#8E877A" font-family="IBM Plex Mono" font-size="8">4 BOLTS</text>
+          <text x="210" y="90" fill="#8E877A" font-family="IBM Plex Mono" font-size="8">UMBILICAL</text>
+          <text x="48" y="16" fill="#8E877A" font-family="IBM Plex Mono" font-size="8">FRAME</text>
+        </svg>
+      </div>
+      <p class="note">Homo movens, for us, is the operator: he moves among verticals and hours. The capsule must be able to move with him or leave him. Status is not a campus. Status is a working joint.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 12 DIAGRAMS -->
+<section class="chapter" id="ch-12" data-title="Diagram Language">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 12</div>
+    <h2>Diagram Language</h2>
+    <div class="chapter-jp">図法</div>
+  </header>
+  <p class="lede"><span class="wm-live">JAWNIX</span> draws systems the way the 1960 booklet drew cities: plan, axonometric, annotated joint. Not dashboards. Not illustrated mascots. A diagram is a proposal for how something grows.</p>
+
+  <div class="grid-2">
+    <div>
+      <h3>Elements</h3>
+      <ul class="plain">
+        <li><strong>Core</strong> — rectangle, béton, two service lines. Always vertical unless the plate is a bay plan.</li>
+        <li><strong>Capsule</strong> — 2.5 × 4, porthole, rust edge. Dashed = next / remnant.</li>
+        <li><strong>Joint</strong> — Joint colour only. Four circles or a 4 px bar. Never a heart, never a node glow.</li>
+        <li><strong>Umbilical</strong> — steel, one continuous curve, no arrows unless direction is the claim.</li>
+        <li><strong>Helix</strong> — verdigris, thin, for data and growth. Slow. Never a decoration behind type.</li>
+        <li><strong>Artificial land</strong> — a slab or waterline. Inventory sits on it; it is not a footer rule.</li>
+      </ul>
+      <h3>Line weights</h3>
+      <p>Structure 1.2–1.6. Service 0.7. Dimension 0.5 in Formwork. Joint 1.1 in Joint. Type on drawings is Mono 7–11. No hairlines that vanish in print.</p>
+    </div>
+    <div>
+      <div class="diagram">
+        <svg viewBox="0 0 480 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Manufacture to scrap sequence">
+          <text x="16" y="24" fill="#8E877A" font-family="IBM Plex Mono" font-size="10">SEQ / MANUFACTURE → GRADE → DOCK → EXPIRE → REPLACE</text>
+          <rect x="20" y="60" width="70" height="44" fill="#C4BBAE" stroke="#141210"/>
+          <text x="28" y="86" font-family="IBM Plex Mono" font-size="8">MAKE</text>
+          <rect x="110" y="60" width="70" height="44" fill="#E8E2D6" stroke="#141210"/>
+          <text x="118" y="86" font-family="IBM Plex Mono" font-size="8">GRADE</text>
+          <rect x="200" y="60" width="70" height="44" fill="#C24A22"/>
+          <text x="210" y="86" fill="#F3EEE4" font-family="IBM Plex Mono" font-size="8">DOCK</text>
+          <rect x="290" y="60" width="70" height="44" fill="#3F6B56"/>
+          <text x="300" y="86" fill="#F3EEE4" font-family="IBM Plex Mono" font-size="8">LIVE</text>
+          <rect x="380" y="60" width="70" height="44" fill="#141210"/>
+          <text x="390" y="86" fill="#E8E2D6" font-family="IBM Plex Mono" font-size="8">SCRAP</text>
+          <path d="M90 82 H110 M180 82 H200 M270 82 H290 M360 82 H380" stroke="#8B9294" stroke-width="1.2"/>
+          <rect x="200" y="140" width="36" height="90" fill="#C4BBAE" stroke="#141210"/>
+          <rect x="236" y="168" width="64" height="36" fill="#E8E2D6" stroke="#141210"/>
+          <rect x="236" y="220" width="64" height="20" fill="none" stroke="#8E877A" stroke-dasharray="3 2"/>
+          <text x="310" y="190" font-family="IBM Plex Mono" font-size="8" fill="#8E877A">DOCKED</text>
+          <text x="310" y="234" font-family="IBM Plex Mono" font-size="8" fill="#8E877A">NEXT / GAP ≥ 1 MODULE</text>
+        </svg>
+      </div>
+      <p class="note">Sequence always includes scrap and next. A diagram that ends on “success” is advertising. A diagram that shows the empty bracket is metabolist.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 13 APPLICATIONS -->
+<section class="chapter alt" id="ch-13" data-title="Applications">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 13</div>
+    <h2>Applications</h2>
+    <div class="chapter-jp">展開</div>
+  </header>
+  <p class="kicker">Printed and shipped. Not a component library.</p>
+  <p class="lede">These surfaces sell leads. If a home-services buyer cannot find ping, bid, post, exclusive, shared, or a returns credit, the plate is a souvenir.</p>
+
+
+  <p class="app-cap">13.0 Buyer portal · ping then post</p>
+  <div class="desk" style="margin-bottom:1.6rem">
+    <div class="invoice">
+      <div style="display:flex;justify-content:space-between;margin-bottom:0.8rem">
+        <img src="logo.svg" alt="JAWNIX" style="height:28px;width:auto">
+        <span class="note ids">Northline · home / roof · exclusive on · cap $4,800 / 20</span>
+      </div>
+      <table>
+        <thead><tr><th>ID</th><th>Ping</th><th>Path</th><th>Post</th><th>TTL</th><th>CPL</th></tr></thead>
+        <tbody>
+          <tr><td>nx-4418</td><td>60614 · no PII</td><td>exclusive</td><td>201 · 412ms</td><td>18h</td><td>$240</td></tr>
+          <tr><td>nx-4412</td><td>60657 · no PII</td><td>exclusive</td><td>201 · 380ms</td><td>18h</td><td>$240</td></tr>
+          <tr><td>nx-4401</td><td>60613 · no PII</td><td>shared ×3</td><td>201 · 510ms</td><td>—</td><td>$42</td></tr>
+        </tbody>
+      </table>
+      <p class="note" style="margin:0.8rem 0 0">Ping body: zip, vertical, source, exclusive. Post body: name, phone, email, consent_ts — only to who paid.</p>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div>
+      <p class="app-cap">13.1 Card — 4 × 2.5 module · face and reverse</p>
+      <div class="desk">
+        <div class="card-pair">
+          <div class="card">
+            <div>
+              <img src="logo.svg" alt="JAWNIX" style="height:36px;width:auto;display:block">
+              <div class="role">Desk · Qualified demand</div>
+            </div>
+            <div class="foot">
+              <span>Ada Mori · Joints</span>
+              <span>jawnix.com</span>
+            </div>
+          </div>
+          <div class="card back">
+            <div>
+              <div class="who"><img src="mark-core.svg" alt="JAWNIX" style="height:28px;width:auto"></div>
+              <div class="role">Reverse · capsule spec · no portrait</div>
+            </div>
+            <dl>
+              <dt>Bearer</dt><dd>Ada Mori · Joints</dd>
+              <dt>Origin</dt><dd>Desk / frame</dd>
+              <dt>Grade</dt><dd>Not inventory</dd>
+              <dt>Joint</dt><dd>Exclusive to bearer</dd>
+              <dt>TTL</dt><dd>The person, not the stock</dd>
+            </dl>
+            <div class="foot">
+              <span>NX-CARD</span>
+              <span>No QR garden</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Washi face, Sumi reverse, Joint end flange. Wordmark Plex Sans JP 500, 0.16em. Hung on the 4 × 2.5 module, not an ISO souvenir.</p>
+    </div>
+    <div>
+      <p class="app-cap">13.2 Letterhead — two cores as the page</p>
+      <div class="desk">
+        <div class="letter">
+          <div class="lh">
+            <div>
+              <img src="logo.svg" alt="JAWNIX" style="height:32px;width:auto">
+            </div>
+            <div class="note ids" style="text-align:right">Desk memorandum<br>16 August 2026<br>NX-MEM-884</div>
+          </div>
+          <div class="bodytxt">
+            <p>To Northline / Ohio home:</p>
+            <p>Twelve exclusive inbound form leads, home/roof, ZIP 43xxx. $240 CPL. Posted to your webhook from 08:00. 18-hour exclusive. Shared from the same tree is a separate line. Returns: disconnect, wrong ZIP, no consent. We do not reset TTL.</p>
+            <p>The frame is in order. The inventory will turn.</p>
+            <p>Ada Mori<br>Joints</p>
+          </div>
+          <div class="lf"><img src="mark-core.svg" alt="" style="height:22px;width:auto;vertical-align:middle"> · exclusive or shared</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="app-cap">13.3 Capsule tag — the lead ticket</p>
+  <div class="desk">
+    <article class="unit" style="box-shadow:10px 12px 0 rgba(20,18,16,0.12)">
+      <div class="port"><div class="eye"></div></div>
+      <div class="body">
+        <div class="id">Lead ticket · Capsule tag · Tear on scrap</div>
+        <h3>NX-4401 · Home / Pennsylvania</h3>
+        <dl>
+          <dt>Grade</dt><dd>A — primary, origin verified at manufacture</dd>
+          <dt>Joint</dt><dd>Exclusive — four bolts, one operator</dd>
+          <dt>TTL</dt><dd>18:00:00 from 16 Aug 2026 17:12</dd>
+          <dt>Consent</dt><dd>On file · umbilical live</dd>
+          <dt>Yield desk</dt><dd>Do not transfer. Do not relabel. Scrap at 11:12 on 17 Aug — 18h from post.</dd>
+        </dl>
+        <div class="bolts-row"><i class="bolt"></i><i class="bolt"></i><i class="bolt"></i><i class="bolt"></i></div>
+      </div>
+    </article>
+  </div>
+  <p class="note">The ticket is the unit. It is not a “creative execution of a lead form.” Print on stock thick enough to hang. Stamp the scrap time. When the clock ends, the tag is destroyed. A kept expired tag is a lie on the wall.</p>
+
+  <div class="grid-2" style="margin-top:2rem">
+    <div>
+      <p class="app-cap">13.4 Invoice</p>
+      <div class="desk">
+        <div class="invoice">
+          <div style="display:flex;justify-content:space-between;margin-bottom:1rem">
+            <img src="logo.svg" alt="JAWNIX" style="height:28px;width:auto">
+            <span class="note ids">INV-2026-0816 · Net 15</span>
+          </div>
+          <table>
+            <thead><tr><th>Unit</th><th>Origin</th><th>G</th><th>Joint</th><th>TTL</th><th>Qty</th><th>Tariff</th><th>Amt</th></tr></thead>
+            <tbody>
+              <tr><td>NX-4401–4412</td><td>Home / PA</td><td>A</td><td>Excl.</td><td>18h</td><td>12</td><td>$240</td><td>$2,880</td></tr>
+              <tr><td>NX-4418–4430</td><td>Auto / TX</td><td>B</td><td>Excl.</td><td>18h</td><td>13</td><td>$95</td><td>$1,235</td></tr>
+              <tr><td>NX-4502–4510</td><td>Legal / IL</td><td>C</td><td>Shared</td><td>—</td><td>9</td><td>$42</td><td>$378</td></tr>
+              <tr><td>NX-4599</td><td>Edu / FL</td><td>R</td><td>Shared</td><td>2h</td><td>1</td><td>$18</td><td>$18</td></tr>
+            </tbody>
+          </table>
+          <div class="tot"><span>Posted inventory</span><span>$4,511</span></div>
+          <div class="tot"><span>Return · NX-4408 disconnect</span><span>−$240</span></div>
+          <div class="tot"><span>Amount due · Net 15</span><span>$4,271</span></div>
+        </div>
+      </div>
+      <p class="note">Line items are posted leads, not a monthly SaaS seat. Returns are a credit for bad data. Unit tariffs: exclusive A $240 · exclusive B $95 · shared C $42 · remnant $18.</p>
+    </div>
+    <div>
+      <p class="app-cap">13.5 Email signature</p>
+      <div class="desk">
+        <div class="sig">
+          <img src="mark.svg" alt="" style="height:48px;width:auto">
+          <div>
+            <strong>Ada Mori</strong>
+            <small>Joints · desk</small>
+            <small>The frame remains. The inventory turns.</small>
+            <small>ada.mori@jawnix.com · Desk</small>
+          </div>
+        </div>
+      </div>
+      <p class="note">Joint rule above, mark at 48 px, no social row, no “sent from.”</p>
+      <p class="app-cap" style="margin-top:1.6rem">13.6 Landing fragment</p>
+      <div class="desk">
+        <div class="landing">
+          <div class="kicker" style="color:#8B9294"><img src="logo.svg" alt="JAWNIX" style="height:48px;width:auto;vertical-align:middle"></div>
+          <h3>The desk is the core. Inventory docks.</h3>
+          <p>Media in. Ping without PII. Bid. Post to your CRM. Exclusive 18h or shared 60s. Returns for bad data.</p>
+          <div class="strip">
+            <div><b>Grade</b>A B C R</div>
+            <div><b>Joint</b>Excl. / Shared</div>
+            <div><b>TTL</b>Stated</div>
+            <div><b>Frame</b>Remains</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid-2" style="margin-top:2rem">
+    <div>
+      <p class="app-cap">13.7 Exhibition panel</p>
+      <div class="desk">
+        <div class="panel">
+          <div class="kicker"><img src="wordmark.svg" alt="JAWNIX" style="height:28px;width:auto"></div>
+          <div class="huge" style="font-family:var(--sans);letter-spacing:0.08em;font-size:clamp(2.2rem,6vw,4rem)">18h<br>EXCL</div>
+          <div class="rule"></div>
+          <p style="position:absolute;bottom:1.2rem;left:1.5rem;margin:0;font-family:var(--mono);font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase">Ping 1800ms · Exclusive 18h · Shared 60s · Return = credit</p>
+        </div>
+      </div>
+      <p class="note">A rates wall, not a kanji souvenir. The school word 新陳代謝 stays in doctrine plates, not as an exhibition graphic.</p>
+    </div>
+    <div>
+      <p class="app-cap">13.8 Presentation cover — a slide, not a title card</p>
+      <div class="desk">
+        <div class="preso">
+          <div>
+            <div class="kicker" style="color:#8B9294">Desk review · 16 August 2026 · Plate 13.8</div>
+            <h3>Rates of change, third quarter</h3>
+            <p style="color:#8B9294;max-width:28ch;font-size:var(--t-sm)">Home exclusive is docking. Legal shared is remnant. Exclusive hold is 18 hours. Shared has no hold.</p>
+          </div>
+          <div class="rate">
+            <img src="mark.svg" alt="" style="height:56px;width:auto">
+            <div>Grade A exclusive · Home / PA</div>
+            <div>$240 / unit · TTL 18:00:00</div>
+            <div>Yield this hour: 12 docked · 0 scrap</div>
+          </div>
+        </div>
+      </div>
+      <p class="note">Sumi field, Joint dock line at 58 percent. A unit is on the wall. A rate is on the slide. Title in Shippori; figures in Mono.</p>
+    </div>
+  </div>
+
+  <p class="app-cap" style="margin-top:2rem">13.9 Desk stamp — the lockup as an object</p>
+  <div class="desk">
+    <div style="background:#E8E2D6;border:1.4px solid #141210;padding:1.6rem 1.8rem;max-width:32rem;box-shadow:8px 10px 0 rgba(20,18,16,0.12)">
+      <div class="note ids" style="margin-bottom:0.8rem">STEEL STAMP · 4 × 2.5 MODULE · JOINT EDGE</div>
+      <img src="logo.svg" alt="JAWNIX" style="width:100%;height:auto;display:block">
+      <div class="note ids" style="margin-top:0.9rem">NX-STAMP · DESK · NOT A SOUVENIR TOWER</div>
+    </div>
+  </div>
+  <p class="note">A stamp on the desk. The production lockup, not an engraved toy. Hollow or weighted with the week’s remnant tags. Not a robot. Not a crypto device. A unit that uses the logo file.</p>
+</section>
+
+<!-- 14 DO / DO NOT -->
+<section class="chapter" id="ch-14" data-title="Do and Do Not">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 14</div>
+    <h2>Do / Do Not</h2>
+    <div class="chapter-jp">可否</div>
+  </header>
+  <div class="donot">
+    <section>
+      <h3>Do</h3>
+      <ul class="plain">
+        <li>Name what lasts and what turns on every public surface.</li>
+        <li>Grade the unit. Stamp origin, joint, and TTL.</li>
+        <li>Leave a flange: show unfinished capacity.</li>
+        <li>Draw joints as joints. Four bolts or a rust bar.</li>
+        <li>Write in articles and specifications.</li>
+        <li>Use Shippori, Plex Sans JP, Plex Mono only.</li>
+        <li>Grow pages by group form and 2.5 × 4 modules.</li>
+        <li>Design replacement so it can actually happen.</li>
+        <li>Keep Japanese as doctrine (新陳代謝), not as neon ornament.</li>
+        <li>Scrap expired tags. Empty brackets are honest.</li>
+      </ul>
+    </section>
+    <section>
+      <h3>Do not</h3>
+      <ul class="plain">
+        <li>Swiss red-black-white posters. Helvetica as hero. Twelve-column piety.</li>
+        <li>Metronomes, takt, musical notation, “the interval.”</li>
+        <li>Neon Tokyo, anime, cyberpunk, purple glow, glassmorphism.</li>
+        <li>Inter, Geist, Roboto, Arial, system-ui as the voice.</li>
+        <li>Emoji, Latin filler text, handshake photography.</li>
+        <li>Robot mascots, capsule-as-character, crypto-protocol diagrams.</li>
+        <li>Relabel remnant as Grade A. Hide the umbilical. Close the flange.</li>
+        <li>Say unlock, smash, journey, ecosystem, always-on.</li>
+        <li>Use the school as Japan-flavour. This is 1960 architecture, not a district.</li>
+        <li>Bounce. The dock is linear. Tissue does not bounce.</li>
+      </ul>
+    </section>
+  </div>
+</section>
+
+<!-- 15 COLOPHON -->
+<section class="chapter dark" id="ch-15" data-title="Colophon">
+  <header class="chapter-head">
+    <div class="chapter-num">Plate 15</div>
+    <h2>Colophon</h2>
+    <div class="chapter-jp">奥付</div>
+  </header>
+  <div class="colo">
+    <div>
+      <h3 style="color:#E8E2D6">This book</h3>
+      <p>JAWNIX Metabolism, Edition 01. A desk manual for digital lead vending — media in, ping without PII, bid, post to a CRM, exclusive or shared, returns for bad data — drawn after <em>Metabolism 1960: The Proposals for New Urbanism</em>. Printed from one HTML plate. Keyboard: arrows or J/K; Home for the cover; End for this page; ? for keys.</p>
+      <p>Type: Shippori Antique; IBM Plex Sans JP; IBM Plex Mono. Loaded from Google Fonts. Colour named for materials: Sumi, Washi, Bone, Béton, Formwork, Joint, Steel, Verdigris, Umber.</p>
+    </div>
+    <div>
+      <h3 style="color:#E8E2D6">Sources held</h3>
+      <p>The desk: ping trees, boberdoo-class routers, Phonexa-class call, buyer CRMs. Category peers: QuinStreet, EverQuote, Modernize, QuoteWizard, NextGen. The drawing method: Kawazoe, Kikutake, Kurokawa, Maki, Otaka, Awazu — <em>Metabolism 1960</em>; Kurokawa, Capsule Declaration (1969); Maki, <em>Investigations in Collective Form</em> (1964). Nakagin is a warning about joints that cannot be unscrewed, not a souvenir.</p>
+    </div>
+    <div>
+      <h3 style="color:#E8E2D6">Duty</h3>
+      <p>The school is locked. We do not switch to another modernism because a season turns. We do not accept the decay of a lead as a natural historical process. We encourage active metabolic development of the desk.</p>
+      <p class="note" style="color:#8B9294">The frame remains. The inventory turns.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<div class="help" id="help" role="dialog" aria-label="Keyboard">
+  <article>
+    <h3>Keys</h3>
+    <p><kbd>←</kbd> <kbd>→</kbd> or <kbd>J</kbd> <kbd>K</kbd> — previous / next plate</p>
+    <p><kbd>Home</kbd> — cover &nbsp; <kbd>End</kbd> — colophon</p>
+    <p><kbd>0</kbd>–<kbd>9</kbd> — plates 00–09 &nbsp; <kbd>G</kbd> then digits — any plate</p>
+    <p><kbd>?</kbd> — this panel &nbsp; <kbd>Esc</kbd> — close</p>
+    <p class="note">The left core stays. Chapters dock to it.</p>
+  </article>
+</div>
+
+<script>
+(function () {
+  var chapters = Array.prototype.slice.call(document.querySelectorAll("section[id^='ch-']"));
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll("#core-nav a"));
+  var help = document.getElementById("help");
+  var gotoBuf = "";
+  var gotoTimer = null;
+
+  function idIndex(id) {
+    for (var i = 0; i < chapters.length; i++) if (chapters[i].id === id) return i;
+    return 0;
+  }
+  function currentIndex() {
+    var mid = window.scrollY + window.innerHeight * 0.28;
+    var best = 0;
+    for (var i = 0; i < chapters.length; i++) {
+      if (chapters[i].offsetTop <= mid) best = i;
+    }
+    return best;
+  }
+  function dockNav() {
+    var i = currentIndex();
+    var id = chapters[i].id;
+    navLinks.forEach(function (a) {
+      var on = a.getAttribute("href") === "#" + id;
+      a.classList.toggle("is-docked", on);
+      if (on) a.setAttribute("aria-current", "true");
+      else a.removeAttribute("aria-current");
+    });
+  }
+  function go(i) {
+    if (i < 0 || i >= chapters.length) return;
+    chapters[i].scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  window.addEventListener("scroll", dockNav, { passive: true });
+  dockNav();
+
+  var toggle = document.getElementById("core-toggle");
+  var core = document.querySelector(".core");
+  if (toggle && core) {
+    toggle.addEventListener("click", function () {
+      var open = core.classList.toggle("nav-open");
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+    navLinks.forEach(function (a) {
+      a.addEventListener("click", function () {
+        core.classList.remove("nav-open");
+        toggle.setAttribute("aria-expanded", "false");
+      });
+    });
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.target && /input|textarea/i.test(e.target.tagName)) return;
+    var k = e.key;
+    if (k === "?" || (k === "/" && e.shiftKey)) {
+      e.preventDefault();
+      help.classList.toggle("open");
+      return;
+    }
+    if (k === "Escape") { help.classList.remove("open"); return; }
+    if (help.classList.contains("open")) return;
+    if (k === "ArrowRight" || k === "k" || k === "K") { e.preventDefault(); go(currentIndex() + 1); }
+    if (k === "ArrowLeft" || k === "j" || k === "J") { e.preventDefault(); go(currentIndex() - 1); }
+    if (k === "Home") { e.preventDefault(); go(0); }
+    if (k === "End") { e.preventDefault(); go(chapters.length - 1); }
+    if (k === "g" || k === "G") { gotoBuf = ""; return; }
+    if (/^[0-9]$/.test(k)) {
+      gotoBuf += k;
+      clearTimeout(gotoTimer);
+      gotoTimer = setTimeout(function () { gotoBuf = ""; }, 800);
+      var n = parseInt(gotoBuf, 10);
+      if (n >= 0 && n < chapters.length) go(n);
+    }
+  });
+})();
+</script>
+</body>
+</html>
