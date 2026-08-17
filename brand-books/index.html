@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JAWNIX — Brand library</title>
+  <link rel="icon" href="02-metabolism/mark.svg" type="image/svg+xml" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root { --ink: #141210; --paper: #e8e2d6; --rule: #8e877a; --rust: #c24a22; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: var(--paper); color: var(--ink); }
+    body { font-family: "IBM Plex Sans", sans-serif; line-height: 1.45; }
+    .wrap { max-width: 920px; margin: 0 auto; padding: 48px 28px 96px; }
+    .k { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--rust); }
+    h1 { font-size: clamp(36px, 6vw, 60px); font-weight: 400; letter-spacing: 0.12em; margin: 10px 0 16px; }
+    .lede { max-width: 48ch; color: #3d3832; }
+    .grid { display: grid; gap: 1px; background: var(--rule); margin-top: 40px; border: 1px solid var(--rule); }
+    a.card { display: block; background: var(--paper); padding: 24px; text-decoration: none; color: inherit; }
+    a.card:hover { background: #f3eee4; }
+    .logo { display: block; height: 56px; width: auto; margin: 8px 0 14px; }
+    h2 { font-size: 22px; font-weight: 400; margin: 8px 0 10px; }
+    p { margin: 0; color: #3d3832; }
+    footer { margin-top: 36px; font-family: "IBM Plex Mono", monospace; font-size: 11px; color: #8e877a; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="k">JAWNIX · digital lead vending</div>
+    <h1>JAWNIX</h1>
+    <p class="lede">The live book is The Match. Media in, ping without PII, bid, post to a CRM. Exclusive or shared.</p>
+    <div class="grid">
+      <a class="card" href="01-the-match/index.html">
+        <div class="k">01 · The Match · live</div>
+        <img class="logo" src="01-the-match/logo.svg" alt="JAWNIX The Match logo">
+        <h2>Ping. Bid. Post.</h2>
+        <p>Light first. One word. Form, call, transfer. Filters, CPL, returns.</p>
+      </a>
+      <a class="card" href="02-metabolism/index.html">
+        <div class="k">02 · Metabolism · shelf</div>
+        <img class="logo" src="02-metabolism/logo.svg" alt="JAWNIX Metabolism logo">
+        <h2>The frame remains. The inventory turns.</h2>
+        <p>Kept as a sibling drawing method. Not the live identity.</p>
+      </a>
+    </div>
+    <footer>Buyer desk · not a consumer quote site · not a building</footer>
+  </div>
+</body>
+</html>
