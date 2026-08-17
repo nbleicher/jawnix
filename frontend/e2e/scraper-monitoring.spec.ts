@@ -97,7 +97,7 @@ test.describe("Scraper monitoring", () => {
   }) => {
     await openWorkspace(page);
 
-    await expect(page.getByText("Operations")).toBeVisible();
+    await expect(page.getByText("Operations", { exact: true })).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
     await expect(page.locator("body")).not.toContainText("river_job");
     await expect(page.locator("body")).not.toContainText("10.77.0.2");

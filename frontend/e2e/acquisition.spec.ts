@@ -31,7 +31,7 @@ test.describe("The Operations identity is consistent", () => {
     await expect(
       page.getByRole("region", { name: "Acquisition workspace" }),
     ).toBeVisible();
-    await expect(page.getByText("Operations")).toBeVisible();
+    await expect(page.getByText("Operations", { exact: true })).toBeVisible();
   });
 
   test("the rail reaches Scraper Operations and back out", async ({ page }) => {
