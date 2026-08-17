@@ -23,8 +23,8 @@ test.beforeEach(async ({ page }) => {
   calls = await mockAcquisition(page);
 });
 
-test.describe("The GMS/OPS identity is consistent", () => {
-  test("acquisition wears the Opaline operations frame", async ({ page }) => {
+test.describe("The Operations identity is consistent", () => {
+  test("acquisition wears the Match operations frame", async ({ page }) => {
     await page.goto("./admin/acquisition");
 
     await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
@@ -48,7 +48,7 @@ test.describe("The GMS/OPS identity is consistent", () => {
     ).toBeVisible();
   });
 
-  test("leaving acquisition preserves the admin Opaline theme", async ({ page }) => {
+  test("leaving acquisition preserves the admin Match theme", async ({ page }) => {
     await page.goto("./admin/acquisition");
     await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
 

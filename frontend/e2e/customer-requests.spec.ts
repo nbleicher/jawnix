@@ -396,7 +396,7 @@ test.describe("Batch Request detail deep links", () => {
     await expect(card.getByRole("link", { name: /Download/ })).toHaveCount(0);
   });
 
-  test("matches the Opaline visual baseline", async ({ page }) => {
+  test("matches the Match visual baseline", async ({ page }) => {
     await openRequestDetail(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
 

@@ -34,7 +34,7 @@ async function openOverview(
 }
 
 test.describe("Customer Overview attention queue", () => {
-  test("shows only actionable items under Opaline", async ({ page }) => {
+  test("shows only actionable items under Match", async ({ page }) => {
     await openOverview(page);
 
     await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
@@ -137,7 +137,7 @@ test.describe("Customer Overview attention queue", () => {
     await expect(page.getByRole("main").getByRole("link")).toHaveCount(0);
   });
 
-  test("matches the Opaline visual baseline", async ({ page }) => {
+  test("matches the Match visual baseline", async ({ page }) => {
     await openOverview(page);
 
     await expect(page).toHaveScreenshot("customer-overview.png", {

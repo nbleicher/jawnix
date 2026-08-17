@@ -119,8 +119,8 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("the Acquisition workspace keeps the GMS/OPS identity", () => {
-  it("renders inside the Opaline-compatible workspace frame", () => {
+describe("the Acquisition workspace keeps the Operations identity", () => {
+  it("renders inside the Match workspace frame", () => {
     renderRoute(acquisition());
 
     expect(

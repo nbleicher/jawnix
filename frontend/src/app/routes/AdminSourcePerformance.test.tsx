@@ -87,7 +87,7 @@ beforeEach(() => {
 });
 
 describe("the Source Performance workspace", () => {
-  it("renders inside the Opaline-compatible workspace frame", () => {
+  it("renders inside the Match workspace frame", () => {
     renderRoute(performance());
 
     expect(

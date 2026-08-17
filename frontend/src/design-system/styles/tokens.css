@@ -98,9 +98,10 @@
   --jx-color-accent-soft: #e8eefa;
   --jx-color-accent-contrast: #ffffff;
 
-  --jx-color-success: #0f8a5a;
+  /* Book print bid/TTL darkened until 11px chip text clears 4.5:1 on the soft wash. */
+  --jx-color-success: #0d7c51;
   --jx-color-success-soft: #e6f4ee;
-  --jx-color-warning: #c4890a;
+  --jx-color-warning: #895f07;
   --jx-color-warning-soft: #f8f0d8;
   --jx-color-danger: #b42318;
   --jx-color-danger-soft: #f8e6e4;
