@@ -843,6 +843,16 @@ def fulfill_round_robin(session: Session, settings: Settings) -> dict[str, int]:
         elif result.status == RequestStatus.waiting_inventory.value:
             waiting += 1
     session.flush()
+    leftover_approved = session.scalar(
+        select(LeadRequest.id)
+        .where(LeadRequest.status == RequestStatus.approved.value)
+        .limit(1)
+    )
+    if fulfilled and leftover_approved is not None:
+        # One Agency turn fulfills at most one request. Queue the next turn
+        # so a leftover approved request does not wait for another approval
+        # or Inventory Sync.
+        enqueue_job(session, "fulfill_round_robin")
     return {
         "agenciesVisited": visited,
         "requestsFulfilled": fulfilled,

@@ -22,6 +22,7 @@ from jawnix.models import (
     DistributionEvent,
     InventoryConflict,
     Job,
+    JobStatus,
     Lead,
     RequestStatus,
 )
@@ -470,6 +471,44 @@ def test_within_customer_round_robin_prefers_oldest_request_then_lowest_id(
     assert tied_result["requestsFulfilled"] == 1
     assert winner.status == RequestStatus.generated.value
     assert loser.status == RequestStatus.approved.value
+
+
+def test_successful_turn_queues_another_rotation_when_an_approved_request_remains(
+    session,
+    settings,
+):
+    """A Customer with two approved requests must not wait for the next
+    approval or Inventory Sync before the leftover request gets a turn.
+    """
+    customer = Agent(slug="queued-next-turn", name="Queued Next Turn")
+    session.add(customer)
+    session.flush()
+    older = make_request(session, customer, 1, ["TX"])
+    newer = make_request(session, customer, 1, ["TX"])
+    newer.created_at = older.created_at + timedelta(seconds=1)
+    session.add_all(
+        [
+            Lead(phone="2145555101", title="First Turn", state="TX"),
+            Lead(phone="2145555102", title="Second Turn", state="TX"),
+        ]
+    )
+    session.commit()
+
+    result = fulfill_round_robin(session, settings)
+    session.commit()
+
+    assert result["requestsFulfilled"] == 1
+    assert older.status == RequestStatus.generated.value
+    assert newer.status == RequestStatus.approved.value
+    queued = list(
+        session.scalars(
+            select(Job).where(
+                Job.kind == "fulfill_round_robin",
+                Job.status == JobStatus.queued.value,
+            )
+        )
+    )
+    assert len(queued) == 1
 
 
 def test_deactivated_recipient_history_releases_after_flat_hold(session, settings):
