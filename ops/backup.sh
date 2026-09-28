@@ -52,7 +52,7 @@ else
   echo "Persistent Scraper Dataset is missing: $scraper_dataset" >&2
   exit 1
 fi
-restic forget --keep-within 14d --prune
+restic forget --group-by tags --keep-within 14d --prune
 rm -f "$dump_path"
 if [ "$include_base" = "true" ]; then
   rm -rf "$base_dir"
