@@ -78,7 +78,7 @@ services:
       PGUSER: ${POSTGRES_USER:-jawnix}
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data:ro
+      - postgres_data:/var/lib/postgresql/data
       - scraper_data:/data:ro
       - ${JAWNIX_BACKUP_EXPORT_DIR:-/srv/jawnix/backups}:/srv/jawnix/backups
       - ${JAWNIX_RESTIC_REPOSITORY_DIR:-/srv/jawnix/restic-repository}:/srv/jawnix/restic-repository
