@@ -90,3 +90,4 @@ def test_backup_covers_postgresql_and_persistent_scraper_dataset():
     assert 'restic backup --tag scraper-dataset "$scraper_data"' in backup
     assert "JAWNIX_SCRAPER_RESTORE_PATH" in restore
     assert "scraper-dataset.sha256" in backup
+    assert "restic forget --group-by tags --keep-within 14d --prune" in backup
