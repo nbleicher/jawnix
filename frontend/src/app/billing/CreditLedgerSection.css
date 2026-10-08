@@ -121,11 +121,3 @@
 .credit-ledger__amount {
   font-weight: var(--jx-weight-semibold);
 }
-
-.credit-ledger__amount--credit {
-  color: var(--jx-success);
-}
-
-.credit-ledger__amount--debit {
-  color: var(--jx-danger);
-}

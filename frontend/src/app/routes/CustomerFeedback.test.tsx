@@ -306,8 +306,8 @@ describe("confirming the Lead", () => {
     const confirm = screen.getByRole("region", { name: "Confirm the Lead" });
     expect(within(confirm).getByText("Acme Roofing")).toBeVisible();
     expect(within(confirm).getByText("(214) 555-0001")).toBeVisible();
-    expect(within(confirm).getByText("b1b2c3d4")).toBeVisible();
-    expect(within(confirm).getByText(/2026/)).toBeVisible();
+    expect(within(confirm).getByText("REQ-B1B2C3D4")).toBeVisible();
+    expect(within(confirm).getByText("2026-07-20 15:00 UTC")).toBeVisible();
   });
 });
 
@@ -360,13 +360,13 @@ describe("disposition controls", () => {
     renderRoute();
     await lookUp(user);
 
-    const first = screen.getByRole("button", { name: /No Contact/ });
-    const second = screen.getByRole("button", { name: /Positive Response/ });
+    const first = screen.getByRole("radio", { name: /No Contact/ });
+    const second = screen.getByRole("radio", { name: /Positive Response/ });
     await user.click(first);
     await user.click(second);
 
-    expect(first).toHaveAttribute("aria-pressed", "false");
-    expect(second).toHaveAttribute("aria-pressed", "true");
+    expect(first).toHaveAttribute("aria-checked", "false");
+    expect(second).toHaveAttribute("aria-checked", "true");
     await user.click(screen.getByRole("button", { name: "Submit feedback" }));
 
     await waitFor(() => {
@@ -381,7 +381,7 @@ describe("disposition controls", () => {
     });
   });
 
-  it("materializes every disposition as a visible button, not a dropdown", async () => {
+  it("materializes every disposition as a visible radio in one radiogroup, not a dropdown", async () => {
     const user = userEvent.setup();
     mockApi();
     renderRoute();
@@ -389,6 +389,7 @@ describe("disposition controls", () => {
 
     const section = screen.getByRole("region", { name: "What happened?" });
     expect(within(section).queryByRole("combobox")).toBeNull();
+    expect(within(section).getByRole("radiogroup")).toBeVisible();
     for (const label of [
       "No Contact",
       "Not Interested",
@@ -399,9 +400,25 @@ describe("disposition controls", () => {
       "Do Not Contact",
       "Other",
     ]) {
-      expect(within(section).getByRole("button", { name: new RegExp(label) }))
+      expect(within(section).getByRole("radio", { name: new RegExp(label) }))
         .toBeVisible();
     }
+  });
+
+  it("moves between dispositions with the arrow keys, as radios do", async () => {
+    const user = userEvent.setup();
+    mockApi();
+    renderRoute();
+    await lookUp(user);
+
+    const first = screen.getByRole("radio", { name: /No Contact/ });
+    first.focus();
+    await user.keyboard("{ArrowRight}");
+
+    const second = screen.getByRole("radio", { name: /Not Interested/ });
+    expect(second).toHaveFocus();
+    expect(second).toHaveAttribute("aria-checked", "true");
+    expect(first).toHaveAttribute("aria-checked", "false");
   });
 
   it("groups them by meaning", async () => {
@@ -431,14 +448,14 @@ describe("disposition controls", () => {
 
     // An ordinary disposition asks for nothing further: no note field at all,
     // which is what keeps the fast path to three interactions.
-    await user.click(screen.getByRole("button", { name: /No Contact/ }));
+    await user.click(screen.getByRole("radio", { name: /No Contact/ }));
     expect(screen.queryByLabelText(/^Note/)).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: /^Other/ }));
+    await user.click(screen.getByRole("radio", { name: /^Other/ }));
     expect(screen.getByLabelText("Note (required)")).toBeVisible();
 
     // And it goes away again when the answer changes.
-    await user.click(screen.getByRole("button", { name: /No Contact/ }));
+    await user.click(screen.getByRole("radio", { name: /No Contact/ }));
     expect(screen.queryByLabelText(/^Note/)).toBeNull();
   });
 
@@ -448,7 +465,7 @@ describe("disposition controls", () => {
     renderRoute();
     await lookUp(user);
 
-    await user.click(screen.getByRole("button", { name: /^Other/ }));
+    await user.click(screen.getByRole("radio", { name: /^Other/ }));
     fetchSpy.mockClear();
     await user.click(screen.getByRole("button", { name: "Submit feedback" }));
 
@@ -466,7 +483,7 @@ describe("consequences are stated before submission", () => {
     renderRoute();
     await lookUp(user);
 
-    await user.click(screen.getByRole("button", { name: /Invalid Phone/ }));
+    await user.click(screen.getByRole("radio", { name: /Invalid Phone/ }));
 
     const review = screen.getByRole("region", {
       name: "Your answer: Invalid Phone",
@@ -483,7 +500,7 @@ describe("consequences are stated before submission", () => {
     renderRoute();
     await lookUp(user);
 
-    await user.click(screen.getByRole("button", { name: /Do Not Contact/ }));
+    await user.click(screen.getByRole("radio", { name: /Do Not Contact/ }));
 
     expect(
       within(
@@ -498,7 +515,7 @@ describe("consequences are stated before submission", () => {
     renderRoute();
     await lookUp(user);
 
-    await user.click(screen.getByRole("button", { name: /Wrong Business/ }));
+    await user.click(screen.getByRole("radio", { name: /Wrong Business/ }));
 
     const review = screen.getByRole("region", {
       name: "Your answer: Wrong Business",
@@ -519,7 +536,7 @@ describe("consequences are stated before submission", () => {
     renderRoute();
     await lookUp(user);
 
-    await user.click(screen.getByRole("button", { name: /No Contact/ }));
+    await user.click(screen.getByRole("radio", { name: /No Contact/ }));
 
     const review = screen.getByRole("region", {
       name: "Your answer: No Contact",
@@ -536,7 +553,7 @@ describe("Quality Rating is optional and independent", () => {
     renderRoute();
     await lookUp(user);
 
-    await user.click(screen.getByRole("button", { name: /No Contact/ }));
+    await user.click(screen.getByRole("radio", { name: /No Contact/ }));
     await user.click(screen.getByRole("button", { name: "Submit feedback" }));
 
     await waitFor(() => {
@@ -557,7 +574,7 @@ describe("Quality Rating is optional and independent", () => {
     mockApi();
     renderRoute();
     await lookUp(user);
-    await user.click(screen.getByRole("button", { name: /No Contact/ }));
+    await user.click(screen.getByRole("radio", { name: /No Contact/ }));
 
     const poor = screen.getByRole("button", { name: /Poor/ });
     expect(poor).toBeVisible();
@@ -573,7 +590,7 @@ describe("Quality Rating is optional and independent", () => {
     renderRoute();
     await lookUp(user);
 
-    await user.click(screen.getByRole("button", { name: /Appointment Booked/ }));
+    await user.click(screen.getByRole("radio", { name: /Appointment Booked/ }));
     await user.click(screen.getByRole("button", { name: /Poor/ }));
     await user.click(screen.getByRole("button", { name: "Submit feedback" }));
 
@@ -597,7 +614,7 @@ describe("Quality Rating is optional and independent", () => {
     mockApi();
     renderRoute();
     await lookUp(user);
-    await user.click(screen.getByRole("button", { name: /No Contact/ }));
+    await user.click(screen.getByRole("radio", { name: /No Contact/ }));
 
     const good = screen.getByRole("button", { name: /Good/ });
     await user.click(good);
@@ -619,7 +636,7 @@ describe("receipt and append-only history", () => {
     renderRoute();
     await lookUp(user);
 
-    await user.click(screen.getByRole("button", { name: /No Contact/ }));
+    await user.click(screen.getByRole("radio", { name: /No Contact/ }));
     await user.click(screen.getByRole("button", { name: /Poor/ }));
     await user.click(screen.getByRole("button", { name: "Submit feedback" }));
 
@@ -638,7 +655,7 @@ describe("receipt and append-only history", () => {
     renderRoute();
     await lookUp(user);
 
-    await user.click(screen.getByRole("button", { name: /Wrong Business/ }));
+    await user.click(screen.getByRole("radio", { name: /Wrong Business/ }));
     await user.click(screen.getByRole("button", { name: "Submit feedback" }));
 
     const confirmation = await screen.findByRole("region", { name: "Recorded" });
@@ -653,7 +670,7 @@ describe("receipt and append-only history", () => {
     renderRoute();
     await lookUp(user);
 
-    await user.click(screen.getByRole("button", { name: /No Contact/ }));
+    await user.click(screen.getByRole("radio", { name: /No Contact/ }));
     await user.click(screen.getByRole("button", { name: "Submit feedback" }));
 
     const receipt = await screen.findByRole("region", { name: "Recorded" });
@@ -723,7 +740,7 @@ describe("failure handling", () => {
     renderRoute();
     await lookUp(user);
 
-    await user.click(screen.getByRole("button", { name: /No Contact/ }));
+    await user.click(screen.getByRole("radio", { name: /No Contact/ }));
     await user.click(screen.getByRole("button", { name: "Submit feedback" }));
 
     expect(await screen.findByText(/Nothing was saved/)).toBeVisible();
@@ -751,7 +768,7 @@ describe("speed", () => {
     await user.click(screen.getByRole("button", { name: "Look up" }));
     await screen.findByRole("region", { name: "What happened?" });
     // 2
-    await user.click(screen.getByRole("button", { name: /No Contact/ }));
+    await user.click(screen.getByRole("radio", { name: /No Contact/ }));
     // 3
     await user.click(screen.getByRole("button", { name: "Submit feedback" }));
 

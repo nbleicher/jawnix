@@ -23,6 +23,35 @@ import {
   UNDERFUNDED_WALLET,
 } from "./customer-billing-fixtures";
 
+/** Delivered request whose artifact retention has already lapsed. */
+const EXPIRED_ARTIFACT_REQUEST = {
+  ...DELIVERED_REQUEST,
+  artifact: {
+    ...DELIVERED_REQUEST.artifact,
+    expires_at: "2026-07-01T16:00:00Z",
+  },
+};
+
+/** Drive the feedback flow to a looked-up Lead, then select the disposition
+ *  that carries the strongest consequence card. Tolerant of the disposition
+ *  control being a toggle button or a radio (DR-P5 migration). */
+async function selectDispositionWithConsequence(page: Page) {
+  await page
+    .getByLabel("Delivered phone number (required)")
+    .fill("2145550001");
+  await page.getByRole("button", { name: "Look up" }).click();
+  await page
+    .getByRole("region", { name: "What happened?" })
+    .waitFor({ state: "visible" });
+  const invalidPhone = page
+    .getByRole("radio", { name: /Invalid Phone/ })
+    .or(page.getByRole("button", { name: /Invalid Phone/ }));
+  await invalidPhone.click();
+  await page
+    .getByRole("region", { name: "Your answer: Invalid Phone" })
+    .waitFor({ state: "visible" });
+}
+
 /**
  * Brand screenshot harness. Renders the customer-facing surfaces against the
  * mocked API fixtures and saves full-page PNGs to brand/before-after/after/.
@@ -179,6 +208,52 @@ for (const scheme of SCHEMES) {
       await shoot(page, testInfo, `feedback-confirm-${scheme}`);
     });
 
+    test(`feedback disposition consequence (${scheme})`, async ({
+      page,
+    }, testInfo) => {
+      await mockCustomerAuth(page);
+      await mockFeedback(page);
+      await page.goto("./feedback");
+      await selectDispositionWithConsequence(page);
+      await page
+        .getByText(/files a Lead Report and places an Eligibility Hold/)
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `feedback-disposition-${scheme}`);
+    });
+
+    test(`feedback receipt (${scheme})`, async ({ page }, testInfo) => {
+      await mockCustomerAuth(page);
+      await mockFeedback(page);
+      await page.goto("./feedback");
+      await selectDispositionWithConsequence(page);
+      await page.getByRole("button", { name: "Submit feedback" }).click();
+      await page
+        .getByRole("region", { name: "Recorded" })
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `feedback-receipt-${scheme}`);
+    });
+
+    test(`request detail artifact expired (${scheme})`, async ({
+      page,
+    }, testInfo) => {
+      await page.clock.install({ time: new Date("2026-07-31T16:00:00Z") });
+      await mockCustomerAuth(page);
+      await mockBatchRequests(page, {
+        workspace: {
+          ...BATCH_REQUEST_WORKSPACE,
+          requests: [EXPIRED_ARTIFACT_REQUEST],
+        },
+      });
+      await page.goto(`./requests?request=${DELIVERED_REQUEST.id}`);
+      await page
+        .getByRole("region", { name: "Batch Artifact" })
+        .waitFor({ state: "visible" });
+      await page
+        .getByText(/Expired — email noah@jawnix\.com/)
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `requests-detail-artifact-expired-${scheme}`);
+    });
+
     test(`account billed (${scheme})`, async ({ page }, testInfo) => {
       await mockCustomerAuth(page, {
         billing: { wallet: BILLED_CUSTOMER_WALLET },
@@ -200,6 +275,23 @@ for (const scheme of SCHEMES) {
         .getByRole("heading", { level: 1, name: "Sign in" })
         .waitFor({ state: "visible" });
       await shoot(page, testInfo, `sign-in-initial-${scheme}`);
+    });
+
+    test(`sign in error (${scheme})`, async ({ page }, testInfo) => {
+      await mockCustomerAuth(page, { signInAccepted: false });
+      await page.goto("./sign-in");
+      await page
+        .getByLabel("Email address (required)")
+        .fill("customer@example.com");
+      await page
+        .getByLabel("Password (required)")
+        .fill("customer-known-password-48");
+      await page.getByRole("button", { name: "Sign in" }).click();
+      await page
+        .getByRole("alert")
+        .filter({ hasText: "We could not sign you in" })
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `sign-in-error-${scheme}`);
     });
 
     test(`accept invitation invalid (${scheme})`, async ({

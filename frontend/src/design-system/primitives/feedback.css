@@ -51,9 +51,16 @@
   text-align: center;
 }
 
+/* The book's EmptyState/ErrorState specimens are quiet statements: semibold
+   at body scale, not a display heading. */
 .jx-empty__title,
 .jx-error__title {
+  font-family: var(--jx-font-text);
+  font-stretch: normal;
+  font-size: var(--jx-text-md);
   font-weight: var(--jx-weight-semibold);
+  letter-spacing: normal;
+  line-height: var(--jx-leading-heading);
   color: var(--jx-ink);
 }
 

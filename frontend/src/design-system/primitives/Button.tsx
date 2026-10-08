@@ -42,6 +42,7 @@ export function Button({
       // `aria-disabled` rather than `disabled` while busy: a disabled element
       // drops out of the tab order and silently discards focus mid-action.
       aria-disabled={busy || disabled ? true : undefined}
+      aria-busy={busy || undefined}
       disabled={disabled && !busy}
       data-busy={busy ? "true" : undefined}
       {...rest}
@@ -55,6 +56,39 @@ export function Button({
         children
       )}
     </button>
+  );
+}
+
+export interface ButtonLinkProps
+  extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "children" | "href"> {
+  href: string;
+  variant?: Exclude<ButtonVariant, "danger">;
+  fullWidth?: boolean;
+  children: ReactNode;
+}
+
+/** A commitment that happens to be an anchor (a download, an external
+ *  document). It wears the button slab — the payoff action draws the ink —
+ *  while staying a real link so open-in-new-tab and copy-link still work. */
+export function ButtonLink({
+  variant = "primary",
+  fullWidth = false,
+  className,
+  children,
+  ...rest
+}: ButtonLinkProps) {
+  return (
+    <a
+      className={cx(
+        "jx-button",
+        `jx-button--${variant}`,
+        fullWidth ? "jx-button--full" : null,
+        className,
+      )}
+      {...rest}
+    >
+      {children}
+    </a>
   );
 }
 

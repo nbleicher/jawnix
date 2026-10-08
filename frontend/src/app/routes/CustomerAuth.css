@@ -93,7 +93,7 @@
 @media (min-width: 64rem) {
   .jx-auth-route {
     display: grid;
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.95fr);
+    grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);
     grid-template-rows: auto 1fr;
   }
 
@@ -107,7 +107,7 @@
     place-items: center;
     grid-column: 1;
     grid-row: 2;
-    background: var(--jx-sunk);
+    background: var(--jx-plate);
     border-right: var(--jx-rule) solid var(--jx-line);
     padding: var(--jx-space-6);
   }

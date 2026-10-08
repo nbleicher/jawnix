@@ -3,6 +3,8 @@
   flex-direction: column;
   min-height: 100dvh;
   background: var(--jx-paper);
+  /* Banner height feeds the sidebar's sticky offset in Navigation.css. */
+  --jx-banner-height: 3.5rem;
 }
 
 .jx-shell__skip-link {
@@ -34,52 +36,65 @@
   top: 0;
   z-index: var(--jx-z-nav);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--jx-space-4);
-  min-height: 3.5rem;
+  gap: var(--jx-space-2) var(--jx-space-4);
+  min-height: var(--jx-banner-height);
   padding: var(--jx-space-3) var(--jx-space-4);
   background: var(--jx-plate);
   border-bottom: var(--jx-rule) solid var(--jx-line);
 }
 
+/* The action cluster wraps below the lockup rather than clipping the
+   wordmark; each control keeps its own 44px target. */
 .jx-shell__header-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--jx-space-2);
+  min-width: 0;
 }
 
 .jx-shell__header-actions .jx-button {
   white-space: nowrap;
 }
 
+/* Solid accent block on the same timing — no gradients (ch3). */
 .jx-shell__progress {
   height: var(--jx-rule-heavy);
   background: transparent;
   overflow: hidden;
 }
 
-.jx-shell__progress[data-active="true"] {
-  background: linear-gradient(90deg, transparent, var(--jx-accent), transparent);
-  background-size: 40% 100%;
-  background-repeat: no-repeat;
+.jx-shell__progress::before {
+  content: "";
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--jx-accent);
+  transform: translateX(-100%);
+}
+
+.jx-shell__progress[data-active="true"]::before {
   animation: jx-progress-slide var(--jx-duration-slow) linear infinite;
 }
 
 @keyframes jx-progress-slide {
   0% {
-    background-position: -40% 0;
+    transform: translateX(-100%);
   }
   100% {
-    background-position: 140% 0;
+    transform: translateX(250%);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .jx-shell__progress[data-active="true"] {
+  .jx-shell__progress[data-active="true"]::before {
     animation: none;
-    background: var(--jx-accent);
-    background-size: 100% 100%;
+    width: 100%;
+    transform: none;
     opacity: 0.5;
   }
 }
@@ -93,9 +108,14 @@
 .jx-shell__main {
   flex: 1;
   min-width: 0;
-  /* Clears the fixed mobile navigation bar. */
+  /* Clears the fixed mobile navigation bar: the bar is one touch target plus
+     its own padding and the home-indicator inset; content gets a full rhythm
+     step beyond that. */
   padding: var(--jx-space-5) var(--jx-space-4)
-    calc(var(--jx-space-8) + env(safe-area-inset-bottom, 0px));
+    calc(
+      var(--jx-touch-target) + var(--jx-space-6) +
+      env(safe-area-inset-bottom, 0px)
+    );
 }
 
 .jx-shell__main:focus {
@@ -114,14 +134,6 @@
 }
 
 @media (max-width: 32rem) {
-  .jx-shell__banner {
-    gap: var(--jx-space-2);
-  }
-
-  .jx-shell__header-actions {
-    gap: 0;
-  }
-
   .jx-shell__header-actions .jx-button {
     padding-inline: var(--jx-space-3);
   }

@@ -146,7 +146,11 @@
     grid-template-columns: 1fr;
   }
 
-  .setup-problem__details {
+.account-contact {
+  border-top: var(--jx-rule-heavy) solid var(--jx-ink);
+}
+
+.setup-problem__details {
     grid-template-columns: 1fr;
   }
 }

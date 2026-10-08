@@ -26,7 +26,7 @@ import { useDocumentTitle } from "../shell/useDocumentTitle";
 import "./CustomerAuth.css";
 
 const SIGN_IN_ERROR =
-  "We could not sign you in. Check your details or ask your administrator for help.";
+  "We could not sign you in. Check your details, or email noah@jawnix.com — Noah answers it.";
 const INVITATION_ERROR =
   "This invitation cannot be used. Ask your administrator for a new invitation, or sign in if you already set your password.";
 

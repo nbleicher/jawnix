@@ -23,12 +23,31 @@ import {
   LEDGER_KIND_LABEL,
   hasProcessingPurchase,
   type CreditLedgerEntry,
+  type CreditLedgerKind,
   type CreditPurchase,
   type CreditWallet,
 } from "./wallet";
-import { formatMilestoneTime } from "../routes/MilestoneGraph";
 
 import "./CreditLedgerSection.css";
+
+/** Ledger dates are records, not prose: ISO-UTC, always ("2026-08-02 15:00
+ *  UTC"), so a row reads identically in every locale and timezone. */
+function formatLedgerTime(value: string): string {
+  return `${new Date(value).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+const LEDGER_KIND_PREFIX: Record<CreditLedgerKind, string> = {
+  purchase: "CP",
+  batch_charge: "BC",
+  admin_adjustment: "AD",
+};
+
+/** Short mono reference (CP-XXXXXXXX); the full id stays on the title. */
+function shortLedgerReference(entry: CreditLedgerEntry): string {
+  return `${LEDGER_KIND_PREFIX[entry.kind]}-${entry.id
+    .slice(0, 8)
+    .toUpperCase()}`;
+}
 
 function LedgerDescription({ entry }: { entry: CreditLedgerEntry }) {
   if (entry.kind === "admin_adjustment" && entry.reason) {
@@ -59,7 +78,7 @@ function PurchaseRow({ purchase }: { purchase: CreditPurchase }) {
             <Mono>{formatCents(purchase.amountCents)}</Mono>
           </Heading>
           <Text size="sm" tone="muted">
-            Started <Mono>{formatMilestoneTime(purchase.createdAt)}</Mono>
+            Started <Mono>{formatLedgerTime(purchase.createdAt)}</Mono>
           </Text>
         </Stack>
         <StatusBadge tone={presentation.tone}>
@@ -100,7 +119,12 @@ function LedgerTable({ wallet }: { wallet: CreditWallet }) {
   );
 
   return (
-    <div className="credit-ledger-tablewrap">
+    <div
+      className="credit-ledger-tablewrap"
+      tabIndex={0}
+      role="region"
+      aria-label="Credit Ledger table"
+    >
       <table className="credit-ledger">
         <thead>
           <tr>
@@ -108,7 +132,7 @@ function LedgerTable({ wallet }: { wallet: CreditWallet }) {
             <th scope="col">Entry</th>
             <th scope="col">Reference</th>
             <th scope="col" className="credit-ledger__num">Amount</th>
-            <th scope="col" className="credit-ledger__num">Balance</th>
+            <th scope="col" className="credit-ledger__num">Balance after</th>
           </tr>
         </thead>
         <tbody>
@@ -117,7 +141,7 @@ function LedgerTable({ wallet }: { wallet: CreditWallet }) {
             return (
               <tr key={entry.id}>
                 <td className="credit-ledger__data">
-                  {formatMilestoneTime(entry.createdAt)}
+                  {formatLedgerTime(entry.createdAt)}
                 </td>
                 <td>
                   <span className="credit-ledger__kind">
@@ -128,16 +152,11 @@ function LedgerTable({ wallet }: { wallet: CreditWallet }) {
                   </span>
                 </td>
                 <td className="credit-ledger__data">
-                  <Mono>{entry.id}</Mono>
+                  <Mono title={entry.id}>{shortLedgerReference(entry)}</Mono>
                 </td>
                 <td className="credit-ledger__num">
-                  <span
-                    className={
-                      credit
-                        ? "credit-ledger__amount credit-ledger__amount--credit"
-                        : "credit-ledger__amount credit-ledger__amount--debit"
-                    }
-                  >
+                  {/* Ink, never pigment: the +/− sign carries direction. */}
+                  <span className="credit-ledger__amount">
                     {`${credit ? "+" : "−"}${formatCents(Math.abs(entry.amountCents))}`}
                   </span>
                 </td>
@@ -157,12 +176,10 @@ function PurchaseReturnNotice({
   outcome,
   processing,
   failed,
-  onClear,
 }: {
   outcome: "success" | "cancelled" | null;
   processing: boolean;
   failed: boolean;
-  onClear: () => void;
 }) {
   const { refresh } = useCreditWallet();
   const [params, setParams] = useSearchParams();
@@ -178,18 +195,6 @@ function PurchaseReturnNotice({
   useEffect(() => {
     if (outcome === "success") void refresh();
   }, [outcome, refresh]);
-
-  useEffect(() => {
-    if (outcome === "cancelled") {
-      const timer = window.setTimeout(onClear, 8_000);
-      return () => window.clearTimeout(timer);
-    }
-    if (outcome === "success" && !processing) {
-      const timer = window.setTimeout(onClear, 8_000);
-      return () => window.clearTimeout(timer);
-    }
-    return undefined;
-  }, [outcome, processing, onClear]);
 
   if (outcome === "cancelled") {
     return (
@@ -249,11 +254,12 @@ export function CreditLedgerSection() {
 
   return (
     <>
+      {/* Money events do not vanish: the notice persists until the page is
+          left, never on a timer. */}
       <PurchaseReturnNotice
         outcome={outcome}
         processing={processing}
         failed={latestPurchaseFailed}
-        onClear={() => setOutcome(null)}
       />
 
       <Section

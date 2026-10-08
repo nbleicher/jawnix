@@ -123,7 +123,7 @@ test.describe("Customer sign-in and session lifecycle", () => {
     const error = page.getByRole("alert");
     await expect(error).toBeFocused();
     await expect(error).toHaveText(
-      "We could not sign you in. Check your details or ask your administrator for help.",
+      "We could not sign you in. Check your details, or email noah@jawnix.com — Noah answers it.",
     );
     await expect(page.locator("body")).not.toContainText("provider-known-secret-48");
     await expect(page.locator("body")).not.toContainText("customer-known-password-48");

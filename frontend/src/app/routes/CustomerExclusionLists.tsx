@@ -195,8 +195,8 @@ export function CustomerExclusionListsSection() {
                     }
                   />
                 </Field>
-                <Button type="submit" disabled={busy}>
-                  {busy ? "Uploading…" : "Upload list"}
+                <Button type="submit" busy={busy} busyLabel="Uploading…">
+                  Upload list
                 </Button>
               </Cluster>
               {uploadFailure ? (

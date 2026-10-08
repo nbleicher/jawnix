@@ -49,6 +49,7 @@
 
   --jx-tracking-label: 0.09em;
   --jx-tracking-wordmark: 0.04em; /* the name, set: Archivo 700 caps, +0.04em */
+  --jx-text-wordmark: 0.95rem;    /* ch9 header specimen — off the body scale */
   --jx-tracking-tight: -0.015em;
 
   /* Numerals: tabular always. */

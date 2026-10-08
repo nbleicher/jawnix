@@ -15,6 +15,7 @@ import {
 import { StatusBadge } from "../../design-system/primitives/status";
 import { Heading, Mono, Text } from "../../design-system/primitives/typography";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
+import { formatRequestRef } from "./batchRequests";
 import { CustomerExclusionListsSection } from "./CustomerExclusionLists";
 
 import "./CustomerFeedback.css";
@@ -168,6 +169,15 @@ function formatDateTime(value: string): string {
   }).format(parsed);
 }
 
+/** Ledger timestamps on record surfaces are ISO-UTC ("2026-07-20 15:00 UTC")
+ *  so a delivery reads identically in every timezone. */
+function formatLedgerTime(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${parsed.getUTCFullYear()}-${pad(parsed.getUTCMonth() + 1)}-${pad(parsed.getUTCDate())} ${pad(parsed.getUTCHours())}:${pad(parsed.getUTCMinutes())} UTC`;
+}
+
 export async function feedbackLoader(): Promise<FeedbackCatalog> {
   const response = await fetch("/api/me/feedback/dispositions", {
     credentials: "same-origin",
@@ -186,6 +196,29 @@ function labelFor(catalog: FeedbackCatalog, disposition: string): string {
     if (found) return found.label;
   }
   return disposition;
+}
+
+/** The selected-state witness. Rendered, not pseudo-element text content, so
+ *  the glyph never leaks into the accessible name or copy-paste. */
+function CheckWitness() {
+  return (
+    <svg
+      className="customer-feedback__option-check"
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M2 6.5 4.8 9.3 10 2.7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="square"
+      />
+    </svg>
+  );
 }
 
 export function CustomerFeedbackRoute() {
@@ -216,6 +249,42 @@ export function CustomerFeedbackRoute() {
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState("");
   const [reportSaved, setReportSaved] = useState("");
+
+  // Dispositions are mutually exclusive across every group, so one
+  // radiogroup spans the fieldsets; quality ratings below stay true toggles.
+  const dispositionOrder = catalog.groups.flatMap((group) => group.options);
+  const dispositionIndex = new Map(
+    dispositionOrder.map((option, index) => [option.disposition, index]),
+  );
+
+  function chooseDisposition(option: DispositionOption) {
+    setSelected(option);
+    setSubmitError("");
+    setReceipt(null);
+  }
+
+  function onDispositionKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const { key } = event;
+    if (
+      key !== "ArrowRight"
+      && key !== "ArrowDown"
+      && key !== "ArrowLeft"
+      && key !== "ArrowUp"
+    ) {
+      return;
+    }
+    const radios = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]'),
+    );
+    const current = radios.indexOf(document.activeElement as HTMLElement);
+    if (current < 0) return;
+    event.preventDefault();
+    const delta = key === "ArrowRight" || key === "ArrowDown" ? 1 : radios.length - 1;
+    const next = radios[(current + delta) % radios.length];
+    if (!next) return;
+    next.focus();
+    next.click();
+  }
 
   function resetEntry() {
     setSelected(null);
@@ -462,7 +531,10 @@ export function CustomerFeedbackRoute() {
                             </span>
                             <span className="customer-feedback__option-description">
                               <Mono>
-                                {formatPhone(result.phone)} · Batch {result.batchId}
+                                {formatPhone(result.phone)}
+                                {result.batchId
+                                  ? ` · ${formatRequestRef(result.batchId)}`
+                                  : ""}
                               </Mono>
                             </span>
                           </button>
@@ -495,11 +567,17 @@ export function CustomerFeedbackRoute() {
                     { term: "Phone", description: formatPhone(lead.phone) },
                     {
                       term: "Delivered",
-                      description: formatDateTime(lead.deliveredAt),
+                      description: (
+                        <Mono>{formatLedgerTime(lead.deliveredAt)}</Mono>
+                      ),
                     },
                     {
                       term: "Batch",
-                      description: lead.batchId ?? "Not part of a batch",
+                      description: lead.batchId ? (
+                        <Mono>{formatRequestRef(lead.batchId)}</Mono>
+                      ) : (
+                        "Not part of a batch"
+                      ),
                     },
                   ]}
                 />
@@ -510,7 +588,12 @@ export function CustomerFeedbackRoute() {
               title="What happened?"
               description="Choose the closest answer. You can add another answer later; nothing is overwritten."
             >
-              <Stack gap={5}>
+              <Stack
+                gap={5}
+                role="radiogroup"
+                aria-label="What happened?"
+                onKeyDown={onDispositionKeyDown}
+              >
                   {catalog.groups.map((group) => (
                     <Fieldset legend={group.label} key={group.group}>
                       <div className="customer-feedback__options">
@@ -522,14 +605,21 @@ export function CustomerFeedbackRoute() {
                               type="button"
                               key={option.disposition}
                               className="customer-feedback__option"
-                              aria-pressed={isSelected}
-                              onClick={() => {
-                                setSelected(option);
-                                setSubmitError("");
-                                setReceipt(null);
-                              }}
+                              role="radio"
+                              aria-checked={isSelected}
+                              tabIndex={
+                                selected
+                                  ? isSelected
+                                    ? 0
+                                    : -1
+                                  : dispositionIndex.get(option.disposition) === 0
+                                    ? 0
+                                    : -1
+                              }
+                              onClick={() => chooseDisposition(option)}
                             >
                               <span className="customer-feedback__option-label">
+                                {isSelected ? <CheckWitness /> : null}
                                 {option.label}
                               </span>
                               <span className="customer-feedback__option-description">
@@ -603,6 +693,7 @@ export function CustomerFeedbackRoute() {
                           }
                         >
                           <span className="customer-feedback__option-label">
+                            {rating === option.value ? <CheckWitness /> : null}
                             {option.label}
                           </span>
                           <span className="customer-feedback__option-description">
@@ -619,6 +710,7 @@ export function CustomerFeedbackRoute() {
 
                   <div>
                     <Button
+                      variant="primary"
                       onClick={() => void submit()}
                       busy={submitting}
                       busyLabel="Recording…"
@@ -670,7 +762,7 @@ export function CustomerFeedbackRoute() {
 
             <Section
               title="File a Lead Report"
-              description="Use this when a quality rating is not enough and an administrator should review the Lead. Data and compliance dispositions above already file a report automatically."
+              description="Use this when a quality rating is not enough — Noah reviews every report. Data and compliance dispositions above already file a report automatically. Upheld reports are credited to your Credit Wallet."
             >
               <Card>
                 <Stack gap={4}>
@@ -700,7 +792,7 @@ export function CustomerFeedbackRoute() {
                     description={
                       reportReason === "other"
                         ? "Required for Other."
-                        : "Optional context for the administrator."
+                        : "Optional context for Noah."
                     }
                     required={reportReason === "other"}
                   >
@@ -723,6 +815,7 @@ export function CustomerFeedbackRoute() {
                   ) : null}
                   <div>
                     <Button
+                      variant="primary"
                       onClick={() => void submitReport()}
                       busy={reportBusy}
                       busyLabel="Filing…"

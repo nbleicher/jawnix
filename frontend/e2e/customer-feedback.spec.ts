@@ -68,9 +68,8 @@ test.describe("Confirming the delivered Lead", () => {
     const confirm = page.getByRole("region", { name: "Confirm the Lead" });
     await expect(confirm.getByText("Acme Roofing")).toBeVisible();
     await expect(confirm.getByText("(214) 555-0001")).toBeVisible();
-    await expect(
-      confirm.getByText("11111111-1111-4111-8111-111111111111"),
-    ).toBeVisible();
+    await expect(confirm.getByText("REQ-11111111")).toBeVisible();
+    await expect(confirm.getByText("2026-07-20 15:00 UTC")).toBeVisible();
   });
 });
 
@@ -88,12 +87,12 @@ test.describe("Searching delivered batches", () => {
     await expect(
       page.getByRole("region", { name: "Confirm the Lead" }),
     ).toBeVisible();
-    const first = page.getByRole("button", { name: /No Contact/ });
-    const second = page.getByRole("button", { name: /Positive Response/ });
+    const first = page.getByRole("radio", { name: /No Contact/ });
+    const second = page.getByRole("radio", { name: /Positive Response/ });
     await first.click();
     await second.click();
-    await expect(first).toHaveAttribute("aria-pressed", "false");
-    await expect(second).toHaveAttribute("aria-pressed", "true");
+    await expect(first).toHaveAttribute("aria-checked", "false");
+    await expect(second).toHaveAttribute("aria-checked", "true");
 
     await page.getByRole("button", { name: "Submit feedback" }).click();
     await expect(page.getByRole("region", { name: "Recorded" })).toBeVisible();
@@ -158,7 +157,7 @@ test.describe("Control materialization", () => {
     await page.goto("./feedback");
     await lookUp(page);
 
-    await page.getByRole("button", { name: /^Other/ }).click();
+    await page.getByRole("radio", { name: /^Other/ }).click();
     await expect(page.getByLabel("Note (required)")).toBeVisible();
 
     await page.getByRole("button", { name: "Submit feedback" }).click();
@@ -192,7 +191,7 @@ test.describe("Consequences are explained before submission", () => {
     await page.goto("./feedback");
     await lookUp(page);
 
-    await page.getByRole("button", { name: /Invalid Phone/ }).click();
+    await page.getByRole("radio", { name: /Invalid Phone/ }).click();
 
     const review = page.getByRole("region", {
       name: "Your answer: Invalid Phone",
@@ -207,7 +206,7 @@ test.describe("Consequences are explained before submission", () => {
     await page.goto("./feedback");
     await lookUp(page);
 
-    await page.getByRole("button", { name: /Do Not Contact/ }).click();
+    await page.getByRole("radio", { name: /Do Not Contact/ }).click();
 
     await expect(
       page
@@ -222,7 +221,7 @@ test.describe("Consequences are explained before submission", () => {
     await page.goto("./feedback");
     await lookUp(page);
 
-    await page.getByRole("button", { name: /Wrong Business/ }).click();
+    await page.getByRole("radio", { name: /Wrong Business/ }).click();
 
     const review = page.getByRole("region", {
       name: "Your answer: Wrong Business",
@@ -240,7 +239,7 @@ test.describe("Consequences are explained before submission", () => {
     await page.goto("./feedback");
     await lookUp(page);
 
-    await page.getByRole("button", { name: /No Contact/ }).click();
+    await page.getByRole("radio", { name: /No Contact/ }).click();
 
     const review = page.getByRole("region", {
       name: "Your answer: No Contact",
@@ -256,7 +255,7 @@ test.describe("Quality Rating is optional and independent", () => {
   }) => {
     await page.goto("./feedback");
     await lookUp(page);
-    await page.getByRole("button", { name: /No Contact/ }).click();
+    await page.getByRole("radio", { name: /No Contact/ }).click();
 
     await expect(
       page.getByText(/Nothing is withdrawn and nothing is filed for review/),
@@ -270,7 +269,7 @@ test.describe("Quality Rating is optional and independent", () => {
     await page.goto("./feedback");
     await lookUp(page);
 
-    await page.getByRole("button", { name: /No Contact/ }).click();
+    await page.getByRole("radio", { name: /No Contact/ }).click();
     await page.getByRole("button", { name: "Submit feedback" }).click();
     await expect(page.getByRole("region", { name: "Recorded" })).toBeVisible();
 
@@ -282,7 +281,7 @@ test.describe("Quality Rating is optional and independent", () => {
     await page.goto("./feedback");
     await lookUp(page);
 
-    await page.getByRole("button", { name: /Appointment Booked/ }).click();
+    await page.getByRole("radio", { name: /Appointment Booked/ }).click();
     await page.getByRole("button", { name: /Poor/ }).click();
     await page.getByRole("button", { name: "Submit feedback" }).click();
     await expect(page.getByRole("region", { name: "Recorded" })).toBeVisible();
@@ -333,12 +332,12 @@ test.describe("Receipt and append-only history", () => {
     await page.goto("./feedback");
     await lookUp(page);
 
-    await page.getByRole("button", { name: /No Contact/ }).click();
+    await page.getByRole("radio", { name: /No Contact/ }).click();
     await page.getByRole("button", { name: "Submit feedback" }).click();
     await expect(page.getByRole("region", { name: "Recorded" })).toBeVisible();
 
     // The Customer reconsiders and answers again.
-    await page.getByRole("button", { name: /Positive Response/ }).click();
+    await page.getByRole("radio", { name: /Positive Response/ }).click();
     await page.getByRole("button", { name: "Submit feedback" }).click();
 
     const history = page.getByRole("region", { name: "Feedback history" });
@@ -355,7 +354,7 @@ test.describe("Receipt and append-only history", () => {
     await page.goto("./feedback");
     await lookUp(page);
 
-    await page.getByRole("button", { name: /No Contact/ }).click();
+    await page.getByRole("radio", { name: /No Contact/ }).click();
     await page.getByRole("button", { name: "Submit feedback" }).click();
 
     const receipt = page.getByRole("region", { name: "Recorded" });
@@ -386,10 +385,10 @@ test.describe("Keyboard operation", () => {
       throw new Error("control was not reachable by Tab within 40 stops");
     }
 
-    const choice = page.getByRole("button", { name: /No Contact/ });
+    const choice = page.getByRole("radio", { name: /No Contact/ });
     await tabTo(choice);
     await page.keyboard.press("Enter");
-    await expect(choice).toHaveAttribute("aria-pressed", "true");
+    await expect(choice).toHaveAttribute("aria-checked", "true");
 
     const submit = page.getByRole("button", { name: "Submit feedback" });
     await tabTo(submit);
@@ -419,7 +418,7 @@ test.describe("Speed", () => {
 
     const started = Date.now();
     await page.getByRole("button", { name: "Look up" }).click();
-    await page.getByRole("button", { name: /No Contact/ }).click();
+    await page.getByRole("radio", { name: /No Contact/ }).click();
     await page.getByRole("button", { name: "Submit feedback" }).click();
     await expect(page.getByRole("region", { name: "Recorded" })).toBeVisible();
     const elapsed = Date.now() - started;
@@ -434,7 +433,7 @@ test.describe("Speed", () => {
     await page.getByLabel("Delivered phone number (required)").fill("2145550001");
 
     await page.getByRole("button", { name: "Look up" }).click();
-    await page.getByRole("button", { name: /No Contact/ }).click();
+    await page.getByRole("radio", { name: /No Contact/ }).click();
     await page.getByRole("button", { name: "Submit feedback" }).click();
 
     await expect(page.getByRole("region", { name: "Recorded" })).toBeVisible();

@@ -37,7 +37,7 @@ test.describe("Customer shell", () => {
       name: "Support",
     });
     await expect(support).toBeVisible();
-    await expect(support).toHaveAttribute("href", "mailto:hai@jawnix.com");
+    await expect(support).toHaveAttribute("href", "mailto:noah@jawnix.com");
 
     await page
       .getByRole("navigation", { name: "Customer" })

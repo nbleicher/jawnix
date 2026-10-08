@@ -207,3 +207,23 @@ export function cancelBatchRequest(id: string): Promise<BatchRequest> {
 export function newSubmissionKey(): string {
   return crypto.randomUUID();
 }
+
+/**
+ * The book's short reference idiom: kind prefix + first 8 of the id,
+ * uppercase, mono ("REQ-7C3D19AB"). Typeable against the buyer's spreadsheet,
+ * where a 36-char UUID is not.
+ */
+export function formatRequestRef(id: string): string {
+  return `REQ-${id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+}
+
+const REQUEST_ID_PATTERN =
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/** Derives the short reference from a string that carries a request id
+ *  (an attention-item id like "batch-ready:<uuid>", or an href). Returns
+ *  null when the string holds no request id at all. */
+export function deriveRequestRef(source: string): string | null {
+  const match = source.match(REQUEST_ID_PATTERN);
+  return match ? formatRequestRef(match[0]) : null;
+}

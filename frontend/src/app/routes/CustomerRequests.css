@@ -83,6 +83,32 @@
   font-feature-settings: var(--jx-font-features-numeral);
 }
 
+/* The Cost equation never wraps mid-arithmetic (book ch10): it takes the
+   full row rather than letting the auto-fit grid strangle it. */
+.request-flow__equation-row {
+  grid-column: 1 / -1;
+}
+
+.request-flow__equation {
+  white-space: nowrap;
+}
+
+/* Mobile commit row per the book's Quantity specimen: Back flex:1,
+   Continue flex:2. */
+@media (max-width: 30rem) {
+  .request-flow__commit {
+    flex-wrap: nowrap;
+  }
+
+  .request-flow__back {
+    flex: 1;
+  }
+
+  .request-flow__continue {
+    flex: 2;
+  }
+}
+
 .request-flow__receipt {
   border-color: var(--jx-success);
   background: var(--jx-success-soft);

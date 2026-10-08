@@ -4,9 +4,10 @@
   position: fixed;
   inset: auto 0 0 0;
   z-index: var(--jx-z-nav);
+  /* Solid plate: scrolled content must never show through the bar. */
   background: var(--jx-plate);
   border-top: var(--jx-rule) solid var(--jx-line);
-  /* Keep clear of the iOS home indicator. */
+  /* Keep clear of the iOS home indicator; the plate covers the inset too. */
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
 
@@ -65,10 +66,12 @@
   .jx-nav {
     position: sticky;
     inset: 0 auto auto 0;
-    top: 0;
+    /* Sit below the sticky banner + progress rule, and take only the
+       remaining viewport — 100dvh here would overrun short screens. */
+    top: calc(var(--jx-banner-height, 3.5rem) + var(--jx-rule-heavy));
     align-self: start;
     width: var(--jx-sidebar);
-    height: 100dvh;
+    height: calc(100dvh - var(--jx-banner-height, 3.5rem) - var(--jx-rule-heavy));
     overflow-y: auto;
     border-top: 0;
     border-right: var(--jx-rule) solid var(--jx-line);

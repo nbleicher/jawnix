@@ -77,6 +77,28 @@
   line-height: var(--jx-leading-body);
 }
 
+/* The native file-chooser pill inside the sunk well is a control too: it
+   takes the secondary-button look (plate, control-grade rule, zero radius)
+   in both schemes instead of the browser's rounded grey. */
+.jx-input::file-selector-button {
+  font: inherit;
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-semibold);
+  min-height: calc(var(--jx-touch-target) - var(--jx-space-2));
+  padding: 0 var(--jx-space-4);
+  margin-inline-end: var(--jx-space-3);
+  border: var(--jx-rule) solid var(--jx-line-control);
+  border-radius: var(--jx-radius-none);
+  background: var(--jx-plate);
+  color: var(--jx-ink);
+  cursor: pointer;
+}
+
+.jx-input::file-selector-button:hover {
+  background: var(--jx-sunk);
+  border-color: var(--jx-ink);
+}
+
 .jx-select {
   appearance: none;
   padding-right: var(--jx-space-6);

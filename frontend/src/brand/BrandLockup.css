@@ -34,7 +34,7 @@
   font-family: var(--jx-font-text);
   font-stretch: 100%;
   font-weight: var(--jx-weight-bold);
-  font-size: var(--jx-text-lg);
+  font-size: var(--jx-text-wordmark);
   letter-spacing: var(--jx-tracking-wordmark);
   line-height: 1;
   text-transform: uppercase;

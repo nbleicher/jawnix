@@ -6,7 +6,7 @@ import {
   useSearchParams,
 } from "react-router";
 
-import { ActionLink, Button } from "../../design-system/primitives/Button";
+import { ActionLink, Button, ButtonLink } from "../../design-system/primitives/Button";
 import { cx } from "../../design-system/primitives/cx";
 import { ConfirmDialog } from "../../design-system/primitives/Dialog";
 import { EmptyState } from "../../design-system/primitives/feedback";
@@ -44,6 +44,7 @@ import type { CreditWallet } from "../billing/wallet";
 import { MilestoneGraph, formatMilestoneTime } from "./MilestoneGraph";
 import {
   cancelBatchRequest,
+  formatRequestRef,
   newSubmissionKey,
   submitBatchRequest,
 } from "./batchRequests";
@@ -624,11 +625,11 @@ function RequestFlow({
                           {formatLeadRate(billing.leadRateCentsPerThousand)}
                         </dd>
                       </div>
-                      <div>
+                      <div className="request-flow__equation-row">
                         <dt>
                           <LabelText>Cost</LabelText>
                         </dt>
-                        <dd>
+                        <dd className="request-flow__equation">
                           {`${formatCount(Number(quantity.trim()))} × ${formatLeadRate(billing.leadRateCentsPerThousand)} = ${formatCents(holdCents)}`}
                         </dd>
                       </div>
@@ -667,13 +668,19 @@ function RequestFlow({
               </Stack>
             ) : null}
 
-            <Cluster>
+            <Cluster className="request-flow__commit">
               {stage > 0 ? (
-                <Button onClick={() => setStage(stage - 1)}>Back</Button>
+                <Button
+                  className="request-flow__back"
+                  onClick={() => setStage(stage - 1)}
+                >
+                  Back
+                </Button>
               ) : null}
               <Button
                 type="submit"
                 variant="primary"
+                className="request-flow__continue"
                 busy={busy}
                 busyLabel="Submitting…"
                 disabled={stage === 3 && insufficient}
@@ -789,9 +796,11 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
         ) : null}
 
         {live && artifact?.download_href ? (
-          <ActionLink href={artifact.download_href} variant="primary">
-            Download zip
-          </ActionLink>
+          <div>
+            <ButtonLink href={artifact.download_href} variant="primary">
+              Download zip
+            </ButtonLink>
+          </div>
         ) : (
           <Text size="sm">
             Batch files are retained for 30 days. Email noah@jawnix.com and
@@ -843,7 +852,8 @@ function RequestDetail({
               {`${formatCount(request.lead_count)} lead Batch Request`}
             </Heading>
             <Text size="sm" tone="muted">
-              {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)}`}
+              {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)} · `}
+              <Mono>{formatRequestRef(request.id)}</Mono>
             </Text>
           </Stack>
           <StatusBadge tone={request.status.tone}>
@@ -935,7 +945,8 @@ function RequestSummary({ request }: { request: BatchRequest }) {
           <Stack gap={2}>
             <Heading level={3}>{`${formatCount(request.lead_count)} leads`}</Heading>
             <Text size="sm" tone="muted">
-              {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)}`}
+              {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)} · `}
+              <Mono>{formatRequestRef(request.id)}</Mono>
             </Text>
             <Text size="sm">{request.status.description}</Text>
             <ActionLink href={request.receipt_href} variant="secondary">

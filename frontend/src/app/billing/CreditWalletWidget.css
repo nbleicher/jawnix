@@ -43,8 +43,4 @@
     gap: var(--jx-space-2);
     padding-inline: var(--jx-space-2);
   }
-
-  .credit-wallet-widget__label {
-    display: none;
-  }
 }
