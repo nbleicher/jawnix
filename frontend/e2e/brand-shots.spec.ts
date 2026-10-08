@@ -22,6 +22,12 @@ import {
   BILLED_CUSTOMER_WALLET,
   UNDERFUNDED_WALLET,
 } from "./customer-billing-fixtures";
+import { mockAdminMFA } from "./mfa-fixtures";
+import { mockFulfillment } from "./fulfillment-fixtures";
+import { mockLeadReports } from "./lead-report-fixtures";
+import { mockAdminCustomers } from "./admin-customers-fixtures";
+import { mockAcquisition } from "./acquisition-fixtures";
+import { mockActivity } from "./activity-fixtures";
 
 /** Delivered request whose artifact retention has already lapsed. */
 const EXPIRED_ARTIFACT_REQUEST = {
@@ -338,6 +344,70 @@ for (const scheme of SCHEMES) {
         .getByRole("heading", { level: 1, name: "Design system" })
         .waitFor({ state: "visible" });
       await shoot(page, testInfo, `design-system-gallery-${scheme}`);
+    });
+  });
+}
+
+for (const scheme of SCHEMES) {
+  test.describe(`admin brand shots (${scheme})`, () => {
+    test.describe.configure({ mode: "serial" });
+
+    test.beforeEach(async ({ page }) => {
+      await setScheme(page, scheme);
+      await mockAdminMFA(page, { assurance: "aal2" });
+    });
+
+    test(`admin overview (${scheme})`, async ({ page }, testInfo) => {
+      await page.goto("./admin/overview");
+      await page
+        .getByText("8 pending operations identified")
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `admin-overview-${scheme}`);
+    });
+
+    test(`admin fulfillment (${scheme})`, async ({ page }, testInfo) => {
+      await mockFulfillment(page);
+      await mockLeadReports(page);
+      await page.goto("./admin/fulfillment");
+      await page
+        .getByRole("heading", { level: 1, name: "Fulfillment" })
+        .waitFor({ state: "visible" });
+      await page
+        .getByRole("region", { name: "Batch Requests" })
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `admin-fulfillment-${scheme}`);
+    });
+
+    test(`admin customers (${scheme})`, async ({ page }, testInfo) => {
+      await mockAdminCustomers(page);
+      await page.goto("./admin/customers");
+      await page
+        .getByRole("heading", { level: 1, name: "Customers" })
+        .waitFor({ state: "visible" });
+      await page
+        .getByRole("article", { name: "Harbor Insurance" })
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `admin-customers-${scheme}`);
+    });
+
+    test(`admin activity (${scheme})`, async ({ page }, testInfo) => {
+      await mockAdminCustomers(page);
+      await mockAcquisition(page);
+      await mockActivity(page);
+      await page.goto("./admin/activity");
+      await page
+        .getByRole("heading", { level: 1, name: "Activity" })
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `admin-activity-${scheme}`);
+    });
+
+    test(`admin acquisition (${scheme})`, async ({ page }, testInfo) => {
+      await mockAcquisition(page);
+      await page.goto("./admin/acquisition");
+      await page
+        .getByRole("region", { name: "Acquisition workspace" })
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `admin-acquisition-${scheme}`);
     });
   });
 }

@@ -132,7 +132,7 @@ describe("MilestoneGraph", () => {
 
     const nodes = screen.getAllByRole("listitem");
 
-    expect(nodes[0]?.textContent).toMatch(/Jul 20, 2026/);
+    expect(nodes[0]?.textContent).toMatch(/2026-07-20 12:00 UTC/);
     expect(nodes[2]?.textContent).not.toMatch(/2026/);
   });
 

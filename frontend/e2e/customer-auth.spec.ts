@@ -7,7 +7,7 @@ import {
 } from "./customer-auth-fixtures";
 
 const INVITATION_RECOVERY =
-  "This invitation cannot be used. Ask your administrator for a new invitation, or sign in if you already set your password.";
+  "This invitation cannot be used. Email noah@jawnix.com and I'll send a replacement, or sign in if you already set your password.";
 const WCAG_AA_TAGS = [
   "wcag2a",
   "wcag2aa",
