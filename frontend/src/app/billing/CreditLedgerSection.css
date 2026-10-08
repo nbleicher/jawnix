@@ -97,6 +97,12 @@
       transparent
     );
   }
+
+  /* The fade would dim a focus ring in the last strip, so the mask drops
+     while focus is inside the wrapper. */
+  .credit-ledger-tablewrap:focus-within {
+    mask-image: none;
+  }
 }
 
 .credit-ledger {

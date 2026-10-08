@@ -105,7 +105,7 @@ _OUTCOME_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "failed": (
         "Needs Attention",
-        "We could not finish this request. Please contact Jawnix so we can "
+        "We could not finish this request. Email noah@jawnix.com so I can "
         "sort it out — do not submit a duplicate request.",
         "danger",
     ),

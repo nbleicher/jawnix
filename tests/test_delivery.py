@@ -59,6 +59,8 @@ def test_delivery_retry_reuses_artifact_and_resend_idempotency(session, settings
     assert f"Batch Request: {request.id}" in captured["json"]["text"]
     assert "ready in the customer portal" in captured["json"]["text"]
     assert "30-day retention period" in captured["json"]["text"]
+    assert "reply to\nthis email — it comes straight to me." in captured["json"]["text"]
+    assert captured["json"]["text"].endswith("— Noah\nJAWNIX · noah@jawnix.com\n")
     assert "attachments" not in captured["json"]
     assert (
         "http://localhost:8080/app/requests?request="

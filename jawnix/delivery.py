@@ -62,6 +62,10 @@ def deliver_request(session: Session, request_id: uuid.UUID, settings: Settings)
             f"States: {', '.join(request.states_snapshot)}\n"
             "\nSign in to download it within its 30-day retention period:\n"
             f"{customer_request_url(settings, request.id)}\n"
+            "\nIf anything in this Batch isn't what you asked for, reply to\n"
+            "this email — it comes straight to me.\n\n"
+            "— Noah\n"
+            "JAWNIX · noah@jawnix.com\n"
         ),
     }
     response = httpx.post(

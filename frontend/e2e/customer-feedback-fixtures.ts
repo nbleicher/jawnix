@@ -13,7 +13,7 @@ export const HOLD_CONSEQUENCE =
   "Submitting this files a Lead Report and places an Eligibility Hold, which withdraws this Lead from future batches. Only an administrator can release the hold.";
 
 export const REPORT_ONLY_CONSEQUENCE =
-  "Submitting this files a Lead Report for an administrator to review. It does not place an Eligibility Hold, so this Lead stays eligible for future batches.";
+  "Submitting this files a Lead Report — Noah reviews every report. It does not place an Eligibility Hold, so this Lead stays eligible for future batches.";
 
 function option(
   disposition: string,
@@ -226,13 +226,19 @@ export async function mockFeedback(
       unknown
     >;
     calls.push({ path: "/api/me/feedback", body });
+    // Transition ids are UUIDs server-side; the mock keeps the form so the
+    // receipt's short reference renders as TR-XXXXXXXX, not a stub.
+    const transitionId = (sequence: number) =>
+      `7c3d19ab-2e4f-4a1b-9c8d-${String(sequence).padStart(12, "0")}`;
     const transition = {
-      id: `t-${history.length + 1}`,
+      id: transitionId(history.length + 1),
       distributionEventId: 7,
       disposition: body["disposition"],
       note: body["note"] ?? "",
       actorUserId: "u-1",
-      previousTransitionId: history.length ? `t-${history.length}` : null,
+      previousTransitionId: history.length
+        ? transitionId(history.length)
+        : null,
       createdAt: "2026-07-28T10:00:00Z",
     };
     // Append, never replace — the history endpoint reflects that next read.

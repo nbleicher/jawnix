@@ -86,7 +86,7 @@ const CATALOG: FeedbackCatalog = {
           createsReport: true,
           createsHold: false,
           consequence:
-            "Submitting this files a Lead Report for an administrator to review. It does not place an Eligibility Hold, so this Lead stays eligible for future batches.",
+            "Submitting this files a Lead Report — Noah reviews every report. It does not place an Eligibility Hold, so this Lead stays eligible for future batches.",
         },
         {
           disposition: "do_not_contact",

@@ -116,7 +116,7 @@ test.describe("Account Credit Ledger", () => {
 
     // The full reference is reachable without hover: the short form toggles
     // the complete id inline.
-    const reference = ledger.getByRole("button", { name: "CP-DDDDDDDD…" });
+    const reference = ledger.getByRole("button", { name: /CP-DDDDDDDD…/ });
     await expect(reference).toHaveAttribute("aria-expanded", "false");
     await reference.click();
     await expect(reference).toHaveAttribute("aria-expanded", "true");

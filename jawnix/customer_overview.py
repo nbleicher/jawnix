@@ -74,7 +74,7 @@ _REQUEST_STATUS: dict[str, CustomerOverviewStatus] = {
         label="Needs Attention",
         description=(
             "We could not complete this request. "
-            "Please contact Jawnix before trying again."
+            "Email noah@jawnix.com before trying again."
         ),
         tone="danger",
     ),

@@ -13,6 +13,7 @@ import {
   LabelText,
   Mono,
   Text,
+  VisuallyHidden,
 } from "../../design-system/primitives/typography";
 import {
   useBilledWallet,
@@ -168,7 +169,11 @@ function LedgerTable({ wallet }: { wallet: CreditWallet }) {
                 <td className="credit-ledger__data">
                   {/* The full reference must be reachable by keyboard and
                       touch, so it lives behind an expanding toggle rather
-                      than a hover-only title attribute. */}
+                      than a hover-only title attribute. The toggle sits in
+                      the Reference cell while the revealed UUID renders in
+                      the Entry cell — aria-controls bridges the two. The
+                      visible name is only the reference, so the hidden verb
+                      announces the action ("show full reference"). */}
                   <button
                     type="button"
                     className="credit-ledger__ref"
@@ -179,6 +184,11 @@ function LedgerTable({ wallet }: { wallet: CreditWallet }) {
                     }
                   >
                     <Mono>{shortLedgerReference(entry)}</Mono>
+                    <VisuallyHidden>
+                      {refExpanded
+                        ? " — hide full reference"
+                        : " — show full reference"}
+                    </VisuallyHidden>
                   </button>
                 </td>
                 <td className="credit-ledger__num">

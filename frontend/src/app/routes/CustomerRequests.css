@@ -14,8 +14,10 @@
   min-width: 0;
 }
 
+/* Done is ink, matching the milestone rail: outremer is reserved for the
+   current stage, so a mostly-complete flow reads ink, not accent. */
 .request-flow__stage--done {
-  border-block-end-color: var(--jx-accent);
+  border-block-end-color: var(--jx-ink);
   color: var(--jx-ink);
 }
 

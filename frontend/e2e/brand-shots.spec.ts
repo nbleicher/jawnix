@@ -191,6 +191,22 @@ for (const scheme of SCHEMES) {
       await shoot(page, testInfo, `feedback-initial-${scheme}`);
     });
 
+    test(`feedback dead number (${scheme})`, async ({ page }, testInfo) => {
+      await mockCustomerAuth(page);
+      await mockFeedback(page, { lookupSucceeds: false });
+      await page.goto("./feedback");
+      await page
+        .getByLabel("Delivered phone number (required)")
+        .fill("2145559999");
+      await page.getByRole("button", { name: "Look up" }).click();
+      await page
+        .getByText(
+          "No delivered Lead was found for that phone number. Check the number and try again.",
+        )
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `feedback-dead-number-${scheme}`);
+    });
+
     test(`feedback confirm the lead (${scheme})`, async ({ page }, testInfo) => {
       await mockCustomerAuth(page);
       await mockFeedback(page);

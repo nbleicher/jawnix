@@ -134,11 +134,17 @@
 }
 
 @media (max-width: 40rem) {
-  /* The wallet widget and the action buttons drop below the lockup as one
-     right-aligned cluster: nothing orphans onto its own row and the wordmark
-     is never clipped. */
+  /* The action cluster drops below the lockup, so the wordmark is never
+     clipped. Inside it the wallet widget takes a full row of its own
+     (justified, so Buy credits stays on the trailing edge) and Support and
+     Sign out share the row beneath: nothing orphans onto its own row. */
   .jx-shell__header-actions {
     flex-basis: 100%;
+  }
+
+  .jx-shell__header-actions .credit-wallet-widget {
+    flex-basis: 100%;
+    justify-content: space-between;
   }
 }
 

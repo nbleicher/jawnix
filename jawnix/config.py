@@ -58,7 +58,10 @@ class Settings(BaseSettings):
     # get_stripe_client builds HttpStripeClient from the secrets above; tests
     # assign a fake. Not loaded from the environment.
     stripe_client: Any | None = Field(default=None, exclude=True, repr=False)
-    batch_from_email: str = Field(default="Jawnix <hai@jawnix.com>", alias="JAWNIX_BATCH_FROM_EMAIL")
+    # Display name only: Resend takes "Name <address>" in one field, so the
+    # person is named while the address stays hai@jawnix.com until the
+    # noah@jawnix.com mailbox exists (brand punch-list item 2).
+    batch_from_email: str = Field(default="Noah Bleicher (Jawnix) <hai@jawnix.com>", alias="JAWNIX_BATCH_FROM_EMAIL")
     # The address a Customer is pointed at when a Batch Request needs a human.
     support_email: str = Field(default="hai@jawnix.com", alias="JAWNIX_SUPPORT_EMAIL")
     batch_dir: Path = Field(default=Path("./batches"), alias="JAWNIX_BATCH_DIR")
