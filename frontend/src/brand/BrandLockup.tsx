@@ -2,8 +2,13 @@ import { useTheme } from "../design-system/theme/ThemeProvider";
 import "./BrandLockup.css";
 
 /**
- * Lockup A: the plate (scheme control) + JAWNIX.
+ * The wordmark-only lockup: the J tile (scheme control) + JAWNIX.
  * Nothing else belongs in the brand row — no audience, no Support.
+ *
+ * With no mark, the scheme toggle takes the J tile as its vehicle: the tile
+ * is the scheme indicator — ink tile on paper in the light scheme, paper tile
+ * on the desk in the dark scheme. The same currentColor geometry flips itself;
+ * the aria-labels announce the action.
  */
 export function BrandLockup() {
   const { scheme, toggleScheme } = useTheme();
@@ -13,97 +18,42 @@ export function BrandLockup() {
     <div className="jx-lockup">
       <button
         type="button"
-        className="jx-lockup__plate"
+        className="jx-lockup__tile"
         aria-pressed={scheme === "dark"}
         aria-label={`Switch to ${next}`}
         onClick={toggleScheme}
       >
-        <PlateMark />
+        <JTile />
       </button>
       <span className="jx-lockup__wordmark">JAWNIX</span>
     </div>
   );
 }
 
-/** mark-sm geometry: 0.75M walls, bid hole r=6 at 52,24. */
-function PlateMark() {
+/** j-tile.svg geometry: the capital J cut from the approved Archivo 700
+ *  artwork on a full-bleed tile. fill="currentColor" — ink tile on paper in
+ *  light; paper tile on the desk in dark. */
+function JTile() {
   return (
-    <svg viewBox="0 0 116.8 52.8" aria-hidden="true">
-      <g transform="translate(2.4 2.4)">
-        <path
-          className="jx-plate__fill"
-          fillRule="evenodd"
-          d="M0 0h112v48H0z M6 6h28v36H6z M58 24a6 6 0 1 1-12 0a6 6 0 1 1 12 0z"
-        />
-        <rect
-          className="jx-plate__line"
-          x="0"
-          y="0"
-          width="112"
-          height="48"
-          fill="none"
-          strokeWidth="2.4"
-        />
-        <rect className="jx-plate__wash" x="6" y="6" width="28" height="36" />
-        <rect
-          className="jx-plate__ping"
-          x="6"
-          y="6"
-          width="28"
-          height="36"
-          fill="none"
-          strokeWidth="2.4"
-        />
-        <circle
-          className="jx-plate__bid"
-          cx="52"
-          cy="24"
-          r="6"
-          fill="none"
-          strokeWidth="2.4"
-        />
-      </g>
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        d="M0 0H16V16H0Z M8.010096980238668 13.001812741170356Q6.881483510318308 13.001812741170356 6.082800874164436 12.66316665437402Q5.284118238010564 12.324520567577686 4.864545176173427 11.653141098487165Q4.44497211433629 10.981761629396646 4.44497211433629 9.957105494323418V9.503302365186666H6.534755736966271V9.95399271669459Q6.534755736966271 10.60762882896991 6.898921881341127 10.931644336579874Q7.263088025715983 11.255659844189838 7.9883075368368655 11.255659844189838Q8.691117146353681 11.255659844189838 9.04968081532752 10.791582451554449Q9.40824448430136 10.32750505891906 9.40824448430136 9.449769930603061V3.0018127411703546H11.564016895339014V9.45288270823189Q11.564016895339014 10.645613105335626 11.144443833501878 11.434644557847502Q10.72487077166474 12.22367601035938 9.931790610911886 12.61274437576487Q9.13871045015903 13.001812741170356 8.010096980238668 13.001812741170356Z"
+      />
     </svg>
   );
 }
 
-/** Full plate for the static sign-in pane. Not a control. */
-export function RoutingPlate({ label = "JAWNIX routing plate" }: { label?: string }) {
+/** The J tile at rest, for the static sign-in pane. Not a control. */
+export function RoutingPlate({ label = "JAWNIX" }: { label?: string }) {
   return (
-    <svg className="jx-routing-plate" viewBox="0 0 116.8 52.8" role="img" aria-label={label}>
-      <g transform="translate(2.4 2.4)">
-        <path
-          className="jx-plate__fill"
-          fillRule="evenodd"
-          d="M0 0h112v48H0z M4 4h32v40H4z M60 24a8 8 0 1 1-16 0a8 8 0 1 1 16 0z"
-        />
-        <rect
-          className="jx-plate__line"
-          x="0"
-          y="0"
-          width="112"
-          height="48"
-          fill="none"
-          strokeWidth="2.4"
-        />
-        <rect
-          className="jx-plate__ping"
-          x="4"
-          y="4"
-          width="32"
-          height="40"
-          fill="none"
-          strokeWidth="2.4"
-        />
-        <circle
-          className="jx-plate__bid"
-          cx="52"
-          cy="24"
-          r="8"
-          fill="none"
-          strokeWidth="2.4"
-        />
-      </g>
+    <svg className="jx-routing-plate" viewBox="0 0 16 16" role="img" aria-label={label}>
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        d="M0 0H16V16H0Z M8.010096980238668 13.001812741170356Q6.881483510318308 13.001812741170356 6.082800874164436 12.66316665437402Q5.284118238010564 12.324520567577686 4.864545176173427 11.653141098487165Q4.44497211433629 10.981761629396646 4.44497211433629 9.957105494323418V9.503302365186666H6.534755736966271V9.95399271669459Q6.534755736966271 10.60762882896991 6.898921881341127 10.931644336579874Q7.263088025715983 11.255659844189838 7.9883075368368655 11.255659844189838Q8.691117146353681 11.255659844189838 9.04968081532752 10.791582451554449Q9.40824448430136 10.32750505891906 9.40824448430136 9.449769930603061V3.0018127411703546H11.564016895339014V9.45288270823189Q11.564016895339014 10.645613105335626 11.144443833501878 11.434644557847502Q10.72487077166474 12.22367601035938 9.931790610911886 12.61274437576487Q9.13871045015903 13.001812741170356 8.010096980238668 13.001812741170356Z"
+      />
     </svg>
   );
 }

@@ -1,4 +1,5 @@
 .jx-button {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -6,98 +7,108 @@
   /* 44px minimum in both dimensions — the product touch-target rule. */
   min-height: var(--jx-touch-target);
   min-width: var(--jx-touch-target);
-  padding: var(--jx-space-2) var(--jx-space-5);
-  border-radius: var(--jx-radius-md);
-  border: 1px solid transparent;
+  padding: 0 var(--jx-space-4);
+  border: var(--jx-rule) solid transparent;
+  border-radius: var(--jx-radius-none);
   font-size: var(--jx-text-sm);
   font-weight: var(--jx-weight-semibold);
-  line-height: var(--jx-leading-tight);
+  line-height: var(--jx-leading-heading);
   cursor: pointer;
   text-decoration: none;
+  white-space: nowrap;
   transition:
-    background-color var(--jx-motion-fast) var(--jx-motion-ease),
-    border-color var(--jx-motion-fast) var(--jx-motion-ease),
-    color var(--jx-motion-fast) var(--jx-motion-ease);
+    background-color var(--jx-duration-fast) var(--jx-ease),
+    border-color var(--jx-duration-fast) var(--jx-ease),
+    color var(--jx-duration-fast) var(--jx-ease);
 }
 
 .jx-button--full {
   width: 100%;
 }
 
+/* Disabled is a sunk surface with muted ink — never an opacity fade. */
 .jx-button[aria-disabled="true"] {
-  opacity: 0.6;
+  background: var(--jx-sunk);
+  border-color: var(--jx-sunk);
+  color: var(--jx-ink-muted);
   cursor: not-allowed;
 }
 
+.jx-button[data-busy="true"] {
+  cursor: progress;
+}
+
+/* Primary: the ink slab — the mass move. Pigment never carries commitment. */
 .jx-button--primary {
-  background: var(--jx-color-accent);
-  border-color: var(--jx-color-accent);
-  color: var(--jx-color-accent-contrast);
+  background: var(--jx-ink);
+  border-color: var(--jx-ink);
+  color: var(--jx-ink-inverse);
 }
 .jx-button--primary:hover:not([aria-disabled="true"]) {
-  background: var(--jx-color-accent-strong);
-  border-color: var(--jx-color-accent-strong);
+  background: color-mix(in srgb, var(--jx-ink) 86%, var(--jx-paper));
 }
 
+/* Secondary: plate with a control-grade rule (>= 3:1 per WCAG 1.4.11). */
 .jx-button--secondary {
-  background: var(--jx-color-surface);
-  border-color: var(--jx-color-border-strong);
-  color: var(--jx-color-text);
+  background: var(--jx-plate);
+  border-color: var(--jx-line-control);
+  color: var(--jx-ink);
 }
 .jx-button--secondary:hover:not([aria-disabled="true"]) {
-  background: var(--jx-color-surface-strong);
+  background: var(--jx-sunk);
+  border-color: var(--jx-ink);
+}
+.jx-button--secondary[aria-disabled="true"] {
+  border-color: var(--jx-line-control);
 }
 
+/* Ghost: the quiet utility. */
 .jx-button--ghost {
   background: transparent;
   border-color: transparent;
-  color: var(--jx-color-accent);
+  color: var(--jx-ink-muted);
 }
 .jx-button--ghost:hover:not([aria-disabled="true"]) {
-  background: var(--jx-color-accent-soft);
+  background: var(--jx-sunk);
+  color: var(--jx-ink);
+}
+.jx-button--ghost[aria-disabled="true"] {
+  background: transparent;
+  border-color: transparent;
 }
 
+/* Danger: the vermillon slab, destructive only. Solid in both schemes. */
 .jx-button--danger {
-  background: var(--jx-color-danger);
-  border-color: var(--jx-color-danger);
-  color: #ffffff;
+  background: var(--jx-danger);
+  border-color: var(--jx-danger);
+  color: var(--jx-danger-inverse);
 }
 .jx-button--danger:hover:not([aria-disabled="true"]) {
-  filter: brightness(0.92);
+  filter: brightness(1.08);
 }
 
-/* A filled red button cannot reach 4.5:1 over the terminal canvas: the CRT
-   scanline overlay blends into its background and drags the ratio under.
-   Inverting to a dark fill with red text clears it comfortably and reads
-   closer to the rest of the terminal surface. */
-[data-scheme="dark"] .jx-button--danger {
-  background: var(--jx-color-danger-soft);
-  border-color: var(--jx-color-danger);
-  color: var(--jx-color-danger);
-}
-
+/* Busy is a state, not an animation: a static square witness next to the
+   busy label. Nothing spins — motion carries state changes only. */
 .jx-button__spinner {
-  width: 0.875rem;
-  height: 0.875rem;
-  border-radius: 50%;
-  border: 2px solid currentColor;
-  border-top-color: transparent;
-  animation: jx-button-spin 700ms linear infinite;
+  width: var(--jx-space-3);
+  height: var(--jx-space-3);
+  background: currentColor;
   flex: none;
 }
 
-@keyframes jx-button-spin {
-  to {
-    transform: rotate(360deg);
-  }
+/* ActionLink — anchors with button-grade weight. The only place outremer
+   appears on an action, marking navigation rather than commitment. */
+.jx-action-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--jx-touch-target);
+  color: var(--jx-accent);
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-semibold);
+  text-decoration: none;
 }
 
-/* Under reduced motion the ring stops spinning; the busy *label* already
-   carries the meaning, so nothing is lost. */
-@media (prefers-reduced-motion: reduce) {
-  .jx-button__spinner {
-    animation: none;
-    border-top-color: currentColor;
-    opacity: 0.5;
-  }
+.jx-action-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
 }

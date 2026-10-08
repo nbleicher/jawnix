@@ -1,23 +1,33 @@
 .jx-heading {
-  color: var(--jx-color-text-strong);
+  color: var(--jx-ink);
   font-weight: var(--jx-weight-semibold);
-  line-height: var(--jx-leading-tight);
+  line-height: var(--jx-leading-heading);
   text-wrap: balance;
 }
 
+/* sm/md headings stay normal-width Archivo — hierarchy by specification. */
 .jx-heading--sm {
   font-size: var(--jx-text-md);
 }
 .jx-heading--md {
   font-size: var(--jx-text-lg);
 }
+
+/* lg carries the display recipe: the expanded cut comes from the wdth axis
+   via font-stretch, at the display weight. "Archivo Expanded" is never
+   referenced as a family. */
 .jx-heading--lg {
+  font-family: var(--jx-font-display);
+  font-stretch: var(--jx-font-stretch-display);
+  font-weight: var(--jx-weight-display);
   font-size: var(--jx-text-xl);
+  letter-spacing: var(--jx-tracking-tight);
+  line-height: var(--jx-leading-display);
 }
 
 .jx-text {
-  line-height: var(--jx-leading-normal);
-  max-width: 75ch;
+  line-height: var(--jx-leading-body);
+  max-width: 68ch;
 }
 
 .jx-text--xs {
@@ -34,23 +44,23 @@
 }
 
 .jx-text--default {
-  color: var(--jx-color-text);
+  color: var(--jx-ink);
 }
 .jx-text--muted {
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
 }
 .jx-text--success {
-  color: var(--jx-color-success);
+  color: var(--jx-success);
 }
 .jx-text--warning {
-  color: var(--jx-color-warning);
+  color: var(--jx-warning);
 }
 .jx-text--danger {
-  color: var(--jx-color-danger);
+  color: var(--jx-danger);
 }
 
 .jx-text--normal {
-  font-weight: var(--jx-weight-normal);
+  font-weight: var(--jx-weight-regular);
 }
 .jx-text--medium {
   font-weight: var(--jx-weight-medium);
@@ -62,10 +72,12 @@
   font-weight: var(--jx-weight-bold);
 }
 
+/* Labels are system metadata: uppercase mono on the label tracking. */
 .jx-label-text {
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
   font-size: var(--jx-text-xs);
-  font-weight: var(--jx-weight-bold);
+  font-weight: var(--jx-weight-semibold);
   letter-spacing: var(--jx-tracking-label);
   text-transform: uppercase;
 }
@@ -73,14 +85,13 @@
 .jx-mono {
   font-family: var(--jx-font-mono);
   font-size: 0.95em;
-  font-variant-numeric: tabular-nums;
+  font-feature-settings: var(--jx-font-features-numeral);
   word-break: break-word;
 }
 
 .jx-numeral {
   font-family: var(--jx-font-display);
-  font-optical-sizing: auto;
-  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: var(--jx-font-features-numeral);
 }
 
 .jx-visually-hidden {

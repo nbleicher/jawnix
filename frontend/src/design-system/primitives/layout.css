@@ -20,12 +20,13 @@
   grid-template-columns: repeat(auto-fit, minmax(min(var(--jx-grid-min, 18rem), 100%), 1fr));
 }
 
+/* Card = plate + 1px rule. No shadow, no radius, no hover lift. */
 .jx-card {
-  background: var(--jx-color-surface);
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-lg);
+  background: var(--jx-plate);
+  border: var(--jx-rule) solid var(--jx-line);
+  border-radius: var(--jx-radius-none);
+  box-shadow: var(--jx-shadow-none);
   padding: var(--jx-card-padding, var(--jx-card-padding-default, var(--jx-space-5)));
-  box-shadow: var(--jx-shadow-sm);
   min-width: 0;
 }
 
@@ -33,7 +34,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--jx-space-5);
-  max-width: var(--jx-content-max-width);
+  max-width: var(--jx-content-max);
 }
 
 .jx-page__header {
@@ -49,16 +50,21 @@
   min-width: 0;
 }
 
+/* The page title carries the display recipe: the expanded cut via the wdth
+   axis, at display weight. */
 .jx-page__title {
+  font-family: var(--jx-font-display);
+  font-stretch: var(--jx-font-stretch-display);
   font-size: var(--jx-text-2xl);
-  font-weight: var(--jx-weight-bold);
-  line-height: var(--jx-leading-tight);
-  color: var(--jx-color-text-strong);
+  font-weight: var(--jx-weight-display);
+  letter-spacing: var(--jx-tracking-tight);
+  line-height: var(--jx-leading-display);
+  color: var(--jx-ink);
   text-wrap: balance;
 }
 
 .jx-page__description {
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
   font-size: var(--jx-text-sm);
   max-width: 65ch;
 }
@@ -106,12 +112,12 @@
 .jx-section__title {
   font-size: var(--jx-text-lg);
   font-weight: var(--jx-weight-semibold);
-  line-height: var(--jx-leading-tight);
-  color: var(--jx-color-text-strong);
+  line-height: var(--jx-leading-heading);
+  color: var(--jx-ink);
 }
 
 .jx-section__description {
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
   font-size: var(--jx-text-sm);
   max-width: 65ch;
 }
@@ -119,10 +125,10 @@
 .jx-disclosure-section {
   display: block;
   overflow: clip;
-  background: var(--jx-color-surface);
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-lg);
-  box-shadow: var(--jx-shadow-sm);
+  background: var(--jx-plate);
+  border: var(--jx-rule) solid var(--jx-line);
+  border-radius: var(--jx-radius-none);
+  box-shadow: var(--jx-shadow-none);
 }
 
 .jx-disclosure-section > details {
@@ -147,7 +153,7 @@
 .jx-disclosure-section__summary::after {
   content: "+";
   flex: 0 0 auto;
-  color: var(--jx-color-accent);
+  color: var(--jx-accent);
   font-family: var(--jx-font-display);
   font-size: var(--jx-text-xl);
   line-height: 1;
@@ -165,7 +171,7 @@
 
 .jx-disclosure-section__value {
   margin-inline-start: auto;
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
   font-size: var(--jx-text-sm);
   font-weight: var(--jx-weight-semibold);
   white-space: nowrap;
@@ -173,7 +179,7 @@
 
 .jx-disclosure-section__body {
   padding: 0 var(--jx-space-5) var(--jx-space-5);
-  border-top: 1px solid var(--jx-color-border);
+  border-top: var(--jx-rule) solid var(--jx-line);
   padding-top: var(--jx-space-5);
 }
 

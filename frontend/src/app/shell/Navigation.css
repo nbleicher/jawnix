@@ -3,9 +3,9 @@
 .jx-nav {
   position: fixed;
   inset: auto 0 0 0;
-  z-index: var(--jx-z-sticky);
-  background: var(--jx-color-surface);
-  border-top: 1px solid var(--jx-color-border);
+  z-index: var(--jx-z-nav);
+  background: var(--jx-plate);
+  border-top: var(--jx-rule) solid var(--jx-line);
   /* Keep clear of the iOS home indicator. */
   padding-bottom: env(safe-area-inset-bottom, 0);
 }
@@ -30,7 +30,7 @@
   gap: var(--jx-space-1);
   min-height: var(--jx-touch-target);
   padding: var(--jx-space-2) var(--jx-space-1);
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
   font-size: var(--jx-text-xs);
   font-weight: var(--jx-weight-semibold);
   text-decoration: none;
@@ -38,22 +38,15 @@
 }
 
 .jx-nav__link:hover {
-  color: var(--jx-color-text);
+  color: var(--jx-ink);
 }
 
-/* Active state must not rely on colour alone (WCAG 1.4.1): the accent colour is
-   paired with a bar along the bar's edge and a heavier label, both of which
-   survive greyscale and colour-vision differences. */
+/* Current page = ink + the 2px joint rule, per the ch9 shell-header specimen.
+   The rule and the heavier label carry the state, not color alone (1.4.1). */
 .jx-nav__link--active {
-  color: var(--jx-color-accent);
-  font-weight: var(--jx-weight-bold);
-  box-shadow: inset 0 3px 0 0 var(--jx-color-accent);
-}
-
-.jx-nav__link--active .jx-nav__label {
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
+  color: var(--jx-ink);
+  font-weight: var(--jx-weight-semibold);
+  box-shadow: inset 0 var(--jx-rule-heavy) 0 0 var(--jx-ink);
 }
 
 .jx-nav__label {
@@ -74,11 +67,11 @@
     inset: 0 auto auto 0;
     top: 0;
     align-self: start;
-    width: var(--jx-sidebar-width);
+    width: var(--jx-sidebar);
     height: 100dvh;
     overflow-y: auto;
     border-top: 0;
-    border-right: 1px solid var(--jx-color-border);
+    border-right: var(--jx-rule) solid var(--jx-line);
     padding: var(--jx-space-5) var(--jx-space-3);
   }
 
@@ -92,19 +85,18 @@
     justify-content: flex-start;
     gap: var(--jx-space-3);
     padding: var(--jx-space-3) var(--jx-space-4);
-    border-radius: var(--jx-radius-md);
+    border-radius: var(--jx-radius-none);
     font-size: var(--jx-text-sm);
     text-align: left;
   }
 
   .jx-nav__link--active {
-    background: var(--jx-color-accent-soft);
-    /* The sidebar reads left-to-right, so the indicator moves to the inline
+    /* The sidebar reads left-to-right, so the joint moves to the inline
        start edge. */
-    box-shadow: inset 3px 0 0 0 var(--jx-color-accent);
+    box-shadow: inset var(--jx-rule-heavy) 0 0 0 var(--jx-ink);
   }
 
   .jx-nav__link:hover {
-    background: var(--jx-color-surface-strong);
+    background: var(--jx-sunk);
   }
 }

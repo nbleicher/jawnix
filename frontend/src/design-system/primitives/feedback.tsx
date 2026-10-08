@@ -83,7 +83,7 @@ export function ErrorState({
       {reference ? <p className="jx-error__reference">Reference: {reference}</p> : null}
       {onRetry ? (
         <div className="jx-error__action">
-          <Button variant="primary" onClick={onRetry}>
+          <Button variant="secondary" onClick={onRetry}>
             {retryLabel}
           </Button>
         </div>

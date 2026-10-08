@@ -23,7 +23,7 @@ describe("BrandLockup", () => {
     expect(screen.queryByText("Administration")).not.toBeInTheDocument();
   });
 
-  it("toggles scheme from the plate", async () => {
+  it("toggles scheme from the J tile", async () => {
     const user = userEvent.setup();
     render(
       <ThemeProvider>
@@ -31,12 +31,25 @@ describe("BrandLockup", () => {
       </ThemeProvider>,
     );
 
-    const plate = screen.getByRole("button", { name: "Switch to dark desk" });
-    await user.click(plate);
+    const tile = screen.getByRole("button", { name: "Switch to dark desk" });
+    await user.click(tile);
 
     expect(document.documentElement).toHaveAttribute("data-scheme", "dark");
     expect(
       screen.getByRole("button", { name: "Switch to light paper" }),
     ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("renders the J tile as the currentColor scheme indicator", () => {
+    render(
+      <ThemeProvider>
+        <BrandLockup />
+      </ThemeProvider>,
+    );
+
+    const tile = screen.getByRole("button", { name: "Switch to dark desk" });
+    const path = tile.querySelector("svg path");
+    expect(path).toHaveAttribute("fill", "currentColor");
+    expect(path).toHaveAttribute("fill-rule", "evenodd");
   });
 });

@@ -66,9 +66,11 @@ export interface ActionLinkProps
   children: ReactNode;
 }
 
-/** A navigation action with the same visual and touch-target contract as a
- * button. It remains an anchor so open-in-new-tab, copy-link, and browser
- * history behavior are preserved. */
+/** A navigation action rendered as an accent text link — the one place the
+ *  accent appears on an action. It remains an anchor so open-in-new-tab,
+ *  copy-link, and browser history behavior are preserved. The brand admits no
+ *  variants on a text link, so `variant`/`fullWidth` are accepted for call-site
+ *  compatibility but do not change the rendering. */
 export function ActionLink({
   variant = "secondary",
   fullWidth = false,
@@ -76,16 +78,10 @@ export function ActionLink({
   children,
   ...rest
 }: ActionLinkProps) {
+  void variant;
+  void fullWidth;
   return (
-    <a
-      className={cx(
-        "jx-button",
-        `jx-button--${variant}`,
-        fullWidth ? "jx-button--full" : null,
-        className,
-      )}
-      {...rest}
-    >
+    <a className={cx("jx-action-link", className)} {...rest}>
       {children}
     </a>
   );

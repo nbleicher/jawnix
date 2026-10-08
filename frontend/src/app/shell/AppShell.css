@@ -2,6 +2,7 @@
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
+  background: var(--jx-paper);
 }
 
 .jx-shell__skip-link {
@@ -10,35 +11,36 @@
   left: var(--jx-space-2);
   z-index: var(--jx-z-toast);
   padding: var(--jx-space-3) var(--jx-space-4);
-  background: var(--jx-color-surface);
-  color: var(--jx-color-accent);
-  border: 2px solid var(--jx-color-accent);
-  border-radius: var(--jx-radius-focus);
+  background: var(--jx-plate);
+  color: var(--jx-accent);
+  border: var(--jx-rule-heavy) solid var(--jx-focus);
+  border-radius: var(--jx-radius-none);
   font-size: var(--jx-text-sm);
   font-weight: var(--jx-weight-semibold);
   text-decoration: none;
   /* Off-screen until focused — kept in the tab order rather than display:none,
      which would remove it entirely. */
   transform: translateY(-200%);
-  transition: transform var(--jx-motion-fast) var(--jx-motion-ease);
+  transition: transform var(--jx-duration-fast) var(--jx-ease);
 }
 
 .jx-shell__skip-link:focus-visible {
   transform: translateY(0);
 }
 
+/* The shell header is a plate with a hairline joint, per the ch9 specimen. */
 .jx-shell__banner {
   position: sticky;
   top: 0;
-  z-index: var(--jx-z-sticky);
+  z-index: var(--jx-z-nav);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--jx-space-4);
   min-height: 3.5rem;
   padding: var(--jx-space-3) var(--jx-space-4);
-  background: var(--jx-color-surface);
-  border-bottom: 1px solid var(--jx-color-border);
+  background: var(--jx-plate);
+  border-bottom: var(--jx-rule) solid var(--jx-line);
 }
 
 .jx-shell__header-actions {
@@ -52,16 +54,16 @@
 }
 
 .jx-shell__progress {
-  height: 2px;
+  height: var(--jx-rule-heavy);
   background: transparent;
   overflow: hidden;
 }
 
 .jx-shell__progress[data-active="true"] {
-  background: linear-gradient(90deg, transparent, var(--jx-color-accent), transparent);
+  background: linear-gradient(90deg, transparent, var(--jx-accent), transparent);
   background-size: 40% 100%;
   background-repeat: no-repeat;
-  animation: jx-progress-slide 1100ms ease-in-out infinite;
+  animation: jx-progress-slide var(--jx-duration-slow) linear infinite;
 }
 
 @keyframes jx-progress-slide {
@@ -76,7 +78,7 @@
 @media (prefers-reduced-motion: reduce) {
   .jx-shell__progress[data-active="true"] {
     animation: none;
-    background: var(--jx-color-accent);
+    background: var(--jx-accent);
     background-size: 100% 100%;
     opacity: 0.5;
   }
@@ -102,7 +104,7 @@
 
 .jx-shell__content {
   margin-inline: auto;
-  max-width: var(--jx-shell-max-width);
+  max-width: var(--jx-shell-max);
 }
 
 @media (min-width: 64rem) {
