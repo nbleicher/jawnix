@@ -9,10 +9,9 @@ import {
 } from "./ThemeProvider";
 
 function ThemeProbe() {
-  const { theme, scheme, setScheme, toggleScheme } = useTheme();
+  const { scheme, setScheme, toggleScheme } = useTheme();
   return (
     <>
-      <span data-testid="theme">{theme}</span>
       <span data-testid="scheme">{scheme}</span>
       <button type="button" onClick={() => setScheme("dark")}>
         Go dark
@@ -26,21 +25,18 @@ function ThemeProbe() {
 
 describe("ThemeProvider", () => {
   beforeEach(() => {
-    document.documentElement.removeAttribute("data-theme");
     document.documentElement.removeAttribute("data-scheme");
     window.localStorage.removeItem(SCHEME_STORAGE_KEY);
   });
 
-  it("defaults to match + light", () => {
+  it("defaults to light", () => {
     render(
       <ThemeProvider>
         <ThemeProbe />
       </ThemeProvider>,
     );
 
-    expect(screen.getByTestId("theme")).toHaveTextContent("match");
     expect(screen.getByTestId("scheme")).toHaveTextContent("light");
-    expect(document.documentElement).toHaveAttribute("data-theme", "match");
     expect(document.documentElement).toHaveAttribute("data-scheme", "light");
   });
 
