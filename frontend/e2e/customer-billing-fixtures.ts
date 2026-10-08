@@ -60,15 +60,16 @@ export const BILLED_CUSTOMER_WALLET: MockCreditWallet = {
       completedAt: null,
     },
   ],
+  // Newest-first, matching wallet_view's ordering (created_at desc, id desc).
   ledger: [
     {
-      id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-      kind: "purchase",
-      amountCents: 10_000,
-      reason: null,
-      actor: null,
+      id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+      kind: "admin_adjustment",
+      amountCents: 375,
+      reason: "Reconcile Stripe refund",
+      actor: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       batchRequestId: null,
-      createdAt: "2026-08-01T12:00:00Z",
+      createdAt: "2026-08-02T15:00:00Z",
     },
     {
       id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
@@ -80,13 +81,13 @@ export const BILLED_CUSTOMER_WALLET: MockCreditWallet = {
       createdAt: "2026-08-02T12:00:00Z",
     },
     {
-      id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
-      kind: "admin_adjustment",
-      amountCents: 375,
-      reason: "Reconcile Stripe refund",
-      actor: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      kind: "purchase",
+      amountCents: 10_000,
+      reason: null,
+      actor: null,
       batchRequestId: null,
-      createdAt: "2026-08-02T15:00:00Z",
+      createdAt: "2026-08-01T12:00:00Z",
     },
   ],
 };

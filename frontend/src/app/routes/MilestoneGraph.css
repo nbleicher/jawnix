@@ -25,16 +25,17 @@
   min-width: 0;
 }
 
+/* The mark is a square joint — concrete has no rounded corners. */
 .jx-milestone__mark {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
   width: var(--jx-milestone-mark);
   height: var(--jx-milestone-mark);
-  border: 2px solid var(--jx-color-border-strong);
-  border-radius: var(--jx-radius-pill);
-  background: var(--jx-color-surface);
-  color: var(--jx-color-text-muted);
+  border: var(--jx-rule-heavy) solid var(--jx-line-strong);
+  border-radius: var(--jx-radius-none);
+  background: var(--jx-plate);
+  color: var(--jx-ink-muted);
   font-size: var(--jx-text-xs);
   line-height: 1;
 }
@@ -53,39 +54,39 @@
 .jx-milestone:not(:last-child)::after {
   content: "";
   position: absolute;
-  inset-inline-start: calc(var(--jx-milestone-mark) / 2 - 1px);
+  inset-inline-start: calc((var(--jx-milestone-mark) - var(--jx-rule-heavy)) / 2);
   inset-block-start: var(--jx-milestone-mark);
-  width: 2px;
+  width: var(--jx-rule-heavy);
   height: calc(100% - var(--jx-milestone-mark) + var(--jx-milestone-gap));
-  background: var(--jx-color-border);
+  background: var(--jx-line);
 }
 
 .jx-milestone--complete:not(:last-child)::after {
-  background: var(--jx-color-accent);
+  background: var(--jx-accent);
 }
 
 .jx-milestone--complete .jx-milestone__mark {
-  border-color: var(--jx-color-accent);
-  background: var(--jx-color-accent);
-  color: var(--jx-color-accent-contrast);
+  border-color: var(--jx-accent);
+  background: var(--jx-accent);
+  color: var(--jx-ink-inverse);
 }
 
 .jx-milestone--current .jx-milestone__mark {
-  border-color: var(--jx-color-accent);
-  background: var(--jx-color-accent-soft);
-  color: var(--jx-color-accent-strong);
+  border-color: var(--jx-accent);
+  background: var(--jx-accent-soft);
+  color: var(--jx-accent-ink);
 }
 
 .jx-milestone--paused .jx-milestone__mark {
-  border-color: var(--jx-color-warning);
-  background: var(--jx-color-warning-soft);
-  color: var(--jx-color-text-strong);
+  border-color: var(--jx-warning);
+  background: var(--jx-warning-soft);
+  color: var(--jx-ink);
 }
 
 .jx-milestone--stopped .jx-milestone__mark {
-  border-color: var(--jx-color-danger);
-  background: var(--jx-color-danger-soft);
-  color: var(--jx-color-text-strong);
+  border-color: var(--jx-danger);
+  background: var(--jx-danger-soft);
+  color: var(--jx-ink);
 }
 
 .jx-milestone--not_reached .jx-milestone__mark {
@@ -109,8 +110,8 @@
 
   .jx-milestone:not(:last-child)::after {
     inset-inline-start: calc(var(--jx-milestone-mark) + var(--jx-space-2));
-    inset-block-start: calc(var(--jx-milestone-mark) / 2 - 1px);
+    inset-block-start: calc((var(--jx-milestone-mark) - var(--jx-rule-heavy)) / 2);
     width: calc(100% - var(--jx-milestone-mark) - var(--jx-space-2));
-    height: 2px;
+    height: var(--jx-rule-heavy);
   }
 }

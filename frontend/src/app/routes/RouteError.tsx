@@ -5,6 +5,7 @@ import { ErrorState } from "../../design-system/primitives/feedback";
 import { Page } from "../../design-system/primitives/layout";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import "../shell/AppShell.css";
+import "./RouteError.css";
 
 /**
  * Route-level error element.

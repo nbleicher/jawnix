@@ -659,7 +659,7 @@ describe("receipt and append-only history", () => {
     const receipt = await screen.findByRole("region", { name: "Recorded" });
     expect(within(receipt).getByText(/No Contact recorded for Acme Roofing/))
       .toBeVisible();
-    expect(within(receipt).getByText(/Reference t-1/)).toBeVisible();
+    expect(within(receipt).getByText(/Reference/)).toHaveTextContent("t-1");
   });
 
   it("lists prior answers oldest first without replacing them", async () => {

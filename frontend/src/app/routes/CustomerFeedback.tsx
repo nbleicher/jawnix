@@ -13,7 +13,7 @@ import {
   Stack,
 } from "../../design-system/primitives/layout";
 import { StatusBadge } from "../../design-system/primitives/status";
-import { Heading, Text } from "../../design-system/primitives/typography";
+import { Heading, Mono, Text } from "../../design-system/primitives/typography";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { CustomerExclusionListsSection } from "./CustomerExclusionLists";
 
@@ -359,9 +359,7 @@ export function CustomerFeedbackRoute() {
         reason: reportReason,
         details: reportDetails.trim(),
       });
-      setReportSaved(
-        "Lead Report filed. An administrator will review it.",
-      );
+      setReportSaved("Lead Report filed. Noah reviews every report.");
       setReportDetails("");
     } catch (caught) {
       setReportError(
@@ -463,7 +461,9 @@ export function CustomerFeedbackRoute() {
                               {result.businessName}
                             </span>
                             <span className="customer-feedback__option-description">
-                              {formatPhone(result.phone)} · Batch {result.batchId}
+                              <Mono>
+                                {formatPhone(result.phone)} · Batch {result.batchId}
+                              </Mono>
                             </span>
                           </button>
                         </li>
@@ -661,7 +661,7 @@ export function CustomerFeedbackRoute() {
                       </Text>
                     ) : null}
                     <Text size="sm" tone="muted">
-                      Reference {receipt.transition.id}
+                      Reference <Mono>{receipt.transition.id}</Mono>
                     </Text>
                   </Stack>
                 </Card>

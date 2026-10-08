@@ -35,30 +35,30 @@
   /* The 44px rule applies to the whole target, not just its label. */
   min-height: var(--jx-touch-target);
   padding: var(--jx-space-3);
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-sm);
-  background: var(--jx-color-surface);
-  color: var(--jx-color-text);
+  border: var(--jx-rule) solid var(--jx-line-control);
+  border-radius: var(--jx-radius-none);
+  background: var(--jx-plate);
+  color: var(--jx-ink);
   cursor: pointer;
 }
 
 .customer-feedback__option:hover {
-  border-color: var(--jx-color-border-strong);
-  background: var(--jx-color-surface-strong);
+  border-color: var(--jx-line-strong);
+  background: var(--jx-sunk);
 }
 
 /* Selection is carried by aria-pressed, so the styling follows the state
    rather than a parallel class that could disagree with it. */
 .customer-feedback__option[aria-pressed="true"] {
-  border-color: var(--jx-color-accent);
-  background: var(--jx-color-accent-soft);
-  color: var(--jx-color-text-strong);
+  border-color: var(--jx-accent);
+  background: var(--jx-accent-soft);
+  color: var(--jx-ink);
 }
 
 .customer-feedback__option[aria-pressed="true"] .customer-feedback__option-label::before {
   content: "✓";
   margin-inline-end: var(--jx-space-2);
-  color: var(--jx-color-accent);
+  color: var(--jx-accent);
 }
 
 .customer-feedback__option-label {
@@ -67,7 +67,7 @@
 
 .customer-feedback__option-description {
   font-size: var(--jx-text-sm);
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
 }
 
 .customer-feedback__history {
@@ -94,15 +94,15 @@
   gap: var(--jx-space-1);
   align-items: flex-start;
   padding: var(--jx-space-3);
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-sm);
-  background: var(--jx-color-surface);
-  color: var(--jx-color-text);
+  border: var(--jx-rule) solid var(--jx-line);
+  border-radius: var(--jx-radius-none);
+  background: var(--jx-plate);
+  color: var(--jx-ink);
   text-align: start;
   cursor: pointer;
 }
 
 .customer-feedback__search-result:hover {
-  border-color: var(--jx-color-accent);
-  background: var(--jx-color-surface-strong);
+  border-color: var(--jx-accent);
+  background: var(--jx-sunk);
 }

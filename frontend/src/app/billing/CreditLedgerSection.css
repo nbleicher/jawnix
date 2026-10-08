@@ -1,0 +1,131 @@
+.credit-ledger-notice {
+  padding: var(--jx-space-3) var(--jx-space-4);
+  border-inline-start: var(--jx-rule-heavy) solid;
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-medium);
+}
+
+.credit-ledger-notice--success {
+  border-color: var(--jx-success);
+  background: var(--jx-success-soft);
+  color: var(--jx-success-ink);
+}
+
+.credit-ledger-notice--info {
+  border-color: var(--jx-accent);
+  background: var(--jx-accent-soft);
+  color: var(--jx-accent-ink);
+}
+
+.credit-ledger-notice--neutral {
+  border-color: var(--jx-neutral);
+  background: var(--jx-neutral-soft);
+  color: var(--jx-neutral-ink);
+}
+
+.credit-ledger-notice--danger {
+  border-color: var(--jx-danger);
+  background: var(--jx-danger-soft);
+  color: var(--jx-danger-ink);
+}
+
+.credit-wallet-facts {
+  display: grid;
+  gap: var(--jx-space-4);
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(12rem, 100%), 1fr)
+  );
+}
+
+.credit-wallet-facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+  min-width: 0;
+}
+
+.credit-wallet-facts dd {
+  color: var(--jx-ink);
+  font-family: var(--jx-font-mono);
+  font-feature-settings: var(--jx-font-features-numeral);
+  font-weight: var(--jx-weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.credit-ledger-tablewrap {
+  overflow-x: auto;
+  border: var(--jx-rule) solid var(--jx-line);
+  background: var(--jx-plate);
+}
+
+.credit-ledger {
+  width: 100%;
+  min-width: 44rem;
+  border-collapse: collapse;
+  font-size: var(--jx-text-sm);
+}
+
+.credit-ledger th {
+  padding: var(--jx-space-2) var(--jx-space-3);
+  border-bottom: var(--jx-rule-heavy) solid var(--jx-ink);
+  color: var(--jx-ink-muted);
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-semibold);
+  letter-spacing: var(--jx-tracking-label);
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.credit-ledger td {
+  padding: var(--jx-space-2) var(--jx-space-3);
+  border-bottom: var(--jx-rule) solid var(--jx-line);
+  vertical-align: baseline;
+}
+
+.credit-ledger tbody tr {
+  transition: background-color var(--jx-duration-fast) var(--jx-ease);
+}
+
+.credit-ledger tbody tr:hover {
+  background: var(--jx-sunk);
+}
+
+.credit-ledger tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.credit-ledger th.credit-ledger__num,
+.credit-ledger td.credit-ledger__num {
+  text-align: right;
+}
+
+.credit-ledger td.credit-ledger__num,
+.credit-ledger td.credit-ledger__data {
+  font-family: var(--jx-font-mono);
+  font-feature-settings: var(--jx-font-features-numeral);
+  white-space: nowrap;
+}
+
+.credit-ledger__kind {
+  display: block;
+  font-weight: var(--jx-weight-semibold);
+}
+
+.credit-ledger__detail {
+  display: block;
+  color: var(--jx-ink-muted);
+}
+
+.credit-ledger__amount {
+  font-weight: var(--jx-weight-semibold);
+}
+
+.credit-ledger__amount--credit {
+  color: var(--jx-success);
+}
+
+.credit-ledger__amount--debit {
+  color: var(--jx-danger);
+}

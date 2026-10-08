@@ -1,0 +1,14 @@
+.jx-error-frame {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--jx-paper);
+  color: var(--jx-ink);
+  transition:
+    background-color var(--jx-duration-scheme) var(--jx-ease),
+    color var(--jx-duration-scheme) var(--jx-ease);
+}
+
+.jx-error-frame .jx-shell__banner {
+  position: static;
+}

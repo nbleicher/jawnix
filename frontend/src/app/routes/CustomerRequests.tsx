@@ -23,6 +23,7 @@ import {
   Heading,
   LabelText,
   Mono,
+  Numeral,
   Text,
   VisuallyHidden,
 } from "../../design-system/primitives/typography";
@@ -31,6 +32,7 @@ import {
   useBilledWallet,
   useCreditWallet,
 } from "../billing/CreditWalletContext";
+import { PurchaseDialog } from "../billing/CreditWalletWidget";
 import {
   batchCostCents,
   formatBalanceRefusal,
@@ -112,7 +114,8 @@ const DAY_MS = 24 * HOUR_MS;
 
 export function formatArtifactExpiry(expiresAt: string, now: number): string {
   const remaining = Date.parse(expiresAt) - now;
-  if (remaining <= 0) return "Expired — contact us";
+  if (remaining <= 0)
+    return "Expired — email noah@jawnix.com and the exact file will be regenerated.";
   if (remaining >= DAY_MS) {
     const days = Math.ceil(remaining / DAY_MS);
     return `Expires in ${days} ${days === 1 ? "day" : "days"}`;
@@ -225,6 +228,7 @@ function RequestFlow({
   const [filesError, setFilesError] = useState("");
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
+  const [buying, setBuying] = useState(false);
   const [receipt, setReceipt] = useState<BatchRequestReceipt | null>(null);
   const quantityRef = useRef<HTMLInputElement>(null);
   const scopeRef = useRef<HTMLInputElement>(null);
@@ -575,7 +579,7 @@ function RequestFlow({
                     role="status"
                     aria-live="polite"
                   >
-                    {filePreview}
+                    <Numeral>{filePreview}</Numeral>
                   </Text>
                 ) : null}
               </Stack>
@@ -676,9 +680,18 @@ function RequestFlow({
               >
                 {stage === 3 ? "Submit request" : "Continue"}
               </Button>
+              {/* Blocked on funds: Submit stays visible but disabled, and the
+                  remedy is one click away — secondary, because the Customer's
+                  commitment is the Batch, not the top-up. */}
+              {stage === 3 && insufficient ? (
+                <Button variant="secondary" onClick={() => setBuying(true)}>
+                  Buy credits
+                </Button>
+              ) : null}
             </Cluster>
           </Stack>
         </form>
+        <PurchaseDialog open={buying} onClose={() => setBuying(false)} />
       </Stack>
     </Card>
   );
@@ -702,10 +715,10 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
     artifact?.available && artifact.download_href && !expired,
   );
   const status = expired
-    ? "Expired — contact us"
+    ? "Expired — email noah@jawnix.com and the exact file will be regenerated."
     : live && artifact?.expires_at
       ? formatArtifactExpiry(artifact.expires_at, now)
-      : "Unavailable — contact us";
+      : "Unavailable — email noah@jawnix.com; I'll regenerate the exact file.";
   const parts = artifact?.parts ?? [];
 
   return (
@@ -727,17 +740,13 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
               per file choice.
             </Text>
           </Stack>
-          <Text
-            size="sm"
-            weight="semibold"
-            tone={live ? "success" : "warning"}
-          >
+          <StatusBadge tone={live ? "info" : "warning"}>
             {artifact?.expires_at ? (
               <time dateTime={artifact.expires_at}>{status}</time>
             ) : (
               status
             )}
-          </Text>
+          </StatusBadge>
         </Cluster>
 
         {artifact ? (
@@ -785,8 +794,8 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
           </ActionLink>
         ) : (
           <Text size="sm">
-            Batch files are retained for 30 days. Contact Jawnix to have this
-            exact file regenerated.
+            Batch files are retained for 30 days. Email noah@jawnix.com and
+            I'll regenerate the exact file.
           </Text>
         )}
       </Stack>

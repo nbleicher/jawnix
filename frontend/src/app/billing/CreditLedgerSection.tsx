@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import {
@@ -11,6 +11,7 @@ import { StatusBadge } from "../../design-system/primitives/status";
 import {
   Heading,
   LabelText,
+  Mono,
   Text,
 } from "../../design-system/primitives/typography";
 import {
@@ -23,17 +24,24 @@ import {
   hasProcessingPurchase,
   type CreditLedgerEntry,
   type CreditPurchase,
+  type CreditWallet,
 } from "./wallet";
 import { formatMilestoneTime } from "../routes/MilestoneGraph";
 
-function ledgerDescription(entry: CreditLedgerEntry): string {
+import "./CreditLedgerSection.css";
+
+function LedgerDescription({ entry }: { entry: CreditLedgerEntry }) {
   if (entry.kind === "admin_adjustment" && entry.reason) {
-    return entry.reason;
+    return <>{entry.reason}</>;
   }
   if (entry.kind === "batch_charge" && entry.batchRequestId) {
-    return `Batch Request ${entry.batchRequestId.slice(0, 8)}`;
+    return (
+      <>
+        Batch Request <Mono>{entry.batchRequestId.slice(0, 8)}</Mono>
+      </>
+    );
   }
-  return LEDGER_KIND_LABEL[entry.kind];
+  return <>{LEDGER_KIND_LABEL[entry.kind]}</>;
 }
 
 function PurchaseRow({ purchase }: { purchase: CreditPurchase }) {
@@ -47,9 +55,11 @@ function PurchaseRow({ purchase }: { purchase: CreditPurchase }) {
     <Card as="li" padding={4}>
       <Cluster justify="space-between" align="start">
         <Stack gap={1}>
-          <Heading level={3}>{formatCents(purchase.amountCents)}</Heading>
+          <Heading level={3}>
+            <Mono>{formatCents(purchase.amountCents)}</Mono>
+          </Heading>
           <Text size="sm" tone="muted">
-            {`Started ${formatMilestoneTime(purchase.createdAt)}`}
+            Started <Mono>{formatMilestoneTime(purchase.createdAt)}</Mono>
           </Text>
         </Stack>
         <StatusBadge tone={presentation.tone}>
@@ -60,25 +70,86 @@ function PurchaseRow({ purchase }: { purchase: CreditPurchase }) {
   );
 }
 
-function LedgerRow({ entry }: { entry: CreditLedgerEntry }) {
-  const credit = entry.amountCents >= 0;
+interface LedgerRow {
+  entry: CreditLedgerEntry;
+  /** Wallet balance immediately after this entry — derivable because the
+   *  ledger is append-only, newest-first, and sums to the wallet balance. */
+  balanceAfterCents: number;
+}
+
+/** Running balance per row: start at the wallet balance and walk the
+ *  append-only, newest-first ledger backwards. Reconciles by construction. */
+export function ledgerRowsWithBalance(wallet: CreditWallet): LedgerRow[] {
+  let balance = wallet.balanceCents;
+  return wallet.ledger.map((entry) => {
+    const row = { entry, balanceAfterCents: balance };
+    balance -= entry.amountCents;
+    return row;
+  });
+}
+
+/**
+ * The ledger is the hero: an append-only table of record where every row is
+ * checkable — signed amounts, mono references, and a running balance that
+ * reconciles to the wallet totals above it.
+ */
+function LedgerTable({ wallet }: { wallet: CreditWallet }) {
+  const rows = useMemo<LedgerRow[]>(
+    () => ledgerRowsWithBalance(wallet),
+    [wallet],
+  );
+
   return (
-    <Card as="li" padding={4}>
-      <Cluster justify="space-between" align="start">
-        <Stack gap={1}>
-          <Heading level={3}>{LEDGER_KIND_LABEL[entry.kind]}</Heading>
-          <Text size="sm" tone="muted">
-            {ledgerDescription(entry)}
-          </Text>
-          <Text size="sm" tone="muted">
-            {formatMilestoneTime(entry.createdAt)}
-          </Text>
-        </Stack>
-        <Text weight="semibold" tone={credit ? "success" : "danger"}>
-          {`${credit ? "+" : "−"}${formatCents(Math.abs(entry.amountCents))}`}
-        </Text>
-      </Cluster>
-    </Card>
+    <div className="credit-ledger-tablewrap">
+      <table className="credit-ledger">
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            <th scope="col">Entry</th>
+            <th scope="col">Reference</th>
+            <th scope="col" className="credit-ledger__num">Amount</th>
+            <th scope="col" className="credit-ledger__num">Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ entry, balanceAfterCents }) => {
+            const credit = entry.amountCents >= 0;
+            return (
+              <tr key={entry.id}>
+                <td className="credit-ledger__data">
+                  {formatMilestoneTime(entry.createdAt)}
+                </td>
+                <td>
+                  <span className="credit-ledger__kind">
+                    {LEDGER_KIND_LABEL[entry.kind]}
+                  </span>
+                  <span className="credit-ledger__detail">
+                    <LedgerDescription entry={entry} />
+                  </span>
+                </td>
+                <td className="credit-ledger__data">
+                  <Mono>{entry.id}</Mono>
+                </td>
+                <td className="credit-ledger__num">
+                  <span
+                    className={
+                      credit
+                        ? "credit-ledger__amount credit-ledger__amount--credit"
+                        : "credit-ledger__amount credit-ledger__amount--debit"
+                    }
+                  >
+                    {`${credit ? "+" : "−"}${formatCents(Math.abs(entry.amountCents))}`}
+                  </span>
+                </td>
+                <td className="credit-ledger__num">
+                  {formatCents(balanceAfterCents)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -123,7 +194,7 @@ function PurchaseReturnNotice({
   if (outcome === "cancelled") {
     return (
       <div
-        className="licensed-state-page__message licensed-state-page__message--error"
+        className="credit-ledger-notice credit-ledger-notice--neutral"
         role="status"
       >
         Credit Purchase cancelled. Your Credit Wallet was not charged.
@@ -132,9 +203,10 @@ function PurchaseReturnNotice({
   }
 
   if (outcome === "success") {
+    const tone = processing ? "info" : failed ? "danger" : "success";
     return (
       <div
-        className="licensed-state-page__message licensed-state-page__message--success"
+        className={`credit-ledger-notice credit-ledger-notice--${tone}`}
         role="status"
       >
         {processing
@@ -189,7 +261,7 @@ export function CreditLedgerSection() {
         description="Prepaid balance for Batch Requests. Purchases credit the wallet after Stripe confirms payment."
       >
         <Card>
-          <dl className="customer-account__identity">
+          <dl className="credit-wallet-facts">
             <div>
               <dt>
                 <LabelText>Available balance</LabelText>
@@ -240,11 +312,7 @@ export function CreditLedgerSection() {
         description="Every Credit Purchase, Batch Charge, and adjustment that makes up the Credit Wallet."
       >
         {wallet.ledger.length ? (
-          <Stack as="ul" gap={3}>
-            {wallet.ledger.map((entry) => (
-              <LedgerRow key={entry.id} entry={entry} />
-            ))}
-          </Stack>
+          <LedgerTable wallet={wallet} />
         ) : (
           <Card padding={4}>
             <Text tone="muted">

@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "../../design-system/primitives/Button";
 import { Dialog } from "../../design-system/primitives/Dialog";
@@ -12,7 +12,7 @@ import { hasProcessingPurchase, startCreditPurchase } from "./wallet";
 
 import "./CreditWalletWidget.css";
 
-function PurchaseDialog({
+export function PurchaseDialog({
   open,
   onClose,
 }: {
@@ -25,6 +25,14 @@ function PurchaseDialog({
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
   const formId = useId();
+  const continueRef = useRef<HTMLButtonElement>(null);
+
+  // Default focus lands on "Continue to Stripe": nothing is charged until
+  // Stripe confirms, so forward focus is correct here. Dialog's own effects
+  // run first (child-before-parent), so the modal is open when this fires.
+  useEffect(() => {
+    if (open) continueRef.current?.focus();
+  }, [open]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -60,7 +68,7 @@ function PurchaseDialog({
       description="Top up your Credit Wallet with any whole-dollar amount. You will complete payment on Stripe Checkout; the balance updates when payment is confirmed."
       footer={
         <Cluster>
-          <Button onClick={onClose} disabled={busy}>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button
@@ -69,6 +77,7 @@ function PurchaseDialog({
             variant="primary"
             busy={busy}
             busyLabel="Redirecting…"
+            ref={continueRef}
           >
             Continue to Stripe
           </Button>
@@ -94,7 +103,7 @@ function PurchaseDialog({
               min={1}
               step={1}
               value={amount}
-              autoFocus
+              className="credit-purchase-amount"
               onChange={(event) => {
                 setAmount(event.currentTarget.value);
                 setFieldError("");
@@ -132,7 +141,7 @@ export function CreditWalletWidget() {
             <StatusBadge tone="info">Processing</StatusBadge>
           ) : null}
         </div>
-        <Button variant="primary" onClick={() => setDialogOpen(true)}>
+        <Button variant="secondary" onClick={() => setDialogOpen(true)}>
           Buy credits
         </Button>
       </div>

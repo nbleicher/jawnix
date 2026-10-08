@@ -3,9 +3,8 @@
   align-items: center;
   gap: var(--jx-space-3);
   padding: var(--jx-space-1) var(--jx-space-2) var(--jx-space-1) var(--jx-space-3);
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-md);
-  background: var(--jx-color-surface-strong);
+  border: var(--jx-rule) solid var(--jx-line);
+  background: var(--jx-plate);
   min-width: 0;
 }
 
@@ -13,7 +12,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.125rem;
+  gap: var(--jx-space-1);
   min-width: 0;
 }
 
@@ -22,19 +21,21 @@
   font-weight: var(--jx-weight-bold);
   letter-spacing: var(--jx-tracking-label);
   text-transform: uppercase;
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
 }
 
 .credit-wallet-widget__amount {
+  font-family: var(--jx-font-mono);
+  font-feature-settings: var(--jx-font-features-numeral);
   font-size: var(--jx-text-sm);
   font-weight: var(--jx-weight-semibold);
-  color: var(--jx-color-text-strong);
-  font-variant-numeric: tabular-nums;
+  color: var(--jx-ink);
   white-space: nowrap;
 }
 
-.credit-wallet-widget .jx-status {
-  margin-top: 0.125rem;
+.credit-purchase-amount {
+  font-family: var(--jx-font-mono);
+  font-feature-settings: var(--jx-font-features-numeral);
 }
 
 @media (max-width: 40rem) {

@@ -13,7 +13,7 @@ import {
 } from "../../design-system/primitives/layout";
 import { StatusBadge } from "../../design-system/primitives/status";
 import type { StatusTone } from "../../design-system/primitives/status";
-import { Heading, Text } from "../../design-system/primitives/typography";
+import { Heading, Numeral, Text } from "../../design-system/primitives/typography";
 import {
   EXCLUSION_TYPES,
   INGESTING_STATUSES,
@@ -75,13 +75,17 @@ function ExclusionListCard({ item }: { item: ExclusionListStatus }) {
         ) : item.ingestedAt ? (
           <Grid minColumnWidth="9rem" gap={2}>
             <Text size="sm">
-              <strong>{item.acceptedRows.toLocaleString()}</strong> phones
+              <strong>
+                <Numeral>{item.acceptedRows.toLocaleString()}</Numeral>
+              </strong>{" "}
+              phones
             </Text>
             <Text size="sm" tone="muted">
-              {item.invalidRows.toLocaleString()} invalid
+              <Numeral>{item.invalidRows.toLocaleString()}</Numeral> invalid
             </Text>
             <Text size="sm" tone="muted">
-              {item.duplicateRows.toLocaleString()} duplicates
+              <Numeral>{item.duplicateRows.toLocaleString()}</Numeral>{" "}
+              duplicates
             </Text>
           </Grid>
         ) : null}

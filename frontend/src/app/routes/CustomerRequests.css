@@ -8,27 +8,29 @@
 
 .request-flow__stage {
   padding-block-end: var(--jx-space-2);
-  border-block-end: 3px solid var(--jx-color-border);
-  color: var(--jx-color-text-muted);
+  border-block-end: var(--jx-rule-heavy) solid var(--jx-line);
+  color: var(--jx-ink-muted);
   flex: 1 1 8rem;
   min-width: 0;
 }
 
 .request-flow__stage--done {
-  border-block-end-color: var(--jx-color-accent);
-  color: var(--jx-color-text);
+  border-block-end-color: var(--jx-accent);
+  color: var(--jx-ink);
 }
 
 .request-flow__stage--current {
-  border-block-end-color: var(--jx-color-accent-strong);
-  color: var(--jx-color-text-strong);
+  border-block-end-color: var(--jx-accent-ink);
+  color: var(--jx-ink);
 }
 
+/* Alerts: pigment-soft ground, pigment-ink text, heavy tonal left joint —
+   the book's danger-soft alert, never a rounded box. */
 .request-flow__failure {
   padding: var(--jx-space-3) var(--jx-space-4);
-  border: 1px solid var(--jx-color-danger);
-  border-radius: var(--jx-radius-md);
-  background: var(--jx-color-danger-soft);
+  border-inline-start: var(--jx-rule-heavy) solid var(--jx-danger);
+  background: var(--jx-danger-soft);
+  color: var(--jx-danger-ink);
 }
 
 /* Radio and checkbox rows. Full-width targets so the whole row is tappable. */
@@ -38,20 +40,20 @@
   gap: var(--jx-space-3);
   min-height: var(--jx-touch-target);
   padding: var(--jx-space-2) var(--jx-space-3);
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-md);
-  background: var(--jx-color-surface);
+  border: var(--jx-rule) solid var(--jx-line-control);
+  border-radius: var(--jx-radius-none);
+  background: var(--jx-plate);
   cursor: pointer;
 }
 
 .request-flow__choice:has(input:checked) {
-  border-color: var(--jx-color-accent);
-  background: var(--jx-color-accent-soft);
+  border-color: var(--jx-accent);
+  background: var(--jx-accent-soft);
 }
 
 .request-flow__choice:has(input:focus-visible) {
-  outline: 3px solid var(--jx-color-focus-ring);
-  outline-offset: 2px;
+  outline: var(--jx-focus-width) solid var(--jx-focus);
+  outline-offset: var(--jx-focus-offset);
 }
 
 .request-flow__states {
@@ -73,14 +75,17 @@
   min-width: 0;
 }
 
+/* The Review stage's money arithmetic is the signature moment: every figure
+   tabular, so the multiplication reconciles digit over digit. */
 .request-flow__review dd {
-  color: var(--jx-color-text-strong);
+  color: var(--jx-ink);
   font-weight: var(--jx-weight-semibold);
+  font-feature-settings: var(--jx-font-features-numeral);
 }
 
 .request-flow__receipt {
-  border-color: var(--jx-color-success);
-  background: var(--jx-color-success-soft);
+  border-color: var(--jx-success);
+  background: var(--jx-success-soft);
 }
 
 .request-list {
@@ -91,45 +96,47 @@
    and their border rather than by colour alone. */
 .request-card__note {
   padding: var(--jx-space-3) var(--jx-space-4);
-  border: 1px solid var(--jx-color-border-strong);
-  border-inline-start-width: 4px;
-  border-radius: var(--jx-radius-md);
-  background: var(--jx-color-surface-recessed);
+  border: var(--jx-rule) solid var(--jx-line-strong);
+  border-inline-start-width: var(--jx-rule-heavy);
+  border-radius: var(--jx-radius-none);
+  background: var(--jx-sunk);
 }
 
 .request-card__note--pause {
-  border-inline-start-color: var(--jx-color-warning);
+  border-inline-start-color: var(--jx-warning);
 }
 
 .request-card__note--danger {
-  border-inline-start-color: var(--jx-color-danger);
+  border-inline-start-color: var(--jx-danger);
 }
 
 .request-card__note--neutral {
-  border-inline-start-color: var(--jx-color-neutral);
+  border-inline-start-color: var(--jx-neutral);
 }
 
 .request-card__note--warning {
-  border-inline-start-color: var(--jx-color-warning);
+  border-inline-start-color: var(--jx-warning);
 }
 
 .request-card__note--info {
-  border-inline-start-color: var(--jx-color-info);
+  border-inline-start-color: var(--jx-info);
 }
 
 .request-card__note--success {
-  border-inline-start-color: var(--jx-color-success);
+  border-inline-start-color: var(--jx-success);
 }
 
+/* The Batch Artifact is a card of record: plate, 1px line, no radius, no
+   shadow. State lives in the badge, not the frame. */
 .request-artifact {
   padding: var(--jx-space-5);
-  border: 1px solid var(--jx-color-success);
-  border-radius: var(--jx-radius-lg);
-  background: var(--jx-color-surface-recessed);
+  border: var(--jx-rule) solid var(--jx-line);
+  border-radius: var(--jx-radius-none);
+  background: var(--jx-plate);
 }
 
 .request-artifact--unavailable {
-  border-color: var(--jx-color-warning);
+  border-color: var(--jx-warning);
 }
 
 .request-artifact__metadata {
@@ -146,7 +153,8 @@
 }
 
 .request-artifact__metadata dd {
-  color: var(--jx-color-text-strong);
+  color: var(--jx-ink);
+  font-feature-settings: var(--jx-font-features-numeral);
   overflow-wrap: anywhere;
 }
 
@@ -166,7 +174,8 @@
   gap: var(--jx-space-2) var(--jx-space-4);
   min-width: 0;
   padding: var(--jx-space-2) 0;
-  border-block-end: 1px solid var(--jx-color-border);
+  border-block-end: var(--jx-rule) solid var(--jx-line);
+  font-feature-settings: var(--jx-font-features-numeral);
 }
 
 .request-artifact__part:last-child {
