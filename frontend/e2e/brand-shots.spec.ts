@@ -249,7 +249,7 @@ for (const scheme of SCHEMES) {
         .getByRole("region", { name: "Batch Artifact" })
         .waitFor({ state: "visible" });
       await page
-        .getByText(/Expired — email noah@jawnix\.com/)
+        .getByText(/I'll regenerate the exact file/)
         .waitFor({ state: "visible" });
       await shoot(page, testInfo, `requests-detail-artifact-expired-${scheme}`);
     });

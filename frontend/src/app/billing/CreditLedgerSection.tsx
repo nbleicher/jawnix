@@ -30,10 +30,11 @@ import {
 
 import "./CreditLedgerSection.css";
 
-/** Ledger dates are records, not prose: ISO-UTC, always ("2026-08-02 15:00
- *  UTC"), so a row reads identically in every locale and timezone. */
+/** Ledger dates are records, not prose: ISO-UTC, always ("2026-08-02 15:00"),
+ *  so a row reads identically in every locale and timezone. The unit lives in
+ *  the table header ("units in headers", ch7), not in every cell. */
 function formatLedgerTime(value: string): string {
-  return `${new Date(value).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+  return new Date(value).toISOString().slice(0, 16).replace("T", " ");
 }
 
 const LEDGER_KIND_PREFIX: Record<CreditLedgerKind, string> = {
@@ -42,25 +43,28 @@ const LEDGER_KIND_PREFIX: Record<CreditLedgerKind, string> = {
   admin_adjustment: "AD",
 };
 
-/** Short mono reference (CP-XXXXXXXX); the full id stays on the title. */
+/** Short mono reference (CP-XXXXXXXX) with an ellipsis marking it as a
+ *  prefix; the full id is revealed by the toggle in the Reference cell. */
 function shortLedgerReference(entry: CreditLedgerEntry): string {
   return `${LEDGER_KIND_PREFIX[entry.kind]}-${entry.id
     .slice(0, 8)
-    .toUpperCase()}`;
+    .toUpperCase()}…`;
 }
 
+/** Detail line under the kind label — omitted when it would only restate
+ *  the kind ("Credit Purchase / Credit Purchase"). */
 function LedgerDescription({ entry }: { entry: CreditLedgerEntry }) {
   if (entry.kind === "admin_adjustment" && entry.reason) {
-    return <>{entry.reason}</>;
+    return <span className="credit-ledger__detail">{entry.reason}</span>;
   }
   if (entry.kind === "batch_charge" && entry.batchRequestId) {
     return (
-      <>
+      <span className="credit-ledger__detail">
         Batch Request <Mono>{entry.batchRequestId.slice(0, 8)}</Mono>
-      </>
+      </span>
     );
   }
-  return <>{LEDGER_KIND_LABEL[entry.kind]}</>;
+  return null;
 }
 
 function PurchaseRow({ purchase }: { purchase: CreditPurchase }) {
@@ -78,7 +82,7 @@ function PurchaseRow({ purchase }: { purchase: CreditPurchase }) {
             <Mono>{formatCents(purchase.amountCents)}</Mono>
           </Heading>
           <Text size="sm" tone="muted">
-            Started <Mono>{formatLedgerTime(purchase.createdAt)}</Mono>
+            Started <Mono>{formatLedgerTime(purchase.createdAt)} UTC</Mono>
           </Text>
         </Stack>
         <StatusBadge tone={presentation.tone}>
@@ -117,6 +121,8 @@ function LedgerTable({ wallet }: { wallet: CreditWallet }) {
     () => ledgerRowsWithBalance(wallet),
     [wallet],
   );
+  /** Entry id whose full reference is currently revealed inline. */
+  const [expandedRef, setExpandedRef] = useState<string | null>(null);
 
   return (
     <div
@@ -128,7 +134,7 @@ function LedgerTable({ wallet }: { wallet: CreditWallet }) {
       <table className="credit-ledger">
         <thead>
           <tr>
-            <th scope="col">Date</th>
+            <th scope="col">Date (UTC)</th>
             <th scope="col">Entry</th>
             <th scope="col">Reference</th>
             <th scope="col" className="credit-ledger__num">Amount</th>
@@ -138,6 +144,8 @@ function LedgerTable({ wallet }: { wallet: CreditWallet }) {
         <tbody>
           {rows.map(({ entry, balanceAfterCents }) => {
             const credit = entry.amountCents >= 0;
+            const refExpanded = expandedRef === entry.id;
+            const fullRefId = `credit-ledger-ref-${entry.id}`;
             return (
               <tr key={entry.id}>
                 <td className="credit-ledger__data">
@@ -147,12 +155,31 @@ function LedgerTable({ wallet }: { wallet: CreditWallet }) {
                   <span className="credit-ledger__kind">
                     {LEDGER_KIND_LABEL[entry.kind]}
                   </span>
-                  <span className="credit-ledger__detail">
-                    <LedgerDescription entry={entry} />
-                  </span>
+                  <LedgerDescription entry={entry} />
+                  {refExpanded ? (
+                    <span
+                      className="credit-ledger__fullref"
+                      id={fullRefId}
+                    >
+                      <Mono>{entry.id}</Mono>
+                    </span>
+                  ) : null}
                 </td>
                 <td className="credit-ledger__data">
-                  <Mono title={entry.id}>{shortLedgerReference(entry)}</Mono>
+                  {/* The full reference must be reachable by keyboard and
+                      touch, so it lives behind an expanding toggle rather
+                      than a hover-only title attribute. */}
+                  <button
+                    type="button"
+                    className="credit-ledger__ref"
+                    aria-expanded={refExpanded}
+                    aria-controls={fullRefId}
+                    onClick={() =>
+                      setExpandedRef(refExpanded ? null : entry.id)
+                    }
+                  >
+                    <Mono>{shortLedgerReference(entry)}</Mono>
+                  </button>
                 </td>
                 <td className="credit-ledger__num">
                   {/* Ink, never pigment: the +/− sign carries direction. */}

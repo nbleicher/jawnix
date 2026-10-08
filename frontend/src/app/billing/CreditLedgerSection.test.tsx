@@ -56,4 +56,22 @@ describe("ledgerRowsWithBalance", () => {
     const rows = ledgerRowsWithBalance(WALLET);
     expect(rows[0]?.balanceAfterCents).toBe(WALLET.balanceCents);
   });
+
+  it("holds the ledger invariant: the entries sum to the wallet balance", () => {
+    const rows = ledgerRowsWithBalance(WALLET);
+    // Walking the append-only ledger from zero lands on the wallet balance…
+    const walked = WALLET.ledger.reduce(
+      (total, entry) => total + entry.amountCents,
+      0,
+    );
+    expect(walked).toBe(WALLET.balanceCents);
+    // …so each row's derived balance equals the sum of its own entry and
+    // every older entry, independent of the fixture's literal values.
+    rows.forEach((row, index) => {
+      const walkedToRow = WALLET.ledger
+        .slice(index)
+        .reduce((total, entry) => total + entry.amountCents, 0);
+      expect(row.balanceAfterCents).toBe(walkedToRow);
+    });
+  });
 });

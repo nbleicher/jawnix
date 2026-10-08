@@ -54,6 +54,7 @@ import type {
   BatchRequestReceipt,
   BatchRequestWorkspace,
   RequestLimits,
+  Tone,
 } from "./batchRequests";
 
 import "./CustomerRequests.css";
@@ -109,14 +110,29 @@ export function isRequestSettled(request: BatchRequest): boolean {
   return request.delivered_at !== null || request.milestones.outcome !== null;
 }
 
+/**
+ * The status vocabulary maps every in-flight state to info (site inventory
+ * §4: Pending/Approved/Processing/Waiting for inventory/Generated). The
+ * backend has shipped warning for the Preparing Batch states, so the badge
+ * tone is normalized at the badge rather than trusted; a warning on a moving
+ * request reads as trouble when nothing is wrong. Settled requests keep the
+ * tone they shipped.
+ */
+export function requestStatusTone(request: BatchRequest): Tone {
+  return !isRequestSettled(request) && request.status.tone === "warning"
+    ? "info"
+    : request.status.tone;
+}
+
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
 export function formatArtifactExpiry(expiresAt: string, now: number): string {
   const remaining = Date.parse(expiresAt) - now;
-  if (remaining <= 0)
-    return "Expired — email noah@jawnix.com and the exact file will be regenerated.";
+  // A badge carries the short status word only; the remedy sentence lives in
+  // the notice below, in Noah's voice, once.
+  if (remaining <= 0) return "Expired";
   if (remaining >= DAY_MS) {
     const days = Math.ceil(remaining / DAY_MS);
     return `Expires in ${days} ${days === 1 ? "day" : "days"}`;
@@ -722,10 +738,10 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
     artifact?.available && artifact.download_href && !expired,
   );
   const status = expired
-    ? "Expired — email noah@jawnix.com and the exact file will be regenerated."
+    ? "Expired"
     : live && artifact?.expires_at
       ? formatArtifactExpiry(artifact.expires_at, now)
-      : "Unavailable — email noah@jawnix.com; I'll regenerate the exact file.";
+      : "Unavailable";
   const parts = artifact?.parts ?? [];
 
   return (
@@ -802,10 +818,12 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
             </ButtonLink>
           </div>
         ) : (
-          <Text size="sm">
-            Batch files are retained for 30 days. Email noah@jawnix.com and
-            I'll regenerate the exact file.
-          </Text>
+          <div className="request-artifact__remedy">
+            <Text size="sm">
+              Batch files are retained for 30 days. Email noah@jawnix.com and
+              I'll regenerate the exact file.
+            </Text>
+          </div>
         )}
       </Stack>
     </section>
@@ -853,10 +871,12 @@ function RequestDetail({
             </Heading>
             <Text size="sm" tone="muted">
               {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)} · `}
-              <Mono>{formatRequestRef(request.id)}</Mono>
+              <Mono className="request-card__ref">
+                {formatRequestRef(request.id)}
+              </Mono>
             </Text>
           </Stack>
-          <StatusBadge tone={request.status.tone}>
+          <StatusBadge tone={requestStatusTone(request)}>
             {request.status.label}
           </StatusBadge>
         </Cluster>
@@ -946,7 +966,9 @@ function RequestSummary({ request }: { request: BatchRequest }) {
             <Heading level={3}>{`${formatCount(request.lead_count)} leads`}</Heading>
             <Text size="sm" tone="muted">
               {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)} · `}
-              <Mono>{formatRequestRef(request.id)}</Mono>
+              <Mono className="request-card__ref">
+                {formatRequestRef(request.id)}
+              </Mono>
             </Text>
             <Text size="sm">{request.status.description}</Text>
             <ActionLink href={request.receipt_href} variant="secondary">
@@ -956,7 +978,7 @@ function RequestSummary({ request }: { request: BatchRequest }) {
               </VisuallyHidden>
             </ActionLink>
           </Stack>
-          <StatusBadge tone={request.status.tone}>
+          <StatusBadge tone={requestStatusTone(request)}>
             {request.status.label}
           </StatusBadge>
         </Cluster>

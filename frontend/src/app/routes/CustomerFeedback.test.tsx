@@ -147,7 +147,7 @@ const LEAD = {
 
 function transition(overrides: Record<string, unknown> = {}) {
   return {
-    id: "t-1",
+    id: "7c3d19ab-0000-4000-8000-000000000001",
     distributionEventId: 7,
     disposition: "no_contact",
     note: "",
@@ -421,6 +421,24 @@ describe("disposition controls", () => {
     expect(first).toHaveAttribute("aria-checked", "false");
   });
 
+  it("jumps to the first and last disposition with Home and End", async () => {
+    const user = userEvent.setup();
+    mockApi();
+    renderRoute();
+    await lookUp(user);
+
+    const first = screen.getByRole("radio", { name: /No Contact/ });
+    const last = screen.getByRole("radio", { name: /^Other/ });
+    first.focus();
+    await user.keyboard("{End}");
+    expect(last).toHaveFocus();
+    expect(last).toHaveAttribute("aria-checked", "true");
+
+    await user.keyboard("{Home}");
+    expect(first).toHaveFocus();
+    expect(first).toHaveAttribute("aria-checked", "true");
+  });
+
   it("groups them by meaning", async () => {
     const user = userEvent.setup();
     mockApi();
@@ -489,9 +507,11 @@ describe("consequences are stated before submission", () => {
       name: "Your answer: Invalid Phone",
     });
     expect(
-      within(review).getByText("Files a report and holds the Lead"),
+      within(review).getByText(
+        "Files a Lead Report and places an Eligibility Hold",
+      ),
     ).toBeVisible();
-    expect(within(review).getByText(/places an Eligibility Hold/)).toBeVisible();
+    expect(within(review).getByText(/Submitting this files a Lead Report and places an Eligibility Hold/)).toBeVisible();
   });
 
   it("says Do not contact files a report and holds the Lead", async () => {
@@ -505,7 +525,7 @@ describe("consequences are stated before submission", () => {
     expect(
       within(
         screen.getByRole("region", { name: "Your answer: Do Not Contact" }),
-      ).getByText(/places an Eligibility Hold/),
+      ).getByText(/Submitting this files a Lead Report and places an Eligibility Hold/),
     ).toBeVisible();
   });
 
@@ -521,12 +541,14 @@ describe("consequences are stated before submission", () => {
       name: "Your answer: Wrong Business",
     });
     // The distinction that misleads if collapsed.
-    expect(within(review).getByText("Files a report")).toBeVisible();
+    expect(within(review).getByText("Files a Lead Report")).toBeVisible();
     expect(
       within(review).getByText(/does not place an Eligibility Hold/),
     ).toBeVisible();
     expect(
-      within(review).queryByText("Files a report and holds the Lead"),
+      within(review).queryByText(
+        "Files a Lead Report and places an Eligibility Hold",
+      ),
     ).toBeNull();
   });
 
@@ -676,16 +698,51 @@ describe("receipt and append-only history", () => {
     const receipt = await screen.findByRole("region", { name: "Recorded" });
     expect(within(receipt).getByText(/No Contact recorded for Acme Roofing/))
       .toBeVisible();
-    expect(within(receipt).getByText(/Reference/)).toHaveTextContent("t-1");
+    expect(
+      within(receipt).getByText(/2026-07-21 10:00 UTC/),
+    ).toBeVisible();
+    expect(within(receipt).getByText(/Reference/)).toHaveTextContent(
+      "TR-7C3D19AB",
+    );
+  });
+
+  it("announces the receipt and moves focus to it when it mounts", async () => {
+    const user = userEvent.setup();
+    mockApi();
+    renderRoute();
+    await lookUp(user);
+
+    await user.click(screen.getByRole("radio", { name: /No Contact/ }));
+    await user.click(screen.getByRole("button", { name: "Submit feedback" }));
+
+    const receipt = await screen.findByRole("region", { name: "Recorded" });
+    const status = within(receipt).getByRole("status");
+    expect(status).toHaveFocus();
+  });
+
+  it("announces the mounted answer section politely without stealing focus", async () => {
+    const user = userEvent.setup();
+    mockApi();
+    renderRoute();
+    await lookUp(user);
+
+    const radio = screen.getByRole("radio", { name: /No Contact/ });
+    await user.click(radio);
+
+    const review = screen.getByRole("region", {
+      name: "Your answer: No Contact",
+    });
+    expect(within(review).getByRole("status")).toBeInTheDocument();
+    expect(radio).toHaveFocus();
   });
 
   it("lists prior answers oldest first without replacing them", async () => {
     const user = userEvent.setup();
     mockApi({
       history: [
-        transition({ id: "t-1", disposition: "no_contact" }),
+        transition({ disposition: "no_contact" }),
         transition({
-          id: "t-2",
+          id: "7c3d19ab-0000-4000-8000-000000000002",
           disposition: "positive_response",
           createdAt: "2026-07-22T10:00:00Z",
         }),
@@ -700,6 +757,8 @@ describe("receipt and append-only history", () => {
       "No Contact",
       "Positive Response",
     ]);
+    expect(within(history).getByText("2026-07-21 10:00 UTC")).toBeVisible();
+    expect(within(history).getByText("2026-07-22 10:00 UTC")).toBeVisible();
   });
 
   it("says plainly when there is no history yet", async () => {

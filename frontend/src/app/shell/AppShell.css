@@ -133,6 +133,15 @@
   }
 }
 
+@media (max-width: 40rem) {
+  /* The wallet widget and the action buttons drop below the lockup as one
+     right-aligned cluster: nothing orphans onto its own row and the wordmark
+     is never clipped. */
+  .jx-shell__header-actions {
+    flex-basis: 100%;
+  }
+}
+
 @media (max-width: 32rem) {
   .jx-shell__header-actions .jx-button {
     padding-inline: var(--jx-space-3);

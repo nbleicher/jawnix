@@ -165,6 +165,21 @@
   border-color: var(--jx-warning);
 }
 
+/* The remedy for an expired or unavailable artifact is one sentence in Noah's
+   voice, carried by the alert pattern — pigment-soft ground, heavy tonal left
+   joint — never squeezed into the badge, which keeps the short status word. */
+.request-artifact__remedy {
+  padding: var(--jx-space-3) var(--jx-space-4);
+  border-inline-start: var(--jx-rule-heavy) solid var(--jx-warning);
+  background: var(--jx-warning-soft);
+  color: var(--jx-warning-ink);
+}
+
+/* A request reference is one token: it never wraps at the hyphen. */
+.request-card__ref {
+  white-space: nowrap;
+}
+
 .request-artifact__metadata {
   display: grid;
   gap: var(--jx-space-4);

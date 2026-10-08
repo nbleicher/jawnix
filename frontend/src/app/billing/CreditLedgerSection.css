@@ -45,6 +45,17 @@
   min-width: 0;
 }
 
+/* Book ch9 Fact specimen: mono value over the uppercase label. The DOM keeps
+   dt before dd (valid description list, unchanged accessibility tree); only
+   the visual order flips. */
+.credit-wallet-facts dt {
+  order: 2;
+}
+
+.credit-wallet-facts dd {
+  order: 1;
+}
+
 .credit-wallet-facts dd {
   color: var(--jx-ink);
   font-family: var(--jx-font-mono);
@@ -57,6 +68,35 @@
   overflow-x: auto;
   border: var(--jx-rule) solid var(--jx-line);
   background: var(--jx-plate);
+  /* Tables of record scroll before they break (ch7) — and the scroll must be
+     visible, so the wrapper keeps a styled, always-on scrollbar. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--jx-ink-muted) var(--jx-sunk);
+}
+
+.credit-ledger-tablewrap::-webkit-scrollbar {
+  height: var(--jx-space-2);
+}
+
+.credit-ledger-tablewrap::-webkit-scrollbar-thumb {
+  background: var(--jx-ink-muted);
+}
+
+.credit-ledger-tablewrap::-webkit-scrollbar-track {
+  background: var(--jx-sunk);
+}
+
+/* Below this width the ledger's 44rem minimum provably overflows, so the
+   right edge fades: a functional mask (ch10 mobile ledger affordance), not a
+   decorative gradient wash. */
+@media (max-width: 47rem) {
+  .credit-ledger-tablewrap {
+    mask-image: linear-gradient(
+      to right,
+      var(--jx-ink) calc(100% - var(--jx-space-6)),
+      transparent
+    );
+  }
 }
 
 .credit-ledger {
@@ -120,4 +160,31 @@
 
 .credit-ledger__amount {
   font-weight: var(--jx-weight-semibold);
+}
+
+/* Quiet mono toggle: the short reference is a button, not a hover-only
+   title, so keyboard and touch users reach the full id. */
+.credit-ledger__ref {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-feature-settings: var(--jx-font-features-numeral);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.credit-ledger__ref:focus-visible {
+  outline: var(--jx-focus-width) solid var(--jx-focus);
+  outline-offset: var(--jx-focus-offset);
+}
+
+.credit-ledger__fullref {
+  display: block;
+  color: var(--jx-ink-muted);
+  font-size: var(--jx-text-xs);
+  white-space: normal;
+  overflow-wrap: anywhere;
 }

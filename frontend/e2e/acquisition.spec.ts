@@ -24,13 +24,15 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("The Operations identity is consistent", () => {
-  test("acquisition wears the Match operations frame", async ({ page }) => {
+  test("acquisition wears the operations frame", async ({ page }) => {
     await page.goto("./admin/acquisition");
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
-    await expect(
-      page.getByRole("region", { name: "Acquisition workspace" }),
-    ).toBeVisible();
+    // Same colors, mono body: the terminal scope re-points the body/display
+    // fonts at the mono family without leaving the shared scheme.
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
+    const workspace = page.getByRole("region", { name: "Acquisition workspace" });
+    await expect(workspace).toBeVisible();
+    await expect(workspace).toHaveCSS("font-family", /IBM Plex Mono/);
     await expect(page.getByText("Operations", { exact: true })).toBeVisible();
   });
 
@@ -48,16 +50,16 @@ test.describe("The Operations identity is consistent", () => {
     ).toBeVisible();
   });
 
-  test("leaving acquisition preserves the admin Match theme", async ({ page }) => {
+  test("leaving acquisition preserves the admin scheme", async ({ page }) => {
     await page.goto("./admin/acquisition");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
 
     await page
       .getByRole("navigation", { name: "Administration" })
       .getByRole("link", { name: "Overview" })
       .click();
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
   });
 });
 

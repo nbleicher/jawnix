@@ -108,7 +108,7 @@ test.describe("Searching delivered batches", () => {
 });
 
 test.describe("Control materialization", () => {
-  test("every disposition is a visible button, never a dropdown", async ({
+  test("every disposition is a visible radio, never a dropdown", async ({
     page,
   }) => {
     await page.goto("./feedback");
@@ -116,6 +116,11 @@ test.describe("Control materialization", () => {
 
     const section = page.getByRole("region", { name: "What happened?" });
     await expect(section.getByRole("combobox")).toHaveCount(0);
+    // One radiogroup spans the fieldsets because dispositions are mutually
+    // exclusive across every group.
+    await expect(
+      section.getByRole("radiogroup", { name: "What happened?" }),
+    ).toBeVisible();
     for (const label of [
       "No Contact",
       "Not Interested",
@@ -129,7 +134,7 @@ test.describe("Control materialization", () => {
       "Other",
     ]) {
       await expect(
-        section.getByRole("button", { name: new RegExp(label) }),
+        section.getByRole("radio", { name: new RegExp(label) }),
       ).toBeVisible();
     }
   });
@@ -175,7 +180,7 @@ test.describe("Control materialization", () => {
 
     const options = page
       .getByRole("region", { name: "What happened?" })
-      .getByRole("button");
+      .getByRole("radio");
     const count = await options.count();
     expect(count).toBe(10);
     for (let index = 0; index < count; index += 1) {
@@ -197,7 +202,9 @@ test.describe("Consequences are explained before submission", () => {
       name: "Your answer: Invalid Phone",
     });
     await expect(
-      review.getByText("Files a report and holds the Lead"),
+      review.getByText("Files a Lead Report and places an Eligibility Hold", {
+        exact: true,
+      }),
     ).toBeVisible();
     await expect(review.getByText(HOLD_CONSEQUENCE)).toBeVisible();
   });
@@ -229,7 +236,7 @@ test.describe("Consequences are explained before submission", () => {
     await expect(review.getByText(REPORT_ONLY_CONSEQUENCE)).toBeVisible();
     // The distinction that would mislead if collapsed into the hold wording.
     await expect(
-      review.getByText("Files a report and holds the Lead"),
+      review.getByText("Files a Lead Report and places an Eligibility Hold"),
     ).toHaveCount(0);
   });
 

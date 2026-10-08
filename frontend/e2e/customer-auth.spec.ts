@@ -16,22 +16,26 @@ const WCAG_AA_TAGS = [
   "wcag22aa",
 ];
 
-test.describe("Match authentication", () => {
+test.describe("Static authentication", () => {
   test("sign-in is a static plate with no WebGL scene", async ({ page }) => {
     await mockCustomerAuth(page);
     await page.goto("./sign-in");
 
     await expect(page.locator(".jx-opaline-scene")).toHaveCount(0);
     await expect(page.locator("canvas")).toHaveCount(0);
-    await expect(page.getByRole("img", { name: "JAWNIX routing plate" })).toHaveCount(0);
+    // The plate is the J tile at rest, and the lockup's J tile is the scheme
+    // control — the whole brand row, nothing rendered behind it.
     await expect(page.locator(".jx-routing-plate")).toBeAttached();
+    await expect(
+      page.getByRole("button", { name: "Switch to dark desk" }),
+    ).toBeVisible();
     await expect(page.getByText("JAWNIX", { exact: true })).toBeVisible();
 
     const results = await new AxeBuilder({ page })
       .withTags(WCAG_AA_TAGS)
       .analyze();
     expect(results.violations).toEqual([]);
-    await expect(page).toHaveScreenshot("match-sign-in.png", {
+    await expect(page).toHaveScreenshot("sign-in.png", {
       animations: "disabled",
       caret: "hide",
     });
@@ -60,15 +64,14 @@ test.describe("Match authentication", () => {
 });
 
 test.describe("Customer sign-in and session lifecycle", () => {
-  test("uses Match light and DM Sans", async ({ page }) => {
+  test("uses the light scheme and Archivo", async ({ page }) => {
     await mockCustomerAuth(page);
     await page.goto("./sign-in");
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
     await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toHaveCSS(
       "font-family",
-      /DM Sans/,
+      /Archivo/,
     );
   });
 

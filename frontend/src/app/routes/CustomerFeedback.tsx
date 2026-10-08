@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLoaderData } from "react-router";
 
 import { Button } from "../../design-system/primitives/Button";
@@ -13,7 +13,12 @@ import {
   Stack,
 } from "../../design-system/primitives/layout";
 import { StatusBadge } from "../../design-system/primitives/status";
-import { Heading, Mono, Text } from "../../design-system/primitives/typography";
+import {
+  Heading,
+  Mono,
+  Text,
+  VisuallyHidden,
+} from "../../design-system/primitives/typography";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { formatRequestRef } from "./batchRequests";
 import { CustomerExclusionListsSection } from "./CustomerExclusionLists";
@@ -160,15 +165,6 @@ function formatPhone(value: string): string {
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
-function formatDateTime(value: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(parsed);
-}
-
 /** Ledger timestamps on record surfaces are ISO-UTC ("2026-07-20 15:00 UTC")
  *  so a delivery reads identically in every timezone. */
 function formatLedgerTime(value: string): string {
@@ -176,6 +172,12 @@ function formatLedgerTime(value: string): string {
   if (Number.isNaN(parsed.getTime())) return value;
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${parsed.getUTCFullYear()}-${pad(parsed.getUTCMonth() + 1)}-${pad(parsed.getUTCDate())} ${pad(parsed.getUTCHours())}:${pad(parsed.getUTCMinutes())} UTC`;
+}
+
+/** The book's short reference idiom for a transition id, which is a UUID
+ *  server-side: prefix + first 8, uppercase, mono ("TR-7C3D19AB"). */
+function formatTransitionRef(id: string): string {
+  return `TR-${id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 }
 
 export async function feedbackLoader(): Promise<FeedbackCatalog> {
@@ -250,6 +252,14 @@ export function CustomerFeedbackRoute() {
   const [reportError, setReportError] = useState("");
   const [reportSaved, setReportSaved] = useState("");
 
+  const receiptRef = useRef<HTMLDivElement>(null);
+
+  // The receipt mounts below the fold after submit; move focus to it, as
+  // CustomerRequests' receipt does, so it is announced and never silent.
+  useEffect(() => {
+    if (receipt) receiptRef.current?.focus();
+  }, [receipt]);
+
   // Dispositions are mutually exclusive across every group, so one
   // radiogroup spans the fieldsets; quality ratings below stay true toggles.
   const dispositionOrder = catalog.groups.flatMap((group) => group.options);
@@ -270,6 +280,8 @@ export function CustomerFeedbackRoute() {
       && key !== "ArrowDown"
       && key !== "ArrowLeft"
       && key !== "ArrowUp"
+      && key !== "Home"
+      && key !== "End"
     ) {
       return;
     }
@@ -279,8 +291,15 @@ export function CustomerFeedbackRoute() {
     const current = radios.indexOf(document.activeElement as HTMLElement);
     if (current < 0) return;
     event.preventDefault();
-    const delta = key === "ArrowRight" || key === "ArrowDown" ? 1 : radios.length - 1;
-    const next = radios[(current + delta) % radios.length];
+    let next: HTMLElement | undefined;
+    if (key === "Home") {
+      next = radios[0];
+    } else if (key === "End") {
+      next = radios[radios.length - 1];
+    } else {
+      const delta = key === "ArrowRight" || key === "ArrowDown" ? 1 : radios.length - 1;
+      next = radios[(current + delta) % radios.length];
+    }
     if (!next) return;
     next.focus();
     next.click();
@@ -639,6 +658,14 @@ export function CustomerFeedbackRoute() {
                 title={`Your answer: ${selected.label}`}
                 description="Review this before you submit."
               >
+                {/* Mounts below the fold with no focus move — moving focus
+                    would break radiogroup arrow keys — so the mount is
+                    announced politely instead. */}
+                <VisuallyHidden>
+                  <span role="status">
+                    {`Your answer: ${selected.label}. Review it below before you submit.`}
+                  </span>
+                </VisuallyHidden>
                 <Stack gap={4}>
                   {/* Stated before submission, and served by the same rule
                       that materializes the controls, so it cannot misdescribe
@@ -649,8 +676,8 @@ export function CustomerFeedbackRoute() {
                         <Cluster gap={2}>
                           <StatusBadge tone="warning">
                             {selected.createsHold
-                              ? "Files a report and holds the Lead"
-                              : "Files a report"}
+                              ? "Files a Lead Report and places an Eligibility Hold"
+                              : "Files a Lead Report"}
                           </StatusBadge>
                         </Cluster>
                         <Text>{selected.consequence}</Text>
@@ -724,6 +751,7 @@ export function CustomerFeedbackRoute() {
 
             {receipt ? (
               <Section title="Recorded">
+                <div ref={receiptRef} tabIndex={-1} role="status">
                 <Card>
                   <Stack gap={2}>
                     <Cluster gap={2}>
@@ -732,7 +760,7 @@ export function CustomerFeedbackRoute() {
                     <Text>
                       {labelFor(catalog, receipt.transition.disposition)}{" "}
                       recorded for {lead.businessName} on{" "}
-                      {formatDateTime(receipt.transition.createdAt)}.
+                      {formatLedgerTime(receipt.transition.createdAt)}.
                     </Text>
                     {/* Confirmed from what the server actually did, so the
                         receipt cannot claim a control that was not created. */}
@@ -753,10 +781,12 @@ export function CustomerFeedbackRoute() {
                       </Text>
                     ) : null}
                     <Text size="sm" tone="muted">
-                      Reference <Mono>{receipt.transition.id}</Mono>
+                      Reference{" "}
+                      <Mono>{formatTransitionRef(receipt.transition.id)}</Mono>
                     </Text>
                   </Stack>
                 </Card>
+                </div>
               </Section>
             ) : null}
 
@@ -847,7 +877,7 @@ export function CustomerFeedbackRoute() {
                             {labelFor(catalog, item.disposition)}
                           </Heading>
                           <Text size="sm" tone="muted">
-                            {formatDateTime(item.createdAt)}
+                            <Mono>{formatLedgerTime(item.createdAt)}</Mono>
                           </Text>
                           {item.note ? <Text size="sm">{item.note}</Text> : null}
                         </Stack>

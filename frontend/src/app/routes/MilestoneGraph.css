@@ -61,20 +61,28 @@
   background: var(--jx-line);
 }
 
+/* Book ch9/ch10: done is an ink-filled square on an ink rail. Outremer is
+   reserved for the current ring, so an all-complete history is ink, not a
+   pigment stripe. */
 .jx-milestone--complete:not(:last-child)::after {
-  background: var(--jx-accent);
+  background: var(--jx-ink);
 }
 
 .jx-milestone--complete .jx-milestone__mark {
-  border-color: var(--jx-accent);
-  background: var(--jx-accent);
+  border-color: var(--jx-ink);
+  background: var(--jx-ink);
   color: var(--jx-ink-inverse);
 }
 
+/* Current is the outremer-ringed square: pigment as a ring around the plate,
+   not a fill. */
 .jx-milestone--current .jx-milestone__mark {
   border-color: var(--jx-accent);
-  background: var(--jx-accent-soft);
+  background: var(--jx-plate);
   color: var(--jx-accent-ink);
+  box-shadow:
+    0 0 0 var(--jx-rule-heavy) var(--jx-plate),
+    0 0 0 calc(var(--jx-rule-heavy) * 2) var(--jx-accent);
 }
 
 .jx-milestone--paused .jx-milestone__mark {

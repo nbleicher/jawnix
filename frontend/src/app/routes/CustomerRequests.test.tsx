@@ -571,6 +571,13 @@ describe("a Batch Request detail page", () => {
       screen.getByText(/nothing you need to do/, { exact: false }),
     ).toBeVisible();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // In-flight is info, even if the payload still ships warning (site
+    // inventory §4): the badge normalizes the tone at render.
+    expect(
+      screen
+        .getAllByText("Preparing Batch")
+        .find((element) => element.classList.contains("jx-status")),
+    ).toHaveClass("jx-status--info");
   });
 
   it.each([
@@ -752,12 +759,17 @@ describe("a Batch Request detail page", () => {
     );
 
     const card = screen.getByRole("region", { name: "Batch Artifact" });
+    // The badge carries the short status word only; the remedy is one
+    // first-person sentence in the notice, stated once.
+    expect(within(card).getByText("Expired")).toBeVisible();
     expect(
       within(card).getByText(
-        "Expired — email noah@jawnix.com and the exact file will be regenerated.",
+        /Batch files are retained for 30 days\. Email noah@jawnix\.com and I'll regenerate the exact file\./,
       ),
     ).toBeVisible();
-    expect(within(card).getByText(/retained for 30 days/)).toBeVisible();
+    expect(
+      within(card).queryByText(/will be regenerated/),
+    ).not.toBeInTheDocument();
     expect(within(card).queryByRole("link", { name: /Download/ })).toBeNull();
   });
 
@@ -859,9 +871,7 @@ describe("artifact expiry countdown", () => {
     ).toBe("Expires in 3 hours");
     expect(
       formatArtifactExpiry(expiry, Date.parse("2026-07-22T12:00:00Z")),
-    ).toBe(
-      "Expired — email noah@jawnix.com and the exact file will be regenerated.",
-    );
+    ).toBe("Expired");
   });
 });
 

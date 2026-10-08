@@ -391,14 +391,17 @@ test.describe("Batch Request detail deep links", () => {
     });
 
     const card = page.getByRole("region", { name: "Batch Artifact" });
-    await expect(card.getByText("Expired — contact us")).toBeVisible();
+    await expect(card.getByText("Expired", { exact: true })).toBeVisible();
+    await expect(
+      card.getByText(/Email noah@jawnix\.com and I'll regenerate/),
+    ).toBeVisible();
     await expect(card.getByText(/retained for 30 days/)).toBeVisible();
     await expect(card.getByRole("link", { name: /Download/ })).toHaveCount(0);
   });
 
-  test("matches the Match visual baseline", async ({ page }) => {
+  test("matches the visual baseline", async ({ page }) => {
     await openRequestDetail(page);
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
 
     await expect(page).toHaveScreenshot("customer-request-detail.png", {
       animations: "disabled",
