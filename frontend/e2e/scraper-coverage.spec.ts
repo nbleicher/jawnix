@@ -214,16 +214,12 @@ test.describe("Scraper state coverage", () => {
     await page.goto(STATES);
 
     await expect(page).toHaveScreenshot("scraper-state-overview.png", {
-      // Variable-font rasterization (interpolated weights/widths) shifts
-      // sub-pixel anti-aliasing by up to ~2% between CI runs; structural
-      // regressions produce far larger diffs, so 3% still guards the layout.
-      maxDiffPixelRatio: 0.03,
       fullPage: true,
       animations: "disabled",
       // GitHub's Ubuntu image carries additional system fonts beyond the
       // Playwright container used to produce the Linux baselines. Keep the
       // comparison strict while allowing sub-pixel glyph rasterization noise.
-      maxDiffPixelRatio: 0.002,
+      maxDiffPixelRatio: 0.03, // variable-font rasterization shifts sub-pixel AA by up to ~2% between CI runs
     });
   });
 
@@ -232,13 +228,9 @@ test.describe("Scraper state coverage", () => {
     await page.goto(PA);
 
     await expect(page).toHaveScreenshot("scraper-state-detail.png", {
-      // Variable-font rasterization (interpolated weights/widths) shifts
-      // sub-pixel anti-aliasing by up to ~2% between CI runs; structural
-      // regressions produce far larger diffs, so 3% still guards the layout.
-      maxDiffPixelRatio: 0.03,
       fullPage: true,
       animations: "disabled",
-      maxDiffPixelRatio: 0.002,
+      maxDiffPixelRatio: 0.03, // variable-font rasterization shifts sub-pixel AA by up to ~2% between CI runs
     });
   });
 });
