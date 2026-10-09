@@ -4,7 +4,7 @@ import { RouterProvider } from "react-router";
 
 import { ThemeProvider } from "./design-system/theme/ThemeProvider";
 import { router } from "./app/routes";
-import "@fontsource-variable/archivo";
+import "@fontsource-variable/archivo/standard.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "@fontsource/ibm-plex-mono/600.css";

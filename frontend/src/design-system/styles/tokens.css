@@ -10,10 +10,10 @@
 
 :root {
   /* --- Type families ---------------------------------------------------- */
-  --jx-font-text: "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --jx-font-text: "Archivo Variable", "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
   /* Display = Archivo variable + font-stretch 125% + weight 780.
      "Archivo Expanded" is not a loadable family; use both tokens together. */
-  --jx-font-display: "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --jx-font-display: "Archivo Variable", "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --jx-font-stretch-display: 125%;
   --jx-font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   /* Legacy aliases — same families, kept for existing consumers. */
