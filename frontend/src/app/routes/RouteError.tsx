@@ -2,9 +2,9 @@ import { isRouteErrorResponse, useNavigate, useRouteError } from "react-router";
 
 import { BrandLockup } from "../../brand/BrandLockup";
 import { ErrorState } from "../../design-system/primitives/feedback";
-import { Page } from "../../design-system/primitives/layout";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import "../shell/AppShell.css";
+import "./RouteError.css";
 
 /**
  * Route-level error element.
@@ -21,7 +21,7 @@ export function RouteError() {
   const title = notFound ? "Page not found" : "Something went wrong";
   const description = notFound
     ? "That page does not exist, or it moved. The Overview has your current work."
-    : "JAWNIX could not load this page. Retrying usually resolves it; if it keeps happening, contact an administrator.";
+    : "JAWNIX could not load this page. Retrying usually resolves it; if it keeps happening, email noah@jawnix.com.";
 
   useDocumentTitle(title);
 
@@ -34,9 +34,12 @@ export function RouteError() {
       <header className="jx-shell__banner">
         <BrandLockup />
       </header>
-      <Page title={title}>
+      {/* ErrorState owns the frame's single h1 — no Page wrapper, which would
+          render the same title a second time. */}
+      <main className="jx-error-frame__main">
         <ErrorState
           title={title}
+          titleAs="h1"
           description={description}
           retryLabel={notFound ? "Go to Overview" : "Try again"}
           onRetry={() => {
@@ -47,7 +50,7 @@ export function RouteError() {
             void navigate(0);
           }}
         />
-      </Page>
+      </main>
     </div>
   );
 }

@@ -4,7 +4,7 @@ Two things live here that the Customer application must never have to derive
 for itself.
 
 The **milestone graph** collapses the nine internal fulfillment statuses onto
-the four milestones a Customer was promised — Submitted, Under Review,
+the four milestones a Customer was promised — Submitted, Approved,
 Preparing Batch, Delivered — and says, in data, exactly what each node means.
 Every distinction a screen needs is a value on the node, so the graph can be
 drawn horizontally, vertically, or read aloud without any of them disagreeing

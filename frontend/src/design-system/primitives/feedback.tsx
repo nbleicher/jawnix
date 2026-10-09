@@ -61,6 +61,9 @@ export function EmptyState({ title, description, action }: EmptyStateProps) {
 
 export interface ErrorStateProps {
   title?: string;
+  /** Heading level for the title. Defaults to h2; use "h1" only when the
+   *  ErrorState is the page's sole heading (e.g. the route-error frame). */
+  titleAs?: "h1" | "h2";
   /** Plain-language context. Never a raw backend message or stack trace. */
   description: string;
   onRetry?: () => void;
@@ -71,6 +74,7 @@ export interface ErrorStateProps {
 
 export function ErrorState({
   title = "Something went wrong",
+  titleAs: TitleTag = "h2",
   description,
   onRetry,
   retryLabel = "Try again",
@@ -78,12 +82,12 @@ export function ErrorState({
 }: ErrorStateProps) {
   return (
     <div className="jx-error" role="alert">
-      <h2 className="jx-error__title">{title}</h2>
+      <TitleTag className="jx-error__title">{title}</TitleTag>
       <p className="jx-error__description">{description}</p>
       {reference ? <p className="jx-error__reference">Reference: {reference}</p> : null}
       {onRetry ? (
         <div className="jx-error__action">
-          <Button variant="primary" onClick={onRetry}>
+          <Button variant="secondary" onClick={onRetry}>
             {retryLabel}
           </Button>
         </div>

@@ -5,66 +5,103 @@
   min-width: 0;
 }
 
+/* Labels are small mono caps — system metadata, not prose. */
 .jx-field__label {
-  color: var(--jx-color-text-strong);
-  font-size: var(--jx-text-sm);
-  font-weight: var(--jx-weight-semibold);
+  color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-medium);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
 }
 
+/* "(required)" is spelled out and muted — never an asterisk alone. */
 .jx-field__required {
-  color: var(--jx-color-text-muted);
-  font-weight: var(--jx-weight-normal);
+  color: var(--jx-ink-muted);
+  font-weight: var(--jx-weight-regular);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .jx-field__description {
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
   font-size: var(--jx-text-sm);
   max-width: 65ch;
 }
 
+/* The error keeps the vermilion joint on its leading edge — the message
+   carries the state, the pigment reinforces it. */
 .jx-field__error {
-  color: var(--jx-color-danger);
+  color: var(--jx-danger-ink);
+  border-left: var(--jx-rule-heavy) solid var(--jx-danger);
+  padding: var(--jx-space-2) var(--jx-space-3);
   font-size: var(--jx-text-sm);
-  font-weight: var(--jx-weight-medium);
   max-width: 65ch;
 }
 
+/* Hairline boxes on paper. Numeric and ID inputs set their figures in mono
+   via the consumer's class; the control boundary keeps the 3:1 rule. */
 .jx-input {
   width: 100%;
   min-height: var(--jx-touch-target);
-  padding: var(--jx-space-2) var(--jx-space-3);
-  background: var(--jx-color-surface);
-  color: var(--jx-color-text);
-  border: 1px solid var(--jx-color-border-strong);
-  border-radius: var(--jx-radius-md);
+  padding: 0 var(--jx-space-3);
+  background: var(--jx-paper);
+  color: var(--jx-ink);
+  border: var(--jx-rule) solid var(--jx-line-control);
+  border-radius: var(--jx-radius-none);
   font-size: var(--jx-text-md);
-  transition: border-color var(--jx-motion-fast) var(--jx-motion-ease);
+  transition: border-color var(--jx-duration-fast) var(--jx-ease);
 }
 
 .jx-input::placeholder {
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
 }
 
 .jx-input:hover:not(:disabled) {
-  border-color: var(--jx-color-accent);
+  border-color: var(--jx-ink);
 }
 
+/* Disabled is stated, not faded: hairline, muted ink, reason in the
+   description. */
 .jx-input:disabled {
-  background: var(--jx-color-surface-strong);
-  color: var(--jx-color-text-muted);
+  border-color: var(--jx-line);
+  color: var(--jx-ink-muted);
   cursor: not-allowed;
 }
 
-/* The red border reinforces the message but never carries it alone — the error
-   text and aria-invalid do that. */
+/* The 2px vermilion border reinforces the message but never carries it
+   alone — the error text and aria-invalid do that. */
 .jx-input[aria-invalid="true"] {
-  border-color: var(--jx-color-danger);
+  border-color: var(--jx-danger);
+  border-width: var(--jx-rule-heavy);
 }
 
 .jx-textarea {
   min-height: calc(var(--jx-touch-target) * 2);
+  padding: var(--jx-space-3);
   resize: vertical;
-  line-height: var(--jx-leading-normal);
+  line-height: var(--jx-leading-body);
+}
+
+/* The native file-chooser pill inside the hairline box is a control too: it
+   takes the secondary-button look (fine rule, zero radius) in both schemes
+   instead of the browser's rounded grey. */
+.jx-input::file-selector-button {
+  font: inherit;
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-medium);
+  min-height: calc(var(--jx-touch-target) - var(--jx-space-2));
+  padding: 0 var(--jx-space-4);
+  margin-inline-end: var(--jx-space-3);
+  border: var(--jx-rule) solid var(--jx-line-control);
+  border-radius: var(--jx-radius-none);
+  background: transparent;
+  color: var(--jx-ink);
+  cursor: pointer;
+}
+
+.jx-input::file-selector-button:hover {
+  border-color: var(--jx-ink);
 }
 
 .jx-select {
@@ -86,14 +123,18 @@
   flex-direction: column;
   gap: var(--jx-space-3);
   margin: 0;
-  padding: 0;
-  border: 0;
+  padding: var(--jx-space-4);
+  border: var(--jx-rule) solid var(--jx-line);
+  border-radius: var(--jx-radius-none);
   min-width: 0;
 }
 
 .jx-fieldset__legend {
-  padding: 0;
-  color: var(--jx-color-text-strong);
-  font-size: var(--jx-text-sm);
-  font-weight: var(--jx-weight-semibold);
+  padding: 0 var(--jx-space-2);
+  color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-medium);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
 }

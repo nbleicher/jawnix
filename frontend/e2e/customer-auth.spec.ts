@@ -7,7 +7,7 @@ import {
 } from "./customer-auth-fixtures";
 
 const INVITATION_RECOVERY =
-  "This invitation cannot be used. Ask your administrator for a new invitation, or sign in if you already set your password.";
+  "This invitation cannot be used. Email noah@jawnix.com and I'll send a replacement, or sign in if you already set your password.";
 const WCAG_AA_TAGS = [
   "wcag2a",
   "wcag2aa",
@@ -16,22 +16,30 @@ const WCAG_AA_TAGS = [
   "wcag22aa",
 ];
 
-test.describe("Match authentication", () => {
+test.describe("Static authentication", () => {
   test("sign-in is a static plate with no WebGL scene", async ({ page }) => {
     await mockCustomerAuth(page);
     await page.goto("./sign-in");
 
     await expect(page.locator(".jx-opaline-scene")).toHaveCount(0);
     await expect(page.locator("canvas")).toHaveCount(0);
-    await expect(page.getByRole("img", { name: "JAWNIX routing plate" })).toHaveCount(0);
+    // The plate is the JX stamp at rest, and the lockup's stamp is the scheme
+    // control — the whole brand row, nothing rendered behind it.
     await expect(page.locator(".jx-routing-plate")).toBeAttached();
+    await expect(
+      page.getByRole("button", { name: "Switch to dark desk" }),
+    ).toBeVisible();
     await expect(page.getByText("JAWNIX", { exact: true })).toBeVisible();
 
     const results = await new AxeBuilder({ page })
       .withTags(WCAG_AA_TAGS)
       .analyze();
     expect(results.violations).toEqual([]);
-    await expect(page).toHaveScreenshot("match-sign-in.png", {
+    await expect(page).toHaveScreenshot("sign-in.png", {
+      // Variable-font rasterization (interpolated weights/widths) shifts
+      // sub-pixel anti-aliasing by up to ~2% between CI runs; structural
+      // regressions produce far larger diffs, so 3% still guards the layout.
+      maxDiffPixelRatio: 0.03,
       animations: "disabled",
       caret: "hide",
     });
@@ -60,15 +68,20 @@ test.describe("Match authentication", () => {
 });
 
 test.describe("Customer sign-in and session lifecycle", () => {
-  test("uses Match light and DM Sans", async ({ page }) => {
+  test("uses the light scheme and the quiet register", async ({ page }) => {
     await mockCustomerAuth(page);
     await page.goto("./sign-in");
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
+    // Headings are Inter in the fresh register; Archivo survives only in the
+    // frozen wordmark.
     await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toHaveCSS(
       "font-family",
-      /DM Sans/,
+      /Inter/,
+    );
+    await expect(page.locator(".jx-lockup__wordmark")).toHaveCSS(
+      "font-family",
+      /Archivo/,
     );
   });
 
@@ -123,7 +136,7 @@ test.describe("Customer sign-in and session lifecycle", () => {
     const error = page.getByRole("alert");
     await expect(error).toBeFocused();
     await expect(error).toHaveText(
-      "We could not sign you in. Check your details or ask your administrator for help.",
+      "We could not sign you in. Check your details, or email noah@jawnix.com — Noah answers it.",
     );
     await expect(page.locator("body")).not.toContainText("provider-known-secret-48");
     await expect(page.locator("body")).not.toContainText("customer-known-password-48");

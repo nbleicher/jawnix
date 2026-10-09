@@ -1,10 +1,10 @@
-"""The Batch Request milestone graph shared by Customer and Administrator views.
+"""The Batch Request milestone ledger shared by Customer and Administrator views.
 
 Collapses the nine internal fulfillment statuses onto the four milestones a
-Customer was promised — Submitted, Under Review, Preparing Batch, Delivered —
-and says, in data, exactly what each node means. Extracted from
+Customer was promised — Submitted, Approved, Preparing Batch, Delivered —
+and says, in data, exactly what each row means. Extracted from
 ``customer_requests`` so ``fulfillment.describe_request`` can project the same
-graph without a circular import.
+ledger without a circular import.
 """
 
 from __future__ import annotations
@@ -26,8 +26,8 @@ _TERMINAL_OUTCOMES = {
     RequestStatus.failed.value: "failed",
 }
 
-# Reaching Under Review or later is inferable from the status alone even when a
-# timestamp is missing, which keeps the graph honest against rows written
+# Reaching Approved or later is inferable from the status alone even when a
+# timestamp is missing, which keeps the ledger honest against rows written
 # before a column existed or by a path that skipped a stamp.
 _AFTER_REVIEW = frozenset(
     {
@@ -47,7 +47,7 @@ def _reached(item: LeadRequest) -> list[tuple[str, bool, datetime | None]]:
     """
 
     status = item.status
-    reached_review = (
+    reached_approved = (
         item.approved_at is not None or status in _AFTER_REVIEW
     )
     reached_preparing = (
@@ -59,7 +59,7 @@ def _reached(item: LeadRequest) -> list[tuple[str, bool, datetime | None]]:
     )
     return [
         ("submitted", True, item.created_at),
-        ("under_review", reached_review, item.approved_at),
+        ("approved", reached_approved, item.approved_at),
         ("preparing_batch", reached_preparing, item.processed_at),
         ("delivered", reached_delivered, item.delivered_at),
     ]
@@ -70,9 +70,9 @@ _MILESTONE_COPY: dict[str, tuple[str, str]] = {
         "Submitted",
         "We have your request for this quantity and these states.",
     ),
-    "under_review": (
-        "Under Review",
-        "Jawnix is checking the quantity and states you asked for.",
+    "approved": (
+        "Approved",
+        "Your request was approved — the Batch is being prepared.",
     ),
     "preparing_batch": (
         "Preparing Batch",
@@ -105,7 +105,7 @@ _OUTCOME_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "failed": (
         "Needs Attention",
-        "We could not finish this request. Please contact Jawnix so we can "
+        "We could not finish this request. Email noah@jawnix.com so I can "
         "sort it out — do not submit a duplicate request.",
         "danger",
     ),
@@ -120,7 +120,6 @@ def build_milestones(item: LeadRequest) -> CustomerRequestMilestones:
     inventory, and `stopped` when the request ended there. Nothing after it is
     ever marked `upcoming`, because a stopped request will not arrive.
     """
-
     progress = _reached(item)
     last_reached = max(
         index for index, (_, reached, _) in enumerate(progress) if reached

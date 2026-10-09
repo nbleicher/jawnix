@@ -1,10 +1,13 @@
+/* The operational frame: same concrete, mono body (the .jx-terminal token
+   scope re-points --jx-font-body/--jx-font-display at the mono family). */
 .jx-terminal {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-lg);
-  background: var(--jx-color-surface-recessed);
-  box-shadow: var(--jx-shadow-sm);
+  border: var(--jx-rule) solid var(--jx-line);
+  border-radius: var(--jx-radius-none);
+  background: var(--jx-sunk);
+  box-shadow: var(--jx-shadow-none);
+  font-family: var(--jx-font-body);
 }
 
 .jx-terminal__masthead {
@@ -14,53 +17,53 @@
   justify-content: space-between;
   gap: var(--jx-space-3);
   padding: var(--jx-space-2) var(--jx-space-4);
-  border-bottom: 1px solid var(--jx-color-border);
-  background: var(--jx-color-surface);
+  border-bottom: var(--jx-rule) solid var(--jx-line);
+  background: transparent;
 }
 
 .jx-terminal__identity,
 .jx-terminal__status,
 .jx-terminal__label {
   font-size: var(--jx-text-xs);
-  font-weight: var(--jx-weight-bold);
-  letter-spacing: 0.12em;
+  font-weight: var(--jx-weight-semibold);
+  letter-spacing: var(--jx-tracking-label);
   text-transform: uppercase;
 }
 
 .jx-terminal__identity {
   font-family: var(--jx-font-display);
   font-size: var(--jx-text-lg);
-  font-optical-sizing: auto;
   letter-spacing: 0;
   text-transform: none;
-  color: var(--jx-color-accent-strong);
+  color: var(--jx-ink);
 }
 
 .jx-terminal__status {
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
 }
 
+/* Square witness, never a round dot — the radius ban has no exceptions. */
 .jx-terminal__status::before {
-  content: "●";
+  content: "■";
   margin-inline-end: var(--jx-space-2);
-  color: var(--jx-color-accent);
+  color: var(--jx-accent);
 }
 
 /* The status words carry the meaning (WCAG 1.4.1); the indicator only
    reinforces them, so a degraded frame stops reading as healthy. */
 .jx-terminal__status--warning::before {
-  color: var(--jx-color-warning);
+  color: var(--jx-warning);
 }
 
 .jx-terminal__status--offline::before {
-  color: var(--jx-color-danger);
+  color: var(--jx-danger);
 }
 
-/* The rail had no current-destination style while it held one link. */
+/* Current destination is the ink slab — state, not decoration. */
 .jx-terminal__rail a[aria-current="page"] {
-  color: var(--jx-color-accent-strong);
-  background: var(--jx-color-accent-soft);
-  border-color: var(--jx-color-accent-strong);
+  color: var(--jx-ink-inverse);
+  background: var(--jx-ink);
+  border-color: var(--jx-ink);
 }
 
 .jx-terminal__grid {
@@ -69,8 +72,8 @@
 
 .jx-terminal__rail {
   padding: var(--jx-space-4);
-  border-bottom: 1px solid var(--jx-color-border);
-  background: var(--jx-color-surface);
+  border-bottom: var(--jx-rule) solid var(--jx-line);
+  background: transparent;
 }
 
 .jx-terminal__rail-list {
@@ -87,15 +90,14 @@
   min-height: var(--jx-touch-target);
   align-items: center;
   padding-inline: var(--jx-space-3);
-  color: var(--jx-color-text);
+  color: var(--jx-ink);
   text-decoration: none;
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-pill);
+  border: var(--jx-rule) solid var(--jx-line-control);
+  border-radius: var(--jx-radius-none);
 }
 
 .jx-terminal__rail a:hover {
-  color: var(--jx-color-accent-strong);
-  background: var(--jx-color-accent-soft);
+  background: var(--jx-sunk);
 }
 
 .jx-terminal__content {
@@ -109,16 +111,12 @@
   }
 
   .jx-terminal__rail {
-    border-right: 1px solid var(--jx-color-border);
+    border-right: var(--jx-rule) solid var(--jx-line);
     border-bottom: 0;
   }
 
   .jx-terminal__rail-list {
     display: grid;
-  }
-
-  .jx-terminal__rail a {
-    border-radius: var(--jx-radius-md);
   }
 }
 

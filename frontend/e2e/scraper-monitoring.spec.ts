@@ -98,7 +98,12 @@ test.describe("Scraper monitoring", () => {
     await openWorkspace(page);
 
     await expect(page.getByText("Operations", { exact: true })).toBeVisible();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
+    // Same colors, mono body: the terminal frame re-points the body font at
+    // the mono family without leaving the shared scheme.
+    await expect(
+      page.getByRole("region", { name: "Scraper Operations workspace" }),
+    ).toHaveCSS("font-family", /IBM Plex Mono/);
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
     await expect(page.locator("body")).not.toContainText("river_job");
     await expect(page.locator("body")).not.toContainText("10.77.0.2");
   });

@@ -42,6 +42,7 @@ export function Button({
       // `aria-disabled` rather than `disabled` while busy: a disabled element
       // drops out of the tab order and silently discards focus mid-action.
       aria-disabled={busy || disabled ? true : undefined}
+      aria-busy={busy || undefined}
       disabled={disabled && !busy}
       data-busy={busy ? "true" : undefined}
       {...rest}
@@ -58,7 +59,7 @@ export function Button({
   );
 }
 
-export interface ActionLinkProps
+export interface ButtonLinkProps
   extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "children" | "href"> {
   href: string;
   variant?: Exclude<ButtonVariant, "danger">;
@@ -66,16 +67,16 @@ export interface ActionLinkProps
   children: ReactNode;
 }
 
-/** A navigation action with the same visual and touch-target contract as a
- * button. It remains an anchor so open-in-new-tab, copy-link, and browser
- * history behavior are preserved. */
-export function ActionLink({
-  variant = "secondary",
+/** A commitment that happens to be an anchor (a download, an external
+ *  document). It wears the button slab — the payoff action draws the ink —
+ *  while staying a real link so open-in-new-tab and copy-link still work. */
+export function ButtonLink({
+  variant = "primary",
   fullWidth = false,
   className,
   children,
   ...rest
-}: ActionLinkProps) {
+}: ButtonLinkProps) {
   return (
     <a
       className={cx(
@@ -86,6 +87,35 @@ export function ActionLink({
       )}
       {...rest}
     >
+      {children}
+    </a>
+  );
+}
+
+export interface ActionLinkProps
+  extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "children" | "href"> {
+  href: string;
+  variant?: Exclude<ButtonVariant, "danger">;
+  fullWidth?: boolean;
+  children: ReactNode;
+}
+
+/** A navigation action rendered as an accent text link — the one place the
+ *  accent appears on an action. It remains an anchor so open-in-new-tab,
+ *  copy-link, and browser history behavior are preserved. The brand admits no
+ *  variants on a text link, so `variant`/`fullWidth` are accepted for call-site
+ *  compatibility but do not change the rendering. */
+export function ActionLink({
+  variant = "secondary",
+  fullWidth = false,
+  className,
+  children,
+  ...rest
+}: ActionLinkProps) {
+  void variant;
+  void fullWidth;
+  return (
+    <a className={cx("jx-action-link", className)} {...rest}>
       {children}
     </a>
   );

@@ -23,7 +23,7 @@ describe("BrandLockup", () => {
     expect(screen.queryByText("Administration")).not.toBeInTheDocument();
   });
 
-  it("toggles scheme from the plate", async () => {
+  it("toggles scheme from the JX stamp", async () => {
     const user = userEvent.setup();
     render(
       <ThemeProvider>
@@ -31,12 +31,25 @@ describe("BrandLockup", () => {
       </ThemeProvider>,
     );
 
-    const plate = screen.getByRole("button", { name: "Switch to dark desk" });
-    await user.click(plate);
+    const stamp = screen.getByRole("button", { name: "Switch to dark desk" });
+    await user.click(stamp);
 
     expect(document.documentElement).toHaveAttribute("data-scheme", "dark");
     expect(
       screen.getByRole("button", { name: "Switch to light paper" }),
     ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("renders the vermilion JX stamp with the letters knocked out", () => {
+    render(
+      <ThemeProvider>
+        <BrandLockup />
+      </ThemeProvider>,
+    );
+
+    const stamp = screen.getByRole("button", { name: "Switch to dark desk" });
+    const path = stamp.querySelector("svg path");
+    expect(path).toHaveAttribute("fill", "var(--jx-stamp-ground)");
+    expect(path).toHaveAttribute("fill-rule", "evenodd");
   });
 });

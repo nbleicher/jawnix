@@ -2,16 +2,14 @@ import { createContext, use, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 /**
- * One language. Light and dark are schemes, not product brands.
- * The plate in the lockup is the control; routes do not pin a theme.
+ * Light and dark are schemes of one system: paper and desk.
+ * The J tile in the lockup is the control; routes do not pin a scheme.
  */
-export type Theme = "match";
 export type Scheme = "light" | "dark";
 
-export const SCHEME_STORAGE_KEY = "jx-match-scheme";
+export const SCHEME_STORAGE_KEY = "jx-scheme";
 
 interface ThemeContextValue {
-  theme: Theme;
   scheme: Scheme;
   setScheme: (scheme: Scheme) => void;
   toggleScheme: () => void;
@@ -45,7 +43,6 @@ export function ThemeProvider({
 
   useEffect(() => {
     const root = document.documentElement;
-    root.setAttribute("data-theme", "match");
     root.setAttribute("data-scheme", scheme);
     try {
       window.localStorage.setItem(SCHEME_STORAGE_KEY, scheme);
@@ -56,7 +53,6 @@ export function ThemeProvider({
 
   const value = useMemo<ThemeContextValue>(
     () => ({
-      theme: "match",
       scheme,
       setScheme: setSchemeState,
       toggleScheme: () =>

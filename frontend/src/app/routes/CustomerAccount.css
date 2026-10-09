@@ -1,23 +1,21 @@
 .licensed-state-page__message {
   padding: var(--jx-space-3) var(--jx-space-4);
-  border: 1px solid;
-  border-radius: var(--jx-radius-md);
+  border-inline-start: var(--jx-rule-heavy) solid;
   font-weight: var(--jx-weight-medium);
 }
 
 .licensed-state-page__message--error {
-  border-color: var(--jx-color-danger);
-  background: var(--jx-color-danger-soft);
-  color: var(--jx-color-danger);
+  border-color: var(--jx-danger);
+  background: var(--jx-danger-soft);
+  color: var(--jx-danger-ink);
 }
 
 .licensed-state-page__message--success {
-  border-color: var(--jx-color-success);
-  background: var(--jx-color-success-soft);
-  color: var(--jx-color-text-strong);
+  border-color: var(--jx-success);
+  background: var(--jx-success-soft);
+  color: var(--jx-success-ink);
 }
 
-.customer-account__identity,
 .setup-problem__details {
   display: grid;
   gap: var(--jx-space-4);
@@ -27,7 +25,6 @@
   );
 }
 
-.customer-account__identity > div,
 .setup-problem__details > div {
   display: flex;
   flex-direction: column;
@@ -35,14 +32,9 @@
   min-width: 0;
 }
 
-.customer-account__identity dd,
 .setup-problem__details dd {
-  color: var(--jx-color-text-strong);
+  color: var(--jx-ink);
   overflow-wrap: anywhere;
-}
-
-.customer-account__identity dd {
-  font-weight: var(--jx-weight-semibold);
 }
 
 .setup-problem-list {
@@ -50,8 +42,8 @@
 }
 
 .setup-problem {
-  border-inline-start: 4px solid var(--jx-color-warning);
-  background: var(--jx-color-warning-soft);
+  border-inline-start: var(--jx-rule-heavy) solid var(--jx-warning);
+  background: var(--jx-warning-soft);
 }
 
 .setup-problem__details {
@@ -63,8 +55,8 @@
 }
 
 .setup-status--ready {
-  border-inline-start: 4px solid var(--jx-color-success);
-  background: var(--jx-color-success-soft);
+  border-inline-start: var(--jx-rule-heavy) solid var(--jx-success);
+  background: var(--jx-success-soft);
 }
 
 .licensed-state-selector {
@@ -82,20 +74,19 @@
   gap: var(--jx-space-3);
   min-height: var(--jx-touch-target);
   padding: var(--jx-space-2) var(--jx-space-3);
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-md);
-  background: var(--jx-color-surface);
+  border: var(--jx-rule) solid var(--jx-line-control);
+  background: var(--jx-plate);
   cursor: pointer;
 }
 
 .licensed-state-selector__choice:has(input:checked) {
-  border-color: var(--jx-color-accent);
-  background: var(--jx-color-accent-soft);
+  border-color: var(--jx-accent);
+  background: var(--jx-accent-soft);
 }
 
 .licensed-state-selector__choice:has(input:focus-visible) {
-  outline: 3px solid var(--jx-color-focus-ring);
-  outline-offset: 2px;
+  outline: var(--jx-focus-width) solid var(--jx-focus);
+  outline-offset: var(--jx-focus-offset);
 }
 
 .licensed-state-selector__choice > span {
@@ -107,14 +98,15 @@
 }
 
 .licensed-state-selector__code {
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
   font-size: var(--jx-text-sm);
   font-weight: var(--jx-weight-semibold);
 }
 
 .licensed-state-page__future-note {
-  border-color: var(--jx-color-info);
-  background: var(--jx-color-info-soft);
+  border-color: var(--jx-accent);
+  background: var(--jx-accent-soft);
 }
 
 .licensed-state-review__summary,
@@ -136,8 +128,9 @@
 
 .licensed-state-review__summary dd,
 .licensed-state-review__scope dd {
-  color: var(--jx-color-text-strong);
+  color: var(--jx-ink);
   font-weight: var(--jx-weight-semibold);
+  font-feature-settings: var(--jx-font-features-numeral);
 }
 
 .licensed-state-review__impacts {
@@ -145,7 +138,12 @@
 }
 
 .licensed-state-review__impact {
-  border-inline-start: 4px solid var(--jx-color-warning);
+  border-inline-start: var(--jx-rule-heavy) solid var(--jx-warning);
+}
+
+/* The founder contact card's ink joint renders at every width (ch1 colophon). */
+.account-contact {
+  border-top: var(--jx-rule-heavy) solid var(--jx-ink);
 }
 
 @media (max-width: 32rem) {

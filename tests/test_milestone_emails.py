@@ -90,6 +90,12 @@ def test_milestone_email_content_links_to_the_authenticated_timeline(
     assert "Licensed States: FL, TX" in payload["text"]
     assert timeline in payload["text"]
     assert "customer@example.com" not in timeline
+    assert payload["text"].endswith("— Noah\nJAWNIX · noah@jawnix.com\n")
+    reply_line = "Reply to this email — it comes straight to me."
+    if milestone in ("waiting_inventory", "failure"):
+        assert reply_line in payload["text"]
+    else:
+        assert reply_line not in payload["text"]
     assert payload["to"] == ["customer@example.com"]
     assert first["headers"]["Idempotency-Key"] == (
         f"jawnix-request/{request.id}/{milestone}"

@@ -58,9 +58,11 @@ class Settings(BaseSettings):
     # get_stripe_client builds HttpStripeClient from the secrets above; tests
     # assign a fake. Not loaded from the environment.
     stripe_client: Any | None = Field(default=None, exclude=True, repr=False)
-    batch_from_email: str = Field(default="Jawnix <hai@jawnix.com>", alias="JAWNIX_BATCH_FROM_EMAIL")
+    # Brand standard: every customer-facing email originates from Noah's own
+    # mailbox (the mailbox exists — brand punch-list item closed).
+    batch_from_email: str = Field(default="Noah Bleicher (Jawnix) <noah@jawnix.com>", alias="JAWNIX_BATCH_FROM_EMAIL")
     # The address a Customer is pointed at when a Batch Request needs a human.
-    support_email: str = Field(default="hai@jawnix.com", alias="JAWNIX_SUPPORT_EMAIL")
+    support_email: str = Field(default="noah@jawnix.com", alias="JAWNIX_SUPPORT_EMAIL")
     batch_dir: Path = Field(default=Path("./batches"), alias="JAWNIX_BATCH_DIR")
     batch_retention_days: int = Field(default=30, alias="JAWNIX_BATCH_RETENTION_DAYS")
     global_cooldown_days: int = Field(default=7, alias="JAWNIX_GLOBAL_COOLDOWN_DAYS")

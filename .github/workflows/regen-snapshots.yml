@@ -1,0 +1,48 @@
+name: Regenerate visual baselines
+
+# Manual-only escape hatch for visual-regression baselines. The snapshot PNGs
+# are font-stack-sensitive, so they must be produced by the same runner image
+# that compares them in CI. Run this on a branch, it pushes the regenerated
+# baselines back to that branch, then the normal CI run verifies them.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Regenerate the visual baselines
+        run: npx playwright test e2e/customer-auth.spec.ts e2e/customer-overview.spec.ts e2e/customer-requests.spec.ts e2e/scraper-coverage.spec.ts --update-snapshots --reporter=list
+
+      - name: Commit regenerated baselines
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "e2e/**/*-snapshots/**"
+          if git diff --cached --quiet; then
+            echo "no baseline changes"
+          else
+            git commit -m "Regenerate linux visual baselines on the CI font stack"
+            git push
+          fi

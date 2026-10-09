@@ -8,7 +8,7 @@
   display: grid;
   gap: var(--jx-space-1);
   padding-block-end: var(--jx-space-3);
-  border-block-end: 1px solid var(--jx-color-border);
+  border-block-end: var(--jx-rule) solid var(--jx-line);
 }
 
 .jx-detail__row:last-child {
@@ -16,18 +16,22 @@
   border-block-end: none;
 }
 
+/* Terms are system metadata: mono, caps, label tracking. */
 .jx-detail__term {
+  font-family: var(--jx-font-mono);
   font-size: var(--jx-text-xs);
   font-weight: var(--jx-weight-semibold);
   letter-spacing: var(--jx-tracking-label);
   text-transform: uppercase;
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
 }
 
+/* Values are data: tabular figures, always. */
 .jx-detail__description {
   margin: 0;
   font-size: var(--jx-text-sm);
-  color: var(--jx-color-text);
+  font-feature-settings: var(--jx-font-features-numeral);
+  color: var(--jx-ink);
   overflow-wrap: anywhere;
 }
 

@@ -42,7 +42,7 @@ export function CustomerShell() {
         headerActions={
           <>
             <CreditWalletWidget />
-            <ActionLink href="mailto:hai@jawnix.com" variant="ghost">
+            <ActionLink href="mailto:noah@jawnix.com" variant="ghost">
               Support
             </ActionLink>
             <Button

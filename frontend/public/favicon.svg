@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="JAWNIX">
+  <title>JAWNIX</title>
+  <!-- Favicon: the vermilion JX hanko. Block letters on a 16×16 grid —
+       vermilion square, paper JX in light chrome; paper square, vermilion JX
+       in dark chrome via the embedded scheme rule (linked favicons never see
+       page CSS). -->
+  <style>
+    .ground { fill: #C03A2B; }
+    .letters { fill: #FCFCFA; }
+    @media (prefers-color-scheme: dark) {
+      .ground { fill: #FCFCFA; }
+      .letters { fill: #C03A2B; }
+    }
+  </style>
+  <path class="ground" d="M0 0H16V16H0Z"/>
+  <path class="letters" d="M2 11h3V3h2v10H2Z M9 3h2l1 2.6 1-2.6h2l-2.1 5 2.1 5h-2l-1-2.6-1 2.6h-2l2.1-5Z"/>
+</svg>

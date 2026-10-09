@@ -5,18 +5,24 @@
   list-style: none;
 }
 
+/* The tonal left joint: pigment marks the kind of attention, the words say
+   what it is. */
 .customer-attention {
-  border-inline-start: 0.25rem solid var(--jx-color-info);
+  border-inline-start: var(--jx-rule-heavy) solid var(--jx-info);
+}
+
+.customer-attention--neutral {
+  border-inline-start-color: var(--jx-neutral);
 }
 
 .customer-attention--warning {
-  border-inline-start-color: var(--jx-color-warning);
+  border-inline-start-color: var(--jx-warning);
 }
 
 .customer-attention--danger {
-  border-inline-start-color: var(--jx-color-danger);
+  border-inline-start-color: var(--jx-danger);
 }
 
 .customer-attention--success {
-  border-inline-start-color: var(--jx-color-success);
+  border-inline-start-color: var(--jx-success);
 }

@@ -34,10 +34,9 @@ async function openOverview(
 }
 
 test.describe("Customer Overview attention queue", () => {
-  test("shows only actionable items under Match", async ({ page }) => {
+  test("shows only actionable items under the light scheme", async ({ page }) => {
     await openOverview(page);
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
     for (const item of CUSTOMER_OVERVIEW.items) {
       await expect(page.getByRole("heading", { name: item.title })).toBeVisible();
@@ -137,10 +136,14 @@ test.describe("Customer Overview attention queue", () => {
     await expect(page.getByRole("main").getByRole("link")).toHaveCount(0);
   });
 
-  test("matches the Match visual baseline", async ({ page }) => {
+  test("matches the visual baseline", async ({ page }) => {
     await openOverview(page);
 
     await expect(page).toHaveScreenshot("customer-overview.png", {
+      // Variable-font rasterization (interpolated weights/widths) shifts
+      // sub-pixel anti-aliasing by up to ~2% between CI runs; structural
+      // regressions produce far larger diffs, so 3% still guards the layout.
+      maxDiffPixelRatio: 0.03,
       animations: "disabled",
       fullPage: true,
     });

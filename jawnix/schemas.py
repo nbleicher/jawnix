@@ -455,7 +455,7 @@ class CustomerOverviewOut(BaseModel):
 
 CustomerMilestoneKey = Literal[
     "submitted",
-    "under_review",
+    "approved",
     "preparing_batch",
     "delivered",
 ]

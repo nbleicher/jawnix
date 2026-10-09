@@ -6,7 +6,7 @@ import {
   useSearchParams,
 } from "react-router";
 
-import { ActionLink, Button } from "../../design-system/primitives/Button";
+import { ActionLink, Button, ButtonLink } from "../../design-system/primitives/Button";
 import { cx } from "../../design-system/primitives/cx";
 import { ConfirmDialog } from "../../design-system/primitives/Dialog";
 import { EmptyState } from "../../design-system/primitives/feedback";
@@ -23,6 +23,7 @@ import {
   Heading,
   LabelText,
   Mono,
+  Numeral,
   Text,
   VisuallyHidden,
 } from "../../design-system/primitives/typography";
@@ -31,6 +32,7 @@ import {
   useBilledWallet,
   useCreditWallet,
 } from "../billing/CreditWalletContext";
+import { PurchaseDialog } from "../billing/CreditWalletWidget";
 import {
   batchCostCents,
   formatBalanceRefusal,
@@ -42,6 +44,7 @@ import type { CreditWallet } from "../billing/wallet";
 import { MilestoneGraph, formatMilestoneTime } from "./MilestoneGraph";
 import {
   cancelBatchRequest,
+  formatRequestRef,
   newSubmissionKey,
   submitBatchRequest,
 } from "./batchRequests";
@@ -51,6 +54,7 @@ import type {
   BatchRequestReceipt,
   BatchRequestWorkspace,
   RequestLimits,
+  Tone,
 } from "./batchRequests";
 
 import "./CustomerRequests.css";
@@ -106,13 +110,25 @@ export function isRequestSettled(request: BatchRequest): boolean {
   return request.delivered_at !== null || request.milestones.outcome !== null;
 }
 
+/**
+ * The order-ticket witness: vermilion is the stamp of the live state and only
+ * the live state (warning-ink is vermilion in this register), whatever tone
+ * the payload shipped. Settled requests keep the tone they shipped — ink for
+ * Delivered, danger for Not Approved / Needs Attention, neutral for Canceled.
+ */
+export function requestStatusTone(request: BatchRequest): Tone {
+  return isRequestSettled(request) ? request.status.tone : "warning";
+}
+
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
 export function formatArtifactExpiry(expiresAt: string, now: number): string {
   const remaining = Date.parse(expiresAt) - now;
-  if (remaining <= 0) return "Expired — contact us";
+  // A badge carries the short status word only; the remedy sentence lives in
+  // the notice below, in Noah's voice, once.
+  if (remaining <= 0) return "Expired";
   if (remaining >= DAY_MS) {
     const days = Math.ceil(remaining / DAY_MS);
     return `Expires in ${days} ${days === 1 ? "day" : "days"}`;
@@ -173,9 +189,17 @@ function Receipt({
       <Stack gap={4}>
         <div ref={headingRef} tabIndex={-1} role="status">
           <Stack gap={2}>
-            <Heading level={3} size="lg">
-              Request submitted
-            </Heading>
+            <Cluster justify="space-between" align="flex-start">
+              <Heading level={3} size="lg">
+                Request submitted
+              </Heading>
+              <StatusBadge tone={requestStatusTone(receipt.request)}>
+                {receipt.request.status.label}
+              </StatusBadge>
+            </Cluster>
+            <Mono className="request-card__ref">
+              {formatRequestRef(receipt.request.id)}
+            </Mono>
             <Text>
               {`We have your request for ${formatCount(receipt.request.lead_count)} leads in ${formatStates(receipt.request.states)}, submitted ${formatMilestoneTime(receipt.request.submitted_at)}.`}
             </Text>
@@ -225,6 +249,7 @@ function RequestFlow({
   const [filesError, setFilesError] = useState("");
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
+  const [buying, setBuying] = useState(false);
   const [receipt, setReceipt] = useState<BatchRequestReceipt | null>(null);
   const quantityRef = useRef<HTMLInputElement>(null);
   const scopeRef = useRef<HTMLInputElement>(null);
@@ -575,7 +600,7 @@ function RequestFlow({
                     role="status"
                     aria-live="polite"
                   >
-                    {filePreview}
+                    <Numeral>{filePreview}</Numeral>
                   </Text>
                 ) : null}
               </Stack>
@@ -620,11 +645,11 @@ function RequestFlow({
                           {formatLeadRate(billing.leadRateCentsPerThousand)}
                         </dd>
                       </div>
-                      <div>
+                      <div className="request-flow__equation-row">
                         <dt>
                           <LabelText>Cost</LabelText>
                         </dt>
-                        <dd>
+                        <dd className="request-flow__equation">
                           {`${formatCount(Number(quantity.trim()))} × ${formatLeadRate(billing.leadRateCentsPerThousand)} = ${formatCents(holdCents)}`}
                         </dd>
                       </div>
@@ -663,22 +688,37 @@ function RequestFlow({
               </Stack>
             ) : null}
 
-            <Cluster>
+            <Cluster className="request-flow__commit">
               {stage > 0 ? (
-                <Button onClick={() => setStage(stage - 1)}>Back</Button>
+                <Button
+                  className="request-flow__back"
+                  onClick={() => setStage(stage - 1)}
+                >
+                  Back
+                </Button>
               ) : null}
               <Button
                 type="submit"
                 variant="primary"
+                className="request-flow__continue"
                 busy={busy}
                 busyLabel="Submitting…"
                 disabled={stage === 3 && insufficient}
               >
                 {stage === 3 ? "Submit request" : "Continue"}
               </Button>
+              {/* Blocked on funds: Submit stays visible but disabled, and the
+                  remedy is one click away — secondary, because the Customer's
+                  commitment is the Batch, not the top-up. */}
+              {stage === 3 && insufficient ? (
+                <Button variant="secondary" onClick={() => setBuying(true)}>
+                  Buy credits
+                </Button>
+              ) : null}
             </Cluster>
           </Stack>
         </form>
+        <PurchaseDialog open={buying} onClose={() => setBuying(false)} />
       </Stack>
     </Card>
   );
@@ -702,10 +742,10 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
     artifact?.available && artifact.download_href && !expired,
   );
   const status = expired
-    ? "Expired — contact us"
+    ? "Expired"
     : live && artifact?.expires_at
       ? formatArtifactExpiry(artifact.expires_at, now)
-      : "Unavailable — contact us";
+      : "Unavailable";
   const parts = artifact?.parts ?? [];
 
   return (
@@ -727,17 +767,13 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
               per file choice.
             </Text>
           </Stack>
-          <Text
-            size="sm"
-            weight="semibold"
-            tone={live ? "success" : "warning"}
-          >
+          <StatusBadge tone={live ? "info" : "warning"}>
             {artifact?.expires_at ? (
               <time dateTime={artifact.expires_at}>{status}</time>
             ) : (
               status
             )}
-          </Text>
+          </StatusBadge>
         </Cluster>
 
         {artifact ? (
@@ -780,14 +816,18 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
         ) : null}
 
         {live && artifact?.download_href ? (
-          <ActionLink href={artifact.download_href} variant="primary">
-            Download zip
-          </ActionLink>
+          <div>
+            <ButtonLink href={artifact.download_href} variant="primary">
+              Download zip
+            </ButtonLink>
+          </div>
         ) : (
-          <Text size="sm">
-            Batch files are retained for 30 days. Contact Jawnix to have this
-            exact file regenerated.
-          </Text>
+          <div className="request-artifact__remedy">
+            <Text size="sm">
+              Batch files are retained for 30 days. Email noah@jawnix.com and
+              I'll regenerate the exact file.
+            </Text>
+          </div>
         )}
       </Stack>
     </section>
@@ -804,7 +844,6 @@ function RequestDetail({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
-  const { pause, outcome } = request.milestones;
 
   async function confirmCancel() {
     if (busy) return;
@@ -826,55 +865,69 @@ function RequestDetail({
   }
 
   return (
-    <div id={`request-${request.id}`}>
+    <div id={`request-${request.id}`} className="request-ticket">
       <Stack gap={4}>
+        {/* The ticket head: the reference the Customer can type against an
+            email, and the current state as a witness badge. */}
         <Cluster justify="space-between" align="flex-start">
           <Stack gap={1}>
+            <Mono className="request-card__ref">
+              {formatRequestRef(request.id)}
+            </Mono>
             <Heading level={2}>
               {`${formatCount(request.lead_count)} lead Batch Request`}
             </Heading>
-            <Text size="sm" tone="muted">
-              {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)}`}
-            </Text>
           </Stack>
-          <StatusBadge tone={request.status.tone}>
+          <StatusBadge tone={requestStatusTone(request)}>
             {request.status.label}
           </StatusBadge>
         </Cluster>
 
         <Text>{request.status.description}</Text>
 
+        {/* The terms of the order, frozen at submission. */}
+        <dl className="request-ticket__terms">
+          <div>
+            <dt>
+              <LabelText>Quantity</LabelText>
+            </dt>
+            <dd>{`${formatCount(request.lead_count)} leads`}</dd>
+          </div>
+          <div>
+            <dt>
+              <LabelText>Licensed States</LabelText>
+            </dt>
+            <dd>{formatStates(request.states)}</dd>
+          </div>
+          <div>
+            <dt>
+              <LabelText>Submitted</LabelText>
+            </dt>
+            <dd>
+              <Mono>{formatMilestoneTime(request.submitted_at)}</Mono>
+            </dd>
+          </div>
+          <div>
+            <dt>
+              <LabelText>Files</LabelText>
+            </dt>
+            <dd>
+              {request.rows_per_file >= request.lead_count
+                ? "One file"
+                : formatFileCountPreview(
+                    request.lead_count,
+                    request.rows_per_file,
+                  )}
+            </dd>
+          </div>
+        </dl>
+
+        {/* The event ledger. A pause and a terminal outcome are written on
+            the row where they happened, in the backend's own words. */}
         <MilestoneGraph
           graph={request.milestones}
           label={`Progress for the ${formatCount(request.lead_count)} lead request submitted ${formatMilestoneTime(request.submitted_at)}`}
         />
-
-        {pause ? (
-          <div className="request-card__note request-card__note--pause">
-            <Stack gap={1}>
-              <Text weight="semibold">{pause.label}</Text>
-              <Text size="sm">{pause.description}</Text>
-            </Stack>
-          </div>
-        ) : null}
-
-        {outcome ? (
-          <div
-            className={cx(
-              "request-card__note",
-              `request-card__note--${outcome.tone}`,
-            )}
-          >
-            <Stack gap={1}>
-              <Text weight="semibold">
-                {outcome.occurred_at
-                  ? `${outcome.label} · ${formatMilestoneTime(outcome.occurred_at)}`
-                  : outcome.label}
-              </Text>
-              <Text size="sm">{outcome.description}</Text>
-            </Stack>
-          </div>
-        ) : null}
 
         {request.delivered_at ? (
           <ArtifactCard artifact={request.artifact} />
@@ -926,7 +979,10 @@ function RequestSummary({ request }: { request: BatchRequest }) {
           <Stack gap={2}>
             <Heading level={3}>{`${formatCount(request.lead_count)} leads`}</Heading>
             <Text size="sm" tone="muted">
-              {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)}`}
+              {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)} · `}
+              <Mono className="request-card__ref">
+                {formatRequestRef(request.id)}
+              </Mono>
             </Text>
             <Text size="sm">{request.status.description}</Text>
             <ActionLink href={request.receipt_href} variant="secondary">
@@ -936,7 +992,7 @@ function RequestSummary({ request }: { request: BatchRequest }) {
               </VisuallyHidden>
             </ActionLink>
           </Stack>
-          <StatusBadge tone={request.status.tone}>
+          <StatusBadge tone={requestStatusTone(request)}>
             {request.status.label}
           </StatusBadge>
         </Cluster>

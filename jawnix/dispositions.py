@@ -63,8 +63,8 @@ class Disposition:
                 "batches. Only an administrator can release the hold."
             )
         return (
-            "Submitting this files a Lead Report for an administrator to "
-            "review. It does not place an Eligibility Hold, so this Lead "
+            "Submitting this files a Lead Report — Noah reviews every "
+            "report. It does not place an Eligibility Hold, so this Lead "
             "stays eligible for future batches."
         )
 

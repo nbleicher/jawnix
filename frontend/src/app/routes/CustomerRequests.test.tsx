@@ -4,6 +4,8 @@ import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ThemeProvider } from "../../design-system/theme/ThemeProvider";
+import { CreditWalletProvider } from "../billing/CreditWalletContext";
+import type { CreditWallet } from "../billing/wallet";
 import {
   ACTIVE_REQUEST_REFRESH_MS,
   CustomerRequestsRoute,
@@ -31,9 +33,9 @@ function graph(overrides: Partial<MilestoneGraphData> = {}): MilestoneGraphData 
         occurred_at: SUBMITTED,
       },
       {
-        key: "under_review",
-        label: "Under Review",
-        description: "Jawnix is checking it.",
+        key: "approved",
+        label: "Approved",
+        description: "Your request was approved — the Batch is being prepared.",
         state: "current",
         occurred_at: null,
       },
@@ -52,7 +54,7 @@ function graph(overrides: Partial<MilestoneGraphData> = {}): MilestoneGraphData 
         occurred_at: null,
       },
     ],
-    current_key: "under_review",
+    current_key: "approved",
     pause: null,
     outcome: null,
     ...overrides,
@@ -68,7 +70,7 @@ function batchRequest(overrides: Partial<BatchRequest> = {}): BatchRequest {
     submitted_at: SUBMITTED,
     delivered_at: null,
     status: {
-      label: "Under Review",
+      label: "Approved",
       description: "We are reviewing your request.",
       tone: "info",
     },
@@ -144,6 +146,7 @@ function renderRoute(
   options: {
     initialEntry?: string;
     loader?: () => BatchRequestWorkspace | Promise<BatchRequestWorkspace>;
+    wallet?: CreditWallet;
   } = {},
 ) {
   const router = createMemoryRouter(
@@ -167,10 +170,17 @@ function renderRoute(
       hydrationData: { loaderData: { requests: data } },
     },
   );
-  return render(
+  const tree = (
     <ThemeProvider>
       <RouterProvider router={router} />
-    </ThemeProvider>,
+    </ThemeProvider>
+  );
+  return render(
+    options.wallet ? (
+      <CreditWalletProvider>{tree}</CreditWalletProvider>
+    ) : (
+      tree
+    ),
   );
 }
 
@@ -495,7 +505,7 @@ describe("the submitted request index", () => {
       screen.getByRole("link", { name: /View request for 750 leads/ }),
     ).toHaveAttribute("href", `/app/requests?request=${REQUEST_ID}`);
     expect(
-      screen.queryByRole("list", { name: /Progress for/ }),
+      screen.queryByRole("status", { name: /Progress for/ }),
     ).not.toBeInTheDocument();
   });
 
@@ -524,7 +534,7 @@ describe("a Batch Request detail page", () => {
       screen.getByRole("heading", { name: "750 lead Batch Request" }),
     ).toBeVisible();
     expect(
-      screen.getByRole("list", { name: /Progress for the 750 lead request/ }),
+      screen.getByRole("status", { name: /Progress for the 750 lead request/ }),
     ).toBeVisible();
     expect(
       screen.getByRole("link", { name: "All Requests" }),
@@ -561,6 +571,13 @@ describe("a Batch Request detail page", () => {
       screen.getByText(/nothing you need to do/, { exact: false }),
     ).toBeVisible();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // In-flight is the live state: the witness badge takes the vermilion
+    // stamp (warning-ink in this register) whatever tone the payload shipped.
+    expect(
+      screen
+        .getAllByText("Preparing Batch")
+        .find((element) => element.classList.contains("jx-status")),
+    ).toHaveClass("jx-status--warning");
   });
 
   it.each([
@@ -586,7 +603,7 @@ describe("a Batch Request detail page", () => {
                 current_key: null,
                 outcome: {
                   kind,
-                  milestone_key: "under_review",
+                  milestone_key: "approved",
                   label,
                   description: `Because the request was ${kind}.`,
                   tone: kind === "canceled" ? "neutral" : "danger",
@@ -599,12 +616,14 @@ describe("a Batch Request detail page", () => {
         { initialEntry: detailPath },
       );
 
-      // The outcome note headlines the label with when it happened, which is
-      // what distinguishes it from the same label inside the graph summary.
-      expect(screen.getByText(new RegExp(`^${label} · `))).toBeVisible();
-      expect(
-        screen.getByText(`Because the request was ${kind}.`),
-      ).toBeVisible();
+      // The status line carries the outcome label and its verbatim
+      // description — no spinner, no ledger.
+      const line = screen.getByRole("status", {
+        name: /Progress for the 750 lead request/,
+      });
+      expect(line).toHaveTextContent(
+        `${label} — Because the request was ${kind}.`,
+      );
       expect(screen.getByRole("link", { name: actionLabel })).toHaveAttribute(
         "href",
         href,
@@ -640,13 +659,13 @@ describe("a Batch Request detail page", () => {
           milestones: graph({
             current_key: null,
             milestones: graph().milestones.map((milestone) =>
-              milestone.key === "under_review"
+              milestone.key === "approved"
                 ? { ...milestone, state: "stopped" as const }
                 : milestone,
             ),
             outcome: {
               kind: "canceled",
-              milestone_key: "under_review",
+              milestone_key: "approved",
               label: "Canceled",
               description: "You withdrew this request.",
               tone: "neutral",
@@ -673,10 +692,10 @@ describe("a Batch Request detail page", () => {
     expect(
       screen.queryByRole("button", { name: "Cancel request" }),
     ).not.toBeInTheDocument();
-    const nodes = within(
-      screen.getByRole("list", { name: /Progress for the 750 lead request/ }),
-    ).getAllByRole("listitem");
-    expect(nodes[1]).toHaveTextContent("Stopped");
+    const line = screen.getByRole("status", {
+      name: /Progress for the 750 lead request/,
+    });
+    expect(line).toHaveTextContent("Canceled — You withdrew this request.");
   });
 
   it("never renders internal fulfillment vocabulary", () => {
@@ -742,8 +761,17 @@ describe("a Batch Request detail page", () => {
     );
 
     const card = screen.getByRole("region", { name: "Batch Artifact" });
-    expect(within(card).getByText("Expired — contact us")).toBeVisible();
-    expect(within(card).getByText(/retained for 30 days/)).toBeVisible();
+    // The badge carries the short status word only; the remedy is one
+    // first-person sentence in the notice, stated once.
+    expect(within(card).getByText("Expired")).toBeVisible();
+    expect(
+      within(card).getByText(
+        /Batch files are retained for 30 days\. Email noah@jawnix\.com and I'll regenerate the exact file\./,
+      ),
+    ).toBeVisible();
+    expect(
+      within(card).queryByText(/will be regenerated/),
+    ).not.toBeInTheDocument();
     expect(within(card).queryByRole("link", { name: /Download/ })).toBeNull();
   });
 
@@ -754,6 +782,71 @@ describe("a Batch Request detail page", () => {
 
     expect(
       screen.getByRole("heading", { name: "Batch Request not found" }),
+    ).toBeVisible();
+  });
+});
+
+describe("the Review stage's money arithmetic", () => {
+  const WALLET: CreditWallet = {
+    customerId: 1,
+    billingEnabled: true,
+    leadRateCentsPerThousand: 3_000_000,
+    balanceCents: 253_000,
+    activeHoldsCents: 0,
+    availableBalanceCents: 253_000,
+    purchases: [],
+    ledger: [],
+  };
+
+  function stubWalletFetch() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve(
+              String(input).startsWith("/api/me/billing") ? WALLET : {},
+            ),
+        } as Response),
+      ),
+    );
+  }
+
+  it("reconciles quantity × Lead Rate against the available balance", async () => {
+    const user = userEvent.setup();
+    stubWalletFetch();
+    renderRoute(workspace(), { wallet: WALLET });
+
+    await advanceToReview(user);
+
+    expect(
+      await screen.findByText("750 × $30.000 per lead = $22,500.00"),
+    ).toBeVisible();
+    expect(screen.getByText("$2,530.00")).toBeVisible();
+  });
+
+  it("blocks submit on insufficient funds with Buy credits one click away", async () => {
+    const user = userEvent.setup();
+    stubWalletFetch();
+    renderRoute(workspace(), { wallet: WALLET });
+
+    await advanceToReview(user);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "The Credit Wallet does not have enough available balance for this Batch Hold. Required $22,500.00; available $2,530.00. Buy credits before submitting.",
+    );
+    // Disabled, not hidden: a vanished button is a mystery; a disabled one is
+    // an explanation, and the remedy sits beside it.
+    expect(
+      screen.getByRole("button", { name: "Submit request" }),
+    ).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Buy credits" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Buy credits" }),
     ).toBeVisible();
   });
 });
@@ -780,7 +873,7 @@ describe("artifact expiry countdown", () => {
     ).toBe("Expires in 3 hours");
     expect(
       formatArtifactExpiry(expiry, Date.parse("2026-07-22T12:00:00Z")),
-    ).toBe("Expired — contact us");
+    ).toBe("Expired");
   });
 });
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLoaderData } from "react-router";
 
 import { Button } from "../../design-system/primitives/Button";
@@ -13,8 +13,14 @@ import {
   Stack,
 } from "../../design-system/primitives/layout";
 import { StatusBadge } from "../../design-system/primitives/status";
-import { Heading, Text } from "../../design-system/primitives/typography";
+import {
+  Heading,
+  Mono,
+  Text,
+  VisuallyHidden,
+} from "../../design-system/primitives/typography";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
+import { formatRequestRef } from "./batchRequests";
 import { CustomerExclusionListsSection } from "./CustomerExclusionLists";
 
 import "./CustomerFeedback.css";
@@ -159,13 +165,19 @@ function formatPhone(value: string): string {
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
 }
 
-function formatDateTime(value: string): string {
+/** Ledger timestamps on record surfaces are ISO-UTC ("2026-07-20 15:00 UTC")
+ *  so a delivery reads identically in every timezone. */
+function formatLedgerTime(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(parsed);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${parsed.getUTCFullYear()}-${pad(parsed.getUTCMonth() + 1)}-${pad(parsed.getUTCDate())} ${pad(parsed.getUTCHours())}:${pad(parsed.getUTCMinutes())} UTC`;
+}
+
+/** The book's short reference idiom for a transition id, which is a UUID
+ *  server-side: prefix + first 8, uppercase, mono ("TR-7C3D19AB"). */
+function formatTransitionRef(id: string): string {
+  return `TR-${id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 }
 
 export async function feedbackLoader(): Promise<FeedbackCatalog> {
@@ -186,6 +198,29 @@ function labelFor(catalog: FeedbackCatalog, disposition: string): string {
     if (found) return found.label;
   }
   return disposition;
+}
+
+/** The selected-state witness. Rendered, not pseudo-element text content, so
+ *  the glyph never leaks into the accessible name or copy-paste. */
+function CheckWitness() {
+  return (
+    <svg
+      className="customer-feedback__option-check"
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M2 6.5 4.8 9.3 10 2.7"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="square"
+      />
+    </svg>
+  );
 }
 
 export function CustomerFeedbackRoute() {
@@ -216,6 +251,59 @@ export function CustomerFeedbackRoute() {
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState("");
   const [reportSaved, setReportSaved] = useState("");
+
+  const receiptRef = useRef<HTMLDivElement>(null);
+
+  // The receipt mounts below the fold after submit; move focus to it, as
+  // CustomerRequests' receipt does, so it is announced and never silent.
+  useEffect(() => {
+    if (receipt) receiptRef.current?.focus();
+  }, [receipt]);
+
+  // Dispositions are mutually exclusive across every group, so one
+  // radiogroup spans the fieldsets; quality ratings below stay true toggles.
+  const dispositionOrder = catalog.groups.flatMap((group) => group.options);
+  const dispositionIndex = new Map(
+    dispositionOrder.map((option, index) => [option.disposition, index]),
+  );
+
+  function chooseDisposition(option: DispositionOption) {
+    setSelected(option);
+    setSubmitError("");
+    setReceipt(null);
+  }
+
+  function onDispositionKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    const { key } = event;
+    if (
+      key !== "ArrowRight"
+      && key !== "ArrowDown"
+      && key !== "ArrowLeft"
+      && key !== "ArrowUp"
+      && key !== "Home"
+      && key !== "End"
+    ) {
+      return;
+    }
+    const radios = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]'),
+    );
+    const current = radios.indexOf(document.activeElement as HTMLElement);
+    if (current < 0) return;
+    event.preventDefault();
+    let next: HTMLElement | undefined;
+    if (key === "Home") {
+      next = radios[0];
+    } else if (key === "End") {
+      next = radios[radios.length - 1];
+    } else {
+      const delta = key === "ArrowRight" || key === "ArrowDown" ? 1 : radios.length - 1;
+      next = radios[(current + delta) % radios.length];
+    }
+    if (!next) return;
+    next.focus();
+    next.click();
+  }
 
   function resetEntry() {
     setSelected(null);
@@ -359,9 +447,7 @@ export function CustomerFeedbackRoute() {
         reason: reportReason,
         details: reportDetails.trim(),
       });
-      setReportSaved(
-        "Lead Report filed. An administrator will review it.",
-      );
+      setReportSaved("Lead Report filed. Noah reviews every report.");
       setReportDetails("");
     } catch (caught) {
       setReportError(
@@ -463,7 +549,12 @@ export function CustomerFeedbackRoute() {
                               {result.businessName}
                             </span>
                             <span className="customer-feedback__option-description">
-                              {formatPhone(result.phone)} · Batch {result.batchId}
+                              <Mono>
+                                {formatPhone(result.phone)}
+                                {result.batchId
+                                  ? ` · ${formatRequestRef(result.batchId)}`
+                                  : ""}
+                              </Mono>
                             </span>
                           </button>
                         </li>
@@ -495,11 +586,17 @@ export function CustomerFeedbackRoute() {
                     { term: "Phone", description: formatPhone(lead.phone) },
                     {
                       term: "Delivered",
-                      description: formatDateTime(lead.deliveredAt),
+                      description: (
+                        <Mono>{formatLedgerTime(lead.deliveredAt)}</Mono>
+                      ),
                     },
                     {
                       term: "Batch",
-                      description: lead.batchId ?? "Not part of a batch",
+                      description: lead.batchId ? (
+                        <Mono>{formatRequestRef(lead.batchId)}</Mono>
+                      ) : (
+                        "Not part of a batch"
+                      ),
                     },
                   ]}
                 />
@@ -510,7 +607,12 @@ export function CustomerFeedbackRoute() {
               title="What happened?"
               description="Choose the closest answer. You can add another answer later; nothing is overwritten."
             >
-              <Stack gap={5}>
+              <Stack
+                gap={5}
+                role="radiogroup"
+                aria-label="What happened?"
+                onKeyDown={onDispositionKeyDown}
+              >
                   {catalog.groups.map((group) => (
                     <Fieldset legend={group.label} key={group.group}>
                       <div className="customer-feedback__options">
@@ -522,14 +624,21 @@ export function CustomerFeedbackRoute() {
                               type="button"
                               key={option.disposition}
                               className="customer-feedback__option"
-                              aria-pressed={isSelected}
-                              onClick={() => {
-                                setSelected(option);
-                                setSubmitError("");
-                                setReceipt(null);
-                              }}
+                              role="radio"
+                              aria-checked={isSelected}
+                              tabIndex={
+                                selected
+                                  ? isSelected
+                                    ? 0
+                                    : -1
+                                  : dispositionIndex.get(option.disposition) === 0
+                                    ? 0
+                                    : -1
+                              }
+                              onClick={() => chooseDisposition(option)}
                             >
                               <span className="customer-feedback__option-label">
+                                {isSelected ? <CheckWitness /> : null}
                                 {option.label}
                               </span>
                               <span className="customer-feedback__option-description">
@@ -549,6 +658,14 @@ export function CustomerFeedbackRoute() {
                 title={`Your answer: ${selected.label}`}
                 description="Review this before you submit."
               >
+                {/* Mounts below the fold with no focus move — moving focus
+                    would break radiogroup arrow keys — so the mount is
+                    announced politely instead. */}
+                <VisuallyHidden>
+                  <span role="status">
+                    {`Your answer: ${selected.label}. Review it below before you submit.`}
+                  </span>
+                </VisuallyHidden>
                 <Stack gap={4}>
                   {/* Stated before submission, and served by the same rule
                       that materializes the controls, so it cannot misdescribe
@@ -559,8 +676,8 @@ export function CustomerFeedbackRoute() {
                         <Cluster gap={2}>
                           <StatusBadge tone="warning">
                             {selected.createsHold
-                              ? "Files a report and holds the Lead"
-                              : "Files a report"}
+                              ? "Files a Lead Report and places an Eligibility Hold"
+                              : "Files a Lead Report"}
                           </StatusBadge>
                         </Cluster>
                         <Text>{selected.consequence}</Text>
@@ -603,6 +720,7 @@ export function CustomerFeedbackRoute() {
                           }
                         >
                           <span className="customer-feedback__option-label">
+                            {rating === option.value ? <CheckWitness /> : null}
                             {option.label}
                           </span>
                           <span className="customer-feedback__option-description">
@@ -619,6 +737,7 @@ export function CustomerFeedbackRoute() {
 
                   <div>
                     <Button
+                      variant="primary"
                       onClick={() => void submit()}
                       busy={submitting}
                       busyLabel="Recording…"
@@ -632,6 +751,7 @@ export function CustomerFeedbackRoute() {
 
             {receipt ? (
               <Section title="Recorded">
+                <div ref={receiptRef} tabIndex={-1} role="status">
                 <Card>
                   <Stack gap={2}>
                     <Cluster gap={2}>
@@ -640,7 +760,7 @@ export function CustomerFeedbackRoute() {
                     <Text>
                       {labelFor(catalog, receipt.transition.disposition)}{" "}
                       recorded for {lead.businessName} on{" "}
-                      {formatDateTime(receipt.transition.createdAt)}.
+                      {formatLedgerTime(receipt.transition.createdAt)}.
                     </Text>
                     {/* Confirmed from what the server actually did, so the
                         receipt cannot claim a control that was not created. */}
@@ -661,16 +781,18 @@ export function CustomerFeedbackRoute() {
                       </Text>
                     ) : null}
                     <Text size="sm" tone="muted">
-                      Reference {receipt.transition.id}
+                      Reference{" "}
+                      <Mono>{formatTransitionRef(receipt.transition.id)}</Mono>
                     </Text>
                   </Stack>
                 </Card>
+                </div>
               </Section>
             ) : null}
 
             <Section
               title="File a Lead Report"
-              description="Use this when a quality rating is not enough and an administrator should review the Lead. Data and compliance dispositions above already file a report automatically."
+              description="Use this when a quality rating is not enough — Noah reviews every report. Data and compliance dispositions above already file a report automatically. Upheld reports are credited to your Credit Wallet."
             >
               <Card>
                 <Stack gap={4}>
@@ -700,7 +822,7 @@ export function CustomerFeedbackRoute() {
                     description={
                       reportReason === "other"
                         ? "Required for Other."
-                        : "Optional context for the administrator."
+                        : "Optional context for Noah."
                     }
                     required={reportReason === "other"}
                   >
@@ -723,6 +845,7 @@ export function CustomerFeedbackRoute() {
                   ) : null}
                   <div>
                     <Button
+                      variant="primary"
                       onClick={() => void submitReport()}
                       busy={reportBusy}
                       busyLabel="Filing…"
@@ -754,7 +877,7 @@ export function CustomerFeedbackRoute() {
                             {labelFor(catalog, item.disposition)}
                           </Heading>
                           <Text size="sm" tone="muted">
-                            {formatDateTime(item.createdAt)}
+                            <Mono>{formatLedgerTime(item.createdAt)}</Mono>
                           </Text>
                           {item.note ? <Text size="sm">{item.note}</Text> : null}
                         </Stack>

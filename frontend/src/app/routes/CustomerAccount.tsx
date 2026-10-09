@@ -16,6 +16,7 @@ import { StatusBadge } from "../../design-system/primitives/status";
 import {
   Heading,
   LabelText,
+  Mono,
   Text,
 } from "../../design-system/primitives/typography";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
@@ -74,6 +75,34 @@ function setupProblems(
     });
   }
   return problems;
+}
+
+/**
+ * The colophon from the brand book (ch1/ch10): the money page names the one
+ * accountable person. Replies reach him — the address is a mailto, not a
+ * queue.
+ */
+function FounderContact() {
+  return (
+    <Section
+      title="Your contact"
+      description="One named person is accountable for this account."
+    >
+      <Card className="account-contact">
+        <Stack gap={2}>
+          <Text size="sm">
+            JAWNIX is run by <strong>Noah Bleicher</strong>. Questions,
+            disputes, and Lead Reports are reviewed by me.
+          </Text>
+          <Text size="sm">
+            <Mono>
+              <a href="mailto:noah@jawnix.com">noah@jawnix.com</a>
+            </Mono>
+          </Text>
+        </Stack>
+      </Card>
+    </Section>
+  );
 }
 
 function Identity({
@@ -467,6 +496,7 @@ export function CustomerAccountRoute() {
         </div>
       ) : null}
 
+      <FounderContact />
       <Identity
         identity={identity}
         licensedStates={account.states}

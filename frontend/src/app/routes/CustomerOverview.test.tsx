@@ -57,7 +57,10 @@ describe("CustomerOverviewRoute attention queue", () => {
     expect(
       screen.getByRole("heading", { level: 2, name: "Your Batch is ready" }),
     ).toBeVisible();
-    expect(screen.getByRole("link", { name: "Download CSV" })).toHaveAttribute(
+    expect(screen.getByText("REQ-11111111")).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: /Download CSV/ }),
+    ).toHaveAttribute(
       "href",
       "/api/me/batch-requests/11111111-1111-4111-8111-111111111111/artifact",
     );
@@ -140,9 +143,82 @@ describe("CustomerOverviewRoute attention queue", () => {
     renderOverview({ items: [item] });
 
     expect(screen.getByRole("heading", { name: item.title })).toBeVisible();
-    expect(screen.getByRole("link", { name: label })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: new RegExp(label) })).toHaveAttribute(
       "href",
       href,
+    );
+  });
+
+  it("renders waiting for inventory as info, whatever tone the backend advises", () => {
+    renderOverview({
+      items: [
+        {
+          id: "waiting-inventory:33333333-3333-4333-8333-333333333333",
+          kind: "waiting_inventory",
+          title: "Batch Request is waiting for inventory",
+          description: "Review or cancel your 250-lead request for FL, TX.",
+          tone: "warning",
+          action: {
+            kind: "review_request",
+            label: "Review request",
+            description: "Open this Batch Request's detail page.",
+            href: "/app/requests?request=33333333-3333-4333-8333-333333333333",
+          },
+        },
+      ],
+    });
+
+    expect(document.querySelector(".customer-attention")).toHaveClass(
+      "customer-attention--info",
+    );
+    expect(document.querySelector(".customer-attention")).not.toHaveClass(
+      "customer-attention--warning",
+    );
+  });
+
+  it("disambiguates repeated action labels with the request reference", () => {
+    renderOverview({
+      items: [
+        {
+          id: "batch-ready:11111111-1111-4111-8111-111111111111",
+          kind: "batch_ready",
+          title: "Your Batch is ready",
+          description: "Download the 750-lead Batch Artifact.",
+          tone: "info",
+          action: {
+            kind: "download_artifact",
+            label: "Download CSV",
+            description: "Download this Batch Artifact while it is live.",
+            href: "/api/me/batch-requests/11111111-1111-4111-8111-111111111111/artifact",
+          },
+        },
+        {
+          id: "batch-ready:22222222-2222-4222-8222-222222222222",
+          kind: "batch_ready",
+          title: "Your Batch is ready",
+          description: "Download the 500-lead Batch Artifact.",
+          tone: "info",
+          action: {
+            kind: "download_artifact",
+            label: "Download CSV",
+            description: "Download this Batch Artifact while it is live.",
+            href: "/api/me/batch-requests/22222222-2222-4222-8222-222222222222/artifact",
+          },
+        },
+      ],
+    });
+
+    expect(
+      screen.getByRole("link", { name: "Download CSV — REQ-11111111" }),
+    ).toHaveAttribute(
+      "href",
+      "/api/me/batch-requests/11111111-1111-4111-8111-111111111111/artifact",
+    );
+    expect(
+      screen.getByRole("link", { name: "Download CSV — REQ-22222222" }),
+    ).toHaveAttribute(
+      "href",
+      "/api/me/batch-requests/22222222-2222-4222-8222-222222222222/artifact",
     );
   });
 

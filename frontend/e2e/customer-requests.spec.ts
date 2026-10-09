@@ -47,8 +47,8 @@ async function completeGuidedFlow(page: Page, quantity = "750") {
   await page.getByRole("button", { name: "Submit request" }).click();
 }
 
-function milestoneNodes(page: Page, name: RegExp): Locator {
-  return page.getByRole("list", { name }).getByRole("listitem");
+function statusLine(page: Page, name: RegExp): Locator {
+  return page.getByRole("status", { name });
 }
 
 test.describe("Guided Batch Requests", () => {
@@ -184,73 +184,96 @@ test.describe("Guided Batch Requests", () => {
   });
 });
 
-test.describe("The milestone graph", () => {
-  test("reads as an ordered, timestamped, state-labelled list", async ({
+test.describe("The milestone status line", () => {
+  test("reads as one live line that names the current state", async ({
     page,
   }) => {
     await openRequestDetail(page);
 
-    const nodes = milestoneNodes(page, /Progress for the 750 lead request/);
-    await expect(nodes).toHaveCount(4);
-    await expect(nodes.nth(0)).toContainText("Submitted");
-    await expect(nodes.nth(0)).toContainText("Completed");
-    await expect(nodes.nth(0)).toContainText("2026");
-    await expect(nodes.nth(2)).toContainText("Paused");
-    await expect(nodes.nth(2)).toHaveAttribute("aria-current", "step");
-    await expect(nodes.nth(3)).toContainText("Not started");
+    const line = statusLine(page, /Progress for the 750 lead request/);
+    await expect(line).toHaveCount(1);
+    await expect(line).toHaveAttribute("aria-live", "polite");
+    await expect(line).toContainText("Waiting for Inventory");
+    await expect(line).toContainText("Nothing has gone wrong");
 
-    // The shape of the graph is also available as text.
-    const summaryId = await page
-      .getByRole("list", { name: /Progress for the 750 lead request/ })
-      .getAttribute("aria-describedby");
-    await expect(page.locator(`#${summaryId}`)).toHaveText(
-      "At step 3 of 4, Preparing Batch, paused. Waiting for Inventory.",
-    );
+    // A paused request holds a hollow ring — nothing spins.
+    await expect(line.locator(".jx-statusline__spinner")).toHaveCount(0);
+    await expect(line.locator(".jx-statusline__ring--paused")).toHaveCount(1);
   });
 
-  test("runs along the inline axis when there is room and stacks when there is not", async ({
-    page,
-  }, testInfo) => {
+  test("is a single inline statement, not rows", async ({ page }) => {
     await openRequestDetail(page);
 
-    const nodes = milestoneNodes(page, /Progress for the 750 lead request/);
-    const first = await nodes.nth(0).boundingBox();
-    const second = await nodes.nth(1).boundingBox();
-    expect(first).not.toBeNull();
-    expect(second).not.toBeNull();
+    const line = statusLine(page, /Progress for the 750 lead request/);
+    await expect(line).toHaveCount(1);
+    await expect(line.getByRole("listitem")).toHaveCount(0);
 
-    if (testInfo.project.name === "mobile") {
-      expect(second!.y).toBeGreaterThan(first!.y);
-      expect(Math.abs(second!.x - first!.x)).toBeLessThan(2);
-    } else {
-      expect(second!.x).toBeGreaterThan(first!.x);
-      expect(Math.abs(second!.y - first!.y)).toBeLessThan(2);
-    }
+    // The witness sits inline with the statement on the same first row.
+    const lineBox = await line.boundingBox();
+    const ringBox = await line
+      .locator(".jx-statusline__ring--paused")
+      .boundingBox();
+    expect(lineBox).not.toBeNull();
+    expect(ringBox).not.toBeNull();
+    expect(Math.abs(ringBox!.y - lineBox!.y)).toBeLessThan(8);
   });
 
-  test("never marks a milestone the request will not reach as merely upcoming", async ({
-    page,
-  }) => {
+  test("spins while a request is in flight", async ({ page }) => {
+    const state = await openRequests(page, {
+      workspace: EMPTY_BATCH_REQUEST_WORKSPACE,
+    });
+    await completeGuidedFlow(page);
+    await expect(
+      page.getByRole("heading", { name: "Request submitted" }),
+    ).toBeVisible();
+    expect(state.submissions).toHaveLength(1);
+
+    const line = statusLine(page, /Progress for the request you just submitted/);
+    await expect(line).toContainText("Submitted");
+    const spinner = line.locator(".jx-statusline__spinner");
+    await expect(spinner).toHaveCount(1);
+    await expect(spinner).toHaveCSS("animation-name", "jx-statusline-spin");
+  });
+
+  test("stamps a terminal outcome instead of spinning", async ({ page }) => {
     await openRequestDetail(page, REJECTED_REQUEST.id);
 
-    const nodes = milestoneNodes(page, /Progress for the 300 lead request/);
-    await expect(nodes.nth(1)).toContainText("Stopped");
-    await expect(nodes.nth(2)).toContainText("Not reached");
-    await expect(nodes.nth(3)).toContainText("Not reached");
+    const line = statusLine(page, /Progress for the 300 lead request/);
+    await expect(line).toContainText("Not Approved");
+    await expect(line).toContainText("This request was not approved");
+    await expect(line.locator(".jx-statusline__spinner")).toHaveCount(0);
+    await expect(line.locator(".jx-statusline__witness--danger")).toHaveCount(1);
+  });
+
+  test("stamps a delivered request with its timestamp", async ({ page }) => {
+    await openRequestDetail(page, DELIVERED_REQUEST.id, {
+      workspace: {
+        ...BATCH_REQUEST_WORKSPACE,
+        requests: [DELIVERED_REQUEST],
+      },
+    });
+
+    const line = statusLine(page, /Progress for the 750 lead request/);
+    await expect(line).toContainText("Delivered");
+    await expect(line).toContainText("· 2026-07-27 16:00 UTC");
+    await expect(line.locator(".jx-statusline__witness--ink")).toHaveCount(1);
   });
 });
 
-test.describe("The milestone graph with motion suppressed", () => {
-  test("says exactly the same thing", async ({ page }) => {
+test.describe("The status line with motion suppressed", () => {
+  test("says exactly the same thing and does not spin", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await openRequestDetail(page);
+    await openRequests(page, { workspace: EMPTY_BATCH_REQUEST_WORKSPACE });
+    await completeGuidedFlow(page);
+    await expect(
+      page.getByRole("heading", { name: "Request submitted" }),
+    ).toBeVisible();
 
-    const nodes = milestoneNodes(page, /Progress for the 750 lead request/);
-    await expect(nodes.nth(0)).toContainText("Completed");
-    await expect(nodes.nth(2)).toContainText("Paused");
-    await expect(nodes.nth(2)).toHaveAttribute("aria-current", "step");
-    await expect(nodes.nth(3)).toContainText("Not started");
-    await expect(page.getByText("Waiting for Inventory").first()).toBeVisible();
+    const line = statusLine(page, /Progress for the request you just submitted/);
+    await expect(line).toContainText("Submitted");
+    const spinner = line.locator(".jx-statusline__spinner");
+    await expect(spinner).toHaveCount(1);
+    await expect(spinner).not.toHaveCSS("animation-name", "jx-statusline-spin");
   });
 });
 
@@ -304,8 +327,9 @@ test.describe("Pending cancellation", () => {
       page.getByText("This request was withdrawn", { exact: false }),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "Cancel request" })).toHaveCount(0);
-    const nodes = milestoneNodes(page, /Progress for the 750 lead request/);
-    await expect(nodes.nth(2)).toContainText("Stopped");
+    const line = statusLine(page, /Progress for the 750 lead request/);
+    await expect(line).toContainText("Canceled");
+    await expect(line).toContainText("This request was withdrawn");
     expect(state.cancellations).toEqual([
       "11111111-1111-4111-8111-111111111111",
     ]);
@@ -322,7 +346,7 @@ test.describe("Batch Request detail deep links", () => {
       page.getByRole("heading", { name: "750 lead Batch Request" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("list", { name: /Progress for the 750 lead request/ }),
+      page.getByRole("status", { name: /Progress for the 750 lead request/ }),
     ).toBeVisible();
     await expect(
       page.getByRole("link", { name: "All Requests" }),
@@ -391,16 +415,23 @@ test.describe("Batch Request detail deep links", () => {
     });
 
     const card = page.getByRole("region", { name: "Batch Artifact" });
-    await expect(card.getByText("Expired — contact us")).toBeVisible();
+    await expect(card.getByText("Expired", { exact: true })).toBeVisible();
+    await expect(
+      card.getByText(/Email noah@jawnix\.com and I'll regenerate/),
+    ).toBeVisible();
     await expect(card.getByText(/retained for 30 days/)).toBeVisible();
     await expect(card.getByRole("link", { name: /Download/ })).toHaveCount(0);
   });
 
-  test("matches the Match visual baseline", async ({ page }) => {
+  test("matches the visual baseline", async ({ page }) => {
     await openRequestDetail(page);
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
 
     await expect(page).toHaveScreenshot("customer-request-detail.png", {
+      // Variable-font rasterization (interpolated weights/widths) shifts
+      // sub-pixel anti-aliasing by up to ~2% between CI runs; structural
+      // regressions produce far larger diffs, so 3% still guards the layout.
+      maxDiffPixelRatio: 0.03,
       animations: "disabled",
       fullPage: true,
     });

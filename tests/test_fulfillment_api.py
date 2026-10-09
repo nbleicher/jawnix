@@ -231,7 +231,7 @@ class TestRequestDetail:
         assert body["milestones"]["current_key"] == "submitted"
         assert [m["key"] for m in body["milestones"]["milestones"]] == [
             "submitted",
-            "under_review",
+            "approved",
             "preparing_batch",
             "delivered",
         ]

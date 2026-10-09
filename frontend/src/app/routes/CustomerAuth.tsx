@@ -26,9 +26,9 @@ import { useDocumentTitle } from "../shell/useDocumentTitle";
 import "./CustomerAuth.css";
 
 const SIGN_IN_ERROR =
-  "We could not sign you in. Check your details or ask your administrator for help.";
+  "We could not sign you in. Check your details, or email noah@jawnix.com — Noah answers it.";
 const INVITATION_ERROR =
-  "This invitation cannot be used. Ask your administrator for a new invitation, or sign in if you already set your password.";
+  "This invitation cannot be used. Email noah@jawnix.com and I'll send a replacement, or sign in if you already set your password.";
 
 function AuthRouteFrame({ children }: { children: ReactNode }) {
   return (
@@ -166,7 +166,7 @@ function InvitationRecovery({ focus = false }: { focus?: boolean }) {
             </Link>
           }
         >
-          <p>Your administrator can send a replacement without needing your password.</p>
+          <p>A replacement goes to the same address the invitation left from. I never see your password.</p>
         </AuthPanel>
       </div>
     </AuthRouteFrame>

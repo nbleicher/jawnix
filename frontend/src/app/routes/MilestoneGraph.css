@@ -1,116 +1,86 @@
-/* The Batch Request milestone graph.
-   Nothing here animates. Each node's state is spelled out in text beside it and
-   reinforced by a distinct mark and border, so the graph reads the same with
-   motion suppressed, with colour ignored, and read aloud. */
+/* The Batch Request status line.
+   One line, one witness: a spinning hairline ring while the request moves,
+   a hollow vermilion ring while it waits, a square stamp once it settles.
+   The line spells its state in text, so it reads the same with colour
+   ignored, motion collapsed, or read aloud. */
 
-.jx-milestones {
-  /* Direction follows the space this graph actually has, not the viewport, so
-     the same component reads correctly in a wide card and in a narrow one. */
-  container-type: inline-size;
-}
-
-.jx-milestones__track {
-  --jx-milestone-mark: 1.75rem;
-  --jx-milestone-gap: var(--jx-space-4);
+.jx-statusline {
   display: flex;
-  flex-direction: column;
-  gap: var(--jx-milestone-gap);
-}
-
-.jx-milestone {
-  position: relative;
-  display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
-  gap: var(--jx-space-3);
-  min-width: 0;
+  gap: var(--jx-space-1) var(--jx-space-3);
 }
 
-.jx-milestone__mark {
+/* The live indicator: a quiet hairline ring with one ink arc, rotating on
+   the spin duration. Founder-requested ambient motion, exempt from the
+   ≤320ms ceiling like the tape. */
+.jx-statusline__spinner {
   flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: var(--jx-milestone-mark);
-  height: var(--jx-milestone-mark);
-  border: 2px solid var(--jx-color-border-strong);
-  border-radius: var(--jx-radius-pill);
-  background: var(--jx-color-surface);
-  color: var(--jx-color-text-muted);
+  /* Sits on the first line of the statement rather than drifting to the
+     middle of a wrapped one. */
+  margin-block-start: 0.125rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: var(--jx-rule) solid var(--jx-line-strong);
+  border-block-start-color: var(--jx-ink);
+  animation: jx-statusline-spin var(--jx-duration-spin) linear infinite;
+}
+
+@keyframes jx-statusline-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Paused is the live ring held: the same hairline circle, vermilion, no
+   spin. */
+.jx-statusline__ring {
+  flex: 0 0 auto;
+  margin-block-start: 0.125rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: var(--jx-rule) solid var(--jx-line-strong);
+}
+
+.jx-statusline__ring--paused {
+  border-color: var(--jx-vermilion);
+}
+
+/* Settled requests carry the square stamp — the radius ban still applies
+   once nothing is moving. */
+.jx-statusline__witness {
+  flex: 0 0 auto;
+  margin-block-start: 0.375rem;
+  width: 0.5rem;
+  height: 0.5rem;
+}
+
+.jx-statusline__witness--ink {
+  background: var(--jx-ink);
+}
+
+.jx-statusline__witness--danger {
+  background: var(--jx-danger);
+}
+
+.jx-statusline__witness--neutral {
+  background: var(--jx-neutral);
+}
+
+/* The delivered timestamp trails the line in muted mono. */
+.jx-statusline__when {
+  color: var(--jx-ink-muted);
   font-size: var(--jx-text-xs);
-  line-height: 1;
+  font-feature-settings: var(--jx-font-features-numeral);
 }
 
-.jx-milestone__body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--jx-space-1);
-  min-width: 0;
-  /* Centre the label against the mark in the stacked layout. */
-  padding-block-start: calc((var(--jx-milestone-mark) - 1.25rem) / 2);
-}
-
-/* The connector runs between marks. It is decorative: a completed segment is
-   also stated as "Completed" on the node it leaves. */
-.jx-milestone:not(:last-child)::after {
-  content: "";
-  position: absolute;
-  inset-inline-start: calc(var(--jx-milestone-mark) / 2 - 1px);
-  inset-block-start: var(--jx-milestone-mark);
-  width: 2px;
-  height: calc(100% - var(--jx-milestone-mark) + var(--jx-milestone-gap));
-  background: var(--jx-color-border);
-}
-
-.jx-milestone--complete:not(:last-child)::after {
-  background: var(--jx-color-accent);
-}
-
-.jx-milestone--complete .jx-milestone__mark {
-  border-color: var(--jx-color-accent);
-  background: var(--jx-color-accent);
-  color: var(--jx-color-accent-contrast);
-}
-
-.jx-milestone--current .jx-milestone__mark {
-  border-color: var(--jx-color-accent);
-  background: var(--jx-color-accent-soft);
-  color: var(--jx-color-accent-strong);
-}
-
-.jx-milestone--paused .jx-milestone__mark {
-  border-color: var(--jx-color-warning);
-  background: var(--jx-color-warning-soft);
-  color: var(--jx-color-text-strong);
-}
-
-.jx-milestone--stopped .jx-milestone__mark {
-  border-color: var(--jx-color-danger);
-  background: var(--jx-color-danger-soft);
-  color: var(--jx-color-text-strong);
-}
-
-.jx-milestone--not_reached .jx-milestone__mark {
-  border-style: dashed;
-}
-
-@container (min-width: 40rem) {
-  .jx-milestones__track {
-    flex-direction: row;
-  }
-
-  .jx-milestone {
-    flex: 1 1 0;
-    flex-direction: column;
-    gap: var(--jx-space-2);
-  }
-
-  .jx-milestone__body {
-    padding-block-start: 0;
-  }
-
-  .jx-milestone:not(:last-child)::after {
-    inset-inline-start: calc(var(--jx-milestone-mark) + var(--jx-space-2));
-    inset-block-start: calc(var(--jx-milestone-mark) / 2 - 1px);
-    width: calc(100% - var(--jx-milestone-mark) - var(--jx-space-2));
-    height: 2px;
+/* Reduced motion: the spin stops and the ring closes to a plain hollow
+   circle. The words carry the state either way. */
+@media (prefers-reduced-motion: reduce) {
+  .jx-statusline__spinner {
+    animation: none;
+    border-block-start-color: var(--jx-line-strong);
   }
 }

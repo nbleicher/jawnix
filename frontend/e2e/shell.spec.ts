@@ -37,7 +37,7 @@ test.describe("Customer shell", () => {
       name: "Support",
     });
     await expect(support).toBeVisible();
-    await expect(support).toHaveAttribute("href", "mailto:hai@jawnix.com");
+    await expect(support).toHaveAttribute("href", "mailto:noah@jawnix.com");
 
     await page
       .getByRole("navigation", { name: "Customer" })
@@ -83,14 +83,19 @@ test.describe("Customer shell", () => {
 });
 
 test.describe("Administration shell", () => {
-  test("shares the Match language and DM Sans", async ({ page }) => {
+  test("shares the scheme and the quiet register", async ({ page }) => {
     await page.goto("./admin/overview");
 
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
+    // Headings are Inter in the fresh register; Archivo survives only in the
+    // frozen wordmark.
     await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toHaveCSS(
       "font-family",
-      /DM Sans/,
+      /Inter/,
+    );
+    await expect(page.locator(".jx-lockup__wordmark")).toHaveCSS(
+      "font-family",
+      /Archivo/,
     );
   });
 
@@ -219,20 +224,20 @@ test.describe("Administration shell", () => {
     }
   });
 
-  test("the Scraper workspace and administration share Match", async ({ page }) => {
+  test("the Scraper workspace and administration share the scheme", async ({ page }) => {
     await page.goto("./admin/overview");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
 
     await page.goto("./admin/acquisition/scraper");
     await expect(page.getByRole("heading", {
       level: 1,
       name: "Verify access to Scraper Operations",
     })).toBeVisible();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
 
     const nav = page.getByRole("navigation", { name: "Administration" });
     await nav.getByRole("link", { name: "Fulfillment" }).click();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "match");
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
   });
 
   test("signs the administrator out from the shell chrome", async ({ page }) => {

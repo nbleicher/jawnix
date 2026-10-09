@@ -97,17 +97,32 @@ test.describe("Account Credit Ledger", () => {
 
     const ledger = page.getByRole("region", { name: "Credit Ledger" });
     await expect(
-      ledger.getByRole("heading", { name: "Credit Purchase" }),
+      ledger.getByText("Credit Purchase", { exact: true }),
     ).toBeVisible();
     await expect(
-      ledger.getByRole("heading", { name: "Batch Charge" }),
+      ledger.getByText("Batch Charge", { exact: true }),
     ).toBeVisible();
     await expect(
-      ledger.getByRole("heading", { name: "Adjustment" }),
+      ledger.getByText("Adjustment", { exact: true }),
     ).toBeVisible();
     await expect(ledger.getByText("Reconcile Stripe refund")).toBeVisible();
     await expect(ledger.getByText("+$100.00")).toBeVisible();
     await expect(ledger.getByText("−$3.75")).toBeVisible();
+
+    // Units live in the header ("Date (UTC)"), not repeated in every cell.
+    await expect(
+      ledger.getByRole("columnheader", { name: "Date (UTC)" }),
+    ).toBeVisible();
+
+    // The full reference is reachable without hover: the short form toggles
+    // the complete id inline.
+    const reference = ledger.getByRole("button", { name: /CP-DDDDDDDD…/ });
+    await expect(reference).toHaveAttribute("aria-expanded", "false");
+    await reference.click();
+    await expect(reference).toHaveAttribute("aria-expanded", "true");
+    await expect(
+      ledger.getByText("dddddddd-dddd-4ddd-8ddd-dddddddddddd"),
+    ).toBeVisible();
 
     await expect(
       page.getByRole("heading", { level: 2, name: "Recent purchase attempts" }),

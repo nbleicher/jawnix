@@ -47,7 +47,7 @@ export function DesignSystemRoute() {
   return (
     <Page
       title="Design system"
-      description="Every shell primitive, in both Match schemes. Scheme via the plate, not a theme picker."
+      description="Every shell primitive, in both schemes. Scheme via the J tile in the lockup."
       actions={<BrandLockup />}
     >
       {SECTIONS.map(({ title, description, Component }) => (

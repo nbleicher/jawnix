@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
 import {
@@ -11,7 +11,9 @@ import { StatusBadge } from "../../design-system/primitives/status";
 import {
   Heading,
   LabelText,
+  Mono,
   Text,
+  VisuallyHidden,
 } from "../../design-system/primitives/typography";
 import {
   useBilledWallet,
@@ -22,18 +24,48 @@ import {
   LEDGER_KIND_LABEL,
   hasProcessingPurchase,
   type CreditLedgerEntry,
+  type CreditLedgerKind,
   type CreditPurchase,
+  type CreditWallet,
 } from "./wallet";
-import { formatMilestoneTime } from "../routes/MilestoneGraph";
 
-function ledgerDescription(entry: CreditLedgerEntry): string {
+import "./CreditLedgerSection.css";
+
+/** Ledger dates are records, not prose: ISO-UTC, always ("2026-08-02 15:00"),
+ *  so a row reads identically in every locale and timezone. The unit lives in
+ *  the table header ("units in headers", ch7), not in every cell. */
+function formatLedgerTime(value: string): string {
+  return new Date(value).toISOString().slice(0, 16).replace("T", " ");
+}
+
+const LEDGER_KIND_PREFIX: Record<CreditLedgerKind, string> = {
+  purchase: "CP",
+  batch_charge: "BC",
+  admin_adjustment: "AD",
+};
+
+/** Short mono reference (CP-XXXXXXXX) with an ellipsis marking it as a
+ *  prefix; the full id is revealed by the toggle in the Reference cell. */
+function shortLedgerReference(entry: CreditLedgerEntry): string {
+  return `${LEDGER_KIND_PREFIX[entry.kind]}-${entry.id
+    .slice(0, 8)
+    .toUpperCase()}…`;
+}
+
+/** Detail line under the kind label — omitted when it would only restate
+ *  the kind ("Credit Purchase / Credit Purchase"). */
+function LedgerDescription({ entry }: { entry: CreditLedgerEntry }) {
   if (entry.kind === "admin_adjustment" && entry.reason) {
-    return entry.reason;
+    return <span className="credit-ledger__detail">{entry.reason}</span>;
   }
   if (entry.kind === "batch_charge" && entry.batchRequestId) {
-    return `Batch Request ${entry.batchRequestId.slice(0, 8)}`;
+    return (
+      <span className="credit-ledger__detail">
+        Batch Request <Mono>{entry.batchRequestId.slice(0, 8)}</Mono>
+      </span>
+    );
   }
-  return LEDGER_KIND_LABEL[entry.kind];
+  return null;
 }
 
 function PurchaseRow({ purchase }: { purchase: CreditPurchase }) {
@@ -47,9 +79,11 @@ function PurchaseRow({ purchase }: { purchase: CreditPurchase }) {
     <Card as="li" padding={4}>
       <Cluster justify="space-between" align="start">
         <Stack gap={1}>
-          <Heading level={3}>{formatCents(purchase.amountCents)}</Heading>
+          <Heading level={3}>
+            <Mono>{formatCents(purchase.amountCents)}</Mono>
+          </Heading>
           <Text size="sm" tone="muted">
-            {`Started ${formatMilestoneTime(purchase.createdAt)}`}
+            Started <Mono>{formatLedgerTime(purchase.createdAt)} UTC</Mono>
           </Text>
         </Stack>
         <StatusBadge tone={presentation.tone}>
@@ -60,25 +94,118 @@ function PurchaseRow({ purchase }: { purchase: CreditPurchase }) {
   );
 }
 
-function LedgerRow({ entry }: { entry: CreditLedgerEntry }) {
-  const credit = entry.amountCents >= 0;
+interface LedgerRow {
+  entry: CreditLedgerEntry;
+  /** Wallet balance immediately after this entry — derivable because the
+   *  ledger is append-only, newest-first, and sums to the wallet balance. */
+  balanceAfterCents: number;
+}
+
+/** Running balance per row: start at the wallet balance and walk the
+ *  append-only, newest-first ledger backwards. Reconciles by construction. */
+export function ledgerRowsWithBalance(wallet: CreditWallet): LedgerRow[] {
+  let balance = wallet.balanceCents;
+  return wallet.ledger.map((entry) => {
+    const row = { entry, balanceAfterCents: balance };
+    balance -= entry.amountCents;
+    return row;
+  });
+}
+
+/**
+ * The ledger is the hero: an append-only table of record where every row is
+ * checkable — signed amounts, mono references, and a running balance that
+ * reconciles to the wallet totals above it.
+ */
+function LedgerTable({ wallet }: { wallet: CreditWallet }) {
+  const rows = useMemo<LedgerRow[]>(
+    () => ledgerRowsWithBalance(wallet),
+    [wallet],
+  );
+  /** Entry id whose full reference is currently revealed inline. */
+  const [expandedRef, setExpandedRef] = useState<string | null>(null);
+
   return (
-    <Card as="li" padding={4}>
-      <Cluster justify="space-between" align="start">
-        <Stack gap={1}>
-          <Heading level={3}>{LEDGER_KIND_LABEL[entry.kind]}</Heading>
-          <Text size="sm" tone="muted">
-            {ledgerDescription(entry)}
-          </Text>
-          <Text size="sm" tone="muted">
-            {formatMilestoneTime(entry.createdAt)}
-          </Text>
-        </Stack>
-        <Text weight="semibold" tone={credit ? "success" : "danger"}>
-          {`${credit ? "+" : "−"}${formatCents(Math.abs(entry.amountCents))}`}
-        </Text>
-      </Cluster>
-    </Card>
+    <div
+      className="credit-ledger-tablewrap"
+      tabIndex={0}
+      role="region"
+      aria-label="Credit Ledger table"
+    >
+      <table className="credit-ledger">
+        <thead>
+          <tr>
+            <th scope="col">Date (UTC)</th>
+            <th scope="col">Entry</th>
+            <th scope="col">Reference</th>
+            <th scope="col" className="credit-ledger__num">Amount</th>
+            <th scope="col" className="credit-ledger__num">Balance after</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ entry, balanceAfterCents }) => {
+            const credit = entry.amountCents >= 0;
+            const refExpanded = expandedRef === entry.id;
+            const fullRefId = `credit-ledger-ref-${entry.id}`;
+            return (
+              <tr key={entry.id}>
+                <td className="credit-ledger__data">
+                  {formatLedgerTime(entry.createdAt)}
+                </td>
+                <td>
+                  <span className="credit-ledger__kind">
+                    {LEDGER_KIND_LABEL[entry.kind]}
+                  </span>
+                  <LedgerDescription entry={entry} />
+                  {refExpanded ? (
+                    <span
+                      className="credit-ledger__fullref"
+                      id={fullRefId}
+                    >
+                      <Mono>{entry.id}</Mono>
+                    </span>
+                  ) : null}
+                </td>
+                <td className="credit-ledger__data">
+                  {/* The full reference must be reachable by keyboard and
+                      touch, so it lives behind an expanding toggle rather
+                      than a hover-only title attribute. The toggle sits in
+                      the Reference cell while the revealed UUID renders in
+                      the Entry cell — aria-controls bridges the two. The
+                      visible name is only the reference, so the hidden verb
+                      announces the action ("show full reference"). */}
+                  <button
+                    type="button"
+                    className="credit-ledger__ref"
+                    aria-expanded={refExpanded}
+                    aria-controls={fullRefId}
+                    onClick={() =>
+                      setExpandedRef(refExpanded ? null : entry.id)
+                    }
+                  >
+                    <Mono>{shortLedgerReference(entry)}</Mono>
+                    <VisuallyHidden>
+                      {refExpanded
+                        ? " — hide full reference"
+                        : " — show full reference"}
+                    </VisuallyHidden>
+                  </button>
+                </td>
+                <td className="credit-ledger__num">
+                  {/* Ink, never pigment: the +/− sign carries direction. */}
+                  <span className="credit-ledger__amount">
+                    {`${credit ? "+" : "−"}${formatCents(Math.abs(entry.amountCents))}`}
+                  </span>
+                </td>
+                <td className="credit-ledger__num">
+                  {formatCents(balanceAfterCents)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -86,12 +213,10 @@ function PurchaseReturnNotice({
   outcome,
   processing,
   failed,
-  onClear,
 }: {
   outcome: "success" | "cancelled" | null;
   processing: boolean;
   failed: boolean;
-  onClear: () => void;
 }) {
   const { refresh } = useCreditWallet();
   const [params, setParams] = useSearchParams();
@@ -108,22 +233,10 @@ function PurchaseReturnNotice({
     if (outcome === "success") void refresh();
   }, [outcome, refresh]);
 
-  useEffect(() => {
-    if (outcome === "cancelled") {
-      const timer = window.setTimeout(onClear, 8_000);
-      return () => window.clearTimeout(timer);
-    }
-    if (outcome === "success" && !processing) {
-      const timer = window.setTimeout(onClear, 8_000);
-      return () => window.clearTimeout(timer);
-    }
-    return undefined;
-  }, [outcome, processing, onClear]);
-
   if (outcome === "cancelled") {
     return (
       <div
-        className="licensed-state-page__message licensed-state-page__message--error"
+        className="credit-ledger-notice credit-ledger-notice--neutral"
         role="status"
       >
         Credit Purchase cancelled. Your Credit Wallet was not charged.
@@ -132,9 +245,10 @@ function PurchaseReturnNotice({
   }
 
   if (outcome === "success") {
+    const tone = processing ? "info" : failed ? "danger" : "success";
     return (
       <div
-        className="licensed-state-page__message licensed-state-page__message--success"
+        className={`credit-ledger-notice credit-ledger-notice--${tone}`}
         role="status"
       >
         {processing
@@ -177,11 +291,12 @@ export function CreditLedgerSection() {
 
   return (
     <>
+      {/* Money events do not vanish: the notice persists until the page is
+          left, never on a timer. */}
       <PurchaseReturnNotice
         outcome={outcome}
         processing={processing}
         failed={latestPurchaseFailed}
-        onClear={() => setOutcome(null)}
       />
 
       <Section
@@ -189,7 +304,7 @@ export function CreditLedgerSection() {
         description="Prepaid balance for Batch Requests. Purchases credit the wallet after Stripe confirms payment."
       >
         <Card>
-          <dl className="customer-account__identity">
+          <dl className="credit-wallet-facts">
             <div>
               <dt>
                 <LabelText>Available balance</LabelText>
@@ -240,11 +355,7 @@ export function CreditLedgerSection() {
         description="Every Credit Purchase, Batch Charge, and adjustment that makes up the Credit Wallet."
       >
         {wallet.ledger.length ? (
-          <Stack as="ul" gap={3}>
-            {wallet.ledger.map((entry) => (
-              <LedgerRow key={entry.id} entry={entry} />
-            ))}
-          </Stack>
+          <LedgerTable wallet={wallet} />
         ) : (
           <Card padding={4}>
             <Text tone="muted">

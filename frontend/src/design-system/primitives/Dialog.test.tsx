@@ -142,6 +142,39 @@ describe("ConfirmDialog", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  it("lands default focus on the safe action, keeping destruction one tab away", () => {
+    render(
+      <ConfirmDialog
+        open
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+        title="Cancel Batch Request"
+        consequence="Cancelling is permanent."
+        confirmLabel="Cancel request"
+        cancelLabel="Keep request"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Keep request" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Cancel request" })).not.toHaveFocus();
+  });
+
+  it("focuses the forward action when the confirm is not destructive", () => {
+    render(
+      <ConfirmDialog
+        open
+        destructive={false}
+        onClose={vi.fn()}
+        onConfirm={vi.fn()}
+        title="Buy credits"
+        consequence="Nothing is charged until payment is confirmed."
+        confirmLabel="Continue to Stripe"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Continue to Stripe" })).toHaveFocus();
+  });
+
   it("does not dismiss on backdrop click, so a destructive prompt is deliberate", async () => {
     const onClose = vi.fn();
     render(

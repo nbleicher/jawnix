@@ -2,25 +2,28 @@
   padding: 0;
   border: 0;
   background: transparent;
-  max-width: min(34rem, calc(100vw - 2 * var(--jx-space-4)));
+  max-width: min(30rem, calc(100vw - 2 * var(--jx-space-4)));
   width: 100%;
   max-height: calc(100dvh - 2 * var(--jx-space-4));
-  color: var(--jx-color-text);
+  color: var(--jx-ink);
 }
 
 .jx-dialog::backdrop {
-  background: var(--jx-color-overlay);
+  background: var(--jx-overlay);
 }
 
+/* Paper on a structural rule, with the 2px ink joint across the top —
+   layers separate by rules, never shadows or radius. */
 .jx-dialog__panel {
   display: flex;
   flex-direction: column;
-  gap: var(--jx-space-4);
-  background: var(--jx-color-surface);
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-lg);
-  box-shadow: var(--jx-shadow-lg);
-  padding: var(--jx-space-5);
+  gap: var(--jx-space-3);
+  background: var(--jx-paper);
+  border: var(--jx-rule) solid var(--jx-line-strong);
+  border-top: var(--jx-rule-heavy) solid var(--jx-ink);
+  border-radius: var(--jx-radius-none);
+  box-shadow: var(--jx-shadow-none);
+  padding: var(--jx-space-4);
   max-height: inherit;
   overflow-y: auto;
 }
@@ -33,10 +36,10 @@
 }
 
 .jx-dialog__title {
-  font-size: var(--jx-text-xl);
-  font-weight: var(--jx-weight-bold);
-  line-height: var(--jx-leading-tight);
-  color: var(--jx-color-text-strong);
+  font-size: var(--jx-text-lg);
+  font-weight: var(--jx-weight-medium);
+  line-height: var(--jx-leading-heading);
+  color: var(--jx-ink);
   text-wrap: balance;
 }
 
@@ -49,9 +52,9 @@
   min-height: var(--jx-touch-target);
   margin: calc(-1 * var(--jx-space-2)) calc(-1 * var(--jx-space-2)) 0 0;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--jx-radius-md);
-  color: var(--jx-color-text-muted);
+  border: var(--jx-rule) solid transparent;
+  border-radius: var(--jx-radius-none);
+  color: var(--jx-ink-muted);
   font-size: var(--jx-text-xl);
   line-height: 1;
   cursor: pointer;
@@ -59,12 +62,11 @@
 }
 
 .jx-dialog__close:hover {
-  background: var(--jx-color-surface-strong);
-  color: var(--jx-color-text);
+  color: var(--jx-ink);
 }
 
 .jx-dialog__description {
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
   font-size: var(--jx-text-sm);
   max-width: 65ch;
 }
@@ -91,6 +93,7 @@
   .jx-dialog__footer {
     flex-direction: row;
     justify-content: flex-end;
+    gap: var(--jx-space-3);
   }
 
   .jx-dialog__footer > * {

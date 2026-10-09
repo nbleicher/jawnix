@@ -33,7 +33,7 @@ const SCRAPER_DESTINATIONS: TerminalDestination[] = [
 ];
 
 /**
- * Operational frame for acquisition screens. Same Match colors, mono body.
+ * Operational frame for acquisition screens. Same colors, mono body.
  * The application lockup stays in the shell — this frame is not a second brand.
  *
  * The rail only links to working destinations, so an outage or an early

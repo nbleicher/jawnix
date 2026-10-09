@@ -1,23 +1,28 @@
 .jx-heading {
-  color: var(--jx-color-text-strong);
-  font-weight: var(--jx-weight-semibold);
-  line-height: var(--jx-leading-tight);
+  color: var(--jx-ink);
+  font-weight: var(--jx-weight-medium);
+  line-height: var(--jx-leading-heading);
   text-wrap: balance;
 }
 
+/* Quiet headings: Inter 400/500 at a modest scale. */
 .jx-heading--sm {
   font-size: var(--jx-text-md);
 }
 .jx-heading--md {
   font-size: var(--jx-text-lg);
 }
+
 .jx-heading--lg {
   font-size: var(--jx-text-xl);
+  font-weight: var(--jx-weight-medium);
+  letter-spacing: var(--jx-tracking-tight);
+  line-height: var(--jx-leading-heading);
 }
 
 .jx-text {
-  line-height: var(--jx-leading-normal);
-  max-width: 75ch;
+  line-height: var(--jx-leading-body);
+  max-width: 68ch;
 }
 
 .jx-text--xs {
@@ -34,23 +39,23 @@
 }
 
 .jx-text--default {
-  color: var(--jx-color-text);
+  color: var(--jx-ink);
 }
 .jx-text--muted {
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
 }
 .jx-text--success {
-  color: var(--jx-color-success);
+  color: var(--jx-success);
 }
 .jx-text--warning {
-  color: var(--jx-color-warning);
+  color: var(--jx-warning);
 }
 .jx-text--danger {
-  color: var(--jx-color-danger);
+  color: var(--jx-danger);
 }
 
 .jx-text--normal {
-  font-weight: var(--jx-weight-normal);
+  font-weight: var(--jx-weight-regular);
 }
 .jx-text--medium {
   font-weight: var(--jx-weight-medium);
@@ -62,10 +67,12 @@
   font-weight: var(--jx-weight-bold);
 }
 
+/* Labels are system metadata: uppercase mono on the label tracking. */
 .jx-label-text {
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
   font-size: var(--jx-text-xs);
-  font-weight: var(--jx-weight-bold);
+  font-weight: var(--jx-weight-medium);
   letter-spacing: var(--jx-tracking-label);
   text-transform: uppercase;
 }
@@ -73,14 +80,15 @@
 .jx-mono {
   font-family: var(--jx-font-mono);
   font-size: 0.95em;
-  font-variant-numeric: tabular-nums;
+  font-feature-settings: var(--jx-font-features-numeral);
   word-break: break-word;
 }
 
+/* Figures are mono with tabular numerals — every figure, ID, reference,
+   and timestamp. */
 .jx-numeral {
-  font-family: var(--jx-font-display);
-  font-optical-sizing: auto;
-  font-variant-numeric: tabular-nums lining-nums;
+  font-family: var(--jx-font-mono);
+  font-feature-settings: var(--jx-font-features-numeral);
 }
 
 .jx-visually-hidden {

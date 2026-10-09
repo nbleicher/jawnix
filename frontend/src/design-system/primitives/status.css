@@ -1,42 +1,40 @@
+/* Status: a small square witness + a mono caps label. No fill washes, no
+   chip boxes — the label always spells the state, never color alone
+   (1.4.1). */
 .jx-status {
   display: inline-flex;
   align-items: center;
   gap: var(--jx-space-2);
-  padding: var(--jx-space-1) var(--jx-space-3);
-  border-radius: var(--jx-radius-pill);
-  border: 1px solid currentColor;
+  padding: var(--jx-space-1) 0;
+  border-radius: var(--jx-radius-none);
+  font-family: var(--jx-font-mono);
   font-size: var(--jx-text-xs);
-  font-weight: var(--jx-weight-semibold);
+  font-weight: var(--jx-weight-medium);
   letter-spacing: var(--jx-tracking-label);
   text-transform: uppercase;
   white-space: nowrap;
 }
 
+/* The witness dot is square — the radius ban has no exceptions. */
 .jx-status__dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
+  width: 7px;
+  height: 7px;
   background: currentColor;
   flex: none;
 }
 
 .jx-status--neutral {
-  color: var(--jx-color-neutral);
-  background: var(--jx-color-neutral-soft);
+  color: var(--jx-neutral-ink);
 }
 .jx-status--info {
-  color: var(--jx-color-info);
-  background: var(--jx-color-info-soft);
+  color: var(--jx-accent-ink);
 }
 .jx-status--success {
-  color: var(--jx-color-success);
-  background: var(--jx-color-success-soft);
+  color: var(--jx-success-ink);
 }
 .jx-status--warning {
-  color: var(--jx-color-warning);
-  background: var(--jx-color-warning-soft);
+  color: var(--jx-warning-ink);
 }
 .jx-status--danger {
-  color: var(--jx-color-danger);
-  background: var(--jx-color-danger-soft);
+  color: var(--jx-danger-ink);
 }

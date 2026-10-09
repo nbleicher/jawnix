@@ -1,0 +1,73 @@
+/* The tape strip: a slow stock-ticker marquee above the top bar. Furniture,
+   not content — mono, muted, uppercase, on paper with a hairline joint. */
+.jx-tape {
+  overflow: hidden;
+  background: var(--jx-paper);
+  border-bottom: var(--jx-rule) solid var(--jx-line);
+  color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
+  font-feature-settings: var(--jx-font-features-numeral);
+  font-size: var(--jx-text-xs);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.jx-tape__track {
+  display: flex;
+  width: max-content;
+  animation: jx-tape-scroll var(--jx-tape-duration) linear infinite;
+}
+
+/* The loop is seamless because the block is duplicated exactly; the track
+   rewinds after translating one full block. */
+@keyframes jx-tape-scroll {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* Pause on hover/focus-within: the reader controls the tape, never the
+   other way round. */
+.jx-tape:hover .jx-tape__track,
+.jx-tape:focus-within .jx-tape__track {
+  animation-play-state: paused;
+}
+
+.jx-tape__block {
+  display: flex;
+  align-items: baseline;
+  gap: var(--jx-space-6);
+  padding: var(--jx-space-2) var(--jx-space-6) var(--jx-space-2) 0;
+}
+
+.jx-tape__entry {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--jx-space-2);
+}
+
+.jx-tape__separator {
+  color: var(--jx-line-strong);
+}
+
+.jx-tape__value {
+  color: var(--jx-ink);
+}
+
+/* Reduced motion: the marquee collapses to a static strip, showing one
+   block only — the duplicate exists solely to make the loop seamless. */
+@media (prefers-reduced-motion: reduce) {
+  .jx-tape__track {
+    animation: none;
+    width: auto;
+  }
+
+  .jx-tape__block + .jx-tape__block {
+    display: none;
+  }
+
+  .jx-tape__block {
+    padding-inline-start: var(--jx-space-4);
+  }
+}

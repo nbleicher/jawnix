@@ -101,7 +101,7 @@ def build_milestone_message(
         update = (
             "Jawnix could not finish this Batch Request. Do not submit a "
             "duplicate request; review the current timeline for the valid "
-            "next action or contact Jawnix for help."
+            "next action, or email noah@jawnix.com and I'll sort it out."
         )
     elif milestone == "canceled":
         subject = f"Batch Request canceled — {request.id}"
@@ -112,13 +112,21 @@ def build_milestone_message(
     else:
         raise ValueError(f"Unknown Batch Request email milestone: {milestone}")
 
+    reply_line = ""
+    if milestone in ("waiting_inventory", "failure"):
+        reply_line = (
+            "Questions? Reply to this email — it comes straight to me.\n\n"
+        )
     return MilestoneMessage(
         subject=subject,
         text=(
             f"{update}\n\n"
             f"{summary}\n\n"
             "Review this Batch Request after signing in:\n"
-            f"{request_url}\n"
+            f"{request_url}\n\n"
+            f"{reply_line}"
+            "— Noah\n"
+            "JAWNIX · noah@jawnix.com\n"
         ),
     )
 

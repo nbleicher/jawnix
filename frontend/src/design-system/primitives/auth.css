@@ -1,3 +1,5 @@
+/* The credential surface: a hairline box on paper. No fill, no shadow, no
+   radius. */
 .jx-auth-panel {
   display: flex;
   flex-direction: column;
@@ -5,10 +7,10 @@
   width: 100%;
   max-width: 30rem;
   padding: var(--jx-space-5);
-  background: var(--jx-color-surface);
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-lg);
-  box-shadow: var(--jx-shadow-lg);
+  background: transparent;
+  border: var(--jx-rule) solid var(--jx-line);
+  border-radius: var(--jx-radius-none);
+  box-shadow: var(--jx-shadow-none);
 }
 
 .jx-auth-panel__heading {
@@ -18,16 +20,18 @@
 }
 
 .jx-auth-panel__title {
-  color: var(--jx-color-text-strong);
+  color: var(--jx-ink);
+  font-family: var(--jx-font-text);
   font-size: var(--jx-text-2xl);
-  font-weight: var(--jx-weight-bold);
-  line-height: var(--jx-leading-tight);
+  font-weight: var(--jx-weight-regular);
+  letter-spacing: var(--jx-tracking-tight);
+  line-height: var(--jx-leading-heading);
   text-wrap: balance;
 }
 
 .jx-auth-panel__description,
 .jx-auth-panel__footer {
-  color: var(--jx-color-text-muted);
+  color: var(--jx-ink-muted);
   font-size: var(--jx-text-sm);
 }
 
@@ -37,15 +41,11 @@
 
 .jx-auth-panel__footer {
   padding-top: var(--jx-space-4);
-  border-top: 1px solid var(--jx-color-border);
+  border-top: var(--jx-rule) solid var(--jx-line);
 }
 
 @media (min-width: 36rem) {
   .jx-auth-panel {
     padding: var(--jx-space-6);
-  }
-
-  .jx-auth-panel__title {
-    font-size: var(--jx-text-3xl);
   }
 }

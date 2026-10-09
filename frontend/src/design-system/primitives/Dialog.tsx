@@ -153,6 +153,20 @@ export function ConfirmDialog({
   busy = false,
   children,
 }: ConfirmDialogProps) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+
+  // Default focus lands on the safe action: an irreversible action is never
+  // one Enter-key away. The destructive slab stays loud, one tab away. For a
+  // non-destructive confirm, forward focus is correct — nothing is lost by
+  // proceeding. Dialog's own effects run first (child-before-parent), so the
+  // modal is already open when this fires.
+  useEffect(() => {
+    if (!open) return;
+    const target = destructive ? cancelRef.current : confirmRef.current;
+    target?.focus();
+  }, [open, destructive]);
+
   return (
     <Dialog
       open={open}
@@ -162,10 +176,10 @@ export function ConfirmDialog({
       dismissOnBackdrop={false}
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} ref={cancelRef}>
             {cancelLabel}
           </Button>
-          <Button variant={destructive ? "danger" : "primary"} onClick={onConfirm} busy={busy}>
+          <Button variant={destructive ? "danger" : "primary"} onClick={onConfirm} busy={busy} ref={confirmRef}>
             {confirmLabel}
           </Button>
         </>
