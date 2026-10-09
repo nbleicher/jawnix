@@ -1,6 +1,6 @@
 /*
- * JAWNIX token layer — Studio C, "the record is the surface."
- * Concrete surfaces + four mineral pigments (state signals only). One ink.
+ * JAWNIX token layer — fresh direction, "a Nikkei stock table meets
+ * Tanaka Ikko." Paper, one ink, hairline rules, a single vermilion accent.
  *
  * Schemes: [data-scheme="light"|"dark"]  (light = paper, dark = desk)
  * Numerals are tabular always. Color means state, not mood.
@@ -10,11 +10,14 @@
 
 :root {
   /* --- Type families ---------------------------------------------------- */
-  --jx-font-text: "Archivo Variable", "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  /* Display = Archivo variable + font-stretch 125% + weight 780.
-     "Archivo Expanded" is not a loadable family; use both tokens together. */
-  --jx-font-display: "Archivo Variable", "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --jx-font-stretch-display: 125%;
+  /* Inter is the prose/UI voice (400/500; 400 is the floor). */
+  --jx-font-text: "Inter", -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  /* Headings stay in the text family — hierarchy by weight and spacing, not
+     size jumps. The token name is stable; the display cut is retired. */
+  --jx-font-display: var(--jx-font-text);
+  --jx-font-stretch-display: 100%;
+  /* The frozen wordmark is the only expanded-type survivor: Archivo 700 caps. */
+  --jx-font-wordmark: "Archivo Variable", "Archivo", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --jx-font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
   /* Legacy aliases — same families, kept for existing consumers. */
   --jx-font-sans: var(--jx-font-text);
@@ -44,13 +47,14 @@
   --jx-weight-medium: 500;
   --jx-weight-semibold: 600;
   --jx-weight-bold: 700;
-  --jx-weight-display: 780;
+  /* Quiet headings: medium, not a display cut. */
+  --jx-weight-display: 500;
   --jx-weight-normal: var(--jx-weight-regular);
 
-  --jx-tracking-label: 0.09em;
+  --jx-tracking-label: 0.14em;
   --jx-tracking-wordmark: 0.04em; /* the name, set: Archivo 700 caps, +0.04em */
   --jx-text-wordmark: 0.95rem;    /* ch9 header specimen — off the body scale */
-  --jx-tracking-tight: -0.015em;
+  --jx-tracking-tight: -0.005em;
 
   /* Numerals: tabular always. */
   --jx-font-features-numeral: "tnum" 1, "lnum" 1;
@@ -93,6 +97,13 @@
   --jx-duration-slow: 320ms;
   --jx-duration-scheme: 240ms;
   --jx-ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  /* The tape is the one ambient motion: a slow marquee, calm not Times
+     Square. Reduced-motion collapses it to a static strip. */
+  --jx-tape-duration: 96s;
+  /* The Batch Request status spinner is the second ambient motion: a
+     founder-requested live indicator, exempt from the ≤320ms ceiling.
+     Reduced-motion collapses it to a static hollow ring. */
+  --jx-duration-spin: 1s;
   /* Legacy aliases */
   --jx-motion-fast: var(--jx-duration-fast);
   --jx-motion-base: var(--jx-duration-med);
@@ -123,48 +134,58 @@
 [data-scheme="light"] {
   color-scheme: light;
 
-  /* Concrete surfaces (warm gray; never blue-gray) */
-  --jx-paper: #EFEDE8;        /* page — cast concrete in daylight */
-  --jx-plate: #F7F6F2;        /* raised surface — cards, tables, dialogs */
-  --jx-sunk: #E4E1D9;         /* recessed well — inputs, code plates */
+  /* Paper surfaces (warm white; no other fills — structure is hairlines) */
+  --jx-paper: #FCFCFA;        /* page — every background */
+  --jx-plate: #FCFCFA;        /* unified with paper: cards are ruled rows */
+  --jx-sunk: #F4F3EE;         /* recessed well — inputs, skeletons */
 
   /* Ink */
-  --jx-ink: #1B1A16;
-  --jx-ink-muted: #5B574C;    /* 6.16 on paper · 6.67 on plate — AA */
-  --jx-ink-inverse: #F7F6F2;  /* text on ink slabs (primary buttons): 16.1 AAA */
+  --jx-ink: #1C1B18;
+  --jx-ink-muted: #55534D;    /* 7.45 on paper — AA+ */
+  --jx-ink-inverse: #FCFCFA;  /* text on ink slabs (primary buttons): 17.3 AAA */
 
-  /* Rules */
-  --jx-line: #C8C4B9;         /* hairlines (decorative separators only) */
-  --jx-line-strong: #A29D8F;  /* structural */
-  /* Control boundaries — 1.4.11 non-text >= 3:1 (4.01 plate / 3.32 sunk / 3.71 paper).
+  /* Hairlines */
+  --jx-line: #E3E2DC;         /* hairlines (decorative separators only) */
+  --jx-hairline: #E3E2DC;
+  --jx-line-strong: #CFCEC6;  /* structural */
+  /* Control boundaries — 1.4.11 non-text >= 3:1 (3.44 on paper).
      Inputs, selects, textareas, checkboxes, radios, secondary buttons use this. */
-  --jx-line-control: #7E796C;
+  --jx-line-control: #8A877F;
 
-  /* Neutral status (symmetric with the four pigments) */
-  --jx-neutral: #5B574C;
-  --jx-neutral-ink: #4A453B;  /* 7.64 on neutral-soft — AAA */
-  --jx-neutral-soft: #E9E6DF;
+  /* The single accent: vermilion. One stamp per view + semantic spots only —
+     never a wash, never a link color. */
+  --jx-vermilion: #C03A2B;    /* 5.23 on paper — AA */
+  /* The hanko stamp ground. Letters knock out to the surface beneath. */
+  --jx-stamp-ground: var(--jx-vermilion);
 
-  /* Pigments — signals, never mood */
-  --jx-accent: #2639C9;       /* outremer — action / focus / info; 7.15 on paper AAA */
-  --jx-accent-ink: #1E2FA8;   /* 8.36 on accent-soft — AAA */
-  --jx-accent-soft: #E3E6F8;
-  --jx-success: #1C6B3E;      /* 5.57 on paper — AA */
-  --jx-success-ink: #14522E;  /* 7.54 on success-soft — AAA */
-  --jx-success-soft: #E0EBE3;
-  --jx-warning: #7A5300;      /* 5.86 on paper — AA */
-  --jx-warning-ink: #5F3F00;  /* 7.92 on warning-soft — AAA */
-  --jx-warning-soft: #F3E9D2;
-  --jx-danger: #A92A1F;       /* 5.91 on paper — AA */
-  --jx-danger-ink: #8A2018;   /* 7.27 on danger-soft — AAA */
-  --jx-danger-soft: #F6E1DD;
-  --jx-danger-inverse: #FFFFFF;  /* on solid danger slab: 6.91 AA */
+  /* Neutral status */
+  --jx-neutral: #55534D;
+  --jx-neutral-ink: #55534D;
+  --jx-neutral-soft: #F1F0EB;
+
+  /* Signals — quiet in this register. Info/success read in ink; warning and
+     danger are the vermilion semantic spots. The label always spells the
+     state (1.4.1); the witness square only reinforces it. */
+  --jx-accent: #1C1B18;       /* actions and links are ink, never vermilion */
+  --jx-accent-ink: #1C1B18;
+  --jx-accent-soft: #F1F0EB;
+  --jx-success: #1C1B18;
+  --jx-success-ink: #1C1B18;
+  --jx-success-soft: #F1F0EB;
+  --jx-warning: #C03A2B;      /* 5.23 on paper — AA */
+  --jx-warning-ink: #C03A2B;
+  --jx-warning-soft: #F7EDEA;
+  --jx-danger: #C03A2B;       /* 5.23 on paper — AA */
+  --jx-danger-ink: #C03A2B;
+  --jx-danger-soft: #F7EDEA;
+  --jx-danger-inverse: #FCFCFA;  /* on solid vermilion slab: 5.44 AA */
   --jx-info: var(--jx-accent);
   --jx-info-ink: var(--jx-accent-ink);
   --jx-info-soft: var(--jx-accent-soft);
 
-  --jx-focus: var(--jx-accent);
-  --jx-overlay: rgba(27, 26, 22, 0.5);
+  /* Focus: 2px vermilion outline, 2px offset, everywhere interactive. */
+  --jx-focus: var(--jx-vermilion);
+  --jx-overlay: rgba(28, 27, 24, 0.5);
 
   /* Legacy color aliases */
   --jx-color-page: var(--jx-paper);
@@ -195,43 +216,51 @@
 }
 
 /* ============================ DARK — "DESK" ================================ */
+/* The true pair: same system, inverted. Warm ink-dark ground, paper-colored
+   ink, vermilion holds (brightened one step where it must carry text). */
 [data-scheme="dark"] {
   color-scheme: dark;
 
-  --jx-paper: #131210;
-  --jx-plate: #1B1A17;
-  --jx-sunk: #0D0C0A;
+  --jx-paper: #14130F;
+  --jx-plate: #14130F;
+  --jx-sunk: #0D0C09;
 
-  --jx-ink: #ECE9E1;          /* 15.43 on paper — AAA */
-  --jx-ink-muted: #A39E90;    /* 7.00 on paper · 6.51 on plate — AA+ */
-  --jx-ink-inverse: #171612;  /* on ink slabs: 14.92 AAA */
+  --jx-ink: #F2F0E9;          /* 15.95 on paper — AAA */
+  --jx-ink-muted: #A8A49A;    /* 7.58 on paper — AA+ */
+  --jx-ink-inverse: #14130F;  /* on ink slabs: 15.95 AAA */
 
-  --jx-line: #39372F;
-  --jx-line-strong: #57534A;
-  --jx-line-control: #75705F; /* 3.51 plate / 3.95 sunk / 3.78 paper */
+  --jx-line: #2B2924;
+  --jx-hairline: #2B2924;
+  --jx-line-strong: #403D35;
+  --jx-line-control: #7A7668; /* 4.28 on paper — 1.4.11 */
 
-  --jx-neutral: #A39E90;      /* 6.51 on plate — AA */
-  --jx-neutral-ink: #B0AB9E;  /* 6.77 on neutral-soft — AA */
-  --jx-neutral-soft: #26241F;
+  /* Vermilion holds as the stamp ground (3.50 non-text against the desk).
+     Where vermilion must carry text it brightens one step. */
+  --jx-vermilion: #C03A2B;
+  --jx-stamp-ground: var(--jx-vermilion);
 
-  --jx-accent: #9AABFF;       /* 8.60 on paper — AAA */
-  --jx-accent-ink: #B9C5FF;   /* 8.66 on accent-soft — AAA */
-  --jx-accent-soft: #232743;
-  --jx-success: #7ED6A4;
-  --jx-success-ink: #93DCB4;  /* 8.90 on success-soft — AAA */
-  --jx-success-soft: #16301F;
-  --jx-warning: #E8BC6A;
-  --jx-warning-ink: #EFC87E;  /* 8.38 on warning-soft — AAA */
-  --jx-warning-soft: #3A2E12;
-  --jx-danger: #F29A8C;
-  --jx-danger-ink: #F5AFA2;   /* 8.63 on danger-soft — AAA */
-  --jx-danger-soft: #3E1712;
-  --jx-danger-inverse: #3E1712;  /* on solid danger slab: 7.32 AA */
+  --jx-neutral: #A8A49A;
+  --jx-neutral-ink: #A8A49A;
+  --jx-neutral-soft: #23211C;
+
+  --jx-accent: #F2F0E9;
+  --jx-accent-ink: #F2F0E9;
+  --jx-accent-soft: #23211C;
+  --jx-success: #F2F0E9;
+  --jx-success-ink: #F2F0E9;
+  --jx-success-soft: #23211C;
+  --jx-warning: #D96653;      /* 5.31 on paper — AA */
+  --jx-warning-ink: #D96653;
+  --jx-warning-soft: #2A1512;
+  --jx-danger: #D96653;       /* 5.31 on paper — AA */
+  --jx-danger-ink: #D96653;
+  --jx-danger-soft: #2A1512;
+  --jx-danger-inverse: #14130F;  /* on solid vermilion slab: 5.31 AA */
   --jx-info: var(--jx-accent);
   --jx-info-ink: var(--jx-accent-ink);
   --jx-info-soft: var(--jx-accent-soft);
 
-  --jx-focus: var(--jx-accent);
+  --jx-focus: #D96653;
   --jx-overlay: rgba(0, 0, 0, 0.6);
 }
 

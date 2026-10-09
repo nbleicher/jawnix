@@ -33,8 +33,8 @@ _REQUEST_STATUS: dict[str, CustomerOverviewStatus] = {
         tone="info",
     ),
     RequestStatus.approved.value: CustomerOverviewStatus(
-        label="Under Review",
-        description="Your request has been approved and is being prepared.",
+        label="Approved",
+        description="Your request was approved and is being prepared.",
         tone="info",
     ),
     RequestStatus.processing.value: CustomerOverviewStatus(
@@ -90,7 +90,7 @@ def customer_request_status(status: str) -> CustomerOverviewStatus:
     return _REQUEST_STATUS.get(
         status,
         CustomerOverviewStatus(
-            label="Under Review",
+            label="Submitted",
             description="We are reviewing your request. There is nothing you need to do.",
             tone="info",
         ),

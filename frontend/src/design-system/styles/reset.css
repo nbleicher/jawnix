@@ -37,14 +37,14 @@ body {
 }
 
 ::selection {
-  background: var(--jx-ink);
+  background: var(--jx-vermilion);
   color: var(--jx-paper);
 }
 
-/* Links are the one place outremer appears on text — a wayfinding signal,
-   never a wash. */
+/* Links are ink and underlined — vermilion is never a link color, and the
+   underline keeps them distinguishable without relying on color (1.4.1). */
 a {
-  color: var(--jx-accent);
+  color: var(--jx-ink);
   text-underline-offset: 0.15em;
 }
 
@@ -95,9 +95,9 @@ textarea {
   color: inherit;
 }
 
-/* One focus indicator for the whole system: 2px outremer outline, 2px offset,
+/* One focus indicator for the whole system: 2px vermilion outline, 2px offset,
    on every interactive element — never removed without a visible replacement
-   (ch12; WCAG 2.4.7, 2.4.13). Zero radius: concrete has no rounded corners. */
+   (ch12; WCAG 2.4.7, 2.4.13). Zero radius: no rounded corners anywhere. */
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,

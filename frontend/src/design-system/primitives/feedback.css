@@ -39,26 +39,28 @@
   width: 60%;
 }
 
-/* Empty and error states are quiet centered statements — no card chrome,
-   no illustration. */
+/* Empty and error states get the most space on the page — ma is the
+   feature. A quiet left-aligned statement between an ink rule and a
+   hairline; no card chrome, no illustration. */
 .jx-empty,
 .jx-error {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--jx-space-3);
-  padding: var(--jx-space-7) var(--jx-space-4);
-  text-align: center;
+  padding: var(--jx-space-9) 0;
+  text-align: left;
+  border-block-start: var(--jx-rule) solid var(--jx-ink);
+  border-block-end: var(--jx-rule) solid var(--jx-line);
 }
 
-/* The book's EmptyState/ErrorState specimens are quiet statements: semibold
-   at body scale, not a display heading. */
+/* Quiet statement: Inter at a modest scale, generous leading. */
 .jx-empty__title,
 .jx-error__title {
   font-family: var(--jx-font-text);
   font-stretch: normal;
-  font-size: var(--jx-text-md);
-  font-weight: var(--jx-weight-semibold);
+  font-size: var(--jx-text-lg);
+  font-weight: var(--jx-weight-regular);
   letter-spacing: normal;
   line-height: var(--jx-leading-heading);
   color: var(--jx-ink);

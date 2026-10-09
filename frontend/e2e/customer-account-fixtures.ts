@@ -57,7 +57,7 @@ const IMPACTS = [
   {
     request_id: "22222222-2222-4222-8222-222222222222",
     lead_count: 300,
-    status: "Under Review",
+    status: "Approved",
     current_states: ["TX"],
     resulting_states: [],
     action: "canceled",

@@ -111,17 +111,13 @@ export function isRequestSettled(request: BatchRequest): boolean {
 }
 
 /**
- * The status vocabulary maps every in-flight state to info (site inventory
- * §4: Pending/Approved/Processing/Waiting for inventory/Generated). The
- * backend has shipped warning for the Preparing Batch states, so the badge
- * tone is normalized at the badge rather than trusted; a warning on a moving
- * request reads as trouble when nothing is wrong. Settled requests keep the
- * tone they shipped.
+ * The order-ticket witness: vermilion is the stamp of the live state and only
+ * the live state (warning-ink is vermilion in this register), whatever tone
+ * the payload shipped. Settled requests keep the tone they shipped — ink for
+ * Delivered, danger for Not Approved / Needs Attention, neutral for Canceled.
  */
 export function requestStatusTone(request: BatchRequest): Tone {
-  return !isRequestSettled(request) && request.status.tone === "warning"
-    ? "info"
-    : request.status.tone;
+  return isRequestSettled(request) ? request.status.tone : "warning";
 }
 
 const MINUTE_MS = 60_000;
@@ -193,9 +189,17 @@ function Receipt({
       <Stack gap={4}>
         <div ref={headingRef} tabIndex={-1} role="status">
           <Stack gap={2}>
-            <Heading level={3} size="lg">
-              Request submitted
-            </Heading>
+            <Cluster justify="space-between" align="flex-start">
+              <Heading level={3} size="lg">
+                Request submitted
+              </Heading>
+              <StatusBadge tone={requestStatusTone(receipt.request)}>
+                {receipt.request.status.label}
+              </StatusBadge>
+            </Cluster>
+            <Mono className="request-card__ref">
+              {formatRequestRef(receipt.request.id)}
+            </Mono>
             <Text>
               {`We have your request for ${formatCount(receipt.request.lead_count)} leads in ${formatStates(receipt.request.states)}, submitted ${formatMilestoneTime(receipt.request.submitted_at)}.`}
             </Text>
@@ -840,7 +844,6 @@ function RequestDetail({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
-  const { pause, outcome } = request.milestones;
 
   async function confirmCancel() {
     if (busy) return;
@@ -862,19 +865,18 @@ function RequestDetail({
   }
 
   return (
-    <div id={`request-${request.id}`}>
+    <div id={`request-${request.id}`} className="request-ticket">
       <Stack gap={4}>
+        {/* The ticket head: the reference the Customer can type against an
+            email, and the current state as a witness badge. */}
         <Cluster justify="space-between" align="flex-start">
           <Stack gap={1}>
+            <Mono className="request-card__ref">
+              {formatRequestRef(request.id)}
+            </Mono>
             <Heading level={2}>
               {`${formatCount(request.lead_count)} lead Batch Request`}
             </Heading>
-            <Text size="sm" tone="muted">
-              {`${formatStates(request.states)} · submitted ${formatMilestoneTime(request.submitted_at)} · `}
-              <Mono className="request-card__ref">
-                {formatRequestRef(request.id)}
-              </Mono>
-            </Text>
           </Stack>
           <StatusBadge tone={requestStatusTone(request)}>
             {request.status.label}
@@ -883,37 +885,49 @@ function RequestDetail({
 
         <Text>{request.status.description}</Text>
 
+        {/* The terms of the order, frozen at submission. */}
+        <dl className="request-ticket__terms">
+          <div>
+            <dt>
+              <LabelText>Quantity</LabelText>
+            </dt>
+            <dd>{`${formatCount(request.lead_count)} leads`}</dd>
+          </div>
+          <div>
+            <dt>
+              <LabelText>Licensed States</LabelText>
+            </dt>
+            <dd>{formatStates(request.states)}</dd>
+          </div>
+          <div>
+            <dt>
+              <LabelText>Submitted</LabelText>
+            </dt>
+            <dd>
+              <Mono>{formatMilestoneTime(request.submitted_at)}</Mono>
+            </dd>
+          </div>
+          <div>
+            <dt>
+              <LabelText>Files</LabelText>
+            </dt>
+            <dd>
+              {request.rows_per_file >= request.lead_count
+                ? "One file"
+                : formatFileCountPreview(
+                    request.lead_count,
+                    request.rows_per_file,
+                  )}
+            </dd>
+          </div>
+        </dl>
+
+        {/* The event ledger. A pause and a terminal outcome are written on
+            the row where they happened, in the backend's own words. */}
         <MilestoneGraph
           graph={request.milestones}
           label={`Progress for the ${formatCount(request.lead_count)} lead request submitted ${formatMilestoneTime(request.submitted_at)}`}
         />
-
-        {pause ? (
-          <div className="request-card__note request-card__note--pause">
-            <Stack gap={1}>
-              <Text weight="semibold">{pause.label}</Text>
-              <Text size="sm">{pause.description}</Text>
-            </Stack>
-          </div>
-        ) : null}
-
-        {outcome ? (
-          <div
-            className={cx(
-              "request-card__note",
-              `request-card__note--${outcome.tone}`,
-            )}
-          >
-            <Stack gap={1}>
-              <Text weight="semibold">
-                {outcome.occurred_at
-                  ? `${outcome.label} · ${formatMilestoneTime(outcome.occurred_at)}`
-                  : outcome.label}
-              </Text>
-              <Text size="sm">{outcome.description}</Text>
-            </Stack>
-          </div>
-        ) : null}
 
         {request.delivered_at ? (
           <ArtifactCard artifact={request.artifact} />

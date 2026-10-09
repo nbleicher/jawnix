@@ -83,11 +83,17 @@ test.describe("Customer shell", () => {
 });
 
 test.describe("Administration shell", () => {
-  test("shares the Studio C scheme and Archivo", async ({ page }) => {
+  test("shares the scheme and the quiet register", async ({ page }) => {
     await page.goto("./admin/overview");
 
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
+    // Headings are Inter in the fresh register; Archivo survives only in the
+    // frozen wordmark.
     await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toHaveCSS(
+      "font-family",
+      /Inter/,
+    );
+    await expect(page.locator(".jx-lockup__wordmark")).toHaveCSS(
       "font-family",
       /Archivo/,
     );

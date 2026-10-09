@@ -18,7 +18,7 @@
   gap: var(--jx-space-3);
   padding: var(--jx-space-2) var(--jx-space-4);
   border-bottom: var(--jx-rule) solid var(--jx-line);
-  background: var(--jx-plate);
+  background: transparent;
 }
 
 .jx-terminal__identity,
@@ -73,7 +73,7 @@
 .jx-terminal__rail {
   padding: var(--jx-space-4);
   border-bottom: var(--jx-rule) solid var(--jx-line);
-  background: var(--jx-plate);
+  background: transparent;
 }
 
 .jx-terminal__rail-list {

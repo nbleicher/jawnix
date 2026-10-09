@@ -33,9 +33,9 @@ function graph(overrides: Partial<MilestoneGraphData> = {}): MilestoneGraphData 
         occurred_at: SUBMITTED,
       },
       {
-        key: "under_review",
-        label: "Under Review",
-        description: "Jawnix is checking it.",
+        key: "approved",
+        label: "Approved",
+        description: "Your request was approved — the Batch is being prepared.",
         state: "current",
         occurred_at: null,
       },
@@ -54,7 +54,7 @@ function graph(overrides: Partial<MilestoneGraphData> = {}): MilestoneGraphData 
         occurred_at: null,
       },
     ],
-    current_key: "under_review",
+    current_key: "approved",
     pause: null,
     outcome: null,
     ...overrides,
@@ -70,7 +70,7 @@ function batchRequest(overrides: Partial<BatchRequest> = {}): BatchRequest {
     submitted_at: SUBMITTED,
     delivered_at: null,
     status: {
-      label: "Under Review",
+      label: "Approved",
       description: "We are reviewing your request.",
       tone: "info",
     },
@@ -505,7 +505,7 @@ describe("the submitted request index", () => {
       screen.getByRole("link", { name: /View request for 750 leads/ }),
     ).toHaveAttribute("href", `/app/requests?request=${REQUEST_ID}`);
     expect(
-      screen.queryByRole("list", { name: /Progress for/ }),
+      screen.queryByRole("status", { name: /Progress for/ }),
     ).not.toBeInTheDocument();
   });
 
@@ -534,7 +534,7 @@ describe("a Batch Request detail page", () => {
       screen.getByRole("heading", { name: "750 lead Batch Request" }),
     ).toBeVisible();
     expect(
-      screen.getByRole("list", { name: /Progress for the 750 lead request/ }),
+      screen.getByRole("status", { name: /Progress for the 750 lead request/ }),
     ).toBeVisible();
     expect(
       screen.getByRole("link", { name: "All Requests" }),
@@ -571,13 +571,13 @@ describe("a Batch Request detail page", () => {
       screen.getByText(/nothing you need to do/, { exact: false }),
     ).toBeVisible();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    // In-flight is info, even if the payload still ships warning (site
-    // inventory §4): the badge normalizes the tone at render.
+    // In-flight is the live state: the witness badge takes the vermilion
+    // stamp (warning-ink in this register) whatever tone the payload shipped.
     expect(
       screen
         .getAllByText("Preparing Batch")
         .find((element) => element.classList.contains("jx-status")),
-    ).toHaveClass("jx-status--info");
+    ).toHaveClass("jx-status--warning");
   });
 
   it.each([
@@ -603,7 +603,7 @@ describe("a Batch Request detail page", () => {
                 current_key: null,
                 outcome: {
                   kind,
-                  milestone_key: "under_review",
+                  milestone_key: "approved",
                   label,
                   description: `Because the request was ${kind}.`,
                   tone: kind === "canceled" ? "neutral" : "danger",
@@ -616,12 +616,14 @@ describe("a Batch Request detail page", () => {
         { initialEntry: detailPath },
       );
 
-      // The outcome note headlines the label with when it happened, which is
-      // what distinguishes it from the same label inside the graph summary.
-      expect(screen.getByText(new RegExp(`^${label} · `))).toBeVisible();
-      expect(
-        screen.getByText(`Because the request was ${kind}.`),
-      ).toBeVisible();
+      // The status line carries the outcome label and its verbatim
+      // description — no spinner, no ledger.
+      const line = screen.getByRole("status", {
+        name: /Progress for the 750 lead request/,
+      });
+      expect(line).toHaveTextContent(
+        `${label} — Because the request was ${kind}.`,
+      );
       expect(screen.getByRole("link", { name: actionLabel })).toHaveAttribute(
         "href",
         href,
@@ -657,13 +659,13 @@ describe("a Batch Request detail page", () => {
           milestones: graph({
             current_key: null,
             milestones: graph().milestones.map((milestone) =>
-              milestone.key === "under_review"
+              milestone.key === "approved"
                 ? { ...milestone, state: "stopped" as const }
                 : milestone,
             ),
             outcome: {
               kind: "canceled",
-              milestone_key: "under_review",
+              milestone_key: "approved",
               label: "Canceled",
               description: "You withdrew this request.",
               tone: "neutral",
@@ -690,10 +692,10 @@ describe("a Batch Request detail page", () => {
     expect(
       screen.queryByRole("button", { name: "Cancel request" }),
     ).not.toBeInTheDocument();
-    const nodes = within(
-      screen.getByRole("list", { name: /Progress for the 750 lead request/ }),
-    ).getAllByRole("listitem");
-    expect(nodes[1]).toHaveTextContent("Stopped");
+    const line = screen.getByRole("status", {
+      name: /Progress for the 750 lead request/,
+    });
+    expect(line).toHaveTextContent("Canceled — You withdrew this request.");
   });
 
   it("never renders internal fulfillment vocabulary", () => {

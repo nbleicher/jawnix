@@ -1,14 +1,23 @@
 import { useTheme } from "../design-system/theme/ThemeProvider";
 import "./BrandLockup.css";
 
+/** Block-letter JX geometry on a 16×16 grid: the J stem and foot at x2–7,
+ *  the X at x9–15. Combined with the square as evenodd subpaths, the letters
+ *  knock out of the vermilion ground and show the surface beneath — paper in
+ *  the light scheme, the warm desk in the dark scheme. */
+const JX_STAMP_PATH =
+  "M0 0H16V16H0Z " +
+  "M2 11h3V3h2v10H2Z " +
+  "M9 3h2l1 2.6 1-2.6h2l-2.1 5 2.1 5h-2l-1-2.6-1 2.6h-2l2.1-5Z";
+
 /**
- * The wordmark-only lockup: the J tile (scheme control) + JAWNIX.
+ * The wordmark-only lockup: the JX stamp (scheme control) + JAWNIX.
  * Nothing else belongs in the brand row — no audience, no Support.
  *
- * With no mark, the scheme toggle takes the J tile as its vehicle: the tile
- * is the scheme indicator — ink tile on paper in the light scheme, paper tile
- * on the desk in the dark scheme. The same currentColor geometry flips itself;
- * the aria-labels announce the action.
+ * The vermilion hanko is the scheme toggle's vehicle and the one accent mark
+ * allowed per view: a vermilion square with the JX letters knocked out to the
+ * ground beneath. The aria-labels announce the action; the stamp itself never
+ * animates.
  */
 export function BrandLockup() {
   const { scheme, toggleScheme } = useTheme();
@@ -18,41 +27,40 @@ export function BrandLockup() {
     <div className="jx-lockup">
       <button
         type="button"
-        className="jx-lockup__tile"
+        className="jx-lockup__stamp"
         aria-pressed={scheme === "dark"}
         aria-label={`Switch to ${next}`}
         onClick={toggleScheme}
       >
-        <JTile />
+        <JxStamp />
       </button>
       <span className="jx-lockup__wordmark">JAWNIX</span>
     </div>
   );
 }
 
-/** j-tile.svg geometry: the capital J cut from the approved Archivo 700
- *  artwork on a full-bleed tile. fill="currentColor" — ink tile on paper in
- *  light; paper tile on the desk in dark. */
-function JTile() {
+/** The vermilion JX square: letters knocked out of the stamp ground
+ *  (fill-rule evenodd), rotated −3° by the CSS like a hanko impression. */
+function JxStamp() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path
-        fill="currentColor"
+        fill="var(--jx-stamp-ground)"
         fillRule="evenodd"
-        d="M0 0H16V16H0Z M8.010096980238668 13.001812741170356Q6.881483510318308 13.001812741170356 6.082800874164436 12.66316665437402Q5.284118238010564 12.324520567577686 4.864545176173427 11.653141098487165Q4.44497211433629 10.981761629396646 4.44497211433629 9.957105494323418V9.503302365186666H6.534755736966271V9.95399271669459Q6.534755736966271 10.60762882896991 6.898921881341127 10.931644336579874Q7.263088025715983 11.255659844189838 7.9883075368368655 11.255659844189838Q8.691117146353681 11.255659844189838 9.04968081532752 10.791582451554449Q9.40824448430136 10.32750505891906 9.40824448430136 9.449769930603061V3.0018127411703546H11.564016895339014V9.45288270823189Q11.564016895339014 10.645613105335626 11.144443833501878 11.434644557847502Q10.72487077166474 12.22367601035938 9.931790610911886 12.61274437576487Q9.13871045015903 13.001812741170356 8.010096980238668 13.001812741170356Z"
+        d={JX_STAMP_PATH}
       />
     </svg>
   );
 }
 
-/** The J tile at rest, for the static sign-in pane. Not a control. */
+/** The JX stamp at rest, for the static sign-in pane. Not a control. */
 export function RoutingPlate({ label = "JAWNIX" }: { label?: string }) {
   return (
     <svg className="jx-routing-plate" viewBox="0 0 16 16" role="img" aria-label={label}>
       <path
-        fill="currentColor"
+        fill="var(--jx-stamp-ground)"
         fillRule="evenodd"
-        d="M0 0H16V16H0Z M8.010096980238668 13.001812741170356Q6.881483510318308 13.001812741170356 6.082800874164436 12.66316665437402Q5.284118238010564 12.324520567577686 4.864545176173427 11.653141098487165Q4.44497211433629 10.981761629396646 4.44497211433629 9.957105494323418V9.503302365186666H6.534755736966271V9.95399271669459Q6.534755736966271 10.60762882896991 6.898921881341127 10.931644336579874Q7.263088025715983 11.255659844189838 7.9883075368368655 11.255659844189838Q8.691117146353681 11.255659844189838 9.04968081532752 10.791582451554449Q9.40824448430136 10.32750505891906 9.40824448430136 9.449769930603061V3.0018127411703546H11.564016895339014V9.45288270823189Q11.564016895339014 10.645613105335626 11.144443833501878 11.434644557847502Q10.72487077166474 12.22367601035938 9.931790610911886 12.61274437576487Q9.13871045015903 13.001812741170356 8.010096980238668 13.001812741170356Z"
+        d={JX_STAMP_PATH}
       />
     </svg>
   );

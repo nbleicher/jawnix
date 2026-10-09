@@ -166,7 +166,7 @@ def _states(graph) -> dict[str, str]:
             RequestStatus.pending.value,
             {
                 "submitted": "current",
-                "under_review": "upcoming",
+                "approved": "upcoming",
                 "preparing_batch": "upcoming",
                 "delivered": "upcoming",
             },
@@ -175,7 +175,7 @@ def _states(graph) -> dict[str, str]:
             RequestStatus.approved.value,
             {
                 "submitted": "complete",
-                "under_review": "current",
+                "approved": "current",
                 "preparing_batch": "upcoming",
                 "delivered": "upcoming",
             },
@@ -184,7 +184,7 @@ def _states(graph) -> dict[str, str]:
             RequestStatus.processing.value,
             {
                 "submitted": "complete",
-                "under_review": "complete",
+                "approved": "complete",
                 "preparing_batch": "current",
                 "delivered": "upcoming",
             },
@@ -193,7 +193,7 @@ def _states(graph) -> dict[str, str]:
             RequestStatus.generated.value,
             {
                 "submitted": "complete",
-                "under_review": "complete",
+                "approved": "complete",
                 "preparing_batch": "current",
                 "delivered": "upcoming",
             },
@@ -202,7 +202,7 @@ def _states(graph) -> dict[str, str]:
             RequestStatus.waiting_inventory.value,
             {
                 "submitted": "complete",
-                "under_review": "complete",
+                "approved": "complete",
                 "preparing_batch": "paused",
                 "delivered": "upcoming",
             },
@@ -211,7 +211,7 @@ def _states(graph) -> dict[str, str]:
             RequestStatus.delivered.value,
             {
                 "submitted": "complete",
-                "under_review": "complete",
+                "approved": "complete",
                 "preparing_batch": "complete",
                 "delivered": "complete",
             },
@@ -271,7 +271,7 @@ def test_every_milestone_the_request_reached_carries_its_timestamp(session):
 
     assert stamps == {
         "submitted": SUBMITTED_AT,
-        "under_review": approved,
+        "approved": approved,
         "preparing_batch": processed,
         "delivered": delivered,
     }
@@ -339,10 +339,10 @@ def test_a_stopped_request_names_its_own_outcome(
         tone,
     )
     assert graph.outcome.occurred_at == closed
-    assert graph.outcome.milestone_key == "under_review"
+    assert graph.outcome.milestone_key == "approved"
     assert _states(graph) == {
         "submitted": "complete",
-        "under_review": "stopped",
+        "approved": "stopped",
         "preparing_batch": "not_reached",
         "delivered": "not_reached",
     }
@@ -363,7 +363,7 @@ def test_a_stopped_request_never_marks_a_later_milestone_upcoming(session):
 
     assert _states(graph) == {
         "submitted": "complete",
-        "under_review": "complete",
+        "approved": "complete",
         "preparing_batch": "stopped",
         "delivered": "not_reached",
     }

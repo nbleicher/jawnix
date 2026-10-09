@@ -31,9 +31,9 @@ export const WAITING_REQUEST = {
         occurred_at: SUBMITTED,
       },
       {
-        key: "under_review",
-        label: "Under Review",
-        description: "Jawnix is checking the quantity and states.",
+        key: "approved",
+        label: "Approved",
+        description: "Your request was approved — the Batch is being prepared.",
         state: "complete",
         occurred_at: APPROVED,
       },
@@ -90,9 +90,9 @@ export const REJECTED_REQUEST = {
         occurred_at: "2026-07-22T12:00:00Z",
       },
       {
-        key: "under_review",
-        label: "Under Review",
-        description: "Jawnix is checking the quantity and states.",
+        key: "approved",
+        label: "Approved",
+        description: "Your request was approved — the Batch is being prepared.",
         state: "stopped",
         occurred_at: null,
       },
@@ -115,7 +115,7 @@ export const REJECTED_REQUEST = {
     pause: null,
     outcome: {
       kind: "rejected",
-      milestone_key: "under_review",
+      milestone_key: "approved",
       label: "Not Approved",
       description:
         "This request was not approved, so no leads were reserved for it. "
@@ -147,6 +147,12 @@ export const DELIVERED_REQUEST = {
   milestones: {
     milestones: WAITING_REQUEST.milestones.milestones.map((milestone) => ({
       ...milestone,
+      // Delivered is a clean run: the pause that held the waiting request
+      // never happened on this ticket.
+      description:
+        milestone.key === "preparing_batch"
+          ? "We are selecting your leads and building your file."
+          : milestone.description,
       state: "complete",
       occurred_at: milestone.occurred_at ?? "2026-07-27T16:00:00Z",
     })),

@@ -6,6 +6,7 @@ import { Navigation } from "./Navigation";
 import type { ReactNode } from "react";
 import type { NavigationDestination } from "./Navigation";
 import { RouteAnnouncer } from "./RouteAnnouncer";
+import { TapeStrip } from "./TapeStrip";
 import "./AppShell.css";
 
 export interface AppShellProps {
@@ -21,6 +22,11 @@ export interface AppShellProps {
  * Owns the landmark structure (banner / navigation / main), the skip link, the
  * route-change announcement, and the global pending indicator, so no individual
  * route has to re-implement them.
+ *
+ * There is no sidebar: the tape strip rides on top, and the single top bar
+ * beneath it carries the lockup, all primary navigation horizontally, and the
+ * header actions. On narrow screens the bar wraps and the nav scrolls
+ * horizontally in its own row — no bottom bar, no hamburger.
  */
 export function AppShell({ audience, destinations, headerActions }: AppShellProps) {
   const navigation = useNavigation();
@@ -33,8 +39,11 @@ export function AppShell({ audience, destinations, headerActions }: AppShellProp
         Skip to main content
       </a>
 
+      <TapeStrip />
+
       <header className="jx-shell__banner">
         <BrandLockup />
+        <Navigation label={audience} destinations={destinations} />
         {headerActions ? (
           <div className="jx-shell__header-actions">{headerActions}</div>
         ) : null}
@@ -49,17 +58,13 @@ export function AppShell({ audience, destinations, headerActions }: AppShellProp
         aria-hidden="true"
       />
 
-      <div className="jx-shell__body">
-        <Navigation label={audience} destinations={destinations} />
-
-        <main className="jx-shell__main" id="jx-main" tabIndex={-1}>
-          <div className="jx-shell__content">
-            <ErrorBoundary>
-              <Outlet />
-            </ErrorBoundary>
-          </div>
-        </main>
-      </div>
+      <main className="jx-shell__main" id="jx-main" tabIndex={-1}>
+        <div className="jx-shell__content">
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
+        </div>
+      </main>
 
       <RouteAnnouncer />
     </div>

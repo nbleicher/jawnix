@@ -1,11 +1,11 @@
 .jx-heading {
   color: var(--jx-ink);
-  font-weight: var(--jx-weight-semibold);
+  font-weight: var(--jx-weight-medium);
   line-height: var(--jx-leading-heading);
   text-wrap: balance;
 }
 
-/* sm/md headings stay normal-width Archivo — hierarchy by specification. */
+/* Quiet headings: Inter 400/500 at a modest scale. */
 .jx-heading--sm {
   font-size: var(--jx-text-md);
 }
@@ -13,16 +13,11 @@
   font-size: var(--jx-text-lg);
 }
 
-/* lg carries the display recipe: the expanded cut comes from the wdth axis
-   via font-stretch, at the display weight. "Archivo Expanded" is never
-   referenced as a family. */
 .jx-heading--lg {
-  font-family: var(--jx-font-display);
-  font-stretch: var(--jx-font-stretch-display);
-  font-weight: var(--jx-weight-display);
   font-size: var(--jx-text-xl);
+  font-weight: var(--jx-weight-medium);
   letter-spacing: var(--jx-tracking-tight);
-  line-height: var(--jx-leading-display);
+  line-height: var(--jx-leading-heading);
 }
 
 .jx-text {
@@ -77,7 +72,7 @@
   color: var(--jx-ink-muted);
   font-family: var(--jx-font-mono);
   font-size: var(--jx-text-xs);
-  font-weight: var(--jx-weight-semibold);
+  font-weight: var(--jx-weight-medium);
   letter-spacing: var(--jx-tracking-label);
   text-transform: uppercase;
 }
@@ -89,8 +84,10 @@
   word-break: break-word;
 }
 
+/* Figures are mono with tabular numerals — every figure, ID, reference,
+   and timestamp. */
 .jx-numeral {
-  font-family: var(--jx-font-display);
+  font-family: var(--jx-font-mono);
   font-feature-settings: var(--jx-font-features-numeral);
 }
 

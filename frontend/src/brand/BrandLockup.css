@@ -5,9 +5,10 @@
   min-width: 0;
 }
 
-/* The scheme toggle: the J tile is the scheme indicator — ink tile on paper,
-   paper tile on the desk. The tile never animates. */
-.jx-lockup__tile {
+/* The scheme toggle: the vermilion JX hanko is the scheme indicator and the
+   one accent mark per view. It keeps the 44px target; the stamp itself is
+   26px, rotated −3° like an impression, and never animates. */
+.jx-lockup__stamp {
   appearance: none;
   display: inline-flex;
   align-items: center;
@@ -18,20 +19,20 @@
   background: transparent;
   border: 0;
   border-radius: var(--jx-radius-none);
-  color: var(--jx-ink);
   cursor: pointer;
   flex-shrink: 0;
 }
 
-.jx-lockup__tile svg {
-  width: 28px;
-  height: 28px;
+.jx-lockup__stamp svg {
+  width: 26px;
+  height: 26px;
   display: block;
+  transform: rotate(-3deg);
 }
 
-/* The name, set: Archivo (wdth 100), weight 700, caps, tracking frozen. */
+/* The name, set: Archivo 700 caps, +0.04em — frozen, never restyled. */
 .jx-lockup__wordmark {
-  font-family: var(--jx-font-text);
+  font-family: var(--jx-font-wordmark);
   font-stretch: 100%;
   font-weight: var(--jx-weight-bold);
   font-size: var(--jx-text-wordmark);
@@ -44,5 +45,4 @@
 .jx-routing-plate {
   width: min(12rem, 100%);
   height: auto;
-  color: var(--jx-ink);
 }

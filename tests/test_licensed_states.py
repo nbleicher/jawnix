@@ -201,7 +201,7 @@ def test_preview_names_every_affected_request_without_mutating(session, settings
             {
                 "request_id": str(narrowed.id),
                 "lead_count": 100,
-                "status": "Under Review",
+                "status": "Approved",
                 "current_states": ["FL", "TX"],
                 "resulting_states": ["FL"],
                 "action": "narrowed",

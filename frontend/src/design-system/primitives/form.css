@@ -5,16 +5,22 @@
   min-width: 0;
 }
 
+/* Labels are small mono caps — system metadata, not prose. */
 .jx-field__label {
-  color: var(--jx-ink);
-  font-size: var(--jx-text-sm);
-  font-weight: var(--jx-weight-semibold);
+  color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-medium);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
 }
 
 /* "(required)" is spelled out and muted — never an asterisk alone. */
 .jx-field__required {
   color: var(--jx-ink-muted);
   font-weight: var(--jx-weight-regular);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .jx-field__description {
@@ -23,22 +29,23 @@
   max-width: 65ch;
 }
 
-/* The error is a danger-soft plate with the joint on its leading edge —
-   the message carries the state, the pigment reinforces it. */
+/* The error keeps the vermilion joint on its leading edge — the message
+   carries the state, the pigment reinforces it. */
 .jx-field__error {
   color: var(--jx-danger-ink);
-  background: var(--jx-danger-soft);
   border-left: var(--jx-rule-heavy) solid var(--jx-danger);
   padding: var(--jx-space-2) var(--jx-space-3);
   font-size: var(--jx-text-sm);
   max-width: 65ch;
 }
 
+/* Hairline boxes on paper. Numeric and ID inputs set their figures in mono
+   via the consumer's class; the control boundary keeps the 3:1 rule. */
 .jx-input {
   width: 100%;
   min-height: var(--jx-touch-target);
   padding: 0 var(--jx-space-3);
-  background: var(--jx-sunk);
+  background: var(--jx-paper);
   color: var(--jx-ink);
   border: var(--jx-rule) solid var(--jx-line-control);
   border-radius: var(--jx-radius-none);
@@ -51,19 +58,18 @@
 }
 
 .jx-input:hover:not(:disabled) {
-  border-color: var(--jx-line-strong);
+  border-color: var(--jx-ink);
 }
 
-/* Disabled is stated, not faded: sunk well, muted ink, reason in the
+/* Disabled is stated, not faded: hairline, muted ink, reason in the
    description. */
 .jx-input:disabled {
-  background: var(--jx-sunk);
   border-color: var(--jx-line);
   color: var(--jx-ink-muted);
   cursor: not-allowed;
 }
 
-/* The 2px vermillon border reinforces the message but never carries it
+/* The 2px vermilion border reinforces the message but never carries it
    alone — the error text and aria-invalid do that. */
 .jx-input[aria-invalid="true"] {
   border-color: var(--jx-danger);
@@ -77,25 +83,24 @@
   line-height: var(--jx-leading-body);
 }
 
-/* The native file-chooser pill inside the sunk well is a control too: it
-   takes the secondary-button look (plate, control-grade rule, zero radius)
-   in both schemes instead of the browser's rounded grey. */
+/* The native file-chooser pill inside the hairline box is a control too: it
+   takes the secondary-button look (fine rule, zero radius) in both schemes
+   instead of the browser's rounded grey. */
 .jx-input::file-selector-button {
   font: inherit;
   font-size: var(--jx-text-sm);
-  font-weight: var(--jx-weight-semibold);
+  font-weight: var(--jx-weight-medium);
   min-height: calc(var(--jx-touch-target) - var(--jx-space-2));
   padding: 0 var(--jx-space-4);
   margin-inline-end: var(--jx-space-3);
   border: var(--jx-rule) solid var(--jx-line-control);
   border-radius: var(--jx-radius-none);
-  background: var(--jx-plate);
+  background: transparent;
   color: var(--jx-ink);
   cursor: pointer;
 }
 
 .jx-input::file-selector-button:hover {
-  background: var(--jx-sunk);
   border-color: var(--jx-ink);
 }
 
@@ -126,7 +131,10 @@
 
 .jx-fieldset__legend {
   padding: 0 var(--jx-space-2);
-  color: var(--jx-ink);
-  font-size: var(--jx-text-sm);
-  font-weight: var(--jx-weight-semibold);
+  color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-medium);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
 }

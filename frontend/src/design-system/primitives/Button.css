@@ -11,7 +11,7 @@
   border: var(--jx-rule) solid transparent;
   border-radius: var(--jx-radius-none);
   font-size: var(--jx-text-sm);
-  font-weight: var(--jx-weight-semibold);
+  font-weight: var(--jx-weight-medium);
   line-height: var(--jx-leading-heading);
   cursor: pointer;
   text-decoration: none;
@@ -26,10 +26,11 @@
   width: 100%;
 }
 
-/* Disabled is a sunk surface with muted ink — never an opacity fade. */
+/* Disabled is stated, not faded: muted ink on paper with a hairline, and the
+   reason lives in the accompanying copy. */
 .jx-button[aria-disabled="true"] {
-  background: var(--jx-sunk);
-  border-color: var(--jx-sunk);
+  background: transparent;
+  border-color: var(--jx-line-strong);
   color: var(--jx-ink-muted);
   cursor: not-allowed;
 }
@@ -38,7 +39,8 @@
   cursor: progress;
 }
 
-/* Primary: the ink slab — the mass move. Pigment never carries commitment. */
+/* Primary: the ink slab — the one commitment action per view. Pigment never
+   carries commitment. */
 .jx-button--primary {
   background: var(--jx-ink);
   border-color: var(--jx-ink);
@@ -48,18 +50,18 @@
   background: color-mix(in srgb, var(--jx-ink) 86%, var(--jx-paper));
 }
 
-/* Secondary: plate with a control-grade rule (>= 3:1 per WCAG 1.4.11). */
+/* Secondary: the quiet text button — a fine control-grade rule on paper
+   (>= 3:1 per WCAG 1.4.11), no fill. */
 .jx-button--secondary {
-  background: var(--jx-plate);
+  background: transparent;
   border-color: var(--jx-line-control);
   color: var(--jx-ink);
 }
 .jx-button--secondary:hover:not([aria-disabled="true"]) {
-  background: var(--jx-sunk);
   border-color: var(--jx-ink);
 }
 .jx-button--secondary[aria-disabled="true"] {
-  border-color: var(--jx-line-control);
+  border-color: var(--jx-line-strong);
 }
 
 /* Ghost: the quiet utility. */
@@ -69,22 +71,25 @@
   color: var(--jx-ink-muted);
 }
 .jx-button--ghost:hover:not([aria-disabled="true"]) {
-  background: var(--jx-sunk);
   color: var(--jx-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
 }
 .jx-button--ghost[aria-disabled="true"] {
   background: transparent;
   border-color: transparent;
 }
 
-/* Danger: the vermillon slab, destructive only. Solid in both schemes. */
+/* Danger: the vermilion semantic spot — a fine vermilion rule and vermilion
+   ink, destructive only. Vermilion is never a wash. */
 .jx-button--danger {
-  background: var(--jx-danger);
+  background: transparent;
   border-color: var(--jx-danger);
-  color: var(--jx-danger-inverse);
+  color: var(--jx-danger);
 }
 .jx-button--danger:hover:not([aria-disabled="true"]) {
-  filter: brightness(1.08);
+  background: var(--jx-danger-soft);
 }
 
 /* Busy is a state, not an animation: a static square witness next to the
@@ -96,15 +101,15 @@
   flex: none;
 }
 
-/* ActionLink — anchors with button-grade weight. The only place outremer
-   appears on an action, marking navigation rather than commitment. */
+/* ActionLink — anchors with button-grade weight. Ink, underlined on hover:
+   vermilion is never a link color. */
 .jx-action-link {
   display: inline-flex;
   align-items: center;
   min-height: var(--jx-touch-target);
-  color: var(--jx-accent);
+  color: var(--jx-ink);
   font-size: var(--jx-text-sm);
-  font-weight: var(--jx-weight-semibold);
+  font-weight: var(--jx-weight-medium);
   text-decoration: none;
 }
 

@@ -120,38 +120,26 @@
   list-style: none;
 }
 
-/* A pause and an outcome are both explanations, distinguished by their words
-   and their border rather than by colour alone. */
-.request-card__note {
-  padding: var(--jx-space-3) var(--jx-space-4);
-  border: var(--jx-rule) solid var(--jx-line-strong);
-  border-inline-start-width: var(--jx-rule-heavy);
-  border-radius: var(--jx-radius-none);
-  background: var(--jx-sunk);
+/* The order ticket's terms: one definition row per frozen fact, laid out like
+   the Review stage's arithmetic so figures stay tabular. */
+.request-ticket__terms {
+  display: grid;
+  gap: var(--jx-space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+  padding-block: var(--jx-space-3);
+  border-block: var(--jx-rule) solid var(--jx-line);
 }
 
-.request-card__note--pause {
-  border-inline-start-color: var(--jx-warning);
+.request-ticket__terms div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+  min-width: 0;
 }
 
-.request-card__note--danger {
-  border-inline-start-color: var(--jx-danger);
-}
-
-.request-card__note--neutral {
-  border-inline-start-color: var(--jx-neutral);
-}
-
-.request-card__note--warning {
-  border-inline-start-color: var(--jx-warning);
-}
-
-.request-card__note--info {
-  border-inline-start-color: var(--jx-info);
-}
-
-.request-card__note--success {
-  border-inline-start-color: var(--jx-success);
+.request-ticket__terms dd {
+  color: var(--jx-ink);
+  font-feature-settings: var(--jx-font-features-numeral);
 }
 
 /* The Batch Artifact is a card of record: plate, 1px line, no radius, no

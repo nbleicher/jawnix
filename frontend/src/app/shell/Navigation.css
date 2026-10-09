@@ -1,14 +1,9 @@
-/* Mobile first: a fixed bottom bar within thumb reach, carrying every primary
-   destination. Nothing is hidden behind an overflow menu. */
+/* One landmark, one horizontal bar. The nav lives in the top bar under the
+   tape strip on every form factor; when the row runs out of room it scrolls
+   horizontally — no bottom bar, no hamburger, nothing behind an overflow
+   menu. */
 .jx-nav {
-  position: fixed;
-  inset: auto 0 0 0;
-  z-index: var(--jx-z-nav);
-  /* Solid plate: scrolled content must never show through the bar. */
-  background: var(--jx-plate);
-  border-top: var(--jx-rule) solid var(--jx-line);
-  /* Keep clear of the iOS home indicator; the plate covers the inset too. */
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  min-width: 0;
 }
 
 .jx-nav__list {
@@ -16,38 +11,61 @@
   margin: 0;
   padding: 0;
   list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.jx-nav__list::-webkit-scrollbar {
+  display: none;
 }
 
 .jx-nav__item {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: none;
 }
 
 .jx-nav__link {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: var(--jx-space-1);
+  gap: var(--jx-space-3);
   min-height: var(--jx-touch-target);
-  padding: var(--jx-space-2) var(--jx-space-1);
+  padding: 0 var(--jx-space-3);
   color: var(--jx-ink-muted);
-  font-size: var(--jx-text-xs);
-  font-weight: var(--jx-weight-semibold);
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-medium);
   text-decoration: none;
-  text-align: center;
+  white-space: nowrap;
+}
+
+/* The witness square carries the current page alongside the ink label —
+   state is never color alone (1.4.1). */
+.jx-nav__link::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  flex: none;
+  background: transparent;
 }
 
 .jx-nav__link:hover {
   color: var(--jx-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
 }
 
-/* Current page = ink + the 2px joint rule, per the ch9 shell-header specimen.
-   The rule and the heavier label carry the state, not color alone (1.4.1). */
 .jx-nav__link--active {
   color: var(--jx-ink);
-  font-weight: var(--jx-weight-semibold);
-  box-shadow: inset 0 var(--jx-rule-heavy) 0 0 var(--jx-ink);
+}
+
+.jx-nav__link--active::before {
+  background: var(--jx-ink);
+}
+
+/* Icons are decorative glyph furniture from the old register; the direction
+   is text labels with the witness square. The spans stay in the DOM
+   (aria-hidden) so the component contract is unchanged. */
+.jx-nav__icon {
+  display: none;
 }
 
 .jx-nav__label {
@@ -55,51 +73,4 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
-}
-
-.jx-nav__icon {
-  font-size: var(--jx-text-lg);
-  line-height: 1;
-}
-
-@media (min-width: 64rem) {
-  .jx-nav {
-    position: sticky;
-    inset: 0 auto auto 0;
-    /* Sit below the sticky banner + progress rule, and take only the
-       remaining viewport — 100dvh here would overrun short screens. */
-    top: calc(var(--jx-banner-height, 3.5rem) + var(--jx-rule-heavy));
-    align-self: start;
-    width: var(--jx-sidebar);
-    height: calc(100dvh - var(--jx-banner-height, 3.5rem) - var(--jx-rule-heavy));
-    overflow-y: auto;
-    border-top: 0;
-    border-right: var(--jx-rule) solid var(--jx-line);
-    padding: var(--jx-space-5) var(--jx-space-3);
-  }
-
-  .jx-nav__list {
-    flex-direction: column;
-    gap: var(--jx-space-1);
-  }
-
-  .jx-nav__link {
-    flex-direction: row;
-    justify-content: flex-start;
-    gap: var(--jx-space-3);
-    padding: var(--jx-space-3) var(--jx-space-4);
-    border-radius: var(--jx-radius-none);
-    font-size: var(--jx-text-sm);
-    text-align: left;
-  }
-
-  .jx-nav__link--active {
-    /* The sidebar reads left-to-right, so the joint moves to the inline
-       start edge. */
-    box-shadow: inset var(--jx-rule-heavy) 0 0 0 var(--jx-ink);
-  }
-
-  .jx-nav__link:hover {
-    background: var(--jx-sunk);
-  }
 }

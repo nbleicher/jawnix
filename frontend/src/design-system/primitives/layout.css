@@ -20,13 +20,16 @@
   grid-template-columns: repeat(auto-fit, minmax(min(var(--jx-grid-min, 18rem), 100%), 1fr));
 }
 
-/* Card = plate + 1px rule. No shadow, no radius, no hover lift. */
+/* Card = a ruled row, not a box: hairline joint on the leading edge, paper
+   throughout, no fill, no radius, no shadow, no hover lift. */
 .jx-card {
-  background: var(--jx-plate);
-  border: var(--jx-rule) solid var(--jx-line);
+  background: transparent;
+  border: 0;
+  border-block-start: var(--jx-rule) solid var(--jx-line);
   border-radius: var(--jx-radius-none);
   box-shadow: var(--jx-shadow-none);
   padding: var(--jx-card-padding, var(--jx-card-padding-default, var(--jx-space-5)));
+  padding-inline: 0;
   min-width: 0;
 }
 
@@ -50,15 +53,14 @@
   min-width: 0;
 }
 
-/* The page title carries the display recipe: the expanded cut via the wdth
-   axis, at display weight. */
+/* The page title is quiet: Inter at a modest scale, hierarchy by weight and
+   spacing, not a display cut. */
 .jx-page__title {
-  font-family: var(--jx-font-display);
-  font-stretch: var(--jx-font-stretch-display);
+  font-family: var(--jx-font-text);
   font-size: var(--jx-text-2xl);
-  font-weight: var(--jx-weight-display);
+  font-weight: var(--jx-weight-regular);
   letter-spacing: var(--jx-tracking-tight);
-  line-height: var(--jx-leading-display);
+  line-height: var(--jx-leading-heading);
   color: var(--jx-ink);
   text-wrap: balance;
 }
@@ -111,7 +113,7 @@
 
 .jx-section__title {
   font-size: var(--jx-text-lg);
-  font-weight: var(--jx-weight-semibold);
+  font-weight: var(--jx-weight-medium);
   line-height: var(--jx-leading-heading);
   color: var(--jx-ink);
 }
@@ -125,8 +127,9 @@
 .jx-disclosure-section {
   display: block;
   overflow: clip;
-  background: var(--jx-plate);
-  border: var(--jx-rule) solid var(--jx-line);
+  background: transparent;
+  border: 0;
+  border-block-start: var(--jx-rule) solid var(--jx-line);
   border-radius: var(--jx-radius-none);
   box-shadow: var(--jx-shadow-none);
 }
@@ -153,9 +156,9 @@
 .jx-disclosure-section__summary::after {
   content: "+";
   flex: 0 0 auto;
-  color: var(--jx-accent);
-  font-family: var(--jx-font-display);
-  font-size: var(--jx-text-xl);
+  color: var(--jx-ink);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-lg);
   line-height: 1;
 }
 
@@ -172,8 +175,10 @@
 .jx-disclosure-section__value {
   margin-inline-start: auto;
   color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
+  font-feature-settings: var(--jx-font-features-numeral);
   font-size: var(--jx-text-sm);
-  font-weight: var(--jx-weight-semibold);
+  font-weight: var(--jx-weight-medium);
   white-space: nowrap;
 }
 
@@ -199,16 +204,13 @@
 }
 
 /* Desktop expands from the same mobile-first structure: the title and its
-   actions share a row once there is room for both. */
+   actions share a row once there is room for both. The title keeps its
+   modest scale — hierarchy is weight and spacing, not size jumps. */
 @media (min-width: 48rem) {
   .jx-page__header {
     flex-direction: row;
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--jx-space-5);
-  }
-
-  .jx-page__title {
-    font-size: var(--jx-text-3xl);
   }
 }

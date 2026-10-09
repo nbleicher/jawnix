@@ -1,37 +1,8 @@
-import { useId } from "react";
-
 import { cx } from "../../design-system/primitives/cx";
-import { Text, VisuallyHidden } from "../../design-system/primitives/typography";
-import type { MilestoneGraphData, MilestoneState } from "./batchRequests";
+import { Mono, Text } from "../../design-system/primitives/typography";
+import type { MilestoneGraphData } from "./batchRequests";
 
 import "./MilestoneGraph.css";
-
-/**
- * How each milestone state reads. These are rendered as visible text, not just
- * announced: the state of a node is never carried by colour, position, or
- * motion alone.
- */
-const STATE_LABEL: Record<MilestoneState, string> = {
-  complete: "Completed",
-  current: "In progress",
-  paused: "Paused",
-  stopped: "Stopped",
-  upcoming: "Not started",
-  not_reached: "Not reached",
-};
-
-/**
- * Decorative marks. They repeat what `STATE_LABEL` already says in words, so
- * they are hidden from assistive technology rather than announced twice.
- */
-const STATE_MARK: Record<MilestoneState, string> = {
-  complete: "✓",
-  current: "●",
-  paused: "❚❚",
-  stopped: "✕",
-  upcoming: "○",
-  not_reached: "○",
-};
 
 export function formatMilestoneTime(value: string): string {
   const date = new Date(value);
@@ -39,42 +10,71 @@ export function formatMilestoneTime(value: string): string {
   return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())} UTC`;
 }
 
+type StatusLine =
+  | { kind: "live"; label: string; description: string }
+  | { kind: "paused"; label: string; description: string }
+  | {
+      kind: "delivered";
+      label: string;
+      description: string;
+      occurred_at: string | null;
+    }
+  | {
+      kind: "stopped";
+      label: string;
+      description: string;
+      tone: "danger" | "neutral";
+    };
+
 /**
- * The one thing the drawn graph says that its nodes do not: where in the
- * journey this request currently sits. Each node already carries its own label,
- * state, and timestamp as text, so this supplies position and nothing else —
- * the equivalent of glancing at the shape.
+ * Where the request currently sits, distilled to the one line the ticket
+ * needs. Labels and descriptions are the backend's own words — the line
+ * never rewrites copy, it only picks which row is speaking.
  */
-export function milestoneSummary(graph: MilestoneGraphData): string {
-  const total = graph.milestones.length;
-  const index = graph.milestones.findIndex(
-    (milestone) =>
-      milestone.state === "current"
-      || milestone.state === "paused"
-      || milestone.state === "stopped",
-  );
-  const milestone = graph.milestones[index];
-  if (index === -1 || !milestone) {
-    const last = graph.milestones[total - 1];
-    return `All ${total} milestones complete. ${last?.label ?? ""}.`.trim();
-  }
-  const position = `step ${index + 1} of ${total}`;
+function statusLine(graph: MilestoneGraphData): StatusLine {
   if (graph.outcome) {
-    return `Stopped at ${position}, ${milestone.label}. ${graph.outcome.label}.`;
+    return {
+      kind: "stopped",
+      label: graph.outcome.label,
+      description: graph.outcome.description,
+      tone: graph.outcome.tone === "neutral" ? "neutral" : "danger",
+    };
   }
   if (graph.pause) {
-    return `At ${position}, ${milestone.label}, paused. ${graph.pause.label}.`;
+    return {
+      kind: "paused",
+      label: graph.pause.label,
+      description: graph.pause.description,
+    };
   }
-  return `At ${position}, ${milestone.label}, in progress.`;
+  const current = graph.milestones.find(
+    (milestone) => milestone.state === "current",
+  );
+  if (current) {
+    return {
+      kind: "live",
+      label: current.label,
+      description: current.description,
+    };
+  }
+  const delivered = graph.milestones[graph.milestones.length - 1];
+  return {
+    kind: "delivered",
+    label: delivered?.label ?? "Delivered",
+    description: delivered?.description ?? "",
+    occurred_at: delivered?.occurred_at ?? null,
+  };
 }
 
 /**
- * The Batch Request journey.
+ * The Batch Request status line.
  *
- * One ordered list, drawn along the inline axis when its container is wide
- * enough and stacked when it is not. Nothing animates and nothing depends on
- * colour: every node states its own name, its state, and when it happened, so
- * the drawn graph and the announced graph say the same thing.
+ * One line, one witness: a spinning hairline ring while the request is
+ * moving, a hollow vermilion ring while it waits for inventory, a square
+ * stamp once it has settled (ink for delivered, danger or neutral for a
+ * terminal outcome). The line is a polite live region driven entirely by
+ * props, so the page's revalidation polling moves it without any local
+ * state; reduced motion collapses the spin to a static hollow ring.
  */
 export function MilestoneGraph({
   graph,
@@ -83,47 +83,47 @@ export function MilestoneGraph({
   graph: MilestoneGraphData;
   label: string;
 }) {
-  const summaryId = useId();
+  const line = statusLine(graph);
   return (
-    <div className="jx-milestones">
-      {/* The reset drops list markers from classed lists, which also drops the
-          list role in some browsers. Restating it keeps "4 items, item 3 of 4"
-          available to a screen reader. */}
-      <ol
-        className="jx-milestones__track"
-        role="list"
-        aria-label={label}
-        aria-describedby={summaryId}
-      >
-        {graph.milestones.map((milestone) => (
-          <li
-            key={milestone.key}
-            className={cx(
-              "jx-milestone",
-              `jx-milestone--${milestone.state}`,
-            )}
-            {...(milestone.state === "current" || milestone.state === "paused"
-              ? { "aria-current": "step" as const }
-              : {})}
-          >
-            <span className="jx-milestone__mark" aria-hidden="true">
-              {STATE_MARK[milestone.state]}
-            </span>
-            <span className="jx-milestone__body">
-              <Text as="span" size="sm" weight="semibold">
-                {milestone.label}
-              </Text>
-              <Text as="span" size="xs" tone="muted">
-                {STATE_LABEL[milestone.state]}
-                {milestone.occurred_at
-                  ? ` · ${formatMilestoneTime(milestone.occurred_at)}`
-                  : ""}
-              </Text>
-            </span>
-          </li>
-        ))}
-      </ol>
-      <VisuallyHidden id={summaryId}>{milestoneSummary(graph)}</VisuallyHidden>
-    </div>
+    <p
+      className={cx("jx-statusline", `jx-statusline--${line.kind}`)}
+      role="status"
+      aria-live="polite"
+      aria-label={label}
+    >
+      {line.kind === "live" ? (
+        <span className="jx-statusline__spinner" aria-hidden="true" />
+      ) : line.kind === "paused" ? (
+        <span
+          className="jx-statusline__ring jx-statusline__ring--paused"
+          aria-hidden="true"
+        />
+      ) : (
+        <span
+          className={cx(
+            "jx-statusline__witness",
+            `jx-statusline__witness--${
+              line.kind === "delivered" ? "ink" : line.tone
+            }`,
+          )}
+          aria-hidden="true"
+        />
+      )}
+      <Text as="span" size="sm" weight="semibold">
+        {line.label}
+      </Text>
+      {" — "}
+      <Text as="span" size="sm" tone="muted">
+        {line.description}
+      </Text>
+      {line.kind === "delivered" && line.occurred_at ? (
+        <>
+          {" "}
+          <Mono className="jx-statusline__when">
+            {`· ${formatMilestoneTime(line.occurred_at)}`}
+          </Mono>
+        </>
+      ) : null}
+    </p>
   );
 }

@@ -23,7 +23,7 @@ describe("BrandLockup", () => {
     expect(screen.queryByText("Administration")).not.toBeInTheDocument();
   });
 
-  it("toggles scheme from the J tile", async () => {
+  it("toggles scheme from the JX stamp", async () => {
     const user = userEvent.setup();
     render(
       <ThemeProvider>
@@ -31,8 +31,8 @@ describe("BrandLockup", () => {
       </ThemeProvider>,
     );
 
-    const tile = screen.getByRole("button", { name: "Switch to dark desk" });
-    await user.click(tile);
+    const stamp = screen.getByRole("button", { name: "Switch to dark desk" });
+    await user.click(stamp);
 
     expect(document.documentElement).toHaveAttribute("data-scheme", "dark");
     expect(
@@ -40,16 +40,16 @@ describe("BrandLockup", () => {
     ).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("renders the J tile as the currentColor scheme indicator", () => {
+  it("renders the vermilion JX stamp with the letters knocked out", () => {
     render(
       <ThemeProvider>
         <BrandLockup />
       </ThemeProvider>,
     );
 
-    const tile = screen.getByRole("button", { name: "Switch to dark desk" });
-    const path = tile.querySelector("svg path");
-    expect(path).toHaveAttribute("fill", "currentColor");
+    const stamp = screen.getByRole("button", { name: "Switch to dark desk" });
+    const path = stamp.querySelector("svg path");
+    expect(path).toHaveAttribute("fill", "var(--jx-stamp-ground)");
     expect(path).toHaveAttribute("fill-rule", "evenodd");
   });
 });

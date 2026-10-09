@@ -12,13 +12,13 @@
   background: var(--jx-overlay);
 }
 
-/* Plate on a structural rule, with the 2px ink joint across the top —
-   layers separate by tone steps and rules, never shadows or radius. */
+/* Paper on a structural rule, with the 2px ink joint across the top —
+   layers separate by rules, never shadows or radius. */
 .jx-dialog__panel {
   display: flex;
   flex-direction: column;
   gap: var(--jx-space-3);
-  background: var(--jx-plate);
+  background: var(--jx-paper);
   border: var(--jx-rule) solid var(--jx-line-strong);
   border-top: var(--jx-rule-heavy) solid var(--jx-ink);
   border-radius: var(--jx-radius-none);
@@ -37,7 +37,7 @@
 
 .jx-dialog__title {
   font-size: var(--jx-text-lg);
-  font-weight: var(--jx-weight-bold);
+  font-weight: var(--jx-weight-medium);
   line-height: var(--jx-leading-heading);
   color: var(--jx-ink);
   text-wrap: balance;
@@ -62,7 +62,6 @@
 }
 
 .jx-dialog__close:hover {
-  background: var(--jx-sunk);
   color: var(--jx-ink);
 }
 

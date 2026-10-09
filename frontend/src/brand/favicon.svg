@@ -1,12 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="JAWNIX">
   <title>JAWNIX</title>
-  <!-- Favicon: the capital J, cut from the approved Archivo 700 artwork, on a
-       full-bleed tile. A letterform tile, not a mark. Ink tile / paper J in
-       light chrome; flipped by the embedded dark-scheme rule (linked favicons
-       never see page CSS). -->
+  <!-- Favicon: the vermilion JX hanko. Block letters on a 16×16 grid —
+       vermilion square, paper JX in light chrome; paper square, vermilion JX
+       in dark chrome via the embedded scheme rule (linked favicons never see
+       page CSS). -->
   <style>
-    path { fill: #1B1A16; }
-    @media (prefers-color-scheme: dark) { path { fill: #ECE9E1; } }
+    .ground { fill: #C03A2B; }
+    .letters { fill: #FCFCFA; }
+    @media (prefers-color-scheme: dark) {
+      .ground { fill: #FCFCFA; }
+      .letters { fill: #C03A2B; }
+    }
   </style>
-  <path fill-rule="evenodd" d="M0 0H16V16H0Z M8.010096980238668 13.001812741170356Q6.881483510318308 13.001812741170356 6.082800874164436 12.66316665437402Q5.284118238010564 12.324520567577686 4.864545176173427 11.653141098487165Q4.44497211433629 10.981761629396646 4.44497211433629 9.957105494323418V9.503302365186666H6.534755736966271V9.95399271669459Q6.534755736966271 10.60762882896991 6.898921881341127 10.931644336579874Q7.263088025715983 11.255659844189838 7.9883075368368655 11.255659844189838Q8.691117146353681 11.255659844189838 9.04968081532752 10.791582451554449Q9.40824448430136 10.32750505891906 9.40824448430136 9.449769930603061V3.0018127411703546H11.564016895339014V9.45288270823189Q11.564016895339014 10.645613105335626 11.144443833501878 11.434644557847502Q10.72487077166474 12.22367601035938 9.931790610911886 12.61274437576487Q9.13871045015903 13.001812741170356 8.010096980238668 13.001812741170356Z"/>
+  <path class="ground" d="M0 0H16V16H0Z"/>
+  <path class="letters" d="M2 11h3V3h2v10H2Z M9 3h2l1 2.6 1-2.6h2l-2.1 5 2.1 5h-2l-1-2.6-1 2.6h-2l2.1-5Z"/>
 </svg>

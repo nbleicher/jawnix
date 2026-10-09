@@ -10,7 +10,7 @@ import { redirect } from "react-router";
 
 export type MilestoneKey =
   | "submitted"
-  | "under_review"
+  | "approved"
   | "preparing_batch"
   | "delivered";
 

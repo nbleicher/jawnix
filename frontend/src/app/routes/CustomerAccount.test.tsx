@@ -44,7 +44,7 @@ const REVIEW: LicensedStateReview = {
     {
       request_id: "11111111-1111-4111-8111-111111111111",
       lead_count: 100,
-      status: "Under Review",
+      status: "Approved",
       current_states: ["FL", "TX"],
       resulting_states: ["FL"],
       action: "narrowed",

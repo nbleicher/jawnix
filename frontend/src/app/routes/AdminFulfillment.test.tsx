@@ -79,9 +79,9 @@ function detail(overrides: Partial<RequestDetail> = {}): RequestDetail {
           occurred_at: "2026-07-01T10:00:00Z",
         },
         {
-          key: "under_review",
-          label: "Under Review",
-          description: "Checking quantity and states.",
+          key: "approved",
+          label: "Approved",
+          description: "Your request was approved — the Batch is being prepared.",
           state: "upcoming",
           occurred_at: null,
         },
@@ -549,16 +549,15 @@ describe("the Batch Request detail", () => {
     expect(screen.getByText("approved")).toBeVisible();
   });
 
-  it("renders the Progress milestone graph", () => {
+  it("renders the Progress milestone status line", () => {
     renderRoute(<AdminFulfillmentRequestRoute />, detail());
 
     expect(
       screen.getByRole("heading", { level: 2, name: "Progress" }),
     ).toBeVisible();
-    const graph = screen.getByLabelText("Batch Request progress");
-    expect(graph).toBeVisible();
-    expect(within(graph).getByText("Submitted")).toBeVisible();
-    expect(within(graph).getByText("Under Review")).toBeVisible();
+    const line = screen.getByRole("status", { name: "Batch Request progress" });
+    expect(line).toBeVisible();
+    expect(line).toHaveTextContent("Submitted — We have your request.");
   });
 
   it("shows a running job in the live activity strip", () => {

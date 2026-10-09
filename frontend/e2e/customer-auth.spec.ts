@@ -23,7 +23,7 @@ test.describe("Static authentication", () => {
 
     await expect(page.locator(".jx-opaline-scene")).toHaveCount(0);
     await expect(page.locator("canvas")).toHaveCount(0);
-    // The plate is the J tile at rest, and the lockup's J tile is the scheme
+    // The plate is the JX stamp at rest, and the lockup's stamp is the scheme
     // control — the whole brand row, nothing rendered behind it.
     await expect(page.locator(".jx-routing-plate")).toBeAttached();
     await expect(
@@ -64,12 +64,18 @@ test.describe("Static authentication", () => {
 });
 
 test.describe("Customer sign-in and session lifecycle", () => {
-  test("uses the light scheme and Archivo", async ({ page }) => {
+  test("uses the light scheme and the quiet register", async ({ page }) => {
     await mockCustomerAuth(page);
     await page.goto("./sign-in");
 
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
+    // Headings are Inter in the fresh register; Archivo survives only in the
+    // frozen wordmark.
     await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toHaveCSS(
+      "font-family",
+      /Inter/,
+    );
+    await expect(page.locator(".jx-lockup__wordmark")).toHaveCSS(
       "font-family",
       /Archivo/,
     );

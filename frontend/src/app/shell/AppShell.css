@@ -3,8 +3,6 @@
   flex-direction: column;
   min-height: 100dvh;
   background: var(--jx-paper);
-  /* Banner height feeds the sidebar's sticky offset in Navigation.css. */
-  --jx-banner-height: 3.5rem;
 }
 
 .jx-shell__skip-link {
@@ -13,12 +11,12 @@
   left: var(--jx-space-2);
   z-index: var(--jx-z-toast);
   padding: var(--jx-space-3) var(--jx-space-4);
-  background: var(--jx-plate);
-  color: var(--jx-accent);
+  background: var(--jx-paper);
+  color: var(--jx-ink);
   border: var(--jx-rule-heavy) solid var(--jx-focus);
   border-radius: var(--jx-radius-none);
   font-size: var(--jx-text-sm);
-  font-weight: var(--jx-weight-semibold);
+  font-weight: var(--jx-weight-medium);
   text-decoration: none;
   /* Off-screen until focused — kept in the tab order rather than display:none,
      which would remove it entirely. */
@@ -30,7 +28,9 @@
   transform: translateY(0);
 }
 
-/* The shell header is a plate with a hairline joint, per the ch9 specimen. */
+/* The top bar: lockup, horizontal nav, and header actions in one ruled row
+   under the tape. Paper only — structure is the hairline joint, never a
+   fill. */
 .jx-shell__banner {
   position: sticky;
   top: 0;
@@ -39,11 +39,16 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--jx-space-2) var(--jx-space-4);
-  min-height: var(--jx-banner-height);
-  padding: var(--jx-space-3) var(--jx-space-4);
-  background: var(--jx-plate);
+  gap: 0 var(--jx-space-5);
+  padding: 0 var(--jx-space-4);
+  background: var(--jx-paper);
   border-bottom: var(--jx-rule) solid var(--jx-line);
+}
+
+/* The nav takes the slack between the lockup and the actions. */
+.jx-shell__banner .jx-nav {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* The action cluster wraps below the lockup rather than clipping the
@@ -61,7 +66,7 @@
   white-space: nowrap;
 }
 
-/* Solid accent block on the same timing — no gradients (ch3). */
+/* Solid ink block on the same timing — no gradients. */
 .jx-shell__progress {
   height: var(--jx-rule-heavy);
   background: transparent;
@@ -73,7 +78,7 @@
   display: block;
   width: 40%;
   height: 100%;
-  background: var(--jx-accent);
+  background: var(--jx-ink);
   transform: translateX(-100%);
 }
 
@@ -99,23 +104,10 @@
   }
 }
 
-.jx-shell__body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
 .jx-shell__main {
   flex: 1;
   min-width: 0;
-  /* Clears the fixed mobile navigation bar: the bar is one touch target plus
-     its own padding and the home-indicator inset; content gets a full rhythm
-     step beyond that. */
-  padding: var(--jx-space-5) var(--jx-space-4)
-    calc(
-      var(--jx-touch-target) + var(--jx-space-6) +
-      env(safe-area-inset-bottom, 0px)
-    );
+  padding: var(--jx-space-6) var(--jx-space-4) var(--jx-space-8);
 }
 
 .jx-shell__main:focus {
@@ -127,24 +119,20 @@
   max-width: var(--jx-shell-max);
 }
 
-@media (min-width: 64rem) {
-  .jx-shell__main {
-    padding: var(--jx-space-6);
-  }
-}
-
 @media (max-width: 40rem) {
-  /* The action cluster drops below the lockup, so the wordmark is never
-     clipped. Inside it the wallet widget takes a full row of its own
-     (justified, so Buy credits stays on the trailing edge) and Support and
-     Sign out share the row beneath: nothing orphans onto its own row. */
-  .jx-shell__header-actions {
-    flex-basis: 100%;
+  /* The bar wraps: lockup and actions share the first row, the nav drops to
+     a full-width row of its own and scrolls horizontally — every destination
+     reachable, nothing behind a menu. */
+  .jx-shell__banner {
+    padding-top: var(--jx-space-1);
   }
 
-  .jx-shell__header-actions .credit-wallet-widget {
+  .jx-shell__banner .jx-nav {
+    order: 3;
     flex-basis: 100%;
-    justify-content: space-between;
+    border-top: var(--jx-rule) solid var(--jx-line);
+    margin-inline: calc(-1 * var(--jx-space-4));
+    padding-inline: var(--jx-space-4);
   }
 }
 

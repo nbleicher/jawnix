@@ -1,4 +1,5 @@
-/* The credential surface: a plate with a 1px rule. No shadow, no radius. */
+/* The credential surface: a hairline box on paper. No fill, no shadow, no
+   radius. */
 .jx-auth-panel {
   display: flex;
   flex-direction: column;
@@ -6,7 +7,7 @@
   width: 100%;
   max-width: 30rem;
   padding: var(--jx-space-5);
-  background: var(--jx-plate);
+  background: transparent;
   border: var(--jx-rule) solid var(--jx-line);
   border-radius: var(--jx-radius-none);
   box-shadow: var(--jx-shadow-none);
@@ -20,12 +21,11 @@
 
 .jx-auth-panel__title {
   color: var(--jx-ink);
-  font-family: var(--jx-font-display);
-  font-stretch: var(--jx-font-stretch-display);
+  font-family: var(--jx-font-text);
   font-size: var(--jx-text-2xl);
-  font-weight: var(--jx-weight-display);
+  font-weight: var(--jx-weight-regular);
   letter-spacing: var(--jx-tracking-tight);
-  line-height: var(--jx-leading-display);
+  line-height: var(--jx-leading-heading);
   text-wrap: balance;
 }
 
@@ -47,9 +47,5 @@
 @media (min-width: 36rem) {
   .jx-auth-panel {
     padding: var(--jx-space-6);
-  }
-
-  .jx-auth-panel__title {
-    font-size: var(--jx-text-3xl);
   }
 }
