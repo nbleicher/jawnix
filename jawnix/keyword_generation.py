@@ -554,9 +554,13 @@ class OpenRouterGenerationProvider:
         try:
             data = response.json()
             usage = data.get("usage") or {}
-            for key in ("prompt_tokens", "completion_tokens", "cost"):
+            for key, metric in (
+                ("prompt_tokens", "inputUnits"),
+                ("completion_tokens", "outputUnits"),
+                ("cost", "cost"),
+            ):
                 if isinstance(usage.get(key), (int, float)):
-                    self._last_request_metrics[key] = usage[key]
+                    self._last_request_metrics[metric] = usage[key]
             choice = data["choices"][0]
             if choice.get("finish_reason") == "length":
                 raise generation_error(GenerationErrorCode.TRUNCATED)
@@ -696,7 +700,10 @@ class OpenRouterGenerationProvider:
                         "surplusCount": sum(int(item["surplus"]) for item in attempts),
                         "rejectionReasons": dict(rejection_reasons),
                         "attempts": attempts,
-                        "termModels": dict(term_models),
+                        "termModels": [
+                            {"term": term, "model": model}
+                            for term, model in term_models.items()
+                        ],
                     }
                     error.partial_terms = list(accepted)
                     raise
@@ -745,7 +752,10 @@ class OpenRouterGenerationProvider:
                         "surplusCount": sum(int(item["surplus"]) for item in attempts),
                         "rejectionReasons": dict(rejection_reasons),
                         "attempts": attempts,
-                        "termModels": dict(term_models),
+                        "termModels": [
+                            {"term": term, "model": model}
+                            for term, model in term_models.items()
+                        ],
                     },
                 )
             # Transport success is insufficient: a model that mostly repeats
@@ -763,7 +773,9 @@ class OpenRouterGenerationProvider:
             "surplusCount": sum(int(item["surplus"]) for item in attempts),
             "rejectionReasons": dict(rejection_reasons),
             "attempts": attempts,
-            "termModels": dict(term_models),
+            "termModels": [
+                {"term": term, "model": model} for term, model in term_models.items()
+            ],
         }
         if last_error is not None:
             last_error.metrics = failure_metrics

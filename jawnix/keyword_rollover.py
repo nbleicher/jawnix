@@ -172,7 +172,9 @@ async def run_automatic_keyword_rollover(
         [*exclusions, *pending],
         limit=min(KEYWORD_CANDIDATE_BATCH_SIZE, POOL_TARGET - len(pending)),
     )
-    candidate_models = metrics.get("termModels", {})
+    candidate_models = {
+        item["term"]: item["model"] for item in metrics.get("termModels", [])
+    }
     pool.candidates = [
         *pool.candidates,
         *[

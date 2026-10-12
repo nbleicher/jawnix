@@ -34,12 +34,13 @@ def completion(candidates):
     return httpx.Response(
         200,
         json={
+            "usage": {"prompt_tokens": 13517, "completion_tokens": 110, "cost": 0.017},
             "choices": [
                 {
                     "finish_reason": "stop",
                     "message": {"content": json.dumps({"keywords": candidates})},
                 }
-            ]
+            ],
         },
     )
 
@@ -82,6 +83,15 @@ def test_partial_generation_survives_a_new_database_session(
     assert outcome["outcome"] == "pooling"
     assert outcome["available"] == 3
     assert operations.keyword_writes == []
+    entry = (
+        session.query(models.AuditEntry)
+        .filter_by(action="scraper_keyword_pool_refilled")
+        .one()
+    )
+    usage = entry.details["candidateMetrics"]["attempts"][0]["usage"]
+    assert usage["inputUnits"] == 13517
+    assert usage["outputUnits"] == 110
+    assert usage["cost"] == 0.017
     session.commit()
     with Session(session.get_bind(), expire_on_commit=False) as restarted:
         assert [item["term"] for item in pool(restarted).candidates] == terms(1, 3)
@@ -182,6 +192,26 @@ def test_generation_uses_small_industry_focused_requests(settings):
     instruction = json.loads(requests[0]["messages"][1]["content"])
     assert 1 <= instruction["candidate_count"] <= 15
     assert instruction["industry_focus"]
+
+
+def test_business_names_are_audit_values_rather_than_secret_field_names(
+    session, settings
+):
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "working"
+    candidates = ["Signature stamp engravers", *terms(1, 9)]
+
+    outcome = run(
+        session,
+        settings,
+        operations,
+        provider(settings, lambda request: completion(candidates)),
+    )
+    session.commit()
+
+    assert outcome["available"] == 10
+    assert pool(session).candidates[0]["term"] == "Signature stamp engravers"
 
 
 def test_adjacent_generation_keeps_the_seed_as_its_industry_focus(settings):
