@@ -7,11 +7,7 @@ import {
   useSearchParams,
 } from "react-router";
 
-import {
-  api,
-  formatCode,
-  providerAccessToken,
-} from "../auth/adminMFA";
+import { api, formatCode, providerAccessToken } from "../auth/adminMFA";
 import type {
   AdminMFAFactor,
   AdminMFAStatus,
@@ -106,21 +102,21 @@ export function AdminMFAEnrollmentRoute() {
   const verifiedCount = status.factors.filter(
     (factor) => factor.status === "verified" && factor.type === "totp",
   ).length;
-  const expectedSlot = verifiedCount === 0 ? "primary" : "backup";
+  const expectedSlot = "primary";
   const [enrollment, setEnrollment] = useState<EnrollmentSecret | null>(
     readPendingEnrollment,
   );
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [password, setPassword] = useState("");
+  const [codesSaved, setCodesSaved] = useState(false);
 
   const slot = enrollment?.slot ?? expectedSlot;
   const replacement = slot === "replacement";
   const title = replacement
     ? "Replace lost authenticator"
-    : slot === "primary"
-      ? "Set up your primary authenticator"
-      : "Set up your backup authenticator";
+    : "Set up your authenticator";
   useDocumentTitle(title);
 
   async function start() {
@@ -135,11 +131,14 @@ export function AdminMFAEnrollmentRoute() {
           body: JSON.stringify({
             access_token: accessToken,
             slot: expectedSlot,
+            password,
           }),
         },
       );
       savePendingEnrollment(value);
       setEnrollment(value);
+      setPassword("");
+      setCodesSaved(false);
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -149,7 +148,7 @@ export function AdminMFAEnrollmentRoute() {
 
   async function verify(event: React.FormEvent) {
     event.preventDefault();
-    if (code.length !== 6) {
+    if (code.length !== 6 || (enrollment?.backupCodes?.length && !codesSaved)) {
       setError("Enter the six-digit code from your authenticator app.");
       return;
     }
@@ -205,38 +204,44 @@ export function AdminMFAEnrollmentRoute() {
       title={title}
       description={
         replacement
-          ? "Verify the replacement before Jawnix removes the authenticator you lost."
-          : slot === "primary"
-            ? "Administration stays closed until both authenticators are verified."
-            : "This second factor is your recovery path when the primary device is unavailable."
+          ? "Verify your replacement authenticator to restore administration."
+          : "Verify one authenticator and save your recovery codes to enter administration."
       }
     >
       <Card>
         <Stack gap={5}>
-          {slot === "backup" ? (
-            <p className="jx-mfa-notice">
-              Store the backup authenticator somewhere other than your primary
-              device. Two factors on one device do not protect you from losing it.
-            </p>
-          ) : null}
-
           {error ? (
             <Text tone="danger" weight="semibold" role="alert">
               {error}
             </Text>
           ) : null}
 
-          {!enrollment ? (
+          {!enrollment && verifiedCount > 0 ? (
+            <Link to="/admin/overview">Continue to administration</Link>
+          ) : !enrollment ? (
             <Stack gap={4}>
               <Text>
                 You will scan a QR code with an authenticator app, then confirm
                 one generated code.
               </Text>
+              <Field label="Current password" required>
+                <Input
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.currentTarget.value)}
+                  required
+                />
+              </Field>
               <Cluster className="jx-mfa-actions">
-                <Button variant="primary" busy={busy} onClick={() => void start()}>
+                <Button
+                  variant="primary"
+                  busy={busy}
+                  onClick={() => void start()}
+                >
                   {status.stage.endsWith("_pending")
                     ? "Restart setup"
-                    : `Set up ${slot} authenticator`}
+                    : "Set up authenticator"}
                 </Button>
                 {status.stage !== "idle" ? (
                   <Button busy={busy} onClick={() => void cancel()}>
@@ -260,6 +265,28 @@ export function AdminMFAEnrollmentRoute() {
                   </Text>
                   <code className="jx-mfa-key">{enrollment.manualKey}</code>
                 </Stack>
+                {enrollment.backupCodes?.length ? (
+                  <Stack gap={3}>
+                    <h2>Save your recovery codes</h2>
+                    <Text>
+                      Each code works once. Store them somewhere separate from
+                      your authenticator.
+                    </Text>
+                    <pre className="jx-mfa-key">
+                      {enrollment.backupCodes.join("\n")}
+                    </pre>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={codesSaved}
+                        onChange={(event) =>
+                          setCodesSaved(event.currentTarget.checked)
+                        }
+                      />{" "}
+                      I saved my recovery codes
+                    </label>
+                  </Stack>
+                ) : null}
                 <AuthenticatorCode
                   value={code}
                   onChange={setCode}
@@ -271,6 +298,9 @@ export function AdminMFAEnrollmentRoute() {
                     variant="primary"
                     busy={busy}
                     busyLabel="Verifying…"
+                    disabled={Boolean(
+                      enrollment.backupCodes?.length && !codesSaved,
+                    )}
                   >
                     Verify authenticator
                   </Button>
@@ -301,11 +331,14 @@ export function AdminMFAChallengeRoute() {
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recovery, setRecovery] = useState(
+    () => searchParams.get("recovery") === "1",
+  );
   useDocumentTitle("Verify your administrator sign-in");
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!factorId || code.length !== 6) {
+    if (!factorId || (recovery ? !code.trim() : code.length !== 6)) {
       setError("Choose an authenticator and enter its six-digit code.");
       return;
     }
@@ -321,6 +354,7 @@ export function AdminMFAChallengeRoute() {
             access_token: accessToken,
             factor_id: factorId,
             code,
+            method: recovery ? "recovery" : "totp",
           }),
         },
       );
@@ -346,7 +380,8 @@ export function AdminMFAChallengeRoute() {
                 Verification is temporarily throttled. Try again after{" "}
                 {status.lockedUntil
                   ? new Date(status.lockedUntil).toLocaleTimeString()
-                  : "the stated time"}.
+                  : "the stated time"}
+                .
               </p>
             ) : null}
             <FactorChooser
@@ -356,11 +391,35 @@ export function AdminMFAChallengeRoute() {
               expanded={expanded}
               onExpand={() => setExpanded(true)}
             />
-            <AuthenticatorCode
-              value={code}
-              onChange={setCode}
-              error={error || undefined}
-            />
+            {recovery ? (
+              <Field
+                label="Recovery code"
+                required
+                {...(error ? { error } : {})}
+              >
+                <Input
+                  value={code}
+                  onChange={(event) => setCode(event.currentTarget.value)}
+                  autoComplete="one-time-code"
+                  autoFocus
+                />
+              </Field>
+            ) : (
+              <AuthenticatorCode
+                value={code}
+                onChange={setCode}
+                error={error || undefined}
+              />
+            )}
+            <Button
+              type="button"
+              onClick={() => {
+                setRecovery(!recovery);
+                setCode("");
+              }}
+            >
+              {recovery ? "Use authenticator" : "Use recovery code"}
+            </Button>
             <Cluster className="jx-mfa-actions">
               <Button
                 type="submit"
@@ -391,21 +450,22 @@ export function AdminMFARecoveryRoute() {
       <Stack gap={5}>
         <Card>
           <Stack gap={3}>
-            <h2>Use your backup authenticator</h2>
+            <h2>Use a recovery code</h2>
             <Text>
-              If one device is unavailable, verify with the separately stored
-              backup. After sign-in, Security lets you replace the lost factor.
+              If your authenticator is unavailable, sign in with one unused
+              recovery code. Security then lets you replace the lost
+              authenticator.
             </Text>
             <div>
-              <Link to="/admin/mfa/challenge?choose=1">
-                Choose the backup authenticator
+              <Link to="/admin/mfa/challenge?recovery=1">
+                Enter a recovery code
               </Link>
             </div>
           </Stack>
         </Card>
         <Card>
           <Stack gap={3}>
-            <h2>Both authenticators are unavailable</h2>
+            <h2>Authenticator and recovery codes are unavailable</h2>
             <Text>
               There is no self-service reset. Contact an operator and provide
               the incident details required for the two-person break-glass
@@ -467,6 +527,7 @@ export function AdminMFASecurityRoute() {
   const navigate = useNavigate();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [password, setPassword] = useState("");
   const verified = useMemo(
     () => status.factors.filter((factor) => factor.status === "verified"),
     [status.factors],
@@ -485,10 +546,13 @@ export function AdminMFASecurityRoute() {
           body: JSON.stringify({
             access_token: accessToken,
             lost_factor_id: factor.id,
+            password,
           }),
         },
       );
       savePendingEnrollment(enrollment);
+      if (enrollment.session) await storeProviderSession(enrollment.session);
+      setPassword("");
       await navigate("/admin/mfa/enroll");
     } catch (caught) {
       setError(errorMessage(caught));
@@ -526,8 +590,16 @@ export function AdminMFASecurityRoute() {
         ) : null}
         <Section
           title="Authenticator factors"
-          description="Keep exactly one primary and one separately stored backup available."
+          description="Keep your authenticator and unused recovery codes available."
         >
+          <Field label="Current password for replacement" required>
+            <Input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.currentTarget.value)}
+            />
+          </Field>
           <Grid>
             {verified.map((factor) => (
               <FactorCard

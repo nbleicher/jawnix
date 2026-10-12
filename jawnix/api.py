@@ -563,7 +563,7 @@ async def create_session(
             "session_generation": state.session_generation,
             "factor_id": factor_id,
         }
-        if len(verified) < 2:
+        if len(verified) < 1:
             admin_next = "/app/admin/mfa/enroll"
         elif assurance != "aal2":
             admin_next = "/app/admin/mfa/challenge"
@@ -4725,6 +4725,13 @@ def delete_agency(
 
 
 async def _supabase_admin(settings: Settings, method: str, path: str, payload: dict | None = None):
+    if settings.auth_provider == "better-auth":
+        provider = get_mfa_provider(settings)
+        try:
+            page = int(path.split("page=", 1)[1].split("&", 1)[0])
+            return await provider.request("users", page=page)
+        except (MFAProviderError, ValueError, IndexError):
+            raise HTTPException(status_code=502, detail="Identity administration failed.") from None
     if not settings.supabase_url or not settings.supabase_service_role_key:
         raise HTTPException(status_code=503, detail="Supabase administration is not configured.")
     headers = {
@@ -4749,6 +4756,15 @@ async def _dispatch_invitation(settings: Settings, payload) -> uuid.UUID:
     link and the password behind it; all that comes back here is the
     authentication identity to attach to a Customer.
     """
+    if settings.auth_provider == "better-auth":
+        provider = get_mfa_provider(settings)
+        try:
+            email = str(payload.email).lower()
+            created = await provider.request("provision-user", email=email, name=f"{payload.first_name} {payload.last_name}".strip())
+            await provider.request("reset-user", email=email)
+            return uuid.UUID(created["id"])
+        except MFAProviderError:
+            raise HTTPException(status_code=502, detail="The invitation could not be sent.") from None
     redirect_to = _customer_invitation_redirect(settings)
     created = await _supabase_admin(
         settings,
@@ -4766,6 +4782,12 @@ async def _dispatch_invitation(settings: Settings, payload) -> uuid.UUID:
 
 
 async def _send_password_reset(settings: Settings, email: str) -> None:
+    if settings.auth_provider == "better-auth":
+        try:
+            await get_mfa_provider(settings).request("reset-user", email=email)
+            return
+        except MFAProviderError:
+            raise HTTPException(status_code=502, detail="Password recovery could not be sent.") from None
     if not settings.supabase_url or not settings.supabase_anon_key:
         raise HTTPException(status_code=503, detail="Supabase password recovery is not configured.")
     redirect_to = _customer_invitation_redirect(settings)

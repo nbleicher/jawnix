@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     supabase_url: str = Field(default="", alias="JAWNIX_SUPABASE_URL")
     supabase_anon_key: str = Field(default="", alias="JAWNIX_SUPABASE_ANON_KEY")
     supabase_service_role_key: str = Field(default="", alias="SUPABASE_SERVICE_ROLE_KEY")
+    auth_provider: Literal["supabase", "better-auth"] = Field(default="supabase", alias="JAWNIX_AUTH_PROVIDER")
+    better_auth_url: str = Field(default="", alias="JAWNIX_BETTER_AUTH_URL")
+    auth_bridge_secret: SecretStr = Field(default=SecretStr(""), alias="JAWNIX_AUTH_BRIDGE_SECRET")
     admin_mfa_max_attempts: int = Field(
         default=5,
         ge=1,
@@ -116,6 +119,10 @@ class Settings(BaseSettings):
     openrouter_model: str = Field(
         default="deepseek/deepseek-v4-flash",
         alias="OPENROUTER_MODEL",
+    )
+    openrouter_keyword_fallback_models: str = Field(
+        default="",
+        alias="OPENROUTER_KEYWORD_FALLBACK_MODELS",
     )
     openrouter_base_url: str = Field(
         default="https://openrouter.ai/api/v1",

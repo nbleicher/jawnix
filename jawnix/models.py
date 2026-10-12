@@ -1420,6 +1420,22 @@ class KeywordHistoryImport(Base):
     )
 
 
+class KeywordCandidatePool(Base):
+    """Unused validated candidates retained between automatic generation runs."""
+
+    __tablename__ = "keyword_candidate_pool"
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    candidates: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    focus_index: Mapped[int] = mapped_column(default=0, nullable=False)
+    next_refill_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_keyword_candidate_pool_singleton"),
+        CheckConstraint("focus_index >= 0", name="ck_keyword_candidate_pool_focus"),
+    )
+
+
 class KeywordGenerationDraftRecord(Base):
     """A Jawnix-owned, review-only keyword generation draft."""
 

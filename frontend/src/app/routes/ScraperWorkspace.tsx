@@ -6,19 +6,12 @@ import {
   useRevalidator,
 } from "react-router";
 
-import {
-  api,
-  formatCode,
-  providerAccessToken,
-} from "../auth/adminMFA";
+import { api, formatCode, providerAccessToken } from "../auth/adminMFA";
 import { storeProviderSession } from "../auth/providerSession";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { ErrorState } from "../../design-system/primitives/feedback";
-import {
-  Field,
-  Input,
-} from "../../design-system/primitives/form";
+import { Field, Input } from "../../design-system/primitives/form";
 import {
   Card,
   Cluster,
@@ -113,18 +106,17 @@ export async function scraperWorkspaceLoader(): Promise<ScraperWorkspaceData> {
 export function ScraperStepUpRoute() {
   const data = useLoaderData<ScraperEntryData>();
   const navigate = useNavigate();
-  const [factorId, setFactorId] = useState(() =>
-    defaultFactorId(data.factors),
-  );
+  const [factorId, setFactorId] = useState(() => defaultFactorId(data.factors));
   const [expanded, setExpanded] = useState(false);
   const [code, setCode] = useState("");
+  const [recovery, setRecovery] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useDocumentTitle("Verify access to Scraper Operations");
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!factorId || code.length !== 6) {
+    if (!factorId || (recovery ? !code.trim() : code.length !== 6)) {
       setError("Choose an authenticator and enter its six-digit code.");
       return;
     }
@@ -139,6 +131,7 @@ export function ScraperStepUpRoute() {
             access_token: await providerAccessToken(),
             factor_id: factorId,
             code,
+            method: recovery ? "recovery" : "totp",
           }),
         },
       );
@@ -178,20 +171,41 @@ export function ScraperStepUpRoute() {
             />
             <Field
               id="scraper-authenticator-code"
-              label="Six-digit authenticator code"
-              description="Paste or type the current code from your authenticator app."
+              label={
+                recovery ? "Recovery code" : "Six-digit authenticator code"
+              }
+              description={
+                recovery
+                  ? "Enter one unused recovery code."
+                  : "Paste or type the current code from your authenticator app."
+              }
               required
               {...(error ? { error } : {})}
             >
               <Input
                 value={code}
-                onChange={(event) => setCode(formatCode(event.target.value))}
-                inputMode="numeric"
+                onChange={(event) =>
+                  setCode(
+                    recovery
+                      ? event.target.value
+                      : formatCode(event.target.value),
+                  )
+                }
+                inputMode={recovery ? "text" : "numeric"}
                 autoComplete="one-time-code"
-                maxLength={6}
+                maxLength={recovery ? 32 : 6}
                 autoFocus
               />
             </Field>
+            <Button
+              type="button"
+              onClick={() => {
+                setRecovery(!recovery);
+                setCode("");
+              }}
+            >
+              {recovery ? "Use authenticator" : "Use recovery code"}
+            </Button>
             <Cluster>
               <Button
                 type="submit"
@@ -223,7 +237,9 @@ export function ScraperWorkspaceRoute() {
       description="Native, backend-mediated access to the private acquisition service."
     >
       <TerminalWorkspace
-        status={data.available ? "ONLINE / PRIVILEGED" : "OFFLINE / FAIL-CLOSED"}
+        status={
+          data.available ? "ONLINE / PRIVILEGED" : "OFFLINE / FAIL-CLOSED"
+        }
       >
         <div id="scraper-access">
           {data.available ? (

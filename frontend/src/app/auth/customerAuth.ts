@@ -2,7 +2,6 @@ import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
 import {
-  getProviderSession,
   signOutProvider,
 } from "./providerSession";
 
@@ -59,12 +58,6 @@ export interface CustomerOverviewData {
   items: CustomerOverviewItem[];
 }
 
-// Invitation/recovery links are hard navigations. Capture the fragment while
-// the application module initializes, before the provider client consumes and
-// removes its one-time credentials from the address bar.
-const AUTH_REDIRECT_FRAGMENT =
-  typeof window === "undefined" ? "" : window.location.hash;
-
 function csrf(): string {
   const item = document.cookie
     .split(";")
@@ -97,23 +90,9 @@ export function signInLoader({ request }: LoaderFunctionArgs): SignInLoaderData 
   return { next: safeCustomerPath(url.searchParams.get("next")) };
 }
 
-export async function invitationLoader(): Promise<InvitationLoaderData> {
-  const fragment = new URLSearchParams(
-    AUTH_REDIRECT_FRAGMENT.replace(/^#/, ""),
-  );
-  const flow = fragment.get("type");
-  const providerRedirect =
-    (flow === "invite" || flow === "recovery")
-    && Boolean(fragment.get("access_token"))
-    && Boolean(fragment.get("refresh_token"));
-  if (!providerRedirect) return { canAccept: false };
-
-  try {
-    await getProviderSession();
-    return { canAccept: true };
-  } catch {
-    return { canAccept: false };
-  }
+export async function invitationLoader({ request }: LoaderFunctionArgs): Promise<InvitationLoaderData> {
+  const params = new URL(request.url).searchParams;
+  return { canAccept: Boolean(params.get("token")) && !params.has("error") };
 }
 
 export async function exchangeJawnixSession(

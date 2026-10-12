@@ -1,0 +1,28 @@
+{
+  "dependencies": {
+    "@vercel/functions": "3.9.11",
+    "better-auth": "1.7.7",
+    "pg": "8.16.3",
+    "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@better-auth/utils": "0.5.0",
+    "@types/node": "22.18.6",
+    "@types/pg": "8.15.5",
+    "@types/qrcode": "1.5.5",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  },
+  "name": "jawnix-auth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "dev": "tsx src/server.ts",
+    "migrate": "tsx scripts/migrate.ts"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}

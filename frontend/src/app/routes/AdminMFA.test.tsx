@@ -168,7 +168,7 @@ describe("administrator MFA", () => {
     expect(screen.queryByText("MANUAL-KEY")).not.toBeInTheDocument();
     await user.click(
       await screen.findByRole("button", {
-        name: "Set up primary authenticator",
+        name: "Set up authenticator",
       }),
     );
 

@@ -35,14 +35,17 @@ export interface CustomerAuthMockState {
 }
 
 const ACCESS_TOKEN = "customer-provider-access-token-long-enough";
-const REFRESH_TOKEN = "customer-provider-refresh-token-long-enough";
 
 const USER = {
   id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   aud: "authenticated",
   role: "authenticated",
   email: "customer@example.com",
-  app_metadata: { jawnix_role: "customer", provider: "email", providers: ["email"] },
+  app_metadata: {
+    jawnix_role: "customer",
+    provider: "email",
+    providers: ["email"],
+  },
   user_metadata: {},
   identities: [],
   created_at: "2026-07-28T12:00:00Z",
@@ -59,24 +62,18 @@ function json(route: Route, value: unknown, status = 200) {
 
 function providerSession() {
   return {
-    access_token: ACCESS_TOKEN,
-    refresh_token: REFRESH_TOKEN,
-    token_type: "bearer",
-    expires_in: 3600,
-    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    session: {
+      id: "fixture-session",
+      token: ACCESS_TOKEN,
+      userId: USER.id,
+      expiresAt: new Date(Date.now() + 3600000).toISOString(),
+    },
     user: USER,
   };
 }
 
 export function invitationHash(): string {
-  const params = new URLSearchParams({
-    access_token: ACCESS_TOKEN,
-    refresh_token: REFRESH_TOKEN,
-    expires_in: "3600",
-    token_type: "bearer",
-    type: "invite",
-  });
-  return `#${params.toString()}`;
+  return "?token=fixture-one-time-password-token";
 }
 
 export async function mockCustomerAuth(
@@ -106,19 +103,10 @@ export async function mockCustomerAuth(
     typeof value === "function" ? value() : value;
 
   await page.addInitScript(() => {
-    (window as Window & {
-      JAWNIX_CONFIG?: {
-        supabaseUrl?: string;
-        supabaseAnonKey?: string;
-      };
-    }).JAWNIX_CONFIG = {
-      supabaseUrl: "https://auth.example.test",
-      supabaseAnonKey: "e2e-anon-key",
-    };
     document.cookie = "jawnix_csrf=e2e-csrf; path=/";
   });
 
-  await page.route("https://auth.example.test/**", async (route) => {
+  await page.route(/^https?:\/\/[^/]+\/auth\/.*$/, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const body = request.postDataJSON() as unknown;
@@ -128,7 +116,7 @@ export async function mockCustomerAuth(
       body,
     });
 
-    if (url.pathname.endsWith("/token")) {
+    if (url.pathname.endsWith("/sign-in/email")) {
       if (!settings.signInAccepted) {
         return json(
           route,
@@ -141,7 +129,7 @@ export async function mockCustomerAuth(
       }
       return json(route, providerSession());
     }
-    if (url.pathname.endsWith("/user") && request.method() === "PUT") {
+    if (url.pathname.endsWith("/reset-password")) {
       if (!settings.passwordUpdateAccepted) {
         return json(
           route,
@@ -152,14 +140,14 @@ export async function mockCustomerAuth(
           422,
         );
       }
-      return json(route, USER);
+      return json(route, { status: true });
     }
-    if (url.pathname.endsWith("/user")) {
-      return json(route, USER);
+    if (url.pathname.endsWith("/get-session")) {
+      return json(route, providerSession());
     }
-    if (url.pathname.endsWith("/logout")) {
+    if (url.pathname.endsWith("/sign-out")) {
       state.providerLogoutCalls += 1;
-      return route.fulfill({ status: 204 });
+      return json(route, { success: true });
     }
     return json(route, { message: "Unexpected provider request" }, 500);
   });
@@ -178,7 +166,8 @@ export async function mockCustomerAuth(
       ok: true,
       role: "customer",
       assurance: "aal1",
-      next: (body as { requested_next?: string }).requested_next ?? "/app/overview",
+      next:
+        (body as { requested_next?: string }).requested_next ?? "/app/overview",
     });
   });
 

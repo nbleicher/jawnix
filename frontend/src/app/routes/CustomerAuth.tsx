@@ -1,15 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import {
-  Link,
-  useLoaderData,
-  useNavigate,
-} from "react-router";
+import { Link, useLoaderData, useNavigate } from "react-router";
 
-import {
-  exchangeJawnixSession,
-  routerPath,
-} from "../auth/customerAuth";
+import { exchangeJawnixSession, routerPath } from "../auth/customerAuth";
 import type {
   InvitationLoaderData,
   SignInLoaderData,
@@ -17,6 +10,9 @@ import type {
 import {
   signInWithPassword,
   updateProviderPassword,
+  MFARequired,
+  verifyProviderSignIn,
+  requestProviderPasswordReset,
 } from "../auth/providerSession";
 import { BrandLockup, RoutingPlate } from "../../brand/BrandLockup";
 import { Button } from "../../design-system/primitives/Button";
@@ -77,6 +73,10 @@ export function SignInRoute() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mfa, setMfa] = useState(false);
+  const [recovery, setRecovery] = useState(false);
+  const [code, setCode] = useState("");
+  const [resetSent, setResetSent] = useState(false);
 
   useEffect(() => {
     if (error) errorRef.current?.focus();
@@ -88,11 +88,21 @@ export function SignInRoute() {
     setError("");
     setBusy(true);
     try {
-      const provider = await signInWithPassword(email.trim(), password);
+      const provider = mfa
+        ? await verifyProviderSignIn(code.trim(), recovery)
+        : await signInWithPassword(email.trim(), password);
       const session = await exchangeJawnixSession(provider.access_token, next);
       navigate(routerPath(session.next), { replace: true });
-    } catch {
-      setError(SIGN_IN_ERROR);
+    } catch (caught) {
+      if (caught instanceof MFARequired) {
+        setMfa(true);
+        setPassword("");
+      } else
+        setError(
+          mfa
+            ? "That code could not be verified. Check it and try again."
+            : SIGN_IN_ERROR,
+        );
     } finally {
       setBusy(false);
     }
@@ -101,32 +111,74 @@ export function SignInRoute() {
   return (
     <AuthRouteFrame>
       <AuthPanel
-        title="Sign in"
-        description="Use the email address and password for your Customer account."
+        title={mfa ? "Verify your sign-in" : "Sign in"}
+        description={
+          mfa
+            ? "Enter an authenticator code or one unused recovery code."
+            : "Use the email address and password for your Jawnix account."
+        }
       >
         <form className="jx-auth-form" onSubmit={submit} noValidate>
           {error ? <FormError errorRef={errorRef}>{error}</FormError> : null}
-          <Field label="Email address" required>
-            <Input
-              name="email"
-              type="email"
-              autoComplete="email"
-              inputMode="email"
-              value={email}
-              onChange={(event) => setEmail(event.currentTarget.value)}
-              required
-            />
-          </Field>
-          <Field label="Password" required>
-            <Input
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.currentTarget.value)}
-              required
-            />
-          </Field>
+          {resetSent ? (
+            <p role="status">
+              If that address has a Jawnix account, a password link is on its
+              way.
+            </p>
+          ) : null}
+          {mfa ? (
+            <>
+              <Field
+                label={
+                  recovery ? "Recovery code" : "Six-digit authenticator code"
+                }
+                required
+              >
+                <Input
+                  name="code"
+                  value={code}
+                  onChange={(event) => setCode(event.currentTarget.value)}
+                  autoComplete="one-time-code"
+                  inputMode={recovery ? "text" : "numeric"}
+                  required
+                  autoFocus
+                />
+              </Field>
+              <Button
+                type="button"
+                onClick={() => {
+                  setRecovery(!recovery);
+                  setCode("");
+                }}
+              >
+                {recovery ? "Use authenticator" : "Use recovery code"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Field label="Email address" required>
+                <Input
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  inputMode="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.currentTarget.value)}
+                  required
+                />
+              </Field>
+              <Field label="Password" required>
+                <Input
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.currentTarget.value)}
+                  required
+                />
+              </Field>
+            </>
+          )}
           <Button
             type="submit"
             variant="primary"
@@ -134,8 +186,28 @@ export function SignInRoute() {
             busy={busy}
             busyLabel="Signing in…"
           >
-            Sign in
+            {mfa ? "Verify and sign in" : "Sign in"}
           </Button>
+          {!mfa ? (
+            <Button
+              type="button"
+              disabled={busy || !email.trim()}
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  await requestProviderPasswordReset(email.trim());
+                  setResetSent(true);
+                } catch {
+                  setError("Password recovery is temporarily unavailable.");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Set or reset password
+            </Button>
+          ) : null}
         </form>
       </AuthPanel>
     </AuthRouteFrame>
@@ -166,7 +238,10 @@ function InvitationRecovery({ focus = false }: { focus?: boolean }) {
             </Link>
           }
         >
-          <p>A replacement goes to the same address the invitation left from. I never see your password.</p>
+          <p>
+            A replacement goes to the same address the invitation left from. I
+            never see your password.
+          </p>
         </AuthPanel>
       </div>
     </AuthRouteFrame>
@@ -205,12 +280,8 @@ export function AcceptInvitationRoute() {
     setConfirmationError("");
     setBusy(true);
     try {
-      const provider = await updateProviderPassword(password);
-      const session = await exchangeJawnixSession(
-        provider.access_token,
-        "/app/overview",
-      );
-      navigate(routerPath(session.next), { replace: true });
+      await updateProviderPassword(password);
+      navigate("/sign-in?password=updated", { replace: true });
     } catch {
       setInvitationFailed(true);
     } finally {
@@ -240,11 +311,7 @@ export function AcceptInvitationRoute() {
               required
             />
           </Field>
-          <Field
-            label="Confirm password"
-            error={confirmationError}
-            required
-          >
+          <Field label="Confirm password" error={confirmationError} required>
             <Input
               name="password_confirmation"
               type="password"

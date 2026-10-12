@@ -33,6 +33,8 @@ export interface EnrollmentSecret {
   qrCode: string;
   manualKey: string;
   uri: string;
+  backupCodes?: string[];
+  session?: { accessToken: string; refreshToken: string; expiresIn: number };
 }
 
 /** `detail` is a plain string on most failures, but blocked lifecycle actions

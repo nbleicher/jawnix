@@ -23,6 +23,7 @@ from .mfa_provider import (
     MFAProviderError,
     ProviderFactor,
     ProviderSession,
+    BetterAuthMFAProvider,
     SupabaseMFAProvider,
     get_mfa_provider,
 )
@@ -187,7 +188,7 @@ async def _identity_for_token(
             status_code=401,
             detail="The identity session is invalid or expired.",
         )
-    return user, claims
+    return {**user, "_jawnix_auth_claims": claims}, claims
 
 
 async def _factors(
@@ -248,7 +249,17 @@ async def admin_mfa_status(
 ):
     state = _state(db, principal.user_id)
     provider = get_mfa_provider(settings)
-    factors = await _factors(provider, principal)
+    if principal.session_generation != state.session_generation:
+        raise HTTPException(status_code=401, detail="This administrator session is no longer valid.")
+    if isinstance(provider, BetterAuthMFAProvider):
+        if not principal.provider_session_id:
+            raise HTTPException(status_code=401, detail="Sign in again to continue.")
+        try:
+            factors = await provider.list_factors(principal.user_id, session_id=principal.provider_session_id)
+        except MFAProviderError as error:
+            raise HTTPException(status_code=401 if error.expired_session else 503, detail="Administrator verification is unavailable. Sign in again to continue.") from None
+    else:
+        factors = await _factors(provider, principal)
     uses = {
         value.provider_factor_id: value
         for value in db.scalars(
@@ -260,7 +271,7 @@ async def admin_mfa_status(
     throttled, locked_until = _throttle_status(state, settings)
     db.commit()
     verified = _verified(factors)
-    if len(verified) < 2:
+    if len(verified) < 1:
         next_path = "/app/admin/mfa/enroll"
     elif principal.assurance != "aal2":
         next_path = "/app/admin/mfa/challenge"
@@ -268,7 +279,7 @@ async def admin_mfa_status(
         next_path = "/app/admin/overview"
     return {
         "assurance": principal.assurance,
-        "enforced": len(verified) >= 2,
+        "enforced": len(verified) >= 1,
         "stage": state.enrollment_stage,
         "factors": [
             _factor_json(factor, uses.get(factor.id)) for factor in factors
@@ -304,16 +315,10 @@ async def start_admin_mfa_enrollment(
     )
     factors = await _factors(provider, principal)
     verified = _verified(factors)
-    expected_slot = "primary" if not verified else "backup"
-    if payload.slot != expected_slot or len(verified) >= 2:
+    if payload.slot != "primary" or verified:
         raise HTTPException(
             status_code=409,
             detail="Authenticator enrollment is not at that step.",
-        )
-    if verified and str(claims.get("aal") or "aal1") != "aal2":
-        raise HTTPException(
-            status_code=401,
-            detail="Verify the enrolled authenticator before adding the backup.",
         )
 
     state = _state(db, principal.user_id)
@@ -336,10 +341,12 @@ async def start_admin_mfa_enrollment(
                 detail="Authenticator setup could not be restarted.",
             ) from None
     try:
-        enrolled = await provider.enroll(
-            payload.access_token,
-            f"Jawnix {payload.slot}",
-        )
+        if isinstance(provider, BetterAuthMFAProvider):
+            if not payload.password:
+                raise HTTPException(status_code=422, detail="Enter your password to start authenticator setup.")
+            enrolled = await provider.enroll(payload.access_token, "Jawnix authenticator", password=payload.password.get_secret_value())
+        else:
+            enrolled = await provider.enroll(payload.access_token, "Jawnix authenticator")
     except MFAProviderError:
         raise HTTPException(
             status_code=502,
@@ -365,6 +372,7 @@ async def start_admin_mfa_enrollment(
         "qrCode": enrolled.qr_code,
         "manualKey": enrolled.secret,
         "uri": enrolled.uri,
+        "backupCodes": list(enrolled.backup_codes),
     }
 
 
@@ -374,8 +382,13 @@ async def _verify_factor(
     access_token: str,
     factor_id: uuid.UUID,
     code: str,
+    method: str = "totp",
 ) -> ProviderSession:
     challenge_id = await provider.challenge(access_token, factor_id)
+    if isinstance(provider, BetterAuthMFAProvider):
+        return await provider.verify(access_token, factor_id, challenge_id, code, method=method)
+    if method != "totp":
+        raise MFAProviderError(invalid_code=True)
     return await provider.verify(
         access_token,
         factor_id,
@@ -407,6 +420,8 @@ async def verify_admin_mfa_enrollment(
             status_code=409,
             detail="No authenticator enrollment is awaiting verification.",
         )
+    if payload.method != "totp":
+        raise HTTPException(status_code=422, detail="Verify enrollment using your authenticator app.")
     provider = get_mfa_provider(settings)
     await _identity_for_token(provider, principal, payload.access_token)
     factor_id = state.active_factor_id
@@ -474,8 +489,8 @@ async def verify_admin_mfa_enrollment(
     _reset_failures(state)
     _record_factor_use(db, principal, factor_id, request)
     factors = await _factors(provider, principal)
-    complete = len(_verified(factors)) >= 2
-    state.enrollment_stage = "complete" if complete else "primary_verified"
+    complete = len(_verified(factors)) >= 1
+    state.enrollment_stage = "complete" if complete else "idle"
     action = (
         "admin_mfa_factor_replaced"
         if replacement_id is not None
@@ -547,6 +562,7 @@ async def challenge_admin_mfa(
             access_token=payload.access_token,
             factor_id=payload.factor_id,
             code=payload.code,
+            method=payload.method,
         )
     except MFAProviderError as exc:
         if not exc.invalid_code:
@@ -666,6 +682,7 @@ async def cancel_admin_mfa_enrollment(
 @router.post("/replacement")
 async def start_admin_mfa_replacement(
     payload: AdminMFAReplacementStart,
+    response: Response,
     principal: Principal = Depends(require_admin_identity),
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
@@ -683,7 +700,7 @@ async def start_admin_mfa_replacement(
         )
     factors = await _factors(provider, principal)
     verified_ids = {factor.id for factor in _verified(factors)}
-    if payload.lost_factor_id not in verified_ids or len(verified_ids) < 2:
+    if payload.lost_factor_id not in verified_ids:
         raise HTTPException(
             status_code=409,
             detail="That authenticator cannot be replaced from this session.",
@@ -695,15 +712,24 @@ async def start_admin_mfa_replacement(
             detail="Finish or cancel the current authenticator setup first.",
         )
     try:
-        enrolled = await provider.enroll(
-            payload.access_token,
-            "Jawnix replacement",
-        )
+        if isinstance(provider, BetterAuthMFAProvider):
+            if not payload.password:
+                raise HTTPException(status_code=422, detail="Enter your password to replace your authenticator.")
+            enrolled = await provider.enroll(payload.access_token, "Jawnix replacement", password=payload.password.get_secret_value(), replacement=True)
+        else:
+            enrolled = await provider.enroll(payload.access_token, "Jawnix replacement")
     except MFAProviderError:
         raise HTTPException(
             status_code=502,
             detail="Replacement authenticator setup could not be started.",
         ) from None
+    replacement_user = None
+    if enrolled.session:
+        replacement_user, _ = await _identity_for_token(
+            provider,
+            principal,
+            enrolled.session.access_token,
+        )
     state.enrollment_baseline_factor_ids = [
         str(factor.id) for factor in factors
     ]
@@ -718,12 +744,22 @@ async def start_admin_mfa_replacement(
         "Lost authenticator replacement started",
     )
     db.commit()
+    if replacement_user:
+        issue_session(
+            response,
+            replacement_user,
+            settings,
+            assurance="aal1",
+            session_generation=state.session_generation,
+        )
     return {
         "factorId": str(enrolled.id),
         "slot": "replacement",
         "qrCode": enrolled.qr_code,
         "manualKey": enrolled.secret,
         "uri": enrolled.uri,
+        "backupCodes": list(enrolled.backup_codes),
+        "session": _session_json(enrolled.session) if enrolled.session else None,
     }
 
 

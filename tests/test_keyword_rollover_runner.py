@@ -15,7 +15,7 @@ from jawnix.keyword_rollover import (
     ROLLOVER_ACTOR,
     run_automatic_keyword_rollover,
 )
-from jawnix.models import AuditEntry, KeywordHistory
+from jawnix.models import AuditEntry, KeywordHistory, KeywordCandidatePool
 
 from scraper_fake import GenerationFake, ScraperFake
 
@@ -53,13 +53,13 @@ def test_disabled_rollover_is_idle(session, settings):
     assert fake.keyword_writes == []
 
 
-def test_active_batch_is_idle(session, settings):
+def test_active_batch_fills_future_pool(session, settings):
     fake = ScraperFake()
     fake.rollover_enabled = True
 
     outcome = run(session, settings, fake, GenerationFake())
 
-    assert outcome == {"outcome": "idle", "state": "working"}
+    assert outcome == {"outcome": "pooling", "available": 10, "added": 10}
     assert fake.keyword_writes == []
 
 
@@ -70,7 +70,8 @@ def test_ready_rollover_generates_saves_and_records(session, settings):
     provider = GenerationFake()
     previous = list(fake.keywords)
 
-    outcome = run(session, settings, fake, provider)
+    for index in range(3):
+        outcome = run(session, settings, fake, provider, now=NOW + timedelta(minutes=index))
 
     assert outcome == {"outcome": "generated", "activated": 25}
     assert provider.calls[0]["mode"] == "broad"
@@ -84,8 +85,8 @@ def test_ready_rollover_generates_saves_and_records(session, settings):
             "message": "Activated 25 automatically generated keywords",
         }
     ]
-    assert audit_actions(session) == ["scraper_keyword_rollover_completed"]
-    entry = session.scalars(select(AuditEntry)).one()
+    assert audit_actions(session).count("scraper_keyword_pool_refilled") == 3
+    entry = session.scalars(select(AuditEntry).where(AuditEntry.action == "scraper_keyword_rollover_completed")).one()
     assert entry.actor_user_id == ROLLOVER_ACTOR
     assert entry.details["activatedCount"] == 25
     assert entry.details["enqueued"] is True
@@ -133,6 +134,9 @@ def test_generation_failure_records_error_event_and_cooldown(
         GenerationFake(),
         now=NOW + timedelta(minutes=20),
     )
+    assert recovered["outcome"] == "pooling"
+    for minute in (21, 22):
+        recovered = run(session, settings, fake, GenerationFake(), now=NOW + timedelta(minutes=minute))
     assert recovered["outcome"] == "generated"
 
 
@@ -157,7 +161,7 @@ def test_unconfigured_provider_records_error(session, settings):
     assert audit_actions(session) == ["scraper_keyword_rollover_failed"]
 
 
-def test_concurrent_list_change_discards_draft(session, settings):
+def test_concurrent_list_change_retains_candidates(session, settings):
     class DriftingFake(ScraperFake):
         async def list_keywords(self):
             workspace = await super().list_keywords()
@@ -168,9 +172,13 @@ def test_concurrent_list_change_discards_draft(session, settings):
     fake = DriftingFake()
     fake.rollover_enabled = True
     fake.rollover_state_override = "ready"
+    terms = GenerationFake().generate_keywords(mode="broad", excluded_keywords=[]).terms
+    session.add(KeywordCandidatePool(id=1, candidates=[{"term": term, "model": "fake"} for term in terms], focus_index=0))
+    session.flush()
 
     outcome = run(session, settings, fake, GenerationFake())
 
     assert outcome == {"outcome": "conflict"}
     assert fake.rollover_events == []
     assert audit_actions(session) == []
+    assert len(session.get(KeywordCandidatePool, 1).candidates) == 25
