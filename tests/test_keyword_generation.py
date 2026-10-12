@@ -89,10 +89,10 @@ def test_exact_near_and_historical_duplicates_are_filtered_with_adaptive_context
         "Roof Repairs",
         "Wedding Cakes",
         "Wedding Cake",
-        *candidates(1, 20),
+        *candidates(1, 6),
     ]
-    second = [*candidates(1, 5), *candidates(100, 30)]
-    responses = iter((completion(first), completion(second)))
+    second = [*candidates(1, 3), *candidates(100, 7)]
+    responses = iter((completion(first), completion(second), completion(candidates(200, 10)), completion(candidates(300, 1))))
 
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(json.loads(request.content))
@@ -112,7 +112,7 @@ def test_exact_near_and_historical_duplicates_are_filtered_with_adaptive_context
     assert "PLUMBERS" not in result.terms
     assert "Roof Repairs" not in result.terms
     assert not ({"Wedding Cakes", "Wedding Cake"} <= set(result.terms))
-    assert result.candidate_metrics["attemptCount"] == 2
+    assert result.candidate_metrics["attemptCount"] == 4
     assert result.candidate_metrics["rejectionReasons"]["duplicate"] >= 4
     retry = json.loads(requests[1]["messages"][1]["content"])["retry_context"]
     assert retry["accepted_keywords"] == result.terms[
@@ -140,7 +140,7 @@ def test_production_sized_history_is_visible_to_generation():
                 *candidates(10_000 + call * 100, 2),
             ]
         else:
-            terms = candidates(20_000, requested)
+            terms = candidates(20_000 + len(requests) * 100, requested)
         return completion(terms)
 
     provider = OpenRouterGenerationProvider(
@@ -185,7 +185,7 @@ def test_duplicate_heavy_generation_has_a_broader_five_attempt_budget():
 
     assert len(result.terms) == 25
     assert result.candidate_metrics["attemptCount"] == 5
-    assert requested_counts == [75, 60, 60, 60, 60]
+    assert requested_counts == [10, 10, 10, 10, 5]
 
 
 @pytest.mark.parametrize(

@@ -1,20 +1,11 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-import {
-  invitationHash,
-  mockCustomerAuth,
-} from "./customer-auth-fixtures";
+import { invitationHash, mockCustomerAuth } from "./customer-auth-fixtures";
 
 const INVITATION_RECOVERY =
   "This invitation cannot be used. Email noah@jawnix.com and I'll send a replacement, or sign in if you already set your password.";
-const WCAG_AA_TAGS = [
-  "wcag2a",
-  "wcag2aa",
-  "wcag21a",
-  "wcag21aa",
-  "wcag22aa",
-];
+const WCAG_AA_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 test.describe("Static authentication", () => {
   test("sign-in is a static plate with no WebGL scene", async ({ page }) => {
@@ -75,10 +66,9 @@ test.describe("Customer sign-in and session lifecycle", () => {
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
     // Headings are Inter in the fresh register; Archivo survives only in the
     // frozen wordmark.
-    await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toHaveCSS(
-      "font-family",
-      /Inter/,
-    );
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Sign in" }),
+    ).toHaveCSS("font-family", /Inter/);
     await expect(page.locator(".jx-lockup__wordmark")).toHaveCSS(
       "font-family",
       /Archivo/,
@@ -129,8 +119,12 @@ test.describe("Customer sign-in and session lifecycle", () => {
   test("presents a focused, non-revealing sign-in error", async ({ page }) => {
     await mockCustomerAuth(page, { signInAccepted: false });
     await page.goto("./sign-in");
-    await page.getByLabel("Email address (required)").fill("customer@example.com");
-    await page.getByLabel("Password (required)").fill("customer-known-password-48");
+    await page
+      .getByLabel("Email address (required)")
+      .fill("customer@example.com");
+    await page
+      .getByLabel("Password (required)")
+      .fill("customer-known-password-48");
     await page.getByRole("button", { name: "Sign in" }).click();
 
     const error = page.getByRole("alert");
@@ -138,8 +132,12 @@ test.describe("Customer sign-in and session lifecycle", () => {
     await expect(error).toHaveText(
       "We could not sign you in. Check your details, or email noah@jawnix.com — Noah answers it.",
     );
-    await expect(page.locator("body")).not.toContainText("provider-known-secret-48");
-    await expect(page.locator("body")).not.toContainText("customer-known-password-48");
+    await expect(page.locator("body")).not.toContainText(
+      "provider-known-secret-48",
+    );
+    await expect(page.locator("body")).not.toContainText(
+      "customer-known-password-48",
+    );
   });
 
   test("returns an expired protected session to sign-in with a safe destination", async ({
@@ -148,9 +146,7 @@ test.describe("Customer sign-in and session lifecycle", () => {
     await mockCustomerAuth(page, { overviewStatus: 401 });
     await page.goto("./account");
 
-    await expect(page).toHaveURL(
-      /\/app\/sign-in\?next=%2Fapp%2Faccount$/,
-    );
+    await expect(page).toHaveURL(/\/app\/sign-in\?next=%2Fapp%2Faccount$/);
     await expect(
       page.getByRole("heading", { level: 1, name: "Sign in" }),
     ).toBeVisible();
@@ -161,7 +157,7 @@ test.describe("Customer sign-in and session lifecycle", () => {
 });
 
 test.describe("Customer invitation acceptance", () => {
-  test("sets the Customer's password and establishes the Jawnix session", async ({
+  test("sets the Customer's password and returns to sign-in", async ({
     page,
   }) => {
     const state = await mockCustomerAuth(page);
@@ -169,21 +165,27 @@ test.describe("Customer invitation acceptance", () => {
     await page.goto(`./accept-invitation${invitationHash()}`);
 
     await expect(
-      page.getByText(
-        "Your administrator cannot see or set this password.",
-        { exact: false },
-      ),
+      page.getByText("Your administrator cannot see or set this password.", {
+        exact: false,
+      }),
     ).toBeVisible();
-    await page.getByLabel("Password (required)", { exact: true }).fill(password);
-    await page.getByLabel("Confirm password (required)", { exact: true }).fill(password);
-    await page.getByLabel("Confirm password (required)", { exact: true }).press("Enter");
+    await page
+      .getByLabel("Password (required)", { exact: true })
+      .fill(password);
+    await page
+      .getByLabel("Confirm password (required)", { exact: true })
+      .fill(password);
+    await page
+      .getByLabel("Confirm password (required)", { exact: true })
+      .press("Enter");
 
-    await expect(page).toHaveURL(/\/app\/overview$/);
+    await expect(page).toHaveURL(/\/app\/sign-in\?password=updated$/);
     const update = state.providerRequests.find(
       (request) =>
-        request.path === "/auth/v1/user" && request.method === "PUT",
+        request.path === "/auth/reset-password" && request.method === "POST",
     );
-    expect(update?.body).toMatchObject({ password });
+    expect(update?.body).toMatchObject({ newPassword: password });
+    expect(state.sessionRequests).toEqual([]);
     expect(JSON.stringify(state.sessionRequests)).not.toContain(password);
   });
 
@@ -194,10 +196,12 @@ test.describe("Customer invitation acceptance", () => {
     await page.goto(`./accept-invitation${invitationHash()}`);
     const password = page.getByLabel("Password (required)", { exact: true });
     await password.fill("first-known-password-48");
-    await page.getByLabel("Confirm password (required)", { exact: true }).fill(
-      "second-known-password-48",
-    );
-    await page.getByLabel("Confirm password (required)", { exact: true }).press("Enter");
+    await page
+      .getByLabel("Confirm password (required)", { exact: true })
+      .fill("second-known-password-48");
+    await page
+      .getByLabel("Confirm password (required)", { exact: true })
+      .press("Enter");
 
     await expect(page.getByRole("alert")).toHaveText(
       "The passwords do not match.",
@@ -212,9 +216,17 @@ test.describe("Customer invitation acceptance", () => {
 
   for (const scenario of [
     { name: "invalid", hash: "", options: {} },
-    { name: "expired", hash: invitationHash(), options: { passwordUpdateAccepted: false } },
+    {
+      name: "expired",
+      hash: invitationHash(),
+      options: { passwordUpdateAccepted: false },
+    },
     { name: "reused", hash: "", options: {} },
-    { name: "replaced", hash: invitationHash(), options: { sessionExchangeStatus: 403 } },
+    {
+      name: "replaced",
+      hash: invitationHash(),
+      options: { passwordUpdateAccepted: false },
+    },
   ] as const) {
     test(`${scenario.name} invitations have the same accessible recovery response`, async ({
       page,
@@ -223,19 +235,21 @@ test.describe("Customer invitation acceptance", () => {
       await page.goto(`./accept-invitation${scenario.hash}`);
 
       if (scenario.hash) {
-        await page.getByLabel("Password (required)", { exact: true }).fill(
-          "customer-known-password-48",
-        );
-        await page.getByLabel("Confirm password (required)", { exact: true }).fill(
-          "customer-known-password-48",
-        );
+        await page
+          .getByLabel("Password (required)", { exact: true })
+          .fill("customer-known-password-48");
+        await page
+          .getByLabel("Confirm password (required)", { exact: true })
+          .fill("customer-known-password-48");
         await page.getByRole("button", { name: "Create password" }).click();
       }
 
       const recovery = page.getByRole("alert");
       await expect(recovery).toContainText("Request a new invitation");
       await expect(recovery).toContainText(INVITATION_RECOVERY);
-      await expect(page.getByRole("link", { name: "Go to sign in" })).toBeVisible();
+      await expect(
+        page.getByRole("link", { name: "Go to sign in" }),
+      ).toBeVisible();
       await expect(page.locator("body")).not.toContainText(
         "provider-known-secret-48",
       );

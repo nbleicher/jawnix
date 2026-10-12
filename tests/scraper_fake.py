@@ -493,6 +493,7 @@ class GenerationFake:
         excluded_keywords,
         seed_keyword=None,
         count=25,
+        industry_focus=None,
     ) -> KeywordGenerationResult:
         self.calls.append(
             {
@@ -500,11 +501,14 @@ class GenerationFake:
                 "excluded_keywords": list(excluded_keywords),
                 "seed_keyword": seed_keyword,
                 "count": count,
+                "industry_focus": industry_focus,
             }
         )
         if self.error:
             raise self.error
-        terms = [f"Unused Trade {index}" for index in range(1, count + 1)]
+        import hashlib
+        offset = len(excluded_keywords) * 100
+        terms = ["Trade " + hashlib.sha256(str(offset + index).encode()).hexdigest()[:10] for index in range(count)]
         return KeywordGenerationResult(
             terms=terms,
             excluded_count=7,

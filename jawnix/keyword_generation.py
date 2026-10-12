@@ -31,6 +31,19 @@ from .models import KeywordGenerationDraftRecord, KeywordHistory
 
 KEYWORD_GENERATION_COUNT = 25
 KEYWORD_GENERATION_MAX_ATTEMPTS = 5
+KEYWORD_CANDIDATE_BATCH_SIZE = 10
+KEYWORD_INDUSTRY_FOCI = (
+    "industrial machinery, controls, and fabrication",
+    "environmental measurement and commercial maintenance",
+    "agricultural equipment and business supplies",
+    "transportation equipment and specialist repair",
+    "arts, entertainment, and event production trades",
+    "food processing equipment and commercial suppliers",
+    "specialist restoration and conservation workshops",
+    "storage, packaging, and logistics services",
+    "technical testing, calibration, and training",
+    "textile, print, and materials production",
+)
 NICHE_PROPOSAL_MAX_ATTEMPTS = 3
 KEYWORD_DRAFT_TTL = timedelta(hours=24)
 KEYWORD_DRAFT_RETENTION = timedelta(days=90)
@@ -102,6 +115,9 @@ class KeywordGenerationError(Exception):
         self.status_code = status_code
         self.retryable = retryable
         self.metrics = metrics or {}
+        # A failed run can still have useful, fully filtered work. The caller
+        # decides whether to retain it; it must never activate a partial batch.
+        self.partial_terms: list[str] = []
 
 
 ERRORS: Mapping[GenerationErrorCode, KeywordGenerationError] = {
@@ -218,6 +234,7 @@ class GenerationProvider(Protocol):
         mode: Literal["broad", "adjacent"],
         excluded_keywords: Iterable[str],
         seed_keyword: str | None = None,
+        industry_focus: str | None = None,
         count: int = KEYWORD_GENERATION_COUNT,
     ) -> KeywordGenerationResult: ...
 
@@ -261,9 +278,7 @@ def is_near_duplicate(candidate: str, existing: str) -> bool:
         return True
     candidate_set, existing_set = set(candidate_tokens), set(existing_tokens)
     if candidate_set and existing_set:
-        overlap = len(candidate_set & existing_set) / len(
-            candidate_set | existing_set
-        )
+        overlap = len(candidate_set & existing_set) / len(candidate_set | existing_set)
         if overlap >= 0.8:
             return True
     return SequenceMatcher(None, candidate_key, existing_key).ratio() >= 0.88
@@ -356,6 +371,17 @@ def _filter_candidates(
     return selected, rejected, reasons
 
 
+def validated_keyword_terms(
+    candidates: Iterable[str],
+    excluded: Iterable[str],
+    *,
+    limit: int,
+) -> list[str]:
+    """Recheck stored work with the same policy as freshly generated terms."""
+    selected, _, _ = _filter_candidates(candidates, list(excluded), [], remaining=limit)
+    return selected
+
+
 class OpenRouterGenerationProvider:
     """OpenRouter adapter implementing every generation policy internally."""
 
@@ -401,6 +427,7 @@ class OpenRouterGenerationProvider:
         accepted: list[str],
         rejected: list[dict[str, str]],
         previous_error: str | None,
+        industry_focus: str,
     ) -> list[dict[str, str]]:
         system = (
             "You generate concise English Google Maps search categories for "
@@ -420,6 +447,7 @@ class OpenRouterGenerationProvider:
             "mode": mode,
             "candidate_count": count,
             "excluded_keywords": excluded,
+            "industry_focus": industry_focus,
         }
         if accepted or rejected or previous_error:
             instruction["retry_context"] = {
@@ -427,8 +455,8 @@ class OpenRouterGenerationProvider:
                 "rejected_candidates": rejected[-_PROMPT_REJECTION_LIMIT:],
                 "previous_error": previous_error,
                 "instruction": (
-                    "Keep the accepted terms and replace only missing or rejected "
-                    "candidates with distinct alternatives."
+                    "Accepted terms are already retained. Return only additional "
+                    "candidates outside the accepted and rejected lists."
                 ),
             }
         if mode == "adjacent":
@@ -439,7 +467,8 @@ class OpenRouterGenerationProvider:
             )
         else:
             instruction["broad_rule"] = (
-                "Cover varied local-service and storefront industries."
+                "Find distinct specialist local-business types within the "
+                "industry focus. Every excluded term is already used."
             )
         return [
             {"role": "system", "content": system},
@@ -456,17 +485,19 @@ class OpenRouterGenerationProvider:
         response_schema: dict[str, object],
         schema_name: str,
         max_tokens: int,
-        temperature: float,
+        temperature: float | None,
         deadline: float,
+        model: str | None = None,
     ) -> object:
+        started = time.monotonic()
+        self._last_request_metrics = {}
         api_key = self._api_key()
         if not api_key:
             raise generation_error(GenerationErrorCode.NOT_CONFIGURED)
         timeout = self._remaining(deadline)
         payload = {
-            "model": self.model,
+            "model": model or self.model,
             "messages": messages,
-            "temperature": temperature,
             "max_tokens": max_tokens,
             "reasoning": {"enabled": False, "exclude": True},
             "stream": False,
@@ -480,6 +511,8 @@ class OpenRouterGenerationProvider:
                 },
             },
         }
+        if temperature is not None:
+            payload["temperature"] = temperature
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -499,9 +532,10 @@ class OpenRouterGenerationProvider:
         except httpx.TimeoutException as error:
             raise generation_error(GenerationErrorCode.TIMEOUT) from error
         except httpx.HTTPError as error:
-            raise generation_error(
-                GenerationErrorCode.PROVIDER_UNREACHABLE
-            ) from error
+            raise generation_error(GenerationErrorCode.PROVIDER_UNREACHABLE) from error
+        self._last_request_metrics = {
+            "latencyMs": round((time.monotonic() - started) * 1000)
+        }
         self._remaining(deadline)
         error_codes = {
             400: GenerationErrorCode.PROVIDER_REJECTED,
@@ -519,6 +553,10 @@ class OpenRouterGenerationProvider:
             )
         try:
             data = response.json()
+            usage = data.get("usage") or {}
+            for key in ("prompt_tokens", "completion_tokens", "cost"):
+                if isinstance(usage.get(key), (int, float)):
+                    self._last_request_metrics[key] = usage[key]
             choice = data["choices"][0]
             if choice.get("finish_reason") == "length":
                 raise generation_error(GenerationErrorCode.TRUNCATED)
@@ -536,6 +574,7 @@ class OpenRouterGenerationProvider:
         excluded_keywords: Iterable[str],
         seed_keyword: str | None = None,
         count: int = KEYWORD_GENERATION_COUNT,
+        industry_focus: str | None = None,
     ) -> KeywordGenerationResult:
         if mode == "adjacent" and not seed_keyword:
             raise generation_error(GenerationErrorCode.INVALID_SEED)
@@ -555,10 +594,27 @@ class OpenRouterGenerationProvider:
         attempts: list[dict[str, object]] = []
         deadline = self._deadline()
         last_error: KeywordGenerationError | None = None
+        configured_models = list(
+            dict.fromkeys(
+                [
+                    self.model,
+                    *(
+                        item.strip()
+                        for item in self._settings.openrouter_keyword_fallback_models.split(
+                            ","
+                        )
+                        if item.strip()
+                    ),
+                ]
+            )
+        )
+        model_index = 0
+        term_models: dict[str, str] = {}
 
         for attempt_number in range(1, KEYWORD_GENERATION_MAX_ATTEMPTS + 1):
             remaining_count = count - len(accepted)
-            requested_count = min(80, max(60, remaining_count * 3))
+            requested_count = min(KEYWORD_CANDIDATE_BATCH_SIZE, remaining_count)
+            request_model = configured_models[model_index]
             try:
                 content = self._request(
                     messages=self._keyword_messages(
@@ -569,50 +625,83 @@ class OpenRouterGenerationProvider:
                         accepted=accepted,
                         rejected=rejected_context,
                         previous_error=(last_error.code.value if last_error else None),
+                        industry_focus=industry_focus
+                        or (
+                            f"specialist businesses related to {seed_keyword}"
+                            if mode == "adjacent"
+                            else KEYWORD_INDUSTRY_FOCI[
+                                (attempt_number - 1) % len(KEYWORD_INDUSTRY_FOCI)
+                            ]
+                        ),
                     ),
                     response_schema={
                         "type": "object",
                         "properties": {
                             "keywords": {
                                 "type": "array",
-                                "minItems": requested_count,
+                                "minItems": 1,
                                 "maxItems": requested_count,
-                                "items": {"type": "string"},
+                                "items": {
+                                    "type": "string",
+                                    "minLength": 2,
+                                    "maxLength": 60,
+                                },
                             }
                         },
                         "required": ["keywords"],
                         "additionalProperties": False,
                     },
                     schema_name="keyword_candidates",
-                    max_tokens=1600,
-                    temperature=0.9,
+                    max_tokens=800,
+                    temperature=None,
                     deadline=deadline,
+                    model=request_model,
                 )
                 candidates = parse_candidate_content(content)
+                if (
+                    not candidates
+                    or len(candidates) > requested_count
+                    or not all(isinstance(item, str) for item in candidates)
+                ):
+                    raise generation_error(GenerationErrorCode.MALFORMED)
             except KeywordGenerationError as error:
                 last_error = error
                 attempts.append(
                     {
                         "attempt": attempt_number,
+                        "model": request_model,
                         "requested": requested_count,
                         "candidates": 0,
                         "accepted": 0,
                         "rejected": 0,
                         "surplus": 0,
                         "error": error.code.value,
+                        "usage": dict(self._last_request_metrics),
                     }
                 )
-                if not error.retryable:
+                model_specific_error = error.code in {
+                    GenerationErrorCode.PROVIDER_REJECTED,
+                    GenerationErrorCode.MODEL_FORBIDDEN,
+                }
+                if not error.retryable and not (
+                    model_specific_error and model_index + 1 < len(configured_models)
+                ):
                     error.metrics = {
                         "attemptCount": len(attempts),
-                        "candidateCount": 0,
+                        "candidateCount": sum(
+                            int(item["candidates"]) for item in attempts
+                        ),
                         "acceptedCount": len(accepted),
                         "rejectedCount": sum(rejection_reasons.values()),
-                        "surplusCount": 0,
+                        "surplusCount": sum(int(item["surplus"]) for item in attempts),
                         "rejectionReasons": dict(rejection_reasons),
                         "attempts": attempts,
+                        "termModels": dict(term_models),
                     }
+                    error.partial_terms = list(accepted)
                     raise
+                if model_index + 1 < len(configured_models):
+                    model_index += 1
                 continue
 
             selected, rejected, reasons = _filter_candidates(
@@ -622,11 +711,13 @@ class OpenRouterGenerationProvider:
                 remaining=remaining_count,
             )
             accepted.extend(selected)
+            term_models.update({term: request_model for term in selected})
             rejected_context.extend(rejected)
             rejection_reasons.update(reasons)
             attempts.append(
                 {
                     "attempt": attempt_number,
+                    "model": request_model,
                     "requested": requested_count,
                     "candidates": len(candidates),
                     "accepted": len(selected),
@@ -636,6 +727,7 @@ class OpenRouterGenerationProvider:
                         len(candidates) - len(selected) - len(rejected),
                     ),
                     "error": None,
+                    "usage": dict(self._last_request_metrics),
                 }
             )
             last_error = None
@@ -650,13 +742,18 @@ class OpenRouterGenerationProvider:
                         ),
                         "acceptedCount": len(accepted),
                         "rejectedCount": sum(rejection_reasons.values()),
-                        "surplusCount": sum(
-                            int(item["surplus"]) for item in attempts
-                        ),
+                        "surplusCount": sum(int(item["surplus"]) for item in attempts),
                         "rejectionReasons": dict(rejection_reasons),
                         "attempts": attempts,
+                        "termModels": dict(term_models),
                     },
                 )
+            # Transport success is insufficient: a model that mostly repeats
+            # history must yield to a measured fallback within this same budget.
+            if len(selected) / requested_count < 0.3 and model_index + 1 < len(
+                configured_models
+            ):
+                model_index += 1
 
         failure_metrics = {
             "attemptCount": len(attempts),
@@ -666,12 +763,15 @@ class OpenRouterGenerationProvider:
             "surplusCount": sum(int(item["surplus"]) for item in attempts),
             "rejectionReasons": dict(rejection_reasons),
             "attempts": attempts,
+            "termModels": dict(term_models),
         }
         if last_error is not None:
             last_error.metrics = failure_metrics
+            last_error.partial_terms = list(accepted)
             raise last_error
         error = generation_error(GenerationErrorCode.INSUFFICIENT_CANDIDATES)
         error.metrics = failure_metrics
+        error.partial_terms = list(accepted)
         raise error
 
     def propose_niches(
@@ -687,7 +787,7 @@ class OpenRouterGenerationProvider:
             // NICHE_PROPOSAL_MAX_ATTEMPTS,
         )
         batches = [
-            segments[offset:offset + batch_size]
+            segments[offset : offset + batch_size]
             for offset in range(0, len(segments), batch_size)
         ]
         proposals_by_id: dict[str, str] = {}
@@ -755,8 +855,7 @@ class OpenRouterGenerationProvider:
                     content = json.loads(content)
                 proposals = content["proposals"]
                 by_id = {
-                    str(item["id"]): str(item["niche"]).strip()
-                    for item in proposals
+                    str(item["id"]): str(item["niche"]).strip() for item in proposals
                 }
                 if set(by_id) != expected or not all(by_id.values()):
                     raise ValueError

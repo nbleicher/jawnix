@@ -115,146 +115,143 @@ export async function mockAdminMFA(
     document.cookie = "jawnix_csrf=e2e-csrf; path=/";
   });
 
-  await page.route(
-    /\/api\/auth\/admin-mfa(?:\/.*)?$/,
-    async (route) => {
-      const request = route.request();
-      const path = new URL(request.url()).pathname;
-      const method = request.method();
+  await page.route(/\/api\/auth\/admin-mfa(?:\/.*)?$/, async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    const method = request.method();
 
-      if (path.endsWith("/access")) {
-        return json(route, { ok: true });
-      }
-      if (path === "/api/auth/admin-mfa" && method === "GET") {
-        const verifiedCount = state.factors.filter(
-          (factor) => factor.status === "verified",
-        ).length;
-        return json(route, {
-          assurance: state.assurance,
-          enforced: verifiedCount >= 2,
-          stage: state.stage,
-          factors: state.factors,
-          throttled: state.throttled,
-          lockedUntil: state.lockedUntil,
-          next:
-            verifiedCount < 2
-              ? "/app/admin/mfa/enroll"
-              : state.assurance === "aal2"
-                ? "/app/admin/overview"
-                : "/app/admin/mfa/challenge",
-        });
-      }
-      if (path.endsWith("/enrollment") && method === "POST") {
-        const body = request.postDataJSON() as { slot: "primary" | "backup" };
-        const id =
-          body.slot === "primary"
-            ? "33333333-3333-4333-8333-333333333333"
-            : "44444444-4444-4444-8444-444444444444";
-        state.stage = `${body.slot}_pending`;
-        state.factors.push({
-          id,
-          name: `Jawnix ${body.slot}`,
-          status: "unverified",
-          type: "totp",
-          createdAt: "2026-07-28T13:00:00Z",
-          lastUsedAt: null,
-          lastUsedFrom: null,
-        });
-        return json(route, {
-          factorId: id,
-          slot: body.slot,
-          qrCode: "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"10\" height=\"10\"/></svg>",
-          manualKey: `MANUAL-${body.slot.toUpperCase()}-KEY`,
-          uri: "otpauth://totp/Jawnix",
-        });
-      }
-      if (path.endsWith("/enrollment/verify")) {
-        const pending = state.factors.find(
-          (factor) => factor.status === "unverified",
-        );
-        if (pending) pending.status = "verified";
-        const complete =
-          state.factors.filter((factor) => factor.status === "verified").length >=
-          2;
-        state.stage = complete ? "complete" : "primary_verified";
-        state.assurance = "aal2";
-        return json(route, {
-          ok: true,
-          complete,
-          next: complete
-            ? "/app/admin/overview"
-            : "/app/admin/mfa/enroll",
-          session: {
-            accessToken: "provider-aal2-access-token-long-enough",
-            refreshToken: "provider-refresh-token-long-enough",
-            expiresIn: 3600,
+    if (path.endsWith("/access")) {
+      return json(route, { ok: true });
+    }
+    if (path === "/api/auth/admin-mfa" && method === "GET") {
+      const verifiedCount = state.factors.filter(
+        (factor) => factor.status === "verified",
+      ).length;
+      return json(route, {
+        assurance: state.assurance,
+        enforced: verifiedCount >= 1,
+        stage: state.stage,
+        factors: state.factors,
+        throttled: state.throttled,
+        lockedUntil: state.lockedUntil,
+        next:
+          verifiedCount < 1
+            ? "/app/admin/mfa/enroll"
+            : state.assurance === "aal2"
+              ? "/app/admin/overview"
+              : "/app/admin/mfa/challenge",
+      });
+    }
+    if (path.endsWith("/enrollment") && method === "POST") {
+      const body = request.postDataJSON() as { slot: "primary" | "backup" };
+      const id =
+        body.slot === "primary"
+          ? "33333333-3333-4333-8333-333333333333"
+          : "44444444-4444-4444-8444-444444444444";
+      state.stage = `${body.slot}_pending`;
+      state.factors.push({
+        id,
+        name: `Jawnix ${body.slot}`,
+        status: "unverified",
+        type: "totp",
+        createdAt: "2026-07-28T13:00:00Z",
+        lastUsedAt: null,
+        lastUsedFrom: null,
+      });
+      return json(route, {
+        factorId: id,
+        slot: body.slot,
+        qrCode:
+          '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>',
+        manualKey: `MANUAL-${body.slot.toUpperCase()}-KEY`,
+        uri: "otpauth://totp/Jawnix",
+        backupCodes: ["recovery-one", "recovery-two"],
+      });
+    }
+    if (path.endsWith("/enrollment/verify")) {
+      const pending = state.factors.find(
+        (factor) => factor.status === "unverified",
+      );
+      if (pending) pending.status = "verified";
+      const complete =
+        state.factors.filter((factor) => factor.status === "verified").length >=
+        1;
+      state.stage = complete ? "complete" : "primary_verified";
+      state.assurance = "aal2";
+      return json(route, {
+        ok: true,
+        complete,
+        next: complete ? "/app/admin/overview" : "/app/admin/mfa/enroll",
+        session: {
+          accessToken: "provider-aal2-access-token-long-enough",
+          refreshToken: "provider-refresh-token-long-enough",
+          expiresIn: 3600,
+        },
+      });
+    }
+    if (path.endsWith("/enrollment/cancel")) {
+      state.cancelCalls += 1;
+      state.factors = state.factors.filter(
+        (factor) => factor.status === "verified",
+      );
+      state.stage = state.factors.length ? "complete" : "idle";
+      return json(route, {
+        ok: true,
+        next: "/app/admin/mfa/enroll",
+      });
+    }
+    if (path.endsWith("/challenge")) {
+      const body = request.postDataJSON() as { code: string };
+      if (body.code === "000000") {
+        state.challengeFailures += 1;
+        return json(
+          route,
+          {
+            detail: "That code could not be verified. Check it and try again.",
           },
-        });
-      }
-      if (path.endsWith("/enrollment/cancel")) {
-        state.cancelCalls += 1;
-        state.factors = state.factors.filter(
-          (factor) => factor.status === "verified",
+          422,
         );
-        state.stage = state.factors.length ? "complete" : "idle";
-        return json(route, {
-          ok: true,
-          next: "/app/admin/mfa/enroll",
-        });
       }
-      if (path.endsWith("/challenge")) {
-        const body = request.postDataJSON() as { code: string };
-        if (body.code === "000000") {
-          state.challengeFailures += 1;
-          return json(
-            route,
-            {
-              detail:
-                "That code could not be verified. Check it and try again.",
-            },
-            422,
-          );
-        }
-        state.assurance = "aal2";
-        return json(route, {
-          ok: true,
-          next: "/app/admin/overview",
-          session: {
-            accessToken: "provider-aal2-access-token-long-enough",
-            refreshToken: "provider-refresh-token-long-enough",
-            expiresIn: 3600,
-          },
-        });
-      }
-      if (path.endsWith("/replacement")) {
-        state.stage = "replacement_pending";
-        const replacement: MockFactor = {
-          id: "55555555-5555-4555-8555-555555555555",
-          name: "Jawnix replacement",
-          status: "unverified",
-          type: "totp",
-          createdAt: "2026-07-28T14:00:00Z",
-          lastUsedAt: null,
-          lastUsedFrom: null,
-        };
-        state.factors.push(replacement);
-        return json(route, {
-          factorId: replacement.id,
-          slot: "replacement",
-          qrCode: "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"10\" height=\"10\"/></svg>",
-          manualKey: "MANUAL-REPLACEMENT-KEY",
-          uri: "otpauth://totp/Jawnix",
-        });
-      }
-      if (path.endsWith("/logout-everywhere")) {
-        return json(route, {
-          ok: true,
-          providerLogoutCompleted: true,
-        });
-      }
-      return json(route, { detail: "Unexpected mock request" }, 500);
-    },
-  );
+      state.assurance = "aal2";
+      return json(route, {
+        ok: true,
+        next: "/app/admin/overview",
+        session: {
+          accessToken: "provider-aal2-access-token-long-enough",
+          refreshToken: "provider-refresh-token-long-enough",
+          expiresIn: 3600,
+        },
+      });
+    }
+    if (path.endsWith("/replacement")) {
+      state.stage = "replacement_pending";
+      const replacement: MockFactor = {
+        id: "55555555-5555-4555-8555-555555555555",
+        name: "Jawnix replacement",
+        status: "unverified",
+        type: "totp",
+        createdAt: "2026-07-28T14:00:00Z",
+        lastUsedAt: null,
+        lastUsedFrom: null,
+      };
+      state.factors.push(replacement);
+      return json(route, {
+        factorId: replacement.id,
+        slot: "replacement",
+        qrCode:
+          '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>',
+        manualKey: "MANUAL-REPLACEMENT-KEY",
+        uri: "otpauth://totp/Jawnix",
+      });
+    }
+    if (path.endsWith("/logout-everywhere")) {
+      return json(route, {
+        ok: true,
+        providerLogoutCompleted: true,
+      });
+    }
+    return json(route, { detail: "Unexpected mock request" }, 500);
+  });
 
   await page.route(/\/api\/admin\/scraper(?:\/.*)?$/, async (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -304,10 +301,7 @@ export async function mockAdminMFA(
       return json(route, monitoringSnapshot());
     }
     if (path.includes("/monitoring/")) {
-      return json(
-        route,
-        monitoringRegion(path.split("/").pop() as RegionKey),
-      );
+      return json(route, monitoringRegion(path.split("/").pop() as RegionKey));
     }
     if (path.endsWith("/pipeline")) {
       return json(route, pausedPipelineResult());

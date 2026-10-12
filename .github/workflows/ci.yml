@@ -19,6 +19,45 @@ permissions:
   contents: read
 
 jobs:
+  auth:
+    name: Better Auth (typecheck, integration)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: jawnix_test
+          POSTGRES_PASSWORD: jawnix_test
+          POSTGRES_DB: jawnix_auth_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jawnix_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: auth-service
+    env:
+      JAWNIX_AUTH_TEST_DATABASE_URL: postgres://jawnix_test:jawnix_test@127.0.0.1:5432/jawnix_auth_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: auth-service/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - uses: astral-sh/setup-uv@v9.0.0
+      - run: uv sync --python 3.12 --extra test
+        working-directory: .
+      - name: Verify the Jawnix session and scraper boundary against Better Auth
+        run: uv run pytest tests/test_better_auth_bridge.py
+        working-directory: .
+
   frontend:
     name: Frontend (typecheck, unit, e2e)
     runs-on: ubuntu-latest

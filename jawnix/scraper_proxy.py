@@ -406,6 +406,7 @@ async def complete_scraper_step_up(
             access_token=payload.access_token,
             factor_id=payload.factor_id,
             code=payload.code,
+            method=payload.method,
         )
     except MFAProviderError as exc:
         if not exc.invalid_code:

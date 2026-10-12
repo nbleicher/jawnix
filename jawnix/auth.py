@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from .config import Settings, get_settings
 from .database import get_db
-from .mfa_provider import MFAProviderError, get_mfa_provider
+from .mfa_provider import BetterAuthMFAProvider, MFAProviderError, get_mfa_provider
 from .models import AdminMFAState
 
 
@@ -28,6 +28,7 @@ class Principal:
     audience: str = "customer"
     session_generation: int = 0
     factor_id: uuid.UUID | None = None
+    provider_session_id: str | None = None
 
 
 def _serializer(settings: Settings) -> URLSafeTimedSerializer:
@@ -70,6 +71,8 @@ def issue_session(
             "generation": session_generation,
             "factor_id": str(factor_id) if factor_id else None,
             "csrf": csrf,
+            "provider": settings.auth_provider,
+            "provider_sid": claims.get("sessionId"),
         }
     )
     cookie_common = {
@@ -89,6 +92,7 @@ def issue_session(
         audience=audience,
         session_generation=session_generation,
         factor_id=factor_id,
+        provider_session_id=claims.get("sessionId"),
     )
 
 
@@ -103,6 +107,8 @@ def principal_from_request(request: Request, settings: Settings) -> Principal:
         raise HTTPException(status_code=401, detail="Login required.")
     try:
         payload = _serializer(settings).loads(token, max_age=settings.session_ttl_seconds)
+        if payload.get("provider", "supabase") != settings.auth_provider:
+            raise ValueError("Identity provider changed")
         return Principal(
             user_id=uuid.UUID(str(payload["sub"])),
             email=str(payload["email"]),
@@ -119,6 +125,7 @@ def principal_from_request(request: Request, settings: Settings) -> Principal:
                 if payload.get("factor_id")
                 else None
             ),
+            provider_session_id=payload.get("provider_sid"),
         )
     except (BadSignature, SignatureExpired, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Session expired.") from None
@@ -159,10 +166,16 @@ async def require_admin(
             headers={"X-Jawnix-Auth-Next": "/app/admin/mfa/enroll"},
         )
     try:
-        factors = await get_mfa_provider(settings).list_factors(
-            principal.user_id
-        )
-    except MFAProviderError:
+        provider = get_mfa_provider(settings)
+        if isinstance(provider, BetterAuthMFAProvider):
+            if not principal.provider_session_id:
+                raise MFAProviderError(expired_session=True)
+            factors = await provider.list_factors(principal.user_id, session_id=principal.provider_session_id)
+        else:
+            factors = await provider.list_factors(principal.user_id)
+    except MFAProviderError as error:
+        if error.expired_session:
+            raise HTTPException(status_code=401, detail="This administrator session is no longer valid.") from None
         # Live state is necessary, not advisory.  Provider failure therefore
         # fails closed instead of falling back to the signed cookie claim.
         raise HTTPException(
@@ -170,7 +183,7 @@ async def require_admin(
             detail="Administrator verification is temporarily unavailable.",
         ) from None
     verified = [factor for factor in factors if factor.verified_totp]
-    if len(verified) < 2:
+    if len(verified) < 1:
         raise HTTPException(
             status_code=401,
             detail="Administrator MFA enrollment is required.",

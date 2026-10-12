@@ -9,7 +9,7 @@ The active product that turns acquired lead data into approved lead batches deli
 _Avoid_: Lead tracker, lead-to-cash platform
 
 **Administrator Assurance**:
-The strength of the identity verification completed for an Administrator Session; administration requires a password plus a currently verified Authenticator Factor.
+The strength of the identity verification completed for an Administrator Session; administration requires a password plus verification by a currently enrolled Authenticator Factor or an unused Recovery Code.
 _Avoid_: Login status, trusted browser
 
 **Authenticator Factor**:
@@ -20,16 +20,16 @@ _Avoid_: Verification code, MFA secret
 The Authenticator Factor an administrator normally uses to establish Administrator Assurance.
 _Avoid_: Only factor, default password
 
-**Backup Authenticator**:
-A second verified Authenticator Factor stored separately from the Primary Authenticator and used when the primary is unavailable.
-_Avoid_: Recovery code, duplicate authenticator
+**Recovery Code**:
+A single-use credential stored separately from the Authenticator Factor that restores Administrator Assurance when the authenticator is unavailable.
+_Avoid_: Backup authenticator, reusable recovery password
 
 **Scraper Privileged Session**:
-A short-lived grant to Scraper Operations established by a fresh Authenticator Factor challenge on every entry, independent of an existing Administrator Session's assurance.
+A short-lived grant to Scraper Operations established by fresh Authenticator Factor or Recovery Code verification on every entry, independent of an existing Administrator Session's assurance.
 _Avoid_: Administrator session, trusted Scraper access, persistent elevation
 
 **Break-glass Recovery**:
-A two-person, explicitly authorized operator procedure that revokes Administrator Sessions and restores access only to Authenticator Factor enrollment after both factors are lost.
+A two-person, explicitly authorized operator procedure that revokes Administrator Sessions and restores access only to Authenticator Factor enrollment after the authenticator and all Recovery Codes are lost.
 _Avoid_: Password reset, self-service recovery, administrator bypass
 
 **Scraper**:

@@ -270,7 +270,7 @@ def test_require_admin_enforces_live_aal_factor_and_generation(
         provider.factors = [backup]
         revoked = challenged.get("/api/admin/nightly-reviews")
         assert revoked.status_code == 401
-        assert "enrollment" in revoked.json()["detail"].lower()
+        assert "no longer active" in revoked.json()["detail"].lower()
 
         provider.factors = [primary, backup]
         stale, _ = session_client(
@@ -377,7 +377,7 @@ def test_every_administrator_route_observably_passes_through_the_mfa_gate(
         app.dependency_overrides.clear()
 
 
-def test_dual_enrollment_is_resumable_audited_and_activates_atomically(
+def test_one_authenticator_enrollment_is_audited_and_activates_atomically(
     session,
     mfa_settings,
     monkeypatch,
@@ -413,11 +413,11 @@ def test_dual_enrollment_is_resumable_audited_and_activates_atomically(
             },
         )
         assert verified_primary.status_code == 200
-        assert verified_primary.json()["complete"] is False
+        assert verified_primary.json()["complete"] is True
         assert verified_primary.json()["session"]["accessToken"].find(
             "aal2"
         ) >= 0
-        assert client.get("/api/admin/nightly-reviews").status_code == 401
+        assert client.get("/api/admin/nightly-reviews").status_code == 200
 
         backup = client.post(
             "/api/auth/admin-mfa/enrollment",
@@ -427,20 +427,8 @@ def test_dual_enrollment_is_resumable_audited_and_activates_atomically(
                 "slot": "backup",
             },
         )
-        assert backup.status_code == 200
-        assert len(provider.factors) == 2
-
-        verified_backup = client.post(
-            "/api/auth/admin-mfa/enrollment/verify",
-            headers={"X-CSRF-Token": client.cookies[CSRF_COOKIE]},
-            json={
-                "access_token": "provider-aal2-access-token-long-enough",
-                "code": "123-456",
-            },
-        )
-        assert verified_backup.status_code == 200
-        assert verified_backup.json()["complete"] is True
-        assert client.get("/api/admin/nightly-reviews").status_code == 200
+        assert backup.status_code == 422
+        assert len(provider.factors) == 1
 
         session.refresh(state)
         assert state.enrollment_stage == "complete"
@@ -451,8 +439,6 @@ def test_dual_enrollment_is_resumable_audited_and_activates_atomically(
             )
         ]
         assert actions == [
-            "admin_mfa_enrollment_started",
-            "admin_mfa_factor_verified",
             "admin_mfa_enrollment_started",
             "admin_mfa_factor_verified",
         ]

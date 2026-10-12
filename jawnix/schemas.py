@@ -10,6 +10,8 @@ from pydantic import (
     ConfigDict,
     EmailStr,
     Field,
+    SecretStr,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -29,15 +31,19 @@ class AdminMFAAccessToken(BaseModel):
 
 
 class AdminMFAEnrollStart(AdminMFAAccessToken):
-    slot: str = Field(pattern="^(primary|backup)$")
+    slot: Literal["primary"] = "primary"
+    password: SecretStr | None = Field(default=None, max_length=200)
 
 
 class AdminMFACode(AdminMFAAccessToken):
+    method: Literal["totp", "recovery"] = "totp"
     code: str = Field(min_length=6, max_length=32)
 
     @field_validator("code")
     @classmethod
-    def normalize_code(cls, value: str) -> str:
+    def normalize_code(cls, value: str, info: ValidationInfo) -> str:
+        if info.data.get("method") == "recovery":
+            return value.strip()
         normalized = "".join(character for character in value if character.isdigit())
         if len(normalized) != 6:
             raise ValueError("Enter the six-digit authenticator code.")
@@ -50,6 +56,7 @@ class AdminMFAChallenge(AdminMFACode):
 
 class AdminMFAReplacementStart(AdminMFAAccessToken):
     lost_factor_id: uuid.UUID
+    password: SecretStr | None = Field(default=None, max_length=200)
 
 
 class ProfileUpdate(BaseModel):

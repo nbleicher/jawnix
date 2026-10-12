@@ -18,9 +18,7 @@ test.describe("Administrator MFA", () => {
     await page
       .getByLabel("Six-digit authenticator code (required)")
       .fill("000 000");
-    await page
-      .getByRole("button", { name: "Verify and continue" })
-      .click();
+    await page.getByRole("button", { name: "Verify and continue" }).click();
     await expect(page.getByRole("alert")).toContainText(
       "could not be verified",
     );
@@ -29,13 +27,11 @@ test.describe("Administrator MFA", () => {
     await page
       .getByLabel("Six-digit authenticator code (required)")
       .fill("123-456");
-    await page
-      .getByRole("button", { name: "Verify and continue" })
-      .click();
+    await page.getByRole("button", { name: "Verify and continue" }).click();
     await expect(page).toHaveURL(/\/app\/admin\/overview$/);
   });
 
-  test("enrolls primary and separately stored backup factors", async ({
+  test("enrolls one authenticator and requires recovery codes to be saved", async ({
     page,
   }) => {
     const state = await mockAdminMFA(page, {
@@ -44,9 +40,7 @@ test.describe("Administrator MFA", () => {
     });
     await page.goto("./admin/mfa/enroll");
 
-    await page
-      .getByRole("button", { name: "Set up primary authenticator" })
-      .click();
+    await page.getByRole("button", { name: "Set up authenticator" }).click();
     await expect(
       page.getByAltText("QR code for the primary authenticator"),
     ).toBeVisible();
@@ -56,30 +50,19 @@ test.describe("Administrator MFA", () => {
     // asking the provider to create a different secret.
     await page.reload();
     await expect(page.getByText("MANUAL-PRIMARY-KEY")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Verify authenticator" }),
+    ).toBeDisabled();
+    await page.getByLabel("I saved my recovery codes").check();
     await page
       .getByLabel("Six-digit authenticator code (required)")
       .fill("123 456");
     await page.getByRole("button", { name: "Verify authenticator" }).click();
 
-    await expect(
-      page.getByRole("heading", {
-        level: 1,
-        name: "Set up your backup authenticator",
-      }),
-    ).toBeVisible();
-    await page
-      .getByRole("button", { name: "Set up backup authenticator" })
-      .click();
-    await expect(page.getByText(/somewhere other than your primary device/)).toBeVisible();
-    await page
-      .getByLabel("Six-digit authenticator code (required)")
-      .fill("654321");
-    await page.getByRole("button", { name: "Verify authenticator" }).click();
-
     await expect(page).toHaveURL(/\/app\/admin\/overview$/);
     expect(
       state.factors.filter((factor) => factor.status === "verified"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   test("cancels an incomplete enrollment without leaving a factor behind", async ({
@@ -90,15 +73,11 @@ test.describe("Administrator MFA", () => {
       stage: "idle",
     });
     await page.goto("./admin/mfa/enroll");
-    await page
-      .getByRole("button", { name: "Set up primary authenticator" })
-      .click();
-    await page
-      .getByRole("button", { name: "Cancel enrollment" })
-      .click();
+    await page.getByRole("button", { name: "Set up authenticator" }).click();
+    await page.getByRole("button", { name: "Cancel enrollment" }).click();
 
     await expect(
-      page.getByRole("button", { name: "Set up primary authenticator" }),
+      page.getByRole("button", { name: "Set up authenticator" }),
     ).toBeVisible();
     expect(state.cancelCalls).toBe(1);
     expect(state.factors).toEqual([]);
@@ -122,12 +101,8 @@ test.describe("Administrator MFA", () => {
     await expect(
       page.getByText("There is no self-service reset."),
     ).toBeVisible();
-    await page
-      .getByRole("link", { name: "Choose the backup authenticator" })
-      .click();
-    await expect(
-      page.getByText("Jawnix backup", { exact: true }),
-    ).toBeVisible();
+    await page.getByRole("link", { name: "Enter a recovery code" }).click();
+    await expect(page.getByLabel("Recovery code (required)")).toBeVisible();
 
     await page.goto("./admin/security");
     await page
