@@ -248,6 +248,41 @@ async def _activate_pool(
     counts: dict,
     now: datetime,
 ) -> dict:
+    # A model request can take minutes. Recheck readiness and permanent history
+    # after it returns, before submitting the version-checked activation.
+    try:
+        latest = await operations.list_keywords()
+        winners = await operations.keyword_winners()
+    except ScraperOperationsError as error:
+        _record_failure(
+            session,
+            reason="Automatic keyword rollover could not revalidate candidates",
+            details={
+                "outcome": "revalidation_failed",
+                "upstreamStatus": error.status_code,
+            },
+            now=now,
+        )
+        await _record_error_event(
+            operations, "Automatic rollover could not revalidate the prepared keywords"
+        )
+        return {"outcome": "revalidation_failed"}
+    if latest.version != workspace.version:
+        return {"outcome": "conflict"}
+    if not latest.rollover.enabled or latest.rollover.state != "ready":
+        return {"outcome": "pooling", "available": len(pool.candidates), "added": 0}
+    exclusions, counts = exclusion_metrics(
+        active=latest.current,
+        winners=(winner.keyword for winner in winners),
+        history=keyword_history_terms(session),
+    )
+    valid = validated_keyword_terms(
+        (item["term"] for item in pool.candidates), exclusions, limit=POOL_TARGET
+    )
+    by_term = {item["term"]: item for item in reversed(pool.candidates)}
+    pool.candidates = [by_term[term] for term in valid]
+    if len(pool.candidates) < 25:
+        return {"outcome": "pooling", "available": len(pool.candidates), "added": 0}
     selected = pool.candidates[:25]
     terms = [item["term"] for item in selected]
 

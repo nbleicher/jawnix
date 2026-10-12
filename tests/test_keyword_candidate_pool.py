@@ -307,3 +307,94 @@ def test_credit_failure_preserves_partial_work_and_stops_fallback_requests(
         .one()
     )
     assert entry.details["candidateMetrics"]["candidateCount"] == 10
+
+
+def test_history_import_during_generation_is_rechecked_before_activation(
+    session, settings
+):
+    prepared = terms(1, 15)
+    session.add(
+        models.KeywordCandidatePool(
+            id=1,
+            candidates=[{"term": term, "model": "previous/model"} for term in prepared],
+        )
+    )
+    session.commit()
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "ready"
+
+    def handler(request):
+        observe_keyword_history(
+            session, prepared[:1], origin="active_list", observed_at=NOW
+        )
+        return completion(terms(100, 10))
+
+    outcome = run(session, settings, operations, provider(settings, handler))
+
+    assert outcome["outcome"] == "pooling"
+    assert outcome["available"] == 24
+    assert operations.keyword_writes == []
+    assert prepared[0] not in [item["term"] for item in pool(session).candidates]
+
+
+def test_work_started_during_generation_delays_activation(session, settings):
+    prepared = terms(1, 15)
+    session.add(
+        models.KeywordCandidatePool(
+            id=1,
+            candidates=[{"term": term, "model": "previous/model"} for term in prepared],
+        )
+    )
+    session.commit()
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "ready"
+
+    def handler(request):
+        operations.rollover_state_override = "working"
+        return completion(terms(100, 10))
+
+    outcome = run(session, settings, operations, provider(settings, handler))
+
+    assert outcome["outcome"] == "pooling"
+    assert outcome["available"] == 25
+    assert operations.keyword_writes == []
+
+
+def test_failed_activation_revalidation_keeps_newly_generated_candidates(
+    session, settings
+):
+    class UnavailableReread(ScraperFake):
+        reads = 0
+
+        async def list_keywords(self):
+            self.reads += 1
+            if self.reads == 2:
+                raise ScraperOperationsError(status_code=503)
+            return await super().list_keywords()
+
+    prepared = terms(1, 15)
+    session.add(
+        models.KeywordCandidatePool(
+            id=1,
+            candidates=[{"term": term, "model": "previous/model"} for term in prepared],
+        )
+    )
+    session.commit()
+    operations = UnavailableReread()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "ready"
+
+    outcome = run(
+        session,
+        settings,
+        operations,
+        provider(settings, lambda request: completion(terms(100, 10))),
+    )
+    session.commit()
+
+    assert outcome == {"outcome": "revalidation_failed"}
+    assert operations.keyword_writes == []
+    with Session(session.get_bind(), expire_on_commit=False) as restarted:
+        assert len(pool(restarted).candidates) == 25
