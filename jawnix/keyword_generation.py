@@ -554,9 +554,13 @@ class OpenRouterGenerationProvider:
         try:
             data = response.json()
             usage = data.get("usage") or {}
-            for key in ("prompt_tokens", "completion_tokens", "cost"):
+            for key, metric in (
+                ("prompt_tokens", "inputUnits"),
+                ("completion_tokens", "outputUnits"),
+                ("cost", "cost"),
+            ):
                 if isinstance(usage.get(key), (int, float)):
-                    self._last_request_metrics[key] = usage[key]
+                    self._last_request_metrics[metric] = usage[key]
             choice = data["choices"][0]
             if choice.get("finish_reason") == "length":
                 raise generation_error(GenerationErrorCode.TRUNCATED)

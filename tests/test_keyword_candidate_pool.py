@@ -34,12 +34,13 @@ def completion(candidates):
     return httpx.Response(
         200,
         json={
+            "usage": {"prompt_tokens": 13517, "completion_tokens": 110, "cost": 0.017},
             "choices": [
                 {
                     "finish_reason": "stop",
                     "message": {"content": json.dumps({"keywords": candidates})},
                 }
-            ]
+            ],
         },
     )
 
@@ -82,6 +83,15 @@ def test_partial_generation_survives_a_new_database_session(
     assert outcome["outcome"] == "pooling"
     assert outcome["available"] == 3
     assert operations.keyword_writes == []
+    entry = (
+        session.query(models.AuditEntry)
+        .filter_by(action="scraper_keyword_pool_refilled")
+        .one()
+    )
+    usage = entry.details["candidateMetrics"]["attempts"][0]["usage"]
+    assert usage["inputUnits"] == 13517
+    assert usage["outputUnits"] == 110
+    assert usage["cost"] == 0.017
     session.commit()
     with Session(session.get_bind(), expire_on_commit=False) as restarted:
         assert [item["term"] for item in pool(restarted).candidates] == terms(1, 3)
