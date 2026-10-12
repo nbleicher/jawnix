@@ -125,3 +125,79 @@
     scroll-behavior: auto;
   }
 }
+
+/* Scraper pages share the register used by the portal. Other acquisition
+   workspaces keep their existing frame. */
+.jx-terminal[aria-label="Scraper Operations workspace"] {
+  overflow: visible;
+  border: 0;
+  background: transparent;
+}
+
+.jx-terminal[aria-label="Scraper Operations workspace"] .jx-terminal__masthead {
+  padding-inline: 0;
+  border-block: 1px solid var(--jx-line);
+}
+
+.jx-terminal[aria-label="Scraper Operations workspace"] .jx-terminal__identity {
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-medium);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
+}
+
+.jx-terminal[aria-label="Scraper Operations workspace"] .jx-terminal__status::before {
+  color: var(--jx-ink);
+}
+
+.jx-terminal[aria-label="Scraper Operations workspace"]
+  :is(.jx-terminal__status--warning, .jx-terminal__status--offline)::before {
+  color: var(--jx-danger);
+}
+
+.jx-terminal[aria-label="Scraper Operations workspace"] .jx-terminal__grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.jx-terminal[aria-label="Scraper Operations workspace"] .jx-terminal__rail {
+  min-width: 0;
+  padding: 0;
+  border-right: 0;
+  border-bottom: 1px solid var(--jx-line);
+}
+
+.jx-terminal[aria-label="Scraper Operations workspace"] .jx-terminal__label {
+  display: none;
+}
+
+.jx-terminal[aria-label="Scraper Operations workspace"] .jx-terminal__rail-list {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--jx-space-5);
+  margin: 0;
+  overflow-x: auto;
+}
+
+.jx-terminal[aria-label="Scraper Operations workspace"] .jx-terminal__rail-list li {
+  flex: 0 0 auto;
+}
+
+.jx-terminal[aria-label="Scraper Operations workspace"] .jx-terminal__rail a {
+  padding: var(--jx-space-2) 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--jx-ink-muted);
+  background: transparent;
+  font-size: var(--jx-text-xs);
+}
+
+.jx-terminal[aria-label="Scraper Operations workspace"]
+  .jx-terminal__rail a:is(:hover, [aria-current="page"]) {
+  color: var(--jx-ink);
+  border-bottom-color: var(--jx-ink);
+}
+
+.jx-terminal[aria-label="Scraper Operations workspace"] .jx-terminal__content {
+  padding: var(--jx-space-6) 0;
+}

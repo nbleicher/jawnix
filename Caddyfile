@@ -85,6 +85,12 @@
 {$JAWNIX_SCRAPER_OPS_DOMAIN:scraper.jawnix.com} {
 	encode zstd gzip
 
+	# The operator UI lives in the branded React shell. The dedicated origin
+	# keeps the legacy authenticated proxy paths, but its entry opens the
+	# native workspace and its existing administrator/MFA checks.
+	@workspace_entry path / /index.html
+	redir @workspace_entry {$JAWNIX_PUBLIC_BASE_URL:https://jawnix.com}/app/admin/acquisition/scraper 302
+
 	handle /admin/scraper* {
 		reverse_proxy api:8001
 	}
