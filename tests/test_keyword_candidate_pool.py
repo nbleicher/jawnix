@@ -274,3 +274,36 @@ def test_event_failure_after_activation_still_commits_history_and_removes_pool(
     with Session(session.get_bind(), expire_on_commit=False) as restarted:
         assert pool(restarted).candidates == []
         assert restarted.query(models.KeywordHistory).count() >= 25
+
+
+def test_credit_failure_preserves_partial_work_and_stops_fallback_requests(
+    session, settings
+):
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "ready"
+    history = terms(1, 6)
+    observe_keyword_history(session, history, origin="active_list", observed_at=NOW)
+    requests = []
+
+    def handler(request):
+        requests.append(json.loads(request.content))
+        if len(requests) == 1:
+            return completion([*history, *terms(100, 4)])
+        return httpx.Response(402, json={"error": {"message": "Insufficient credit"}})
+
+    config = settings.model_copy(
+        update={"openrouter_keyword_fallback_models": "fixture/fallback"}
+    )
+    outcome = run(session, config, operations, provider(config, handler))
+
+    assert outcome == {"outcome": "pooling", "available": 4, "added": 4}
+    assert len(requests) == 2
+    assert all(request["model"] == settings.openrouter_model for request in requests)
+    assert pool(session).next_refill_at == NOW + timedelta(minutes=15)
+    entry = (
+        session.query(models.AuditEntry)
+        .filter_by(action="scraper_keyword_pool_refilled")
+        .one()
+    )
+    assert entry.details["candidateMetrics"]["candidateCount"] == 10

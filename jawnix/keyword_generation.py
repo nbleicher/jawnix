@@ -688,10 +688,12 @@ class OpenRouterGenerationProvider:
                 ):
                     error.metrics = {
                         "attemptCount": len(attempts),
-                        "candidateCount": 0,
+                        "candidateCount": sum(
+                            int(item["candidates"]) for item in attempts
+                        ),
                         "acceptedCount": len(accepted),
                         "rejectedCount": sum(rejection_reasons.values()),
-                        "surplusCount": 0,
+                        "surplusCount": sum(int(item["surplus"]) for item in attempts),
                         "rejectionReasons": dict(rejection_reasons),
                         "attempts": attempts,
                         "termModels": dict(term_models),
