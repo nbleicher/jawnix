@@ -194,6 +194,26 @@ def test_generation_uses_small_industry_focused_requests(settings):
     assert instruction["industry_focus"]
 
 
+def test_business_names_are_audit_values_rather_than_secret_field_names(
+    session, settings
+):
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "working"
+    candidates = ["Signature stamp engravers", *terms(1, 9)]
+
+    outcome = run(
+        session,
+        settings,
+        operations,
+        provider(settings, lambda request: completion(candidates)),
+    )
+    session.commit()
+
+    assert outcome["available"] == 10
+    assert pool(session).candidates[0]["term"] == "Signature stamp engravers"
+
+
 def test_adjacent_generation_keeps_the_seed_as_its_industry_focus(settings):
     instructions = []
 

@@ -700,7 +700,10 @@ class OpenRouterGenerationProvider:
                         "surplusCount": sum(int(item["surplus"]) for item in attempts),
                         "rejectionReasons": dict(rejection_reasons),
                         "attempts": attempts,
-                        "termModels": dict(term_models),
+                        "termModels": [
+                            {"term": term, "model": model}
+                            for term, model in term_models.items()
+                        ],
                     }
                     error.partial_terms = list(accepted)
                     raise
@@ -749,7 +752,10 @@ class OpenRouterGenerationProvider:
                         "surplusCount": sum(int(item["surplus"]) for item in attempts),
                         "rejectionReasons": dict(rejection_reasons),
                         "attempts": attempts,
-                        "termModels": dict(term_models),
+                        "termModels": [
+                            {"term": term, "model": model}
+                            for term, model in term_models.items()
+                        ],
                     },
                 )
             # Transport success is insufficient: a model that mostly repeats
@@ -767,7 +773,9 @@ class OpenRouterGenerationProvider:
             "surplusCount": sum(int(item["surplus"]) for item in attempts),
             "rejectionReasons": dict(rejection_reasons),
             "attempts": attempts,
-            "termModels": dict(term_models),
+            "termModels": [
+                {"term": term, "model": model} for term, model in term_models.items()
+            ],
         }
         if last_error is not None:
             last_error.metrics = failure_metrics
