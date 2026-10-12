@@ -16,6 +16,22 @@ heartbeat = load("heartbeat", SCALE / "worker" / "heartbeat.py")
 uptime = load("uptime_probe", SCALE / "control" / "uptime_probe.py")
 
 
+def test_worker_collection_excludes_the_application_worker(monkeypatch):
+    class Result:
+        returncode = 0
+        stdout = ""
+
+    def docker_ps(command, **kwargs):
+        result = Result()
+        result.stdout = "gms-scale-worker-1\n"
+        if "label=com.docker.compose.project=gms-scale" not in command:
+            result.stdout += "jawnix-worker-1\n"
+        return result
+
+    monkeypatch.setattr(heartbeat, "run", docker_ps)
+    assert heartbeat.docker_service_containers("worker") == ["gms-scale-worker-1"]
+
+
 def test_memory_and_spool_metrics(tmp_path):
     memory = tmp_path / "meminfo"
     memory.write_text("MemTotal:       1000 kB\nMemAvailable:    250 kB\n")

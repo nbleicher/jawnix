@@ -13,7 +13,7 @@ import (
 
 // noopSave records the entries it receives without touching a DB.
 func noopSave(dst *[]*gmaps.Entry) SaveFunc {
-	return func(_ context.Context, _ int64, _ string, entries []*gmaps.Entry) error {
+	return func(_ context.Context, _ int64, _, _, _ string, entries []*gmaps.Entry) error {
 		if dst != nil {
 			*dst = entries
 		}
@@ -26,7 +26,7 @@ func TestCentralWriter_AddResultThenFlush(t *testing.T) {
 	var saved []*gmaps.Entry
 	cw := NewCentralWriter(nil, noopSave(&saved))
 
-	ch := cw.RegisterJob("job1", 100, "restaurants")
+	ch := cw.RegisterJob("job1", 100, "restaurants", "40,-83", "oh")
 	cw.AddResult("job1", &gmaps.Entry{Title: "Place A"})
 	cw.AddResult("job1", &gmaps.Entry{Title: "Place B"})
 	cw.Flush("job1")
@@ -46,7 +46,7 @@ func TestCentralWriter_AddResultThenFlush(t *testing.T) {
 
 func TestCentralWriter_MarkDoneFlushes(t *testing.T) {
 	cw := NewCentralWriter(nil, noopSave(nil))
-	ch := cw.RegisterJob("job1", 100, "restaurants")
+	ch := cw.RegisterJob("job1", 100, "restaurants", "40,-83", "oh")
 	cw.AddResult("job1", &gmaps.Entry{Title: "Place A"})
 
 	cw.MarkDone("job1")
@@ -64,7 +64,7 @@ func TestCentralWriter_MarkDoneFlushesWithSave(t *testing.T) {
 	var saved []*gmaps.Entry
 	cw := NewCentralWriter(nil, noopSave(&saved))
 
-	ch := cw.RegisterJob("job1", 100, "restaurants")
+	ch := cw.RegisterJob("job1", 100, "restaurants", "40,-83", "oh")
 	cw.AddResult("job1", &gmaps.Entry{Title: "Place A"})
 	cw.MarkDone("job1")
 
@@ -84,7 +84,7 @@ func TestCentralWriter_ForceFlush(t *testing.T) {
 	var saved []*gmaps.Entry
 	cw := NewCentralWriter(nil, noopSave(&saved))
 
-	ch := cw.RegisterJob("job1", 100, "restaurants")
+	ch := cw.RegisterJob("job1", 100, "restaurants", "40,-83", "oh")
 	cw.AddResult("job1", &gmaps.Entry{Title: "Place A"})
 	cw.ForceFlush("job1")
 
@@ -101,12 +101,12 @@ func TestCentralWriter_ForceFlush(t *testing.T) {
 
 func TestCentralWriter_DoubleFlushIdempotent(t *testing.T) {
 	saveCount := 0
-	cw := NewCentralWriter(nil, func(_ context.Context, _ int64, _ string, _ []*gmaps.Entry) error {
+	cw := NewCentralWriter(nil, func(_ context.Context, _ int64, _, _, _ string, _ []*gmaps.Entry) error {
 		saveCount++
 		return nil
 	})
 
-	ch := cw.RegisterJob("job1", 100, "restaurants")
+	ch := cw.RegisterJob("job1", 100, "restaurants", "40,-83", "oh")
 	cw.AddResult("job1", &gmaps.Entry{Title: "Place A"})
 	cw.ForceFlush("job1")
 	<-ch
@@ -120,7 +120,7 @@ func TestCentralWriter_DoubleFlushIdempotent(t *testing.T) {
 func TestCentralWriter_AddResultAfterFlush(_ *testing.T) {
 	cw := NewCentralWriter(nil, noopSave(nil))
 
-	ch := cw.RegisterJob("job1", 100, "restaurants")
+	ch := cw.RegisterJob("job1", 100, "restaurants", "40,-83", "oh")
 	cw.ForceFlush("job1")
 	<-ch
 
@@ -135,7 +135,7 @@ func TestCentralWriter_OnResultsSavedCallback(t *testing.T) {
 
 	cw.OnResultsSaved = func(count int) { callbackCount = count }
 
-	ch := cw.RegisterJob("job1", 100, "restaurants")
+	ch := cw.RegisterJob("job1", 100, "restaurants", "40,-83", "oh")
 	cw.AddResult("job1", &gmaps.Entry{Title: "A"})
 	cw.AddResult("job1", &gmaps.Entry{Title: "B"})
 	cw.AddResult("job1", &gmaps.Entry{Title: "C"})
@@ -151,7 +151,7 @@ func TestCentralWriter_EmptyFlushNoCallback(t *testing.T) {
 	called := false
 	cw.OnResultsSaved = func(_ int) { called = true }
 
-	ch := cw.RegisterJob("job1", 100, "restaurants")
+	ch := cw.RegisterJob("job1", 100, "restaurants", "40,-83", "oh")
 	cw.ForceFlush("job1")
 	<-ch
 
@@ -170,7 +170,7 @@ func TestCentralWriter_ZeroResultFlush(t *testing.T) {
 	var saved []*gmaps.Entry
 	cw := NewCentralWriter(nil, noopSave(&saved))
 
-	ch := cw.RegisterJob("job1", 100, "restaurants")
+	ch := cw.RegisterJob("job1", 100, "restaurants", "40,-83", "oh")
 	// No results added — simulates GmapJob error / no places found
 	cw.Flush("job1")
 
@@ -187,12 +187,12 @@ func TestCentralWriter_ZeroResultFlush(t *testing.T) {
 
 func TestCentralWriter_DiscardDropsTrackedJobWithoutSave(t *testing.T) {
 	saveCount := 0
-	cw := NewCentralWriter(nil, func(_ context.Context, _ int64, _ string, _ []*gmaps.Entry) error {
+	cw := NewCentralWriter(nil, func(_ context.Context, _ int64, _, _, _ string, _ []*gmaps.Entry) error {
 		saveCount++
 		return nil
 	})
 
-	cw.RegisterJob("job1", 100, "restaurants")
+	cw.RegisterJob("job1", 100, "restaurants", "40,-83", "oh")
 	cw.AddResult("job1", &gmaps.Entry{Title: "Place A"})
 	cw.Discard("job1")
 
@@ -206,12 +206,12 @@ func TestCentralWriter_DiscardDropsTrackedJobWithoutSave(t *testing.T) {
 func TestCentralWriter_FlushSanitizesEntriesBeforeSave(t *testing.T) {
 	var saved []*gmaps.Entry
 
-	cw := NewCentralWriter(nil, func(_ context.Context, _ int64, _ string, entries []*gmaps.Entry) error {
+	cw := NewCentralWriter(nil, func(_ context.Context, _ int64, _, _, _ string, entries []*gmaps.Entry) error {
 		saved = entries
 		return nil
 	})
 
-	ch := cw.RegisterJob("job1", 100, "restaurants")
+	ch := cw.RegisterJob("job1", 100, "restaurants", "40,-83", "oh")
 	cw.AddResult("job1", &gmaps.Entry{
 		Title:       "Tit\x00le",
 		Description: "literal \\u0000 plus\x00nul",

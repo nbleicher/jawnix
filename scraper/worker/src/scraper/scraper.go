@@ -129,8 +129,8 @@ func (m *ScraperManager) SubmitJob(ctx context.Context, job scrapemate.IJob) err
 }
 
 // RegisterJob delegates to CentralWriter.
-func (m *ScraperManager) RegisterJob(jobID string, riverJobID int64, keyword string) <-chan FlushResult {
-	return m.centralWriter.RegisterJob(jobID, riverJobID, keyword)
+func (m *ScraperManager) RegisterJob(jobID string, riverJobID int64, keyword, cell, state string) <-chan FlushResult {
+	return m.centralWriter.RegisterJob(jobID, riverJobID, keyword, cell, state)
 }
 
 // MarkDone delegates to CentralWriter.

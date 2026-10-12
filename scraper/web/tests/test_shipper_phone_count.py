@@ -28,6 +28,20 @@ def test_phone_count_uses_nonempty_phone_field():
     assert "phone_count = EXCLUDED.phone_count" in shipper.RESULT_COUNT_SQL
 
 
+def test_empty_spooled_job_keeps_its_keyword(tmp_path):
+    shipper = load_shipper()
+    data = tmp_path / "results-42-100.ndjson"
+    data.write_text("")
+    Path(str(data) + ".done").write_text(
+        json.dumps({"job_id": 42, "keyword": "roofers"})
+    )
+    parsed = shipper.parse_file(data)
+    assert parsed.job_id == 42
+    assert parsed.keyword == "roofers"
+    assert parsed.result_count == 0
+    assert parsed.rows == []
+
+
 def test_malformed_spool_file_is_rejected_with_valid_rows_preserved(
     tmp_path,
 ):

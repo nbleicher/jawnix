@@ -3,6 +3,9 @@ package scraper
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -25,12 +28,14 @@ type trackedJob struct {
 	completion chan FlushResult
 	riverJobID int64
 	keyword    string
+	cell       string
+	state      string
 	startedAt  time.Time
 }
 
-// SaveFunc persists results. The default writes to PostgreSQL;
+// SaveFunc persists results. The default publishes files for the inventory loader;
 // tests can supply a lightweight substitute via NewCentralWriter.
-type SaveFunc func(ctx context.Context, riverJobID int64, keyword string, entries []*gmaps.Entry) error
+type SaveFunc func(ctx context.Context, riverJobID int64, keyword, cell, state string, entries []*gmaps.Entry) error
 
 var _ scrapemate.ResultWriter = (*CentralWriter)(nil)
 
@@ -56,7 +61,7 @@ func NewCentralWriter(db *pgxpool.Pool, saveFn SaveFunc) *CentralWriter {
 
 // RegisterJob registers the active River job and returns a completion channel
 // that receives the flush result.
-func (cw *CentralWriter) RegisterJob(jobID string, riverJobID int64, keyword string) <-chan FlushResult {
+func (cw *CentralWriter) RegisterJob(jobID string, riverJobID int64, keyword, cell, state string) <-chan FlushResult {
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
 
@@ -66,6 +71,8 @@ func (cw *CentralWriter) RegisterJob(jobID string, riverJobID int64, keyword str
 		completion: ch,
 		riverJobID: riverJobID,
 		keyword:    keyword,
+		cell:       cell,
+		state:      state,
 		startedAt:  time.Now(),
 	}
 
@@ -142,7 +149,7 @@ func (cw *CentralWriter) Flush(jobID string) {
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	err := cw.save(ctx, j.riverJobID, j.keyword, j.entries)
+	err := cw.save(ctx, j.riverJobID, j.keyword, j.cell, j.state, j.entries)
 
 	cancel()
 
@@ -233,22 +240,61 @@ func (cw *CentralWriter) markCompletedFromResult(result scrapemate.Result, count
 	}
 }
 
-// pgSave returns a SaveFunc that writes to the scrape_results table.
-func pgSave(db *pgxpool.Pool) SaveFunc {
-	return func(ctx context.Context, riverJobID int64, keyword string, entries []*gmaps.Entry) error {
-		resultsJSON, err := json.Marshal(entries)
+// pgSave publishes each completed job for worker/shipper.py. The pool remains
+// in the constructor signature, but scraping does not wait for inventory writes.
+func pgSave(_ *pgxpool.Pool) SaveFunc {
+	spool := os.Getenv("GMS_SPOOL_DIR")
+	if spool == "" {
+		spool = "/data/incoming"
+	}
+	return func(ctx context.Context, riverJobID int64, keyword, cell, state string, entries []*gmaps.Entry) (retErr error) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(spool, 0o755); err != nil {
+			return err
+		}
+		base := filepath.Join(spool, fmt.Sprintf("results-%d-%d.ndjson", riverJobID, time.Now().UnixNano()))
+		tmp := base + ".tmp"
+		file, err := os.Create(tmp)
 		if err != nil {
 			return err
 		}
-
-		q := `INSERT INTO scrape_results (job_id, keyword, results, result_count)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (job_id) DO UPDATE SET
-				results = $3,
-				result_count = $4`
-
-		_, err = db.Exec(ctx, q, riverJobID, keyword, resultsJSON, len(entries))
-
-		return err
+		defer func() {
+			if retErr != nil {
+				_ = file.Close()
+				_ = os.Remove(tmp)
+				_ = os.Remove(base + ".done.tmp")
+			}
+		}()
+		encoder := json.NewEncoder(file)
+		for _, entry := range entries {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := encoder.Encode(map[string]any{
+				"job_id": riverJobID, "keyword": keyword,
+				"state": state, "cell": cell, "entry": entry,
+			}); err != nil {
+				return err
+			}
+		}
+		if err := file.Sync(); err != nil {
+			return err
+		}
+		if err := file.Close(); err != nil {
+			return err
+		}
+		if err := os.Rename(tmp, base); err != nil {
+			return err
+		}
+		metadata, err := json.Marshal(map[string]any{"job_id": riverJobID, "keyword": keyword})
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(base+".done.tmp", metadata, 0o644); err != nil {
+			return err
+		}
+		return os.Rename(base+".done.tmp", base+".done")
 	}
 }

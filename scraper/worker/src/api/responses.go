@@ -25,6 +25,8 @@ type HealthCheckResponse struct {
 // ScrapeRequest represents a request to scrape Google Maps
 // @Description Request body for submitting a scrape job
 type ScrapeRequest struct {
+	// Source state supplied by the acquisition configuration.
+	State string `json:"state,omitempty" example:"oh"`
 	// Search keyword (e.g., "restaurants in New York")
 	Keyword string `json:"keyword" example:"restaurants in New York"`
 	// Language code for results (default: "en")
