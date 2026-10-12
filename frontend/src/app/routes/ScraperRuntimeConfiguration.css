@@ -3,8 +3,9 @@
   display: flex;
   gap: var(--jx-space-2);
   padding: var(--jx-space-3);
-  border: 1px solid var(--jx-color-border);
-  background: var(--jx-color-surface);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
+  background: transparent;
   color: var(--jx-color-text);
 }
 
@@ -44,18 +45,19 @@
   min-height: 2.75rem;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--jx-color-border);
-  background: var(--jx-color-surface);
+  border: 0;
+  border-bottom: 2px solid var(--jx-line-control);
+  background: transparent;
   color: var(--jx-color-text-muted);
   cursor: pointer;
   font-family: var(--jx-font-mono);
-  font-weight: 800;
+  font-weight: 500;
 }
 
 .runtime-state-picker input:checked + span {
-  border-color: var(--jx-color-accent);
-  background: var(--jx-color-accent-soft);
-  color: var(--jx-color-accent);
+  border-color: var(--jx-ink);
+  background: var(--jx-ink);
+  color: var(--jx-ink-inverse);
 }
 
 .runtime-state-picker input:focus-visible + span {
@@ -71,8 +73,9 @@
   justify-content: space-between;
   gap: var(--jx-space-3);
   padding: var(--jx-space-3);
-  border: 1px solid var(--jx-color-border);
-  background: var(--jx-color-surface);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
+  background: transparent;
 }
 
 .runtime-toggle > span,
@@ -104,25 +107,27 @@
   gap: var(--jx-space-3);
   align-items: end;
   padding: var(--jx-space-3);
-  border: 1px solid var(--jx-color-border);
-  background: var(--jx-color-surface);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
+  background: transparent;
 }
 
 .runtime-override legend {
   float: left;
   align-self: center;
-  color: var(--jx-color-accent);
+  color: var(--jx-color-text-strong);
   font-family: var(--jx-font-mono);
   font-size: var(--jx-text-lg);
-  font-weight: 800;
+  font-weight: 500;
 }
 
 .runtime-preview {
   display: grid;
   gap: var(--jx-space-4);
   padding: var(--jx-space-4);
-  border: 1px solid var(--jx-color-accent);
-  background: var(--jx-color-accent-soft);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border-strong);
+  background: transparent;
 }
 
 .runtime-preview__summary {
@@ -135,8 +140,9 @@
   display: grid;
   gap: var(--jx-space-1);
   padding: var(--jx-space-3);
-  border: 1px solid var(--jx-color-border);
-  background: var(--jx-color-surface);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
+  background: transparent;
 }
 
 .runtime-preview__summary span,
@@ -148,7 +154,7 @@
 }
 
 .runtime-preview__summary strong {
-  color: var(--jx-color-accent);
+  color: var(--jx-color-text-strong);
   font-family: var(--jx-font-mono);
   font-size: var(--jx-text-xl);
 }
@@ -177,7 +183,7 @@
   padding-top: var(--jx-space-3);
   border-top: 1px solid var(--jx-color-border);
   color: var(--jx-color-success);
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .runtime-sr-only {

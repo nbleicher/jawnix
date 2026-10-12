@@ -47,6 +47,7 @@ async def seeded_database():
         await connection.execute(
             "REFRESH MATERIALIZED VIEW database_state_summaries_cache"
         )
+        await connection.execute("REFRESH MATERIALIZED VIEW keyword_winners_cache")
     finally:
         await connection.close()
 

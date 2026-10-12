@@ -18,6 +18,7 @@ from psycopg2.extras import Json
 
 
 BOX_ID = os.environ.get("BOX_ID", "box1")
+COMPOSE_PROJECT = os.environ.get("GMS_COMPOSE_PROJECT", "gms-scale")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 API_KEY = os.environ.get("API_KEY", "")
 QUEUE_API_URL = os.environ.get("QUEUE_API_URL", "http://127.0.0.1:8080/api/v1/jobs")
@@ -51,6 +52,7 @@ def docker_service_containers(service: str) -> list[str]:
     result = run([
         "docker", "ps", "-a",
         "--filter", f"label=com.docker.compose.service={service}",
+        "--filter", f"label=com.docker.compose.project={COMPOSE_PROJECT}",
         "--format", "{{.Names}}",
     ])
     if result.returncode != 0:

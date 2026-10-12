@@ -2,7 +2,7 @@
   display: grid;
   gap: var(--jx-space-3);
   min-width: 0;
-  background: color-mix(in srgb, var(--jx-color-surface) 92%, var(--jx-color-accent));
+  background: transparent;
 }
 
 .database-state__select {
@@ -18,7 +18,7 @@
 .database-table input[type="checkbox"] {
   width: 1.25rem;
   height: 1.25rem;
-  accent-color: var(--jx-color-accent);
+  accent-color: var(--jx-color-text-strong);
 }
 
 .database-state__link {
@@ -29,16 +29,16 @@
 }
 
 .database-state__link:focus-visible {
-  border-radius: var(--jx-radius-sm);
+  border-radius: 0;
   outline: 3px solid var(--jx-color-focus-ring);
   outline-offset: 3px;
 }
 
 .database-state__code {
-  color: var(--jx-color-accent);
+  color: var(--jx-color-text-strong);
   font-family: var(--jx-font-mono);
   font-size: 1.35rem;
-  font-weight: 800;
+  font-weight: 500;
   letter-spacing: 0.12em;
 }
 
@@ -50,7 +50,7 @@
 
 .database-state__metric strong {
   font-family: var(--jx-font-mono);
-  font-size: 1.55rem;
+  font-size: 1.25rem;
 }
 
 .database-state__metric small,
@@ -60,8 +60,8 @@
 }
 
 .database-state__browse {
-  color: var(--jx-color-accent-strong);
-  font-weight: 700;
+  color: var(--jx-color-text-strong);
+  font-weight: 500;
 }
 
 .database-filters {
@@ -82,8 +82,9 @@
 .database-table-wrap {
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-md);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
+  border-radius: 0;
 }
 
 .database-table {
@@ -102,11 +103,17 @@
 
 .database-table th {
   color: var(--jx-color-text-muted);
-  background: var(--jx-color-surface-recessed);
+  background: transparent;
   font-size: var(--jx-text-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  font-family: var(--jx-font-mono);
   white-space: nowrap;
+}
+
+.database-table td[data-label="Phone"],
+.database-table td[data-label="Collected"] {
+  font-family: var(--jx-font-mono);
 }
 
 .database-table tbody tr:last-child td {
@@ -156,7 +163,7 @@
 .database-message {
   padding: var(--jx-space-3);
   border: 1px solid currentColor;
-  border-radius: var(--jx-radius-sm);
+  border-radius: 0;
 }
 
 .database-message--error {
@@ -210,9 +217,10 @@
 
   .database-table tr {
     padding: var(--jx-space-3);
-    border: 1px solid var(--jx-color-border);
-    border-radius: var(--jx-radius-md);
-    background: var(--jx-color-surface);
+    border: 0;
+  border-block: 1px solid var(--jx-color-border);
+    border-radius: 0;
+    background: transparent;
   }
 
   .database-table td,
@@ -230,7 +238,7 @@
     content: attr(data-label);
     color: var(--jx-color-text-muted);
     font-size: var(--jx-text-xs);
-    font-weight: 700;
+    font-weight: 500;
     letter-spacing: 0.04em;
     text-transform: uppercase;
   }

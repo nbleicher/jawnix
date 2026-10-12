@@ -147,6 +147,12 @@ def parse_file(
                 rows_by_key[row[0]] = row
             except Exception as error:
                 bad_lines.append((line_no, str(error)))
+    # Empty jobs have no data rows. New worker markers retain their keyword
+    # so empty-result rates stay attributed to the source that ran the job.
+    marker = Path(str(data_path) + ".done")
+    if keyword is None and marker.exists() and marker.stat().st_size:
+        metadata = json.loads(marker.read_text(encoding="utf-8"))
+        keyword = metadata.get("keyword")
     result = ParseResult(
         rows=list(rows_by_key.values()),
         job_id=job_id,

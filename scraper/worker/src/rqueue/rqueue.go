@@ -85,6 +85,7 @@ func GetScrapeWatchdogMetrics() ScrapeWatchdogMetrics {
 }
 
 type ScrapeJobArgs struct {
+	State          string  `json:"state"`
 	Keyword        string  `json:"keyword"`
 	Lang           string  `json:"lang"`
 	MaxDepth       int     `json:"max_depth"`
@@ -112,7 +113,7 @@ func (ScrapeJobArgs) InsertOpts() river.InsertOpts {
 type ScrapeManager interface {
 	JobDone()
 	SubmitJob(ctx context.Context, job scrapemate.IJob) error
-	RegisterJob(jobID string, riverJobID int64, keyword string) <-chan scraper.FlushResult
+	RegisterJob(jobID string, riverJobID int64, keyword, cell, state string) <-chan scraper.FlushResult
 	MarkDone(jobID string)
 	ForceFlush(jobID string)
 }
@@ -163,7 +164,7 @@ func (w *ScrapeWorker) Work(ctx context.Context, job *river.Job[ScrapeJobArgs]) 
 	timeout := effectiveScrapeTimeout(args.TimeoutSecs)
 
 	// Register job — CentralWriter accumulates results and flushes to DB
-	completionCh := w.Manager.RegisterJob(jobID, job.ID, args.Keyword)
+	completionCh := w.Manager.RegisterJob(jobID, job.ID, args.Keyword, args.GeoCoordinates, args.State)
 	flushWaitStart := time.Now()
 
 	// Create exit monitor to track job completion

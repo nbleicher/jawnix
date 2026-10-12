@@ -1,7 +1,8 @@
 .keyword-notice {
-  border: 1px solid var(--jx-color-border);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
   border-left: 3px solid var(--jx-color-accent);
-  background: var(--jx-color-surface-strong);
+  background: transparent;
   color: var(--jx-color-text);
   padding: var(--jx-space-3) var(--jx-space-4);
   font-size: var(--jx-font-size-sm);
@@ -34,8 +35,9 @@
   align-items: flex-start;
   gap: var(--jx-space-3);
   min-height: 44px;
-  border: 1px solid var(--jx-color-border);
-  background: var(--jx-color-surface-strong);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
+  background: transparent;
   padding: var(--jx-space-3);
   cursor: pointer;
 }
@@ -72,7 +74,8 @@
 .keyword-diff__summary {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  border: 1px solid var(--jx-color-border);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
 }
 
 .keyword-diff__summary div {
@@ -136,7 +139,8 @@
 
 .keyword-rollover__state {
   flex: none;
-  border: 1px solid var(--jx-color-border);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
   padding: var(--jx-space-1) var(--jx-space-2);
   color: var(--jx-color-text-muted);
   font-family: var(--jx-font-mono);
@@ -166,26 +170,27 @@
 
 .keyword-rollover progress {
   width: 100%;
-  height: 0.75rem;
+  height: 0.3rem;
   border: 0;
-  background: var(--jx-color-surface);
+  background: transparent;
 }
 
 .keyword-rollover progress::-webkit-progress-bar {
-  background: var(--jx-color-surface);
+  background: transparent;
 }
 
 .keyword-rollover progress::-webkit-progress-value {
-  background: var(--jx-color-accent);
+  background: var(--jx-color-text-strong);
 }
 
 .keyword-rollover progress::-moz-progress-bar {
-  background: var(--jx-color-accent);
+  background: var(--jx-color-text-strong);
 }
 
 .keyword-winners {
   overflow-x: auto;
-  border: 1px solid var(--jx-color-border);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
 }
 
 .keyword-winners table {
@@ -199,11 +204,16 @@
 .keyword-winners td {
   padding: var(--jx-space-3);
   border-bottom: 1px solid var(--jx-color-border);
-  text-align: left;
+  text-align: right;
   vertical-align: middle;
 }
 
+.keyword-winners :is(th, td):nth-child(-n + 2) {
+  text-align: left;
+}
+
 .keyword-winners th {
+  font-family: var(--jx-font-mono);
   color: var(--jx-color-text-muted);
   font-size: var(--jx-font-size-xs);
   letter-spacing: 0.06em;
@@ -267,8 +277,9 @@
 
   .keyword-winners tr {
     margin-bottom: var(--jx-space-3);
-    border: 1px solid var(--jx-color-border);
-    background: var(--jx-color-surface-strong);
+    border: 0;
+  border-block: 1px solid var(--jx-color-border);
+    background: transparent;
   }
 
   .keyword-winners td,

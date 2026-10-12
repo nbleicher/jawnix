@@ -91,6 +91,7 @@ services:
     environment:
       JAWNIX_DOMAIN: ${JAWNIX_DOMAIN:-jawnix.com}
       JAWNIX_SCRAPER_OPS_DOMAIN: ${JAWNIX_SCRAPER_OPS_DOMAIN:-scraper.jawnix.com}
+      JAWNIX_PUBLIC_BASE_URL: ${JAWNIX_PUBLIC_BASE_URL:-https://jawnix.com}
       # Rendered into /config.js by the Caddyfile. Both are public by design.
       JAWNIX_SUPABASE_URL: ${JAWNIX_SUPABASE_URL:?set JAWNIX_SUPABASE_URL}
       JAWNIX_SUPABASE_ANON_KEY: ${JAWNIX_SUPABASE_ANON_KEY:?set JAWNIX_SUPABASE_ANON_KEY}

@@ -3,9 +3,10 @@
   grid-template-columns: minmax(14rem, 2fr) repeat(3, minmax(9rem, 1fr)) auto;
   gap: var(--jx-space-3);
   align-items: end;
-  padding: var(--jx-space-4);
-  border: 1px solid var(--jx-color-border);
-  background: var(--jx-color-surface);
+  padding: var(--jx-space-4) 0;
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
+  background: transparent;
 }
 
 .campaign-filters .jx-button {
@@ -21,13 +22,14 @@
 }
 
 .campaign-refreshing {
-  color: var(--jx-color-accent);
+  color: var(--jx-color-text-strong);
 }
 
 .campaign-table-wrap {
   overflow-x: auto;
-  border: 1px solid var(--jx-color-border);
-  background: var(--jx-color-surface);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
+  background: transparent;
 }
 
 .campaign-table {
@@ -41,8 +43,12 @@
 .campaign-table td {
   padding: var(--jx-space-3);
   border-bottom: 1px solid var(--jx-color-border);
-  text-align: left;
+  text-align: right;
   vertical-align: top;
+}
+
+.campaign-table :is(th, td):nth-child(-n + 3) {
+  text-align: left;
 }
 
 .campaign-table thead th {
@@ -54,7 +60,7 @@
 
 .campaign-table tbody th {
   color: var(--jx-color-text);
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .campaign-table tbody tr:last-child > * {
@@ -66,9 +72,10 @@
   min-width: 2.5rem;
   justify-content: center;
   padding: 0.2rem 0.45rem;
-  border: 1px solid var(--jx-color-accent);
-  color: var(--jx-color-accent);
-  font-weight: 800;
+  border: 0;
+  border-block: 1px solid var(--jx-color-border-strong);
+  color: var(--jx-color-text-strong);
+  font-weight: 500;
 }
 
 @media (max-width: 70rem) {
@@ -114,8 +121,9 @@
 
   .campaign-table tr {
     padding: var(--jx-space-3);
-    border: 1px solid var(--jx-color-border);
-    background: var(--jx-color-surface);
+    border: 0;
+  border-block: 1px solid var(--jx-color-border);
+    background: transparent;
   }
 
   .campaign-table th,

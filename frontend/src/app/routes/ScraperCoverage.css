@@ -1,13 +1,12 @@
-/* State coverage keeps the GMS/OPS hierarchy: cards, dense keyword activity,
-   then today's cell matrix. On narrow screens the same semantic rows and
-   buttons expand into drill-down controls; nothing is removed or replaced by
-   a colour-only summary. */
+/* State counts read as a market ledger. The drill-down keeps its keyword
+   activity and labeled cell matrix on both desktop and mobile. */
 
 .coverage-idle,
 .coverage-stale {
   padding: var(--jx-space-3) var(--jx-space-4);
-  border: 1px solid var(--jx-color-warning);
-  background: var(--jx-color-warning-soft);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border);
+  background: transparent;
 }
 
 .coverage-idle {
@@ -62,28 +61,25 @@
 
 .coverage-state-grid {
   display: grid;
-  grid-template-columns: repeat(
-    auto-fit,
-    minmax(min(13rem, 100%), 1fr)
-  );
-  gap: var(--jx-space-3);
+  grid-template-columns: 1fr;
 }
 
 .coverage-state-card {
-  display: flex;
-  min-height: 12rem;
+  display: grid;
+  grid-template-columns: minmax(12rem, 1.3fr) minmax(8rem, 0.8fr) minmax(12rem, 1fr);
+  grid-template-areas: "state count coverage" "state caption progress" "state facts facts";
+  align-items: center;
+  column-gap: var(--jx-space-6);
   min-width: 0;
-  flex-direction: column;
-  padding: var(--jx-space-4);
-  border: 1px solid var(--jx-color-border-strong);
-  background: var(--jx-color-surface);
+  padding: var(--jx-space-4) 0;
+  border-bottom: 1px solid var(--jx-color-border);
   color: var(--jx-color-text);
   text-decoration: none;
 }
 
 .coverage-state-card:hover {
-  border-color: var(--jx-color-accent-strong);
-  background: var(--jx-color-accent-soft);
+  color: var(--jx-color-text-strong);
+  border-color: var(--jx-color-border-strong);
 }
 
 .coverage-state-card:focus-visible {
@@ -105,18 +101,20 @@
   min-width: var(--jx-touch-target);
   min-height: var(--jx-touch-target);
   place-items: center;
-  border: 1px solid var(--jx-color-accent-strong);
-  color: var(--jx-color-accent-strong);
+  border: 0;
+  color: var(--jx-color-text-strong);
   font-family: var(--jx-font-mono);
   font-size: var(--jx-text-sm);
   font-weight: var(--jx-weight-bold);
 }
 
 .coverage-state-card__businesses {
-  margin-top: var(--jx-space-4);
+  grid-area: count;
+  margin-top: 0;
+  text-align: right;
   color: var(--jx-color-text-strong);
   font-family: var(--jx-font-mono);
-  font-size: var(--jx-text-2xl);
+  font-size: var(--jx-text-xl);
   line-height: var(--jx-leading-tight);
   overflow-wrap: anywhere;
 }
@@ -129,13 +127,28 @@
   font-size: var(--jx-text-xs);
 }
 
+.coverage-state-card__head {
+  grid-area: state;
+  justify-content: flex-start;
+  gap: var(--jx-space-3);
+}
+
+.coverage-state-card__foot {
+  grid-area: facts;
+  justify-content: space-between;
+  margin-top: var(--jx-space-2);
+}
+
 .coverage-state-card__caption {
+  grid-area: caption;
+  text-align: right;
   text-transform: uppercase;
 }
 
 .coverage-state-card__coverage {
-  margin-top: auto;
-  padding-top: var(--jx-space-4);
+  grid-area: coverage;
+  margin-top: 0;
+  padding-top: 0;
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
@@ -147,12 +160,13 @@
 .coverage-progress,
 .coverage-table-progress {
   overflow: hidden;
-  border: 1px solid var(--jx-color-border-strong);
-  background: var(--jx-color-surface-recessed);
+  border: 0;
+  background: var(--jx-color-border);
 }
 
 .coverage-progress {
-  height: 0.6rem;
+  grid-area: progress;
+  height: 0.25rem;
   margin-block: var(--jx-space-2) var(--jx-space-3);
 }
 
@@ -160,11 +174,7 @@
 .coverage-table-progress > span {
   display: block;
   height: 100%;
-  background: repeating-linear-gradient(
-    90deg,
-    var(--jx-color-accent) 0 5px,
-    transparent 5px 8px
-  );
+  background: var(--jx-color-text-strong);
 }
 
 /* Keyword activity -------------------------------------------------------- */
@@ -192,7 +202,7 @@
 .coverage-keywords td {
   padding: var(--jx-space-3);
   border-bottom: 1px solid var(--jx-color-border);
-  text-align: left;
+  text-align: right;
   vertical-align: middle;
 }
 
@@ -206,6 +216,10 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.coverage-keywords :is(th, td):first-child {
+  text-align: left;
 }
 
 .coverage-keywords tbody th {
@@ -262,8 +276,9 @@
   gap: var(--jx-space-2);
   min-height: var(--jx-touch-target);
   padding-inline: var(--jx-space-3);
-  border: 1px solid var(--jx-color-border);
-  background: var(--jx-color-surface);
+  border: 0;
+  border-bottom: 1px solid var(--jx-color-border);
+  background: transparent;
   font-family: var(--jx-font-mono);
   font-size: var(--jx-text-xs);
 }
@@ -281,8 +296,8 @@
 }
 
 .coverage-legend__swatch--reserved {
-  border-color: var(--jx-color-warning);
-  background: var(--jx-color-warning);
+  border: 2px dashed var(--jx-color-warning);
+  background: transparent;
 }
 
 .coverage-legend__swatch--failed {
@@ -304,9 +319,9 @@
   min-width: 0;
   flex-direction: column;
   gap: var(--jx-space-3);
-  padding: var(--jx-space-4);
-  border: 1px solid var(--jx-color-border-strong);
-  background: var(--jx-color-surface);
+  padding: var(--jx-space-4) 0;
+  border-block: 1px solid var(--jx-color-border);
+  background: transparent;
 }
 
 .coverage-cell-detail code {
@@ -346,8 +361,8 @@
 }
 
 .coverage-cell--reserved {
-  border-color: var(--jx-color-warning);
-  background: var(--jx-color-warning);
+  border: 2px dashed var(--jx-color-warning);
+  background: transparent;
 }
 
 .coverage-cell--failed {
@@ -383,8 +398,18 @@
 }
 
 @media (max-width: 48rem) {
-  .coverage-state-grid {
-    grid-template-columns: 1fr;
+  .coverage-state-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "state count" "state caption" "coverage coverage" "progress progress" "facts facts";
+    column-gap: var(--jx-space-3);
+  }
+
+  .coverage-state-card__head {
+    flex-wrap: wrap;
+  }
+
+  .coverage-state-card__coverage {
+    margin-top: var(--jx-space-3);
   }
 
   /* The header remains available to assistive technology while each value
@@ -418,8 +443,9 @@
   .coverage-keywords tr {
     margin-bottom: var(--jx-space-3);
     padding: var(--jx-space-2);
-    border: 1px solid var(--jx-color-border-strong);
-    background: var(--jx-color-surface);
+    border: 0;
+    border-block: 1px solid var(--jx-color-border);
+    background: transparent;
   }
 
   .coverage-keywords tbody th,

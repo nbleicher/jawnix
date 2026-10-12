@@ -102,6 +102,7 @@ func scrapeHandler(appState *AppState) http.HandlerFunc {
 		}
 
 		jobArgs := rqueue.ScrapeJobArgs{
+			State:          req.State,
 			Keyword:        req.Keyword,
 			Lang:           req.Lang,
 			MaxDepth:       req.MaxDepth,

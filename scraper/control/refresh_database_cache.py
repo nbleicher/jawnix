@@ -10,7 +10,7 @@ import time
 import psycopg2
 
 
-VIEWS = ("database_totals_cache", "database_state_summaries_cache")
+VIEWS = ("database_totals_cache", "database_state_summaries_cache", "keyword_winners_cache")
 
 
 def main() -> int:

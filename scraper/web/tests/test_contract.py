@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import asyncpg
@@ -40,6 +42,25 @@ from app.keyword_generator import GenerationResult
 from app.main import app
 
 TOKEN = "test-scraper-control-token-0000000000000000"
+
+
+@pytest.mark.asyncio
+async def test_keyword_rankings_do_not_block_on_acquisition_tables(app_client):
+    client, _ = app_client
+    connection = await asyncpg.connect(os.environ["TEST_DATABASE_URL"])
+    try:
+        async with connection.transaction():
+            await connection.execute(
+                "LOCK TABLE enqueue_log, businesses IN ACCESS EXCLUSIVE MODE"
+            )
+            response = await asyncio.wait_for(
+                client.get("/api/keywords/winners"), timeout=1
+            )
+            assert response.status_code == 200
+    finally:
+        await connection.close()
+
+
 EXPECTED_ROUTES = {
     ("GET", "/healthz"),
     ("GET", "/api/workspace"),

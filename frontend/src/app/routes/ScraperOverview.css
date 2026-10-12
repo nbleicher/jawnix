@@ -1,7 +1,5 @@
-/* GMS/OPS overview.
-   Monospace, tight leading, and a dense grid preserve the operational feel of
-   the dashboard this replaces. Every state is also stated in words, so nothing
-   here depends on the accent colours or on motion. */
+/* Acquisition readings sit on the same paper register as the portal.
+   Hairlines separate regions; warning states also remain stated in words. */
 
 .ops-grid {
   display: grid;
@@ -16,10 +14,11 @@
   flex-direction: column;
   gap: var(--jx-space-3);
   min-width: 0;
-  padding: var(--jx-space-4);
-  border: 1px solid var(--jx-color-border-strong);
-  border-radius: var(--jx-radius-sm);
-  background: var(--jx-color-surface);
+  padding: var(--jx-space-4) 0;
+  border: 0;
+  border-block: 1px solid var(--jx-color-border-strong);
+  border-radius: 0;
+  background: transparent;
 }
 
 .ops-panel__head {
@@ -38,7 +37,7 @@
 
 .ops-panel__head::after {
   content: "+";
-  color: var(--jx-color-accent);
+  color: var(--jx-color-text-strong);
   font-family: var(--jx-font-display);
   font-size: var(--jx-text-xl);
   line-height: 1;
@@ -56,7 +55,7 @@
 .ops-panel__title {
   font-family: var(--jx-font-display);
   font-size: var(--jx-text-sm);
-  font-weight: var(--jx-weight-bold);
+  font-weight: var(--jx-weight-medium);
   color: var(--jx-color-text-strong);
 }
 
@@ -70,8 +69,8 @@
    because a stale queue depth is more use than an empty box. */
 .ops-panel__stale {
   padding: var(--jx-space-2) var(--jx-space-3);
-  border-inline-start: 3px solid var(--jx-color-warning);
-  background: var(--jx-color-warning-soft);
+  border-inline-start: 2px solid var(--jx-color-warning);
+  background: transparent;
   color: var(--jx-color-text-strong);
   font-size: var(--jx-text-xs);
 }
@@ -104,7 +103,7 @@
 .ops-metric__value {
   font-family: var(--jx-font-mono);
   font-size: var(--jx-text-lg);
-  font-weight: var(--jx-weight-bold);
+  font-weight: var(--jx-weight-medium);
   color: var(--jx-color-text-strong);
   overflow-wrap: anywhere;
 }
@@ -115,27 +114,27 @@
   display: flex;
   flex-direction: column;
   gap: var(--jx-space-2);
-  padding: var(--jx-space-4);
-  border: 1px solid var(--jx-color-border-strong);
-  border-radius: var(--jx-radius-sm);
-  background: var(--jx-color-surface-strong);
+  padding: var(--jx-space-4) 0;
+  border: 0;
+  border-block: 1px solid var(--jx-color-border-strong);
+  border-radius: 0;
+  background: transparent;
 }
 
 .ops-overall__pill {
   align-self: flex-start;
-  padding: var(--jx-space-1) var(--jx-space-3);
-  border: 1px solid var(--jx-color-border-strong);
-  border-radius: var(--jx-radius-pill);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
   font-family: var(--jx-font-mono);
   font-size: var(--jx-text-xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.ops-overall__pill--operational { border-color: var(--jx-color-success); background: var(--jx-color-success-soft); }
-.ops-overall__pill--idle { border-color: var(--jx-color-info); background: var(--jx-color-info-soft); }
-.ops-overall__pill--attention { border-color: var(--jx-color-warning); background: var(--jx-color-warning-soft); }
-.ops-overall__pill--stale { border-color: var(--jx-color-danger); background: var(--jx-color-danger-soft); }
+.ops-overall__pill::before { content: "■"; margin-inline-end: var(--jx-space-2); }
+.ops-overall__pill--attention,
+.ops-overall__pill--stale { color: var(--jx-color-danger); }
 
 .ops-overall__reasons {
   display: flex;
@@ -149,7 +148,7 @@
   content: "!";
   margin-inline-end: var(--jx-space-2);
   font-family: var(--jx-font-mono);
-  font-weight: var(--jx-weight-bold);
+  font-weight: var(--jx-weight-medium);
   color: var(--jx-color-warning);
 }
 
@@ -160,9 +159,10 @@
   justify-content: space-between;
   gap: var(--jx-space-3);
   padding: var(--jx-space-3) var(--jx-space-4);
-  border: 1px solid var(--jx-color-border-strong);
-  border-radius: var(--jx-radius-sm);
-  background: var(--jx-color-surface-recessed);
+  border: 0;
+  border-block: 1px solid var(--jx-color-border-strong);
+  border-radius: 0;
+  background: transparent;
 }
 
 /* Services ----------------------------------------------------------------- */
@@ -179,8 +179,8 @@
   gap: 2px;
   min-width: 0;
   padding: var(--jx-space-2);
-  border-inline-start: 3px solid var(--jx-color-border-strong);
-  background: var(--jx-color-surface-recessed);
+  border-bottom: 1px solid var(--jx-color-border);
+  background: transparent;
   font-family: var(--jx-font-mono);
   font-size: var(--jx-text-xs);
 }
@@ -199,8 +199,8 @@
   flex-direction: column;
   gap: var(--jx-space-1);
   padding: var(--jx-space-3);
-  border-inline-start: 3px solid var(--jx-color-border-strong);
-  background: var(--jx-color-surface-recessed);
+  border-bottom: 1px solid var(--jx-color-border);
+  background: transparent;
 }
 
 .ops-pipeline__state--running { border-inline-start-color: var(--jx-color-success); }
@@ -210,12 +210,12 @@
 
 .ops-note {
   padding: var(--jx-space-2) var(--jx-space-3);
-  border-inline-start: 3px solid var(--jx-color-border-strong);
+  border-bottom: 1px solid var(--jx-color-border);
   font-size: var(--jx-text-sm);
 }
 
-.ops-note--ok { border-inline-start-color: var(--jx-color-success); background: var(--jx-color-success-soft); }
-.ops-note--bad { border-inline-start-color: var(--jx-color-danger); background: var(--jx-color-danger-soft); }
+.ops-note--ok { border-inline-start-color: var(--jx-color-success); background: transparent; }
+.ops-note--bad { border-inline-start-color: var(--jx-color-danger); background: transparent; }
 
 /* Log ---------------------------------------------------------------------- */
 
@@ -237,7 +237,7 @@
 }
 
 .ops-log__time { color: var(--jx-color-text-muted); }
-.ops-log__state { color: var(--jx-color-accent-strong); font-weight: var(--jx-weight-bold); }
+.ops-log__state { color: var(--jx-color-text-strong); font-weight: var(--jx-weight-medium); }
 .ops-log__keyword { color: var(--jx-color-text-strong); overflow-wrap: anywhere; }
 .ops-log__counts { color: var(--jx-color-text-muted); }
 
@@ -263,7 +263,7 @@
   gap: 2px;
   height: 3rem;
   padding: 2px;
-  background: var(--jx-color-surface-recessed);
+  background: transparent;
 }
 
 .ops-trend__bars li {
@@ -271,7 +271,7 @@
   min-width: 2px;
   /* A floor keeps an empty hour visible as an empty hour rather than absent. */
   height: max(2px, var(--ops-bar, 0%));
-  background: var(--jx-color-accent);
+  background: var(--jx-color-text-strong);
 }
 
 /* Workers ------------------------------------------------------------------ */
@@ -289,14 +289,14 @@
   gap: 2px var(--jx-space-3);
   grid-template-columns: repeat(auto-fit, minmax(min(8rem, 100%), 1fr));
   padding: var(--jx-space-2);
-  border-inline-start: 3px solid var(--jx-color-border-strong);
-  background: var(--jx-color-surface-recessed);
+  border-bottom: 1px solid var(--jx-color-border);
+  background: transparent;
 }
 
 .ops-worker--ok { border-inline-start-color: var(--jx-color-success); }
 .ops-worker--bad { border-inline-start-color: var(--jx-color-danger); }
 
-.ops-worker__name { color: var(--jx-color-text-strong); font-weight: var(--jx-weight-bold); }
+.ops-worker__name { color: var(--jx-color-text-strong); font-weight: var(--jx-weight-medium); }
 .ops-worker__status,
 .ops-worker__work,
 .ops-worker__rate { color: var(--jx-color-text-muted); overflow-wrap: anywhere; }
@@ -315,8 +315,8 @@
   flex-direction: column;
   gap: 2px;
   padding: var(--jx-space-2);
-  border-inline-start: 3px solid var(--jx-color-border-strong);
-  background: var(--jx-color-surface-recessed);
+  border-bottom: 1px solid var(--jx-color-border);
+  background: transparent;
 }
 
 .ops-incident--ok { border-inline-start-color: var(--jx-color-success); }
@@ -342,13 +342,13 @@
   grid-template-columns: 3ch 1fr auto;
 }
 
-.ops-states__code { color: var(--jx-color-accent-strong); font-weight: var(--jx-weight-bold); }
+.ops-states__code { color: var(--jx-color-text-strong); font-weight: var(--jx-weight-medium); }
 
 .ops-states__bar {
   height: 0.5rem;
   width: var(--ops-bar, 0%);
   min-width: 2px;
-  background: var(--jx-color-accent);
+  background: var(--jx-color-text-strong);
 }
 
 .ops-states__value { color: var(--jx-color-text-strong); }
