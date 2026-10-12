@@ -124,7 +124,7 @@ def test_exact_near_and_historical_duplicates_are_filtered_with_adaptive_context
 
 def test_production_sized_history_is_visible_to_generation():
     requests: list[dict] = []
-    historical = [f"Historical Niche {index:04d}" for index in range(2_853)]
+    historical = [f"Historical Niche {index:04d}" for index in range(6_128)]
 
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
