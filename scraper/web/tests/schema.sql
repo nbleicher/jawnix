@@ -5,6 +5,9 @@ BEGIN
      OR to_regclass('public.enqueue_log') IS NULL
      OR to_regclass('public.keyword_history') IS NULL
      OR to_regclass('public.scrape_results') IS NULL
+     OR to_regclass('public.scrape_attempts') IS NULL
+     OR to_regclass('public.acquisition_health') IS NULL
+     OR to_regclass('public.keyword_yield_evaluations') IS NULL
      OR to_regclass('public.worker_heartbeats') IS NULL
      OR to_regclass('public.stack_samples') IS NULL
      OR to_regclass('public.pipeline_alert_events') IS NULL

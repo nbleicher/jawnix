@@ -14,7 +14,7 @@ SELECT
   (SELECT count(*) FROM river_job WHERE kind='scrape' AND state='retryable') AS retryable_jobs,
   COALESCE((SELECT extract(epoch FROM now()-min(created_at))::bigint FROM river_job WHERE kind='scrape' AND state IN ('available','pending','retryable')),0) AS oldest_queue_secs,
   (SELECT count(*) FROM businesses WHERE first_seen >= now() - interval '1 hour') AS added_last_hour,
-  COALESCE((SELECT avg((result_count = 0)::int)::float FROM scrape_results WHERE created_at >= now() - interval '1 hour'), 0) AS empty_rate
+  COALESCE((SELECT empty_rate FROM acquisition_quality_1h), 0) AS empty_rate
 FROM business_counts
 """
 
@@ -354,13 +354,25 @@ SELECT
    FROM enqueue_log
    WHERE lower(keyword)=ANY($1::text[]) AND lower(state)=ANY($2::text[])
      AND day >= $3::date AND status='posted') AS posted_jobs,
-  (SELECT count(*) FROM keyword_history
+  (SELECT count(*) FROM (
+     SELECT lower(keyword),lower(state) FROM keyword_history
+      WHERE lower(keyword)=ANY($1::text[]) AND lower(state)=ANY($2::text[]) AND last_enqueued >= $3::date
+     UNION
+     SELECT lower(keyword),lower(state) FROM keyword_yield_evaluations
+      WHERE lower(keyword)=ANY($1::text[]) AND lower(state)=ANY($2::text[])
+        AND started_on=$3::date AND status IN ('rejected','unverified')
+   ) terminal) AS completed_pairs,
+  (SELECT COALESCE(sum(full_cells-jsonb_array_length(sample_cells)),0) FROM keyword_yield_evaluations
    WHERE lower(keyword)=ANY($1::text[]) AND lower(state)=ANY($2::text[])
-     AND last_enqueued >= $3::date) AS completed_pairs,
+     AND started_on=$3::date AND status IN ('rejected','unverified')) AS avoided_jobs,
+  (SELECT count(*) FROM keyword_yield_evaluations WHERE lower(keyword)=ANY($1::text[])
+   AND lower(state)=ANY($2::text[]) AND started_on=$3::date AND status='testing') AS testing_pairs,
+  (SELECT count(*) FROM keyword_yield_evaluations WHERE lower(keyword)=ANY($1::text[])
+   AND lower(state)=ANY($2::text[]) AND started_on=$3::date AND status='rejected') AS rejected_pairs,
   (SELECT count(*) FROM river_job
    WHERE kind='scrape' AND state IN ('available','pending','scheduled','retryable','running')
      AND lower(args->>'keyword')=ANY($1::text[])
-     AND lower(args->>'state')=ANY($2::text[])) AS active_jobs
+    AND lower(args->>'state')=ANY($2::text[])) AS active_jobs
 """
 
 SET_AUTO_KEYWORD_ROLLOVER = """

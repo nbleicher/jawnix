@@ -23,20 +23,37 @@ func ParseSearchResults(raw []byte) ([]*Entry, error) {
 		return nil, fmt.Errorf("invalid business list structure")
 	}
 
-	items := getNthElementAndCast[[]any](container, 1)
-	if len(items) < 2 {
-		return nil, fmt.Errorf("empty business list")
+	if len(container) < 2 {
+		return nil, fmt.Errorf("missing business list")
+	}
+	items, ok := container[1].([]any)
+	if !ok {
+		return nil, fmt.Errorf("invalid business list")
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("missing search metadata")
 	}
 
-	entries := make([]*Entry, 0, len(items)-1)
+	entries := make([]*Entry, 0, len(items))
 
-	for i := 1; i < len(items); i++ {
+	for i := 0; i < len(items); i++ {
 		arr, ok := items[i].([]any)
 		if !ok {
-			continue
+			return nil, fmt.Errorf("invalid business row")
 		}
 
 		business := getNthElementAndCast[[]any](arr, 14)
+		// The first row is metadata for multi-result searches, but contains the
+		// business itself for single-result searches. Never discard it blindly.
+		if len(business) == 0 && i == 0 {
+			if len(arr) < 11 || getNthElementAndCast[string](arr, 8) == "" || getNthElementAndCast[string](arr, 9) == "" {
+				return nil, fmt.Errorf("invalid search metadata")
+			}
+			continue
+		}
+		if len(business) < 12 || getNthElementAndCast[string](business, 11) == "" {
+			return nil, fmt.Errorf("invalid business details")
+		}
 
 		var entry Entry
 

@@ -143,6 +143,8 @@ func (m *ScraperManager) ForceFlush(jobID string) {
 	m.centralWriter.ForceFlush(jobID)
 }
 
+func (m *ScraperManager) Fail(jobID string, err error) { m.centralWriter.Fail(jobID, err) }
+
 // Run starts the scraper manager loop. It creates a new scraper, runs it until
 // the job threshold is reached, then restarts.
 func (m *ScraperManager) Run(ctx context.Context) error {

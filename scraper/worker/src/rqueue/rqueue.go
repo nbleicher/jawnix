@@ -116,19 +116,20 @@ type ScrapeManager interface {
 	RegisterJob(jobID string, riverJobID int64, keyword, cell, state string) <-chan scraper.FlushResult
 	MarkDone(jobID string)
 	ForceFlush(jobID string)
+	Fail(jobID string, err error)
 }
 
 type ScrapeWorker struct {
 	river.WorkerDefaults[ScrapeJobArgs]
 	Manager ScrapeManager
+	Health  *AcquisitionHealth
 }
 
 const flushResultWaitGrace = 90 * time.Second
 
-// NextRetryAt returns a 2-minute fallback retry delay. In practice, the retry
-// promoter goroutine periodically calls JobRetry() much sooner.
-func (w *ScrapeWorker) NextRetryAt(_ *river.Job[ScrapeJobArgs]) time.Time {
-	return time.Now().Add(2 * time.Minute)
+func (w *ScrapeWorker) NextRetry(job *river.Job[ScrapeJobArgs]) time.Time {
+	delay := time.Duration(30<<min(max(job.Attempt-1, 0), 2)) * time.Second
+	return time.Now().Add(delay + time.Duration(job.ID%11)*time.Second)
 }
 
 // Timeout controls River's job context deadline for scrape jobs.
@@ -142,8 +143,28 @@ func (w *ScrapeWorker) Timeout(job *river.Job[ScrapeJobArgs]) time.Duration {
 	return timeout + 2*time.Minute
 }
 
-func (w *ScrapeWorker) Work(ctx context.Context, job *river.Job[ScrapeJobArgs]) error {
+func (w *ScrapeWorker) Work(ctx context.Context, job *river.Job[ScrapeJobArgs]) (retErr error) {
+	if w.Health != nil {
+		delay, err := w.Health.Delay(ctx)
+		if err != nil {
+			return river.JobSnooze(time.Minute)
+		}
+		if delay > 0 {
+			return river.JobSnooze(delay)
+		}
+	}
 	defer w.Manager.JobDone()
+	resultCount, phoneCount := 0, 0
+	defer func() {
+		if w.Health != nil {
+			if err := w.Health.Record(job, retErr, resultCount, phoneCount); err != nil {
+				log.Error("failed recording acquisition outcome", "job_id", job.ID, "error", err)
+				if retErr == nil {
+					retErr = err
+				}
+			}
+		}
+	}()
 
 	jobStart := time.Now()
 	defer func() {
@@ -159,7 +180,8 @@ func (w *ScrapeWorker) Work(ctx context.Context, job *river.Job[ScrapeJobArgs]) 
 	}()
 
 	args := job.Args
-	jobID := strconv.FormatInt(job.ID, 10)
+	// Late results from a timed-out attempt must never attach to its retry.
+	jobID := fmt.Sprintf("%d-%d", job.ID, job.Attempt)
 
 	timeout := effectiveScrapeTimeout(args.TimeoutSecs)
 
@@ -194,6 +216,7 @@ func (w *ScrapeWorker) Work(ctx context.Context, job *river.Job[ScrapeJobArgs]) 
 		searchJob := gmaps.NewSearchJob(params,
 			gmaps.WithSearchJobExitMonitor(exitMon),
 			gmaps.WithSearchJobWriterManagedCompletion(),
+			gmaps.WithSearchJobFailureHandler(w.Manager.Fail),
 		)
 		searchJob.ID = jobID
 
@@ -227,7 +250,7 @@ func (w *ScrapeWorker) Work(ctx context.Context, job *river.Job[ScrapeJobArgs]) 
 
 	// Submit job to the provider channel
 	if err := w.Manager.SubmitJob(ctx, scrapeJob); err != nil {
-		w.Manager.ForceFlush(jobID) // clean up the registered trackedJob
+		w.Manager.Fail(jobID, err)
 
 		if _, waitErr := waitForFlushResult(completionCh, flushResultWaitGrace); waitErr != nil {
 			log.Warn("failed waiting for flush result after submit failure",
@@ -251,6 +274,7 @@ func (w *ScrapeWorker) Work(ctx context.Context, job *river.Job[ScrapeJobArgs]) 
 
 	select {
 	case result := <-completionCh:
+		resultCount, phoneCount = result.ResultCount, result.PhoneCount
 		observeFlushWait(job.ID, time.Since(flushWaitStart))
 		log.Debug("job flush completed",
 			"job_id", job.ID,
@@ -268,6 +292,7 @@ func (w *ScrapeWorker) Work(ctx context.Context, job *river.Job[ScrapeJobArgs]) 
 		w.Manager.ForceFlush(jobID)
 
 		result, err := waitForFlushResult(completionCh, flushResultWaitGrace)
+		resultCount, phoneCount = result.ResultCount, result.PhoneCount
 		if err != nil {
 			observeFlushWait(job.ID, time.Since(flushWaitStart))
 
@@ -302,6 +327,7 @@ func (w *ScrapeWorker) Work(ctx context.Context, job *river.Job[ScrapeJobArgs]) 
 		w.Manager.ForceFlush(jobID)
 
 		result, err := waitForFlushResult(completionCh, flushResultWaitGrace)
+		resultCount, phoneCount = result.ResultCount, result.PhoneCount
 		if err != nil {
 			observeFlushWait(job.ID, time.Since(flushWaitStart))
 
@@ -393,6 +419,7 @@ func parseGeoCoordinates(coords string) (lat, lon float64) {
 type Client struct {
 	riverClient *river.Client[pgx.Tx]
 	dbPool      *pgxpool.Pool
+	health      *AcquisitionHealth
 }
 
 // NewClient creates a new Client for the API server.
@@ -468,8 +495,10 @@ func NewWorkerClient(dbPool *pgxpool.Pool, manager ScrapeManager) (*Client, erro
 	logger := log.With("component", "river-worker")
 
 	workers := river.NewWorkers()
+	health := NewAcquisitionHealth(dbPool)
 	river.AddWorker(workers, &ScrapeWorker{
 		Manager: manager,
+		Health:  health,
 	})
 
 	riverClient, err := river.NewClient(riverpgxv5.New(dbPool), &river.Config{
@@ -488,10 +517,14 @@ func NewWorkerClient(dbPool *pgxpool.Pool, manager ScrapeManager) (*Client, erro
 	return &Client{
 		riverClient: riverClient,
 		dbPool:      dbPool,
+		health:      health,
 	}, nil
 }
 
 func (c *Client) Start(ctx context.Context) error {
+	if c.health != nil {
+		go c.health.Run(ctx)
+	}
 	return c.riverClient.Start(ctx)
 }
 
@@ -533,6 +566,9 @@ func (c *Client) promoteRetryableJobs(ctx context.Context, limit int) {
 	}
 
 	for _, job := range jobs.Jobs {
+		if job.ScheduledAt.After(time.Now()) {
+			continue
+		}
 		if _, err := c.riverClient.JobRetry(ctx, job.ID); err != nil {
 			log.Error("failed to promote retryable job", "job_id", job.ID, "error", err)
 		} else {

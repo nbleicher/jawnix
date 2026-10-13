@@ -660,6 +660,9 @@ func (w *CleanupWorker) Work(ctx context.Context, _ *river.Job[CleanupArgs]) err
 	}
 
 	// 3. Clean up old scrape results (completed jobs older than 30 days)
+	if _, err := w.dbPool.Exec(ctx, `DELETE FROM scrape_attempts WHERE created_at < NOW() - INTERVAL '7 days'`); err != nil {
+		log.Error("cleanup: failed to delete old acquisition attempts", "error", err)
+	}
 	result, err = w.dbPool.Exec(ctx,
 		`DELETE FROM scrape_results WHERE job_id IN (
 			SELECT id FROM river_job WHERE state = 'completed' AND finalized_at < NOW() - INTERVAL '30 days'

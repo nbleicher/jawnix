@@ -189,8 +189,7 @@ def pipeline_metrics(conn) -> dict:
                 (WHERE state IN ('available','pending','retryable'))), 0)::bigint,
               (SELECT count(*) FROM businesses),
               (SELECT count(*) FROM scrape_results),
-              COALESCE((SELECT avg((result_count=0)::int)::float
-                FROM scrape_results WHERE created_at >= now()-interval '1 hour'), 0)
+              COALESCE((SELECT empty_rate FROM acquisition_quality_1h), 0)
             FROM river_job WHERE kind='scrape'
             """
         )
