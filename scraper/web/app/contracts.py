@@ -54,6 +54,8 @@ class KeywordWinner(ContractModel):
     phones_per_cell: float = Field(ge=0)
     phone_rate: float = Field(ge=0)
     last_used: date | datetime | str
+    new_phone_count: int = Field(default=0, ge=0)
+    new_phones_per_minute: float = Field(default=0, ge=0)
 
 
 class KeywordWinners(ContractModel):
@@ -319,6 +321,8 @@ class DashboardStats(BaseModel):
     retryable_jobs: int = 0
     oldest_queue_secs: int = 0
     added_last_hour: int = 0
+    new_phones_last_hour: int = 0
+    new_phones_last_minute: int = 0
     empty_rate: float = 0.0
 
 
@@ -497,11 +501,22 @@ class QueueSettings(ContractModel):
     batch_size: int = Field(default=100, ge=1, le=10_000)
     poll_secs: int = Field(default=5, ge=5, le=3_600)
     skip_recent_days: int = Field(default=0, ge=0, le=365)
+    yield_pilot_cells: int = Field(default=6, ge=2, le=50)
+    yield_wave_cells: int = Field(default=12, ge=2, le=100)
+    yield_min_new_phones: int = Field(default=3, ge=1, le=1000)
+    yield_min_productive_cells: int = Field(default=2, ge=1, le=50)
+    yield_wave_min_new_phones: int = Field(default=3, ge=1, le=1000)
+    yield_wave_min_productive_cells: int = Field(default=2, ge=1, le=100)
+    yield_max_cells: int = Field(default=0, ge=0, le=100000)
 
     @model_validator(mode="after")
     def ordered_depth_bounds(self):
         if self.min_target_depth > self.max_target_depth:
             raise ValueError("Minimum queue depth cannot exceed maximum queue depth.")
+        if self.yield_min_productive_cells>self.yield_pilot_cells or self.yield_wave_min_productive_cells>self.yield_wave_cells:
+            raise ValueError("Required productive cells cannot exceed the pilot or wave size.")
+        if self.yield_max_cells and self.yield_max_cells<self.yield_pilot_cells:
+            raise ValueError("Coverage cap cannot be smaller than the pilot.")
         return self
 
 
