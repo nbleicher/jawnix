@@ -14,6 +14,8 @@ from pathlib import Path
 
 from sqlalchemy import and_, exists, func, nullsfirst, or_, select
 from sqlalchemy.orm import Session, load_only
+from .lead_databases import db2_listings, inventory_database, inventory_scope, inventory_state
+from .models import LeadDatabaseMembership
 
 from .billing import capture_batch_hold
 from .activity import record_activity
@@ -204,15 +206,17 @@ def eligible_query(
         )
     )
     niche = effective_niche_expression()
+    database = inventory_database(request.customer)
+    source_state = inventory_state(database)
     if niche_policy_rows is None:
-        niche_filter = policy_clause(request.customer_id, niche)
+        niche_filter = policy_clause(request.customer_id, niche, state_expression=source_state)
     else:
-        niche_filter = policy_clause_for_rows(niche_policy_rows, niche)
-    return (
+        niche_filter = policy_clause_for_rows(niche_policy_rows, niche, state_expression=source_state)
+    return inventory_scope(
         select(Lead)
         .outerjoin(
             ListingObservation,
-            ListingObservation.id == Lead.current_listing_observation_id,
+            and_(ListingObservation.id == Lead.current_listing_observation_id, database == "db1"),
         )
         .outerjoin(
             SourceNicheMapping,
@@ -223,7 +227,7 @@ def eligible_query(
         )
         .outerjoin(NicheAssignment, NicheAssignment.phone == Lead.phone)
         .where(
-            Lead.state.in_(request.states_snapshot),
+            inventory_state(database).in_(request.states_snapshot),
             Lead.suppressed.is_(False),
             ~cooling_down,
             ~previously_sent,
@@ -231,7 +235,8 @@ def eligible_query(
             ~excluded_phone,
             niche_filter,
         )
-        .order_by(nullsfirst(Lead.last_distributed_at), Lead.id)
+        .order_by(nullsfirst(Lead.last_distributed_at), Lead.id),
+        database,
     )
 
 
@@ -546,6 +551,10 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
     )
     if request is None:
         raise LookupError(f"Request {request_id} was not found.")
+    # A source switch and its next allocation serialize on the durable
+    # Customer. Replacing a User Account never changes this choice.
+    session.scalar(select(Customer).where(Customer.id == request.customer_id)
+                   .with_for_update().execution_options(populate_existing=True))
 
     existing_events = list(
         session.scalars(
@@ -594,13 +603,16 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
     request.status_message = "Selecting eligible inventory."
     session.flush()
 
-    candidates = list(
-        session.scalars(
-            eligible_query(request, settings)
-            .limit(request.lead_count)
-            .with_for_update(skip_locked=True, of=Lead)
-        )
-    )
+    database = inventory_database(request.customer)
+    query = eligible_query(request, settings).limit(request.lead_count)
+    source_keys = []
+    if database == "db2":
+        selected = session.execute(query.add_columns(LeadDatabaseMembership.upload_id)
+                                   .with_for_update(skip_locked=True, of=(Lead, LeadDatabaseMembership))).all()
+        candidates = [row[0] for row in selected]
+        source_keys = [(row[0].id, row[1]) for row in selected]
+    else:
+        candidates = list(session.scalars(query.with_for_update(skip_locked=True, of=Lead)))
     if len(candidates) < request.lead_count:
         available = inventory_count(session, request, settings)
         request.status = RequestStatus.waiting_inventory.value
@@ -611,16 +623,26 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
         return AllocationResult(request.status, 0, available)
 
     distributed_at = datetime.now(timezone.utc)
-    lookups = _listing_lookups(session, candidates)
+    sources = db2_listings(session, source_keys) if database == "db2" else {}
+    if database == "db2" and len(sources) != len(candidates):
+        raise RuntimeError("The selected DB2 inventory version is unavailable.")
+    lookups = _listing_lookups(session, candidates) if database == "db1" else None
+    delivered_rows = []
     for lead in candidates:
-        provenance, source_kind, segment_key, niche = _listing_snapshot(
-            session,
-            lead,
-            lookups=lookups,
-        )
+        if database == "db2":
+            listing = sources[lead.id]
+            if listing.phone != lead.phone:
+                raise RuntimeError("DB2 phone identity does not match its canonical endpoint.")
+            title = lead.title if lead.active_correction_id else listing.title
+            state = lead.state if lead.active_correction_id else listing.state
+            provenance = {**listing.provenance, "correction_id":str(lead.active_correction_id) if lead.active_correction_id else None}
+            source_kind, segment_key, niche = listing.source_kind, listing.segment_key, listing.niche
+        else:
+            title, state = lead.title, lead.state
+            provenance, source_kind, segment_key, niche = _listing_snapshot(session, lead, lookups=lookups)
         lead.last_distributed_at = distributed_at
-        session.add(
-            DistributionEvent(
+        distribution = DistributionEvent(
+                inventory_database=database,
                 lead_id=lead.id,
                 agent_id=request.customer_id,
                 customer_name=request.customer.name,
@@ -632,8 +654,8 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
                 ),
                 request_id=request.id,
                 phone=lead.phone,
-                title=lead.title,
-                state=lead.state,
+                title=title,
+                state=state,
                 listing_provenance=provenance,
                 source_kind=source_kind,
                 source_segment_key=segment_key,
@@ -642,8 +664,9 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
                 delivered_at=distributed_at,
                 source="request",
             )
-        )
-    artifact = generate_artifact(session, request, candidates, settings)
+        session.add(distribution)
+        delivered_rows.append(distribution)
+    artifact = generate_artifact(session, request, delivered_rows, settings)
     request.status = RequestStatus.generated.value
     request.available_count = len(candidates)
     request.processed_at = distributed_at

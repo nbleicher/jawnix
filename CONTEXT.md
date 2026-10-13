@@ -16,6 +16,15 @@ _Avoid_: Login status, trusted browser
 An authenticator-app credential held by an administrator and verified during enrollment before it can establish Administrator Assurance.
 _Avoid_: Verification code, MFA secret
 
+**Managed Administrator**:
+An administrator who can upload CSV leads and manage only Customers made available by the operator. The operator can assign Customers or withdraw the grant; the Managed Administrator can add only granted Customers. This access group does not change Agency membership or permanent distribution history.
+
+**Lead Database**:
+A Customer's operator-selected inventory source for its next allocation. DB1 contains the operator's inventory; physically separate DB2 stores immutable CSV listing versions. Shared canonical phone endpoints and distribution history enforce exclusions, holds, cooldown, and permanent no-repeat across source switches. Already generated Batches retain their original snapshots and artifacts.
+
+**Lead Upload**:
+A state-selected CSV import owned by a Managed Administrator. Records stream into DB2, and its eligibility index becomes visible atomically after the complete file commits. Retries retain the same source version. Invalid or interrupted files never publish a prefix.
+
 **Primary Authenticator**:
 The Authenticator Factor an administrator normally uses to establish Administrator Assurance.
 _Avoid_: Only factor, default password

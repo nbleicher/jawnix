@@ -4,6 +4,11 @@ import { createAuthMiddleware } from "better-auth/api";
 import { bearer, twoFactor } from "better-auth/plugins";
 import pg from "pg";
 import { attachDatabasePool } from "@vercel/functions";
+import { AsyncLocalStorage } from "node:async_hooks";
+
+// Trusted bridge calls can return an onboarding link to the operator without
+// sending email. Per-call storage keeps simultaneous resets isolated.
+export const accessLinkContext = new AsyncLocalStorage<{ url?: string }>();
 
 export function createAuth(
   database: pg.Pool,
@@ -32,8 +37,11 @@ export function createAuth(
       disableSignUp: true,
       minPasswordLength: 8,
       revokeSessionsOnPasswordReset: true,
-      sendResetPassword: async ({ user, url }) =>
-        options.sendReset(user.email, url),
+      sendResetPassword: async ({ user, url }) => {
+        const capture = accessLinkContext.getStore();
+        if (capture) capture.url = url;
+        else await options.sendReset(user.email, url);
+      },
     },
     user: {
       additionalFields: {

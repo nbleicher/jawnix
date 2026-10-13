@@ -56,6 +56,35 @@ test("bridge authorization uses a separate secret", () => {
   assert.equal(bridgeAuthorized("", ""), false);
 });
 
+test("manager provisioning returns a private setup link without email and uses the same TOTP boundary", async () => {
+  const id = randomUUID();
+  const email = `${id}@example.test`;
+  const before = emails.length;
+  const user = await bridge(auth, { action:"provision-manager", userId:id, email, name:"Alex fixture" });
+  assert.ok("app_metadata" in user);
+  assert.equal(user.app_metadata.jawnix_role, "manager");
+  const link = await bridge(auth, { action:"manager-access-link", userId:id });
+  assert.ok("url" in link && typeof link.url === "string");
+  assert.equal(emails.length, before);
+  const token = new URL(link.url).pathname.split("/").at(-1)!;
+  await auth.api.resetPassword({ body:{ token, newPassword:"password-for-manager-test" } });
+  const login = await auth.api.signInEmail({ body:{ email, password:"password-for-manager-test" } });
+  assert.ok("token" in login && login.token);
+  const identity = await bridge(auth, { action:"identity", accessToken:login.token as string });
+  assert.ok("user" in identity);
+  assert.ok(identity.user);
+  assert.equal(identity.user.app_metadata.jawnix_role, "manager");
+  const enrolled = await bridge(auth, { action:"enroll", accessToken:login.token as string, password:"password-for-manager-test" });
+  assert.ok("totp" in enrolled && enrolled.totp?.secret);
+  assert.equal(emails.length, before);
+});
+
+test("provisioning cannot silently turn a customer into a manager", async () => {
+  const existing = await provision();
+  await assert.rejects(bridge(auth, { action:"provision-manager", email:existing.email }));
+  await assert.rejects(bridge(auth, { action:"manager-access-link", userId:existing.id }));
+});
+
 test("existing UUID survives password setup, and customer cannot enroll admin MFA", async () => {
   const user = await provision();
   const login = await auth.api.signInEmail({

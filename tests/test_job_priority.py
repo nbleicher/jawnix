@@ -17,9 +17,10 @@ from jawnix.models import Job, JobStatus
     ("fulfillment", "fulfill_round_robin"),
     ("notifications", "deliver_request"),
     ("maintenance", "sync_inventory"),
+    ("imports", "import_lead_upload"),
 ])
 def test_worker_lanes_isolate_slow_notification_and_inventory_jobs(session, lane, expected):
-    for kind in ("send_request_milestone_email", "sync_inventory", "update_notification", "fulfill_round_robin", "deliver_request"):
+    for kind in ("import_lead_upload", "send_request_milestone_email", "sync_inventory", "update_notification", "fulfill_round_robin", "deliver_request"):
         session.add(Job(kind=kind, payload={}))
     session.flush()
     item = claim_next_job(session, f"{lane}-worker", lane=lane)

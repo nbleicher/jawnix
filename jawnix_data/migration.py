@@ -135,6 +135,11 @@ def _upsert_lead_batch(session: Session, batch: list[dict], manifest_wins: bool)
             )
             session.add(lead)
             existing[phone] = lead
+        elif not lead.in_db1:
+            lead.in_db1 = True
+            lead.legacy_title, lead.legacy_state = row.get("title", ""), row["state"]
+            if lead.active_correction_id is None:
+                lead.title, lead.state = lead.legacy_title, lead.legacy_state
         elif manifest_wins:
             if row.get("title"):
                 lead.title = row["title"]
@@ -293,6 +298,7 @@ def _postgres_finish_manifest(
             FROM manifest_import_stage
             GROUP BY phone
             ON CONFLICT (phone) DO UPDATE SET
+                in_db1 = true,
                 title = COALESCE(NULLIF(EXCLUDED.title, ''), lead_inventory.title),
                 state = EXCLUDED.state,
                 legacy_title = CASE
@@ -631,7 +637,13 @@ def _postgres_finish_scraper(
                 NULL
             FROM scraper_import_stage
             GROUP BY phone
-            ON CONFLICT (phone) DO NOTHING
+            ON CONFLICT (phone) DO UPDATE SET
+                title = CASE WHEN NOT lead_inventory.in_db1 AND lead_inventory.active_correction_id IS NULL
+                             THEN EXCLUDED.title ELSE lead_inventory.title END,
+                state = CASE WHEN NOT lead_inventory.in_db1 AND lead_inventory.active_correction_id IS NULL
+                             THEN EXCLUDED.state ELSE lead_inventory.state END,
+                in_db1 = true
+            WHERE NOT lead_inventory.in_db1
             """
         )
         imported = cursor.rowcount
@@ -840,6 +852,8 @@ def import_scraper_sqlite(session: Session, path: Path, expected_checksum: str |
                 session.flush()
                 leads[phone] = lead
                 imported += 1
+            elif valid and lead is not None:
+                lead.in_db1 = True
 
             observation = ListingObservation(
                 lead_id=lead.id if lead else None,

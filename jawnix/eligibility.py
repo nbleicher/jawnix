@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import uuid
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -43,7 +44,10 @@ from .models import (
     LeadReport,
     LeadReportResolution,
     ListingObservation,
+    LeadDatabaseMembership,
+    LeadUpload,
 )
+from .lead_databases import db2_listings
 
 
 class ControlConflict(Exception):
@@ -84,6 +88,7 @@ class LeadEvidence:
     observation_id: int | None = None
     observed_at: datetime | None = None
     source: str = ""
+    upload_id: uuid.UUID | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -94,6 +99,7 @@ class LeadEvidence:
             "observationId": self.observation_id,
             "observedAt": self.observed_at,
             "source": self.source,
+            **({"uploadId":str(self.upload_id)} if self.upload_id is not None else {}),
         }
 
 
@@ -174,10 +180,11 @@ _EVIDENCE_LABELS = {
     "legacy_snapshot": "Legacy Listing Snapshot (imported)",
     "prior_correction": "Active Lead Correction",
     "none": "No underlying listing evidence",
+    "csv_upload": "CSV upload (DB2)",
 }
 
 
-def lead_evidence(db: Session, lead: Lead) -> LeadEvidence:
+def lead_evidence(db: Session, lead: Lead, *, database: str | None = None) -> LeadEvidence:
     """What this Lead's delivered values currently rest on.
 
     Precedence mirrors the domain: an active Lead Correction outranks the
@@ -195,7 +202,19 @@ def lead_evidence(db: Session, lead: Lead) -> LeadEvidence:
                 state=active.state,
                 observed_at=active.created_at,
                 source=active.reason,
+                upload_id=active.based_on_upload_id,
             )
+    if database == "db2" or not lead.in_db1:
+        membership = db.get(LeadDatabaseMembership, lead.id)
+        if membership is not None:
+            source = db2_listings(db, [(lead.id, membership.upload_id)]).get(lead.id)
+            upload = db.get(LeadUpload, membership.upload_id)
+            if source is not None:
+                return LeadEvidence(kind="csv_upload", label=_EVIDENCE_LABELS["csv_upload"],
+                                    title=source.title, state=source.state,
+                                    observed_at=upload.created_at if upload else None,
+                                    source=f"DB2 CSV {membership.upload_id}", upload_id=membership.upload_id)
+        return LeadEvidence(kind="none", label=_EVIDENCE_LABELS["none"], title="", state="")
     if lead.current_listing_observation_id is not None:
         observation = db.get(
             ListingObservation,
@@ -235,6 +254,7 @@ def record_correction(
     reason: str,
     title: str | None,
     state: str | None,
+    database: str | None = None,
 ) -> LeadCorrectionEvent:
     """Apply an override to ``lead``, grounded in what it displaces.
 
@@ -242,10 +262,12 @@ def record_correction(
     change nothing, so an empty correction never enters the audit trail as if
     it were a decision.
     """
-    evidence = lead_evidence(db, lead)
-    proposed_title = title.strip() if title is not None else lead.title
-    proposed_state = state or lead.state
-    if proposed_title == lead.title and proposed_state == lead.state:
+    evidence = lead_evidence(db, lead, database=database)
+    current_title = evidence.title if database == "db2" or not lead.in_db1 else lead.title
+    current_state = evidence.state if database == "db2" or not lead.in_db1 else lead.state
+    proposed_title = title.strip() if title is not None else current_title
+    proposed_state = state or current_state
+    if proposed_title == current_title and proposed_state == current_state:
         raise ControlConflict(
             "A Lead Correction must change the delivered title or state.",
             guard="empty_correction",
@@ -260,6 +282,7 @@ def record_correction(
         supersedes_correction_id=lead.active_correction_id,
         based_on_kind=evidence.kind,
         based_on_observation_id=evidence.observation_id,
+        based_on_upload_id=evidence.upload_id,
         based_on_title=evidence.title,
         based_on_state=evidence.state,
     )
@@ -355,6 +378,7 @@ def correct_from_report(
         reason=note,
         title=title,
         state=state,
+        database=db.get(DistributionEvent, report.distribution_event_id).inventory_database,
     )
 
 
@@ -397,7 +421,7 @@ def describe_report(db: Session, report: LeadReport) -> dict[str, object]:
         else None
     )
     evidence = (
-        lead_evidence(db, lead)
+        lead_evidence(db, lead, database=event.inventory_database)
         if lead is not None
         else LeadEvidence(kind="none", label="", title="", state="")
     )

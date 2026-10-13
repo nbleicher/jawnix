@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     worker_id: str = Field(default="worker-1", alias="JAWNIX_WORKER_ID")
     database_pool_size: int = Field(default=10, ge=1, alias="JAWNIX_DATABASE_POOL_SIZE")
     database_max_overflow: int = Field(default=20, ge=0, alias="JAWNIX_DATABASE_MAX_OVERFLOW")
+    db2_database_url: str = Field(default="", alias="JAWNIX_DB2_DATABASE_URL")
+    lead_upload_max_bytes: int = Field(default=2 * 1024 * 1024 * 1024, ge=1, alias="JAWNIX_LEAD_UPLOAD_MAX_BYTES")
     # default remains compatible with unsplit deployments.
     worker_lane: str = Field(default="default", alias="JAWNIX_WORKER_LANE")
     job_lock_timeout_seconds: int = Field(default=900, alias="JAWNIX_JOB_LOCK_TIMEOUT_SECONDS")

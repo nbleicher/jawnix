@@ -11,6 +11,7 @@ from .models import Job, JobStatus
 # lead.assigned fan-out runs on its own worker lane so Telegram, email,
 # allocate, and deliver never share a claim loop with metrics ingest.
 METRICS_JOB_KINDS = frozenset({"emit_lead_assigned"})
+IMPORT_JOB_KINDS = frozenset({"import_lead_upload"})
 FULFILLMENT_JOB_KINDS = frozenset({"allocate_request", "fulfill_round_robin", "telegram_action", "telegram_inventory_conflict_action"})
 NOTIFICATION_JOB_KINDS = frozenset({"notify_request", "update_notification", "licensed_states_changed", "deliver_request", "send_request_milestone_email", "notify_nightly_review", "update_nightly_review_notification", "notify_telegram_action_failure"})
 WORKER_LANE_DEFAULT = "default"
@@ -18,7 +19,8 @@ WORKER_LANE_METRICS = "metrics"
 WORKER_LANE_FULFILLMENT = "fulfillment"
 WORKER_LANE_NOTIFICATIONS = "notifications"
 WORKER_LANE_MAINTENANCE = "maintenance"
-_VALID_WORKER_LANES = frozenset({WORKER_LANE_DEFAULT, WORKER_LANE_METRICS, WORKER_LANE_FULFILLMENT, WORKER_LANE_NOTIFICATIONS, WORKER_LANE_MAINTENANCE})
+WORKER_LANE_IMPORTS = "imports"
+_VALID_WORKER_LANES = frozenset({WORKER_LANE_DEFAULT, WORKER_LANE_METRICS, WORKER_LANE_FULFILLMENT, WORKER_LANE_NOTIFICATIONS, WORKER_LANE_MAINTENANCE, WORKER_LANE_IMPORTS})
 
 
 def normalize_worker_lane(lane: str | None) -> str:
@@ -39,6 +41,8 @@ def job_lane(kind: str) -> str:
         return WORKER_LANE_FULFILLMENT
     if kind in NOTIFICATION_JOB_KINDS:
         return WORKER_LANE_NOTIFICATIONS
+    if kind in IMPORT_JOB_KINDS:
+        return WORKER_LANE_IMPORTS
     return WORKER_LANE_MAINTENANCE
 
 
@@ -49,8 +53,10 @@ def _lane_filter(lane: str):
         return Job.kind.in_(FULFILLMENT_JOB_KINDS)
     if lane == WORKER_LANE_NOTIFICATIONS:
         return Job.kind.in_(NOTIFICATION_JOB_KINDS)
+    if lane == WORKER_LANE_IMPORTS:
+        return Job.kind.in_(IMPORT_JOB_KINDS)
     if lane == WORKER_LANE_MAINTENANCE:
-        return Job.kind.notin_(METRICS_JOB_KINDS | FULFILLMENT_JOB_KINDS | NOTIFICATION_JOB_KINDS)
+        return Job.kind.notin_(METRICS_JOB_KINDS | FULFILLMENT_JOB_KINDS | NOTIFICATION_JOB_KINDS | IMPORT_JOB_KINDS)
     # Keep the pre-split deployment's default worker compatible.
     return Job.kind.notin_(METRICS_JOB_KINDS)
 

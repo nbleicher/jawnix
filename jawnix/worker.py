@@ -14,6 +14,8 @@ from .delivery import deliver_request, mark_delivery_failed
 from .billing import release_batch_hold
 from .jobs import FULFILLMENT_JOB_KINDS, claim_next_job, enqueue_job
 from .job_wakeup import JobWakeup
+from .lead_uploads import IMPORT_JOB, ImportInterrupted, import_lead_upload
+from .models import LeadUpload
 from .metrics_emit import (
     EMIT_LEAD_ASSIGNED_JOB,
     EMIT_MAX_ATTEMPTS,
@@ -626,6 +628,9 @@ def process_job(job_id: int) -> None:
                         "Telegram exclusion decision ignored: %s",
                         exc,
                     )
+            elif job.kind == IMPORT_JOB:
+                import_lead_upload(uuid.UUID(str(job.payload["upload_id"])), settings,
+                                   session_factory=SessionLocal, job_id=job.id)
             elif job.kind == "deliver_request":
                 deliver_request(session, uuid.UUID(str(job.request_id)), settings)
             elif job.kind == EMIT_LEAD_ASSIGNED_JOB:
@@ -677,6 +682,20 @@ def process_job(job_id: int) -> None:
         with SessionLocal.begin() as session:
             job = session.get(Job, job_id)
             if job is None:
+                return
+            if job.kind == IMPORT_JOB:
+                upload = session.get(LeadUpload, uuid.UUID(str(job.payload["upload_id"])))
+                if upload is not None and upload.status == "complete":
+                    job.status, job.last_error = JobStatus.complete.value, ""
+                    return
+                retry = isinstance(exc, ImportInterrupted) and job.attempts < 4
+                job.status = JobStatus.queued.value if retry else JobStatus.failed.value
+                job.last_error = "CSV import was interrupted."
+                job.locked_at, job.locked_by = None, ""
+                job.run_after = datetime.now(timezone.utc) + timedelta(seconds=30 * 2**min(job.attempts, 4))
+                if upload is not None:
+                    upload.status = "queued" if retry else "failed"
+                    upload.error = "Import interrupted. It will retry automatically." if retry else "Import interrupted. Retry this upload."
                 return
             if (
                 job.kind == EMIT_LEAD_ASSIGNED_JOB

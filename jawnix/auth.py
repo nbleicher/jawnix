@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from .config import Settings, get_settings
 from .database import get_db
 from .mfa_provider import BetterAuthMFAProvider, MFAProviderError, get_mfa_provider
-from .models import AdminMFAState
+from .models import AdminMFAState, ManagedAdmin
 
 
 SESSION_COOKIE = "jawnix_session"
@@ -57,7 +57,7 @@ def issue_session(
     user_id = uuid.UUID(str(user["id"]))
     email = str(user.get("email") or "").strip().lower()
     role = str((user.get("app_metadata") or {}).get("jawnix_role") or "customer")
-    audience = "admin" if role == "admin" else "customer"
+    audience = "admin" if role in {"admin", "manager"} else "customer"
     claims = user.get("_jawnix_auth_claims") or {}
     established_assurance = assurance or str(claims.get("aal") or "aal1")
     csrf = uuid.uuid4().hex
@@ -117,7 +117,7 @@ def principal_from_request(request: Request, settings: Settings) -> Principal:
             assurance=str(payload.get("aal") or "aal1"),
             audience=str(
                 payload.get("aud")
-                or ("admin" if payload.get("role") == "admin" else "customer")
+                or ("admin" if payload.get("role") in {"admin", "manager"} else "customer")
             ),
             session_generation=int(payload.get("generation") or 0),
             factor_id=(
@@ -143,12 +143,21 @@ def require_principal(request: Request, settings: Settings = Depends(get_setting
 
 def require_admin_identity(
     principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
 ) -> Principal:
     """Authorize the enrollment-only surface without granting administration."""
 
-    if principal.role != "admin" or principal.audience != "admin":
+    if principal.role not in {"admin", "manager"} or principal.audience != "admin":
         raise HTTPException(status_code=403, detail="Admin access required.")
+    if principal.role == "manager":
+        manager = db.get(ManagedAdmin, principal.user_id)
+        if manager is None or not manager.active:
+            raise HTTPException(status_code=403, detail="Managed administration is unavailable.")
     return principal
+
+
+def administration_home(principal: Principal) -> str:
+    return "/app/manager/uploads" if principal.role == "manager" else "/app/admin/overview"
 
 
 async def require_admin(
@@ -158,6 +167,21 @@ async def require_admin(
 ) -> Principal:
     if principal.role != "admin" or principal.audience != "admin":
         raise HTTPException(status_code=403, detail="Admin access required.")
+    return await require_administrator_assurance(principal, settings, db)
+
+
+async def require_manager(
+    principal: Principal = Depends(require_admin_identity),
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+) -> Principal:
+    if principal.role != "manager":
+        raise HTTPException(status_code=403, detail="Managed admin access required.")
+    return await require_administrator_assurance(principal, settings, db)
+
+
+async def require_administrator_assurance(principal: Principal, settings: Settings, db: Session) -> Principal:
+    """The shared live MFA boundary, after the caller authorizes its own role."""
     state = db.get(AdminMFAState, principal.user_id)
     if state is None or principal.session_generation != state.session_generation:
         raise HTTPException(

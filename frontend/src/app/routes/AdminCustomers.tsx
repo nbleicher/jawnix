@@ -63,7 +63,12 @@ export interface CustomerDirectoryRow {
   last_activity_at: string | null;
   problems: string[];
   href: string;
+  lead_database?: "db1" | "db2";
+  allowed_manager_id?: string | null;
+  manager_id?: string | null;
 }
+
+interface ManagedAdminInfo { id: string; name: string; email: string }
 
 export interface CustomerDirectoryData {
   filters: {
@@ -78,6 +83,7 @@ export interface CustomerDirectoryData {
   total: number;
   matched: number;
   customers: CustomerDirectoryRow[];
+  managed_admins?: ManagedAdminInfo[];
 }
 
 interface CreatedCustomer {
@@ -159,7 +165,67 @@ function Standing({
   );
 }
 
-function CustomerCard({ row }: { row: CustomerDirectoryRow }) {
+function CustomerScopeControls({ row, managers }: { row: CustomerDirectoryRow; managers: ManagedAdminInfo[] }) {
+  const [scope, setScope] = useState(row);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => { setScope(row); setMessage(""); }, [row]);
+  const manager = managers.find(item => item.id === scope.allowed_manager_id) ?? managers[0];
+  const assignment = !manager || scope.allowed_manager_id !== manager.id ? "unavailable" : scope.manager_id === manager.id ? "assigned" : "available";
+  async function save(change: Partial<CustomerDirectoryRow>) {
+    if (busy) return;
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const updated = await api<Partial<CustomerDirectoryRow>>(`/api/admin/customers/${row.id}/scope`, { method:"PATCH", body:JSON.stringify(change) });
+      setScope(current => ({ ...current, ...updated }));
+      setMessage("Saved");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "The update could not be saved."); }
+    finally { setBusy(false); }
+  }
+  return <Stack gap={3}>
+    <Field label={`Lead database for ${row.name}`}>
+      <Select disabled={busy} value={scope.lead_database ?? "db1"} onChange={event => { void save({ lead_database:event.target.value as "db1" | "db2" }); }}>
+        <option value="db1">DB1 · Operator leads</option><option value="db2">DB2 · Alex uploads</option>
+      </Select>
+    </Field>
+    {manager ? <Field label={`${manager.name} management for ${row.name}`}>
+      <Select disabled={busy} value={assignment} onChange={event => {
+        const value = event.target.value;
+        void save({ allowed_manager_id:value === "unavailable" ? null : manager.id, manager_id:value === "assigned" ? manager.id : null });
+      }}>
+        <option value="unavailable">Not available to {manager.name}</option>
+        <option value="available">Available for {manager.name} to add</option>
+        <option value="assigned">Managed by {manager.name}</option>
+      </Select>
+    </Field> : null}
+    {message ? <Text size="sm" role="status">{message}</Text> : null}
+    {error ? <Text size="sm" role="alert" tone="danger">{error}</Text> : null}
+  </Stack>;
+}
+
+function ManagedAdminAccess({ manager }: { manager: ManagedAdminInfo }) {
+  const [link, setLink] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function generate() {
+    setBusy(true); setError(""); setLink("");
+    try {
+      const result = await api<{ url:string }>(`/api/admin/managed-admins/${manager.id}/access-link`, { method:"POST" });
+      setLink(result.url);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "The link could not be generated."); }
+    finally { setBusy(false); }
+  }
+  return <Card><Stack gap={3}>
+    <Heading level={3}>{manager.name} access</Heading><Text size="sm">{manager.email}</Text>
+    <Text size="sm" tone="muted">Generate a password setup link to share with {manager.name}. It expires in one hour. One authenticator is required after sign-in.</Text>
+    {link ? <Field label={`Password setup link for ${manager.name}`}><Input value={link} readOnly onFocus={event => event.currentTarget.select()} /></Field> : null}
+    {error ? <Text role="alert" tone="danger">{error}</Text> : null}
+    <Cluster><Button busy={busy} busyLabel="Generating…" onClick={() => { void generate(); }}>Generate access link</Button></Cluster>
+  </Stack></Card>;
+}
+
+function CustomerCard({ row, managers }: { row: CustomerDirectoryRow; managers: ManagedAdminInfo[] }) {
   return (
     <Card as="article" aria-label={row.name}>
       <Stack gap={4}>
@@ -207,6 +273,7 @@ function CustomerCard({ row }: { row: CustomerDirectoryRow }) {
             <dd>{formatAdminDate(row.last_activity_at)}</dd>
           </div>
         </dl>
+        <CustomerScopeControls row={row} managers={managers} />
 
         {row.problems.length ? (
           <Stack gap={2} align="flex-start">
@@ -531,7 +598,7 @@ export function AdminCustomersRoute() {
           {data.customers.length ? (
             <Grid minColumnWidth="22rem">
               {data.customers.map((row) => (
-                <CustomerCard key={row.id} row={row} />
+                <CustomerCard key={row.id} row={row} managers={data.managed_admins ?? []} />
               ))}
             </Grid>
           ) : (
@@ -542,6 +609,10 @@ export function AdminCustomersRoute() {
           )}
         </Stack>
       </Section>
+
+      {data.managed_admins?.length ? <Section title="Managed administrator access"><Grid minColumnWidth="22rem">
+        {data.managed_admins.map(manager => <ManagedAdminAccess key={manager.id} manager={manager} />)}
+      </Grid></Section> : null}
 
       <NicheAssignmentTransfer />
 

@@ -16,6 +16,7 @@ from .auth import (
     issue_session,
     require_admin,
     require_admin_identity,
+    administration_home,
 )
 from .config import Settings, get_settings
 from .database import get_db
@@ -182,7 +183,7 @@ async def _identity_for_token(
             detail="The identity session is invalid or expired.",
         ) from None
     role = str((user.get("app_metadata") or {}).get("jawnix_role") or "")
-    if str(user.get("id") or "") != str(principal.user_id) or role != "admin":
+    if str(user.get("id") or "") != str(principal.user_id) or role != principal.role or role not in {"admin", "manager"}:
         # Do not disclose which part mismatched.
         raise HTTPException(
             status_code=401,
@@ -276,7 +277,7 @@ async def admin_mfa_status(
     elif principal.assurance != "aal2":
         next_path = "/app/admin/mfa/challenge"
     else:
-        next_path = "/app/admin/overview"
+        next_path = administration_home(principal)
     return {
         "assurance": principal.assurance,
         "enforced": len(verified) >= 1,
@@ -520,7 +521,7 @@ async def verify_admin_mfa_enrollment(
         "ok": True,
         "complete": complete,
         "next": (
-            "/app/admin/overview"
+            administration_home(principal)
             if complete
             else "/app/admin/mfa/enroll"
         ),
@@ -624,7 +625,7 @@ async def challenge_admin_mfa(
     )
     return {
         "ok": True,
-        "next": "/app/admin/overview",
+        "next": administration_home(principal),
         "session": _session_json(provider_session),
     }
 

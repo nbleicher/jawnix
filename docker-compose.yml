@@ -81,6 +81,17 @@ services:
       JAWNIX_DATABASE_POOL_SIZE: "2"
       JAWNIX_DATABASE_MAX_OVERFLOW: "1"
 
+  imports-worker:
+    <<: *app
+    command: ["python", "-m", "jawnix.worker"]
+    mem_limit: 1g
+    cpus: 2
+    environment:
+      JAWNIX_WORKER_ID: imports-worker-1
+      JAWNIX_WORKER_LANE: imports
+      JAWNIX_DATABASE_POOL_SIZE: "2"
+      JAWNIX_DATABASE_MAX_OVERFLOW: "1"
+
   metrics-worker:
     <<: *app
     command: ["python", "-m", "jawnix.worker"]
@@ -111,6 +122,7 @@ services:
       PGUSER: ${POSTGRES_USER:-jawnix}
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
+      - batch_data:/srv/jawnix/batches:ro
       - postgres_data:/var/lib/postgresql/data
       - scraper_data:/data:ro
       - ${JAWNIX_BACKUP_EXPORT_DIR:-/srv/jawnix/backups}:/srv/jawnix/backups

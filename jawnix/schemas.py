@@ -287,6 +287,15 @@ class CustomerDirectoryRow(BaseModel):
     last_activity_at: datetime | None
     problems: list[str]
     href: str
+    lead_database: Literal["db1", "db2"] = "db1"
+    allowed_manager_id: uuid.UUID | None = None
+    manager_id: uuid.UUID | None = None
+
+
+class ManagedAdminRecord(BaseModel):
+    id: uuid.UUID
+    email: str
+    name: str
 
 
 class CustomerDirectoryFilters(BaseModel):
@@ -306,6 +315,7 @@ class CustomerDirectoryOut(BaseModel):
     total: int
     matched: int
     customers: list[CustomerDirectoryRow]
+    managed_admins: list[ManagedAdminRecord] = Field(default_factory=list)
 
 
 class CustomerRecord(BaseModel):
@@ -320,6 +330,9 @@ class CustomerRecord(BaseModel):
     licensed_states: list[str]
     status: CustomerAdminStatus
     last_activity_at: datetime | None
+    lead_database: Literal["db1", "db2"] = "db1"
+    allowed_manager_id: uuid.UUID | None = None
+    manager_id: uuid.UUID | None = None
 
 
 class CustomerHistory(BaseModel):

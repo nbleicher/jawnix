@@ -168,7 +168,7 @@ export function AdminMFAEnrollmentRoute() {
       setEnrollment(null);
       setCode("");
       if (result.complete) {
-        await navigate("/admin/overview", { replace: true });
+        await navigate((result.next || "/app/admin/overview").replace(/^\/app/, ""), { replace: true });
       } else {
         await revalidator.revalidate();
       }
@@ -217,7 +217,7 @@ export function AdminMFAEnrollmentRoute() {
           ) : null}
 
           {!enrollment && verifiedCount > 0 ? (
-            <Link to="/admin/overview">Continue to administration</Link>
+            <Link to={status.next.replace(/^\/app/, "")}>Continue to administration</Link>
           ) : !enrollment ? (
             <Stack gap={4}>
               <Text>
@@ -359,7 +359,7 @@ export function AdminMFAChallengeRoute() {
         },
       );
       await storeProviderSession(result.session);
-      await navigate("/admin/overview", { replace: true });
+      await navigate((result.next || "/app/admin/overview").replace(/^\/app/, ""), { replace: true });
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {

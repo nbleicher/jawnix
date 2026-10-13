@@ -1,0 +1,9 @@
+.managed-upload__drop {
+  border: 1px dashed var(--jx-color-border);
+  padding: var(--jx-space-5);
+  display: grid;
+  gap: var(--jx-space-3);
+}
+.managed-upload__drop[data-dragging] { border-color: var(--jx-color-accent); }
+.managed-users__choice { display: flex; align-items: center; gap: var(--jx-space-3); }
+.managed-users__choice small { display: block; color: var(--jx-color-text-muted); }
