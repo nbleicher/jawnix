@@ -139,6 +139,8 @@ async def _keyword_winners(request: Request) -> list[KeywordWinner]:
             posted_cells=int(row["posted_cells"] or 0),
             phones_per_cell=float(row["phones_per_cell"] or 0),
             phone_rate=float(row["phone_rate"] or 0),
+            new_phone_count=int(row["new_phone_count"] or 0),
+            new_phones_per_minute=float(row["new_phones_per_minute"] or 0),
             last_used=row["last_used"],
         )
         for index, row in enumerate(rows, 1)

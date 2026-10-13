@@ -468,3 +468,59 @@ async def test_rollover_toggle_needs_no_model_credential(app_client):
         KeywordRollover,
     )
     assert disabled.enabled is False
+
+
+@pytest.mark.asyncio
+async def test_new_endpoint_yield_survives_control_serialization(app_client):
+    import httpx
+    from app.main import create_app
+    _, settings = app_client
+    conn = await asyncpg.connect(settings.database_url)
+    try:
+        await conn.execute("""INSERT INTO scrape_results(job_id,keyword,new_phone_count,yield_verified)
+            VALUES(95001,'plumbers',9,true)""")
+        await conn.execute("""INSERT INTO scrape_attempts(job_id,attempt,keyword,state,cell,outcome,duration_ms)
+            VALUES(95001,1,'plumbers','tn','35,-86','success',30000)""")
+        await conn.execute("""INSERT INTO acquisition_phone_registry(phone,first_job_id)
+            VALUES('6159999901',95001),('6159999902',95001)""")
+        application = create_app(settings)
+        async with application.router.lifespan_context(application):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=application),base_url='http://test',
+                                         headers={'Authorization':'Bearer '+TOKEN}) as client:
+                response = await client.get('/api/dashboard/stats')
+                assert response.status_code == 200
+                assert response.json()['stats']['new_phones_last_hour'] >= 2
+                assert response.json()['stats']['new_phones_last_minute'] >= 2
+                response = await client.get('/api/keywords/winners')
+                assert response.status_code == 200
+                winner = response.json()['winners'][0]
+                assert winner['keyword'] == 'plumbers'
+                assert winner['new_phone_count'] == 9
+                assert winner['new_phones_per_minute'] == 18
+    finally:
+        await conn.execute('DELETE FROM scrape_results WHERE job_id=95001')
+        await conn.execute('DELETE FROM scrape_attempts WHERE job_id=95001')
+        await conn.execute('DELETE FROM acquisition_phone_registry WHERE first_job_id=95001')
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_operator_wave_settings_roundtrip_and_validation(app_client):
+    client, _ = app_client
+    workspace = (await client.get('/api/runtime')).json()
+    configuration = workspace['current']
+    assert configuration['queue']['yield_pilot_cells'] == 6
+    assert configuration['queue']['yield_wave_cells'] == 12
+    configuration['queue']['yield_wave_cells'] = 7
+    configuration['queue']['yield_max_cells'] = 25
+    preview = await client.post('/api/runtime/preview',json={'configuration':configuration})
+    assert preview.status_code == 200,preview.text
+    assert set(preview.json()['effects']['queue_changes']) == {'yield_wave_cells','yield_max_cells'}
+    saved = await client.post('/api/runtime/save',json={'configuration':configuration,'expected_version':workspace['version']})
+    assert saved.status_code == 200,saved.text
+    current = (await client.get('/api/runtime')).json()['current']['queue']
+    assert current['yield_wave_cells'] == 7
+    assert current['yield_max_cells'] == 25
+    configuration['queue']['yield_wave_min_productive_cells'] = 8
+    invalid = await client.post('/api/runtime/preview',json={'configuration':configuration})
+    assert invalid.status_code == 422
