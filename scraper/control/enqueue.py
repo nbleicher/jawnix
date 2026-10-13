@@ -49,6 +49,7 @@ REPO = HERE.parent
 # (no dependency on the auto_scrape/orchestrate.py repo).
 sys.path.insert(0, str(HERE))
 from grid import generate_grid_cells, STATE_CONFIG  # noqa: E402
+from yield_gate import eligible_jobs  # noqa: E402
 
 
 # ── Inputs ────────────────────────────────────────────────────────────────────
@@ -183,7 +184,7 @@ class Ledger:
                     continue
                 cur.execute(
                     "SELECT count(DISTINCT cell) FROM enqueue_log "
-                    "WHERE keyword = %s AND state = %s AND day = %s",
+                    "WHERE keyword = %s AND state = %s AND day = %s AND status='posted'",
                     (kw, st, day),
                 )
                 if cur.fetchone()[0] >= total_cells:
@@ -340,7 +341,7 @@ def top_up(api_base: str, jobs: list, cursor: int, target_depth: int, batch_size
                 reserved = ledger.reserve(j["keyword"], j["state"], j["geo_coordinates"], day)
             except Exception as e:
                 print(f"  warn: ledger reserve failed: {e}", file=sys.stderr)
-                reserved = True
+                break
             if not reserved:
                 i += 1
                 cursor = i
@@ -400,11 +401,16 @@ def prepare_jobs(args) -> tuple[dict, list, dict, object | None, date, str, int,
                 )
             recent = ledger.load_recent(skip_days)
             done = ledger.load_done(today, states_cfg["states"])
+            started_on = date.fromtimestamp(Path(args.keywords).stat().st_mtime)
+            jobs = eligible_jobs(ledger, jobs, started_on, today)
             jobs, n_recent, n_done = filter_jobs(jobs, recent, done)
             print(f"  Ledger: skipped {n_recent:,} (recent ≤{skip_days}d, O-12) + "
                   f"{n_done:,} (already queued/reserved today, O-11)")
         except Exception as e:
-            print(f"  warn: ledger unavailable ({e}) — proceeding without dedup", file=sys.stderr)
+            print(f"  ERROR: acquisition quality gate unavailable ({e}); no jobs queued", file=sys.stderr)
+            if ledger:
+                ledger.close()
+            jobs = []
             ledger = None
     elif not args.dry_run and not args.no_ledger and not args.dsn:
         print("  note: no DATABASE_URL — running without the dedup ledger (O-11/O-12 off).")

@@ -60,10 +60,8 @@ def db_metrics(dsn: str):
                         "WHERE first_seen >= now() - interval '1 hour'")
             added = cur.fetchone()[0]
             cur.execute(
-                "SELECT count(*) FILTER (WHERE result_count = 0), count(*) "
-                "FROM scrape_results WHERE created_at >= now() - interval '1 hour'")
-            zero, total = cur.fetchone()
-            empty_rate = (zero / total) if total else 0.0
+                "SELECT empty_rate FROM acquisition_quality_1h")
+            empty_rate = float(cur.fetchone()[0])
             cur.execute(
                 "SELECT count(*) FILTER (WHERE state IN ('available','pending','scheduled','retryable')), "
                 "count(*) FILTER (WHERE state='running'), "
@@ -93,6 +91,21 @@ def spool_metrics(spool_dir: str):
                 oldest_mtime = mtime if oldest_mtime is None else min(oldest_mtime, mtime)
     oldest_secs = max(0.0, time.time() - oldest_mtime) if oldest_mtime is not None else 0.0
     return count, oldest_secs
+
+
+def acquisition_alerts(dsn: str) -> list[str]:
+    import psycopg2
+    with psycopg2.connect(dsn) as conn, conn.cursor() as cur:
+        cur.execute("SELECT blocked_until,last_probe_outcome FROM acquisition_health WHERE id")
+        blocked_until, outcome = cur.fetchone()
+        cur.execute("SELECT jobs,failed_jobs FROM acquisition_quality_1h")
+        jobs, failed = cur.fetchone()
+    alerts = []
+    if blocked_until is not None:
+        alerts.append(f"acquisition recovery paused: known-good probe returned {outcome}; next probe after {blocked_until.isoformat()}")
+    if jobs >= 20 and failed / jobs > 0.2:
+        alerts.append(f"acquisition failures: {failed}/{jobs} last-hour jobs failed; inspect classified outcomes")
+    return alerts
 
 
 def send_webhook(url: str, text: str):
@@ -192,6 +205,11 @@ def main():
             infrastructure_error = True
             alerts.append(f"database unreachable: {db_err}")
         else:
+            try:
+                alerts.extend(acquisition_alerts(args.dsn))
+            except Exception as error:
+                infrastructure_error = True
+                alerts.append(f"acquisition health unavailable: {error}")
             if args.min_depth is not None and queued + running < args.min_depth:
                 alerts.append(
                     f"queue starved: {queued} queued + {running} running < min {args.min_depth}"
@@ -209,7 +227,7 @@ def main():
                                   f"< {args.pace_floor:.0%} of {expected_hr:,.0f}/hr target")
             if args.max_empty_rate is not None and empty_rate > args.max_empty_rate:
                 alerts.append(f"high empty-result rate: {empty_rate:.0%} of last-hour jobs "
-                              f"returned 0 results > {args.max_empty_rate:.0%} (blocking? add/rotate proxies)")
+                              f"were genuine empty searches > {args.max_empty_rate:.0%}; check keyword pilot yield")
     elif args.target or args.max_empty_rate is not None:
         alerts.append("pace/empty-rate checks skipped: no DATABASE_URL/--dsn")
 

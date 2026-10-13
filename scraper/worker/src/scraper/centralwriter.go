@@ -19,6 +19,7 @@ import (
 // FlushResult is sent to the River worker when results are flushed to DB.
 type FlushResult struct {
 	ResultCount int
+	PhoneCount  int
 	Err         error
 }
 
@@ -100,7 +101,20 @@ func (cw *CentralWriter) MarkDone(jobID string) {
 
 // ForceFlush immediately flushes results for a job (used on timeout/shutdown).
 func (cw *CentralWriter) ForceFlush(jobID string) {
-	cw.Flush(jobID)
+	cw.flush(jobID, &gmaps.AcquisitionError{Outcome: "timeout", Cause: fmt.Errorf("job ended before results arrived")})
+}
+
+// Fail signals the attempt failure without publishing a successful empty file.
+func (cw *CentralWriter) Fail(jobID string, err error) {
+	cw.mu.Lock()
+	j := cw.current
+	if j == nil || j.jobID != jobID {
+		cw.mu.Unlock()
+		return
+	}
+	cw.current = nil
+	cw.mu.Unlock()
+	j.completion <- FlushResult{Err: err}
 }
 
 // Discard drops the tracked job without persisting results.
@@ -133,6 +147,10 @@ func (cw *CentralWriter) FlushQueueDepth() int {
 // Flush saves results to DB, signals completion, and clears tracked state.
 // Idempotent: a second call for the same jobID is a no-op.
 func (cw *CentralWriter) Flush(jobID string) {
+	cw.flush(jobID, nil)
+}
+
+func (cw *CentralWriter) flush(jobID string, emptyErr error) {
 	cw.mu.Lock()
 	j := cw.current
 
@@ -143,6 +161,10 @@ func (cw *CentralWriter) Flush(jobID string) {
 
 	cw.current = nil
 	cw.mu.Unlock()
+	if len(j.entries) == 0 && emptyErr != nil {
+		j.completion <- FlushResult{Err: emptyErr}
+		return
+	}
 
 	for _, entry := range j.entries {
 		jsonbsanitize.StripNULFromEntry(entry)
@@ -163,7 +185,13 @@ func (cw *CentralWriter) Flush(jobID string) {
 		cw.OnResultsSaved(len(j.entries))
 	}
 
-	j.completion <- FlushResult{ResultCount: len(j.entries), Err: err}
+	phones := 0
+	for _, entry := range j.entries {
+		if entry.Phone != "" {
+			phones++
+		}
+	}
+	j.completion <- FlushResult{ResultCount: len(j.entries), PhoneCount: phones, Err: err}
 
 	log.Debug("flushed scrape job",
 		"job_id", j.jobID,

@@ -6,8 +6,28 @@ import (
 	"time"
 
 	"github.com/gosom/google-maps-scraper/scraper"
+	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRetriesUseBoundedBackoff(t *testing.T) {
+	w := &ScrapeWorker{}
+	for attempt, seconds := range []int{30, 60, 120} {
+		before := time.Now()
+		job := &river.Job[ScrapeJobArgs]{JobRow: &rivertype.JobRow{ID: 11, Attempt: attempt + 1}}
+		next := w.NextRetry(job)
+		require.GreaterOrEqual(t, next.Sub(before), time.Duration(seconds)*time.Second)
+		require.Less(t, next.Sub(before), time.Duration(seconds+1)*time.Second)
+	}
+	require.Equal(t, 3, (ScrapeJobArgs{}).InsertOpts().MaxAttempts)
+}
+
+func TestRecoveryCooldownIsBounded(t *testing.T) {
+	require.Equal(t, 2*time.Minute, recoveryDelay(0))
+	require.Equal(t, 4*time.Minute, recoveryDelay(1))
+	require.Equal(t, 30*time.Minute, recoveryDelay(100))
+}
 
 func TestWaitForFlushResultReturnsResultWithinGrace(t *testing.T) {
 	ch := make(chan scraper.FlushResult, 1)

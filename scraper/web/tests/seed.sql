@@ -2,6 +2,8 @@ TRUNCATE businesses, leads, enqueue_log, keyword_history, scrape_results, worker
          stack_samples, pipeline_alert_events, river_job RESTART IDENTITY CASCADE;
 TRUNCATE keyword_rollover_events, keyword_generations RESTART IDENTITY;
 TRUNCATE scraper_dataset_publications;
+TRUNCATE scrape_attempts,keyword_yield_evaluations,acquisition_health;
+INSERT INTO acquisition_health(id) VALUES (true);
 INSERT INTO app_config (key,value,encrypted,updated_at)
 VALUES ('auto_keyword_rollover','false',false,NOW())
 ON CONFLICT (key) DO UPDATE SET value='false', updated_at=NOW();

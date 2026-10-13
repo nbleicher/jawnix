@@ -3,8 +3,10 @@ package gmaps
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gosom/google-maps-scraper/exiter"
@@ -34,6 +36,7 @@ type SearchJob struct {
 	params                  *MapSearchParams
 	ExitMonitor             exiter.Exiter
 	WriterManagedCompletion bool
+	OnFailure               func(string, error)
 }
 
 func NewSearchJob(params *MapSearchParams, opts ...SearchJobOptions) *SearchJob {
@@ -72,7 +75,43 @@ func WithSearchJobExitMonitor(exitMonitor exiter.Exiter) SearchJobOptions {
 func WithSearchJobWriterManagedCompletion() SearchJobOptions {
 	return func(j *SearchJob) {
 		j.WriterManagedCompletion = true
+		// River owns retries. An inner retry could arrive after this job completes.
+		j.MaxRetries = 0
 	}
+}
+
+func WithSearchJobFailureHandler(handler func(string, error)) SearchJobOptions {
+	return func(j *SearchJob) { j.OnFailure = handler }
+}
+
+type AcquisitionError struct {
+	Outcome string
+	Cause   error
+}
+
+func (e *AcquisitionError) Error() string { return e.Outcome + ": " + e.Cause.Error() }
+func (e *AcquisitionError) Unwrap() error { return e.Cause }
+
+func FailureOutcome(err error) string {
+	var acquisition *AcquisitionError
+	if errors.As(err, &acquisition) {
+		return acquisition.Outcome
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	return "fetch_error"
+}
+
+func (j *SearchJob) fail(outcome string, err error) (any, []scrapemate.IJob, error) {
+	failure := &AcquisitionError{Outcome: outcome, Cause: err}
+	if j.OnFailure != nil {
+		j.OnFailure(j.ID, failure)
+	}
+	if j.ExitMonitor != nil {
+		j.ExitMonitor.IncrSeedCompleted(1)
+	}
+	return nil, nil, failure
 }
 
 func (j *SearchJob) ProcessOnFetchError() bool {
@@ -87,29 +126,27 @@ func (j *SearchJob) Process(_ context.Context, resp *scrapemate.Response) (any, 
 	}()
 
 	if resp.Error != nil {
-		if j.ExitMonitor != nil {
-			j.ExitMonitor.IncrSeedCompleted(1)
-		}
-
-		return nil, nil, resp.Error
+		return j.fail(FailureOutcome(resp.Error), resp.Error)
+	}
+	if resp.StatusCode == 403 || resp.StatusCode == 429 {
+		return j.fail("blocked", fmt.Errorf("HTTP %d", resp.StatusCode))
+	}
+	if resp.StatusCode >= 400 {
+		return j.fail("fetch_error", fmt.Errorf("HTTP %d", resp.StatusCode))
+	}
+	prefix := strings.ToLower(string(resp.Body[:min(len(resp.Body), 4096)]))
+	if strings.Contains(prefix, "<html") || strings.Contains(prefix, "<!doctype") {
+		return j.fail("blocked", fmt.Errorf("received HTML instead of Maps results"))
 	}
 
 	body := removeFirstLine(resp.Body)
 	if len(body) == 0 {
-		if j.ExitMonitor != nil {
-			j.ExitMonitor.IncrSeedCompleted(1)
-		}
-
-		return nil, nil, fmt.Errorf("empty response body")
+		return j.fail("parse_error", fmt.Errorf("empty response body"))
 	}
 
 	entries, err := ParseSearchResults(body)
 	if err != nil {
-		if j.ExitMonitor != nil {
-			j.ExitMonitor.IncrSeedCompleted(1)
-		}
-
-		return nil, nil, fmt.Errorf("failed to parse search results: %w", err)
+		return j.fail("parse_error", fmt.Errorf("failed to parse search results: %w", err))
 	}
 
 	entries = filterAndSortEntriesWithinRadius(entries,

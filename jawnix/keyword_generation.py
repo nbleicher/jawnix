@@ -34,16 +34,16 @@ KEYWORD_GENERATION_COUNT = 25
 KEYWORD_GENERATION_MAX_ATTEMPTS = 5
 KEYWORD_CANDIDATE_BATCH_SIZE = 10
 KEYWORD_INDUSTRY_FOCI = (
-    "industrial machinery, controls, and fabrication",
-    "environmental measurement and commercial maintenance",
-    "agricultural equipment and business supplies",
-    "transportation equipment and specialist repair",
-    "arts, entertainment, and event production trades",
-    "food processing equipment and commercial suppliers",
-    "specialist restoration and conservation workshops",
-    "storage, packaging, and logistics services",
-    "technical testing, calibration, and training",
-    "textile, print, and materials production",
+    "home repair, property maintenance, and household services",
+    "automotive repair, vehicle services, and local transportation",
+    "personal care, fitness, and wellness businesses",
+    "food shops, restaurants, and catering businesses",
+    "retail stores, resale shops, and everyday consumer services",
+    "pet care, animal services, and garden businesses",
+    "childcare, education, and recreation businesses",
+    "construction trades and property improvement businesses",
+    "local commercial cleaning, printing, and business services",
+    "hospitality, events, and leisure businesses",
 )
 NICHE_PROPOSAL_MAX_ATTEMPTS = 3
 KEYWORD_DRAFT_TTL = timedelta(hours=24)
@@ -450,6 +450,11 @@ class OpenRouterGenerationProvider:
             "matches, synonyms, spelling variants, singular/plural variants, "
             "and semantically equivalent niches. Keep the set diverse, with no "
             "more than two candidates from one industry family."
+            " Prefer established business categories with many independently "
+            "operated locations across US cities. Use the words customers search "
+            "for. Do not invent categories, component repairs, technical procedures, "
+            "or rare industrial specialties to evade the exclusion history. "
+            "If no qualifying unused categories remain, return fewer candidates."
         )
         instruction: dict[str, object] = {
             "task": "generate_unused_local_business_keywords",
@@ -476,7 +481,7 @@ class OpenRouterGenerationProvider:
             )
         else:
             instruction["broad_rule"] = (
-                "Find distinct specialist local-business types within the "
+                "Find established, commonly listed local-business types within the "
                 "industry focus. Every excluded term is already used."
             )
         return [

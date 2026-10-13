@@ -6,10 +6,51 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gosom/google-maps-scraper/exiter"
 	"github.com/gosom/google-maps-scraper/gmaps"
+	"github.com/gosom/scrapemate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type completionExiter struct {
+	exiter.Exiter
+	done func()
+}
+
+func (e completionExiter) IncrSeedCompleted(int) { e.done() }
+
+func TestMalformedSearchIsNotPublishedAsSuccessfulEmpty(t *testing.T) {
+	saves := 0
+	cw := NewCentralWriter(nil, func(_ context.Context, _ int64, _, _, _ string, _ []*gmaps.Entry) error {
+		saves++
+		return nil
+	})
+	job := gmaps.NewSearchJob(&gmaps.MapSearchParams{Query: "fixture"},
+		gmaps.WithSearchJobWriterManagedCompletion(), gmaps.WithSearchJobFailureHandler(cw.Fail))
+	ch := cw.RegisterJob(job.ID, 77, "fixture", "35,-86", "tn")
+	job.ExitMonitor = completionExiter{done: func() { cw.MarkDone(job.ID) }}
+	_, _, err := job.Process(context.Background(), &scrapemate.Response{Body: []byte(")]}'\n<html>unexpected page</html>")})
+	require.Error(t, err)
+	result := <-ch
+	assert.Error(t, result.Err, "a parsing failure must reach the River worker")
+	assert.Equal(t, 0, saves, "failed acquisition must not publish a successful zero-result file")
+}
+
+func TestLateFailureCannotCompleteAnotherAttempt(t *testing.T) {
+	cw := NewCentralWriter(nil, noopSave(nil))
+	old := cw.RegisterJob("77-1", 77, "fixture", "35,-86", "tn")
+	cw.ForceFlush("77-1")
+	<-old
+	current := cw.RegisterJob("77-2", 77, "fixture", "35,-86", "tn")
+	cw.Fail("77-1", context.DeadlineExceeded)
+	cw.AddResult("77-1", &gmaps.Entry{Title: "late"})
+	cw.AddResult("77-2", &gmaps.Entry{Title: "current"})
+	cw.MarkDone("77-2")
+	result := <-current
+	require.NoError(t, result.Err)
+	require.Equal(t, 1, result.ResultCount)
+}
 
 // noopSave records the entries it receives without touching a DB.
 func noopSave(dst *[]*gmaps.Entry) SaveFunc {

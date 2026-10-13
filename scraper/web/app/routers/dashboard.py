@@ -25,6 +25,16 @@ async def stack_context(request: Request) -> dict:
     sample = dict(sample_row) if sample_row else None
     latest_alert = alert_rows[0] if alert_rows else None
     status = classify(sample, latest_alert, request.app.state.settings)
+    health = await fetchrow(request, "SELECT blocked_until,last_probe_outcome FROM acquisition_health WHERE id")
+    if health and health["blocked_until"] is not None:
+        reason = f"Acquisition recovery paused after a {health['last_probe_outcome']} health probe. Automatic retry is scheduled."
+        status = {**status, "key": "attention", "label": "Acquisition recovery paused", "detail": reason,
+                  "reasons": [reason, *status.get("reasons", [])]}
+    quality = await fetchrow(request, "SELECT jobs,failed_jobs FROM acquisition_quality_1h")
+    if quality["jobs"] >= 20 and quality["failed_jobs"] / quality["jobs"] > 0.2:
+        reason = f"{quality['failed_jobs']} of {quality['jobs']} last-hour jobs failed acquisition. Check classified outcomes."
+        status = {**status, "key": "attention", "label": "Acquisition failures", "detail": reason,
+                  "reasons": [reason, *status.get("reasons", [])]}
     if sample:
         sample["memory_percent"] = percent(sample["memory_used_bytes"], sample["memory_total_bytes"])
         sample["disk_percent"] = percent(sample["disk_used_bytes"], sample["disk_total_bytes"])
@@ -56,6 +66,7 @@ async def activity_context(request: Request) -> dict:
     activity = dict(row)
     paused = bridge(request).pipeline_paused()
     pause_info = bridge(request).pipeline_pause_info()
+    health = await fetchrow(request, "SELECT blocked_until,last_probe_outcome FROM acquisition_health WHERE id")
     outstanding = int(activity["queue_depth"] or 0) + int(activity["running_jobs"] or 0)
     if paused and pause_info["mode"] == "clear" and outstanding:
         count = int(pause_info["cancelled_jobs"])
@@ -73,6 +84,9 @@ async def activity_context(request: Request) -> dict:
         state = {"key": "pausing", "label": "Pausing", "detail": "Queue refill stopped; current jobs are draining"}
     elif paused:
         state = {"key": "paused", "label": "Paused", "detail": "No new scrape jobs will be queued"}
+    elif health and health["blocked_until"] is not None:
+        state = {"key": "paused", "label": "Recovery paused",
+                 "detail": f"Known-good search failed ({health['last_probe_outcome']}). A recovery probe is scheduled automatically."}
     elif int(activity["healthy_workers"] or 0):
         detail = "Workers are processing the queue" if outstanding else "Enabled and waiting for work"
         state = {"key": "running", "label": "Running", "detail": detail}
