@@ -84,6 +84,61 @@ def test_pilot_prioritizes_productive_geographically_spread_cells():
 
 
 @pytest.mark.asyncio
+async def test_wave_waits_for_membership_and_keeps_operator_policy(seeded_database):
+    import os
+    conn = psycopg2.connect(os.environ["TEST_DATABASE_URL"])
+    conn.autocommit = True
+    today = date.today()
+    keyword = "bounded wave fixture"
+    jobs = [{"keyword": keyword, "state": "tn", "geo_coordinates": f"{35+n/10:.1f},-86"} for n in range(20)]
+    ledger = SimpleNamespace(conn=conn)
+    policy = {"yield_wave_cells": 4, "yield_max_cells": 10}
+    try:
+        pilot = eligible_jobs(ledger, jobs, today, today, policy)
+        with conn.cursor() as cur:
+            for n, job in enumerate(pilot):
+                cur.execute("""INSERT INTO scrape_attempts(job_id,attempt,keyword,state,cell,outcome,duration_ms)
+                    VALUES(%s,1,%s,'tn',%s,'success',1000)""", (9100+n,keyword,job["geo_coordinates"]))
+                cur.execute("""INSERT INTO scrape_results(job_id,keyword,new_phone_count,yield_verified)
+                    VALUES(%s,%s,2,false)""", (9100+n,keyword))
+        # Successful fetches cannot expand or reject a campaign before membership is verified.
+        assert len(eligible_jobs(ledger,jobs,today,today,policy)) == 6
+        with conn.cursor() as cur:
+            cur.execute("SELECT status FROM keyword_yield_evaluations WHERE keyword=%s", (keyword,))
+            assert cur.fetchone()[0] == "testing"
+            cur.execute("UPDATE scrape_results SET yield_verified=true WHERE keyword=%s", (keyword,))
+        # A later configuration change must not alter this campaign's policy.
+        expanded = eligible_jobs(ledger,jobs,today,today,{"yield_max_cells":20})
+        assert len(expanded) == 10
+        with conn.cursor() as cur:
+            for n, job in enumerate([job for job in expanded if job not in pilot]):
+                cur.execute("""INSERT INTO scrape_attempts(job_id,attempt,keyword,state,cell,outcome,duration_ms)
+                    VALUES(%s,1,%s,'tn',%s,'success',1000)""", (9120+n,keyword,job["geo_coordinates"]))
+                cur.execute("""INSERT INTO scrape_results(job_id,keyword,new_phone_count,yield_verified)
+                    VALUES(%s,%s,2,true)""", (9120+n,keyword))
+        assert eligible_jobs(ledger,jobs,today,today,{"yield_max_cells":20}) == []
+        with conn.cursor() as cur:
+            cur.execute("SELECT status,reason,new_phone_count FROM keyword_yield_evaluations WHERE keyword=%s", (keyword,))
+            assert cur.fetchone() == ("completed","Operator coverage cap reached.",20)
+            cur.execute("SELECT count(*) FROM keyword_history WHERE keyword=%s", (keyword,))
+            assert cur.fetchone()[0] == 0
+            from app import queries
+            cur.execute(queries.AUTO_KEYWORD_ROLLOVER_PROGRESS.replace("$1","%(keywords)s").replace("$2","%(states)s").replace("$3","%(day)s"),
+                        {"keywords":[keyword],"states":["tn"],"day":today})
+            result = cur.fetchone()
+            columns = [column.name for column in cur.description]
+            progress = dict(zip(columns,result))
+            assert progress["completed_pairs"] == 1
+            assert progress["avoided_jobs"] == 10
+    finally:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM scrape_attempts WHERE job_id BETWEEN 9100 AND 9130")
+            cur.execute("DELETE FROM scrape_results WHERE job_id BETWEEN 9100 AND 9130")
+            cur.execute("DELETE FROM keyword_yield_evaluations WHERE keyword=%s", (keyword,))
+        conn.close()
+
+
+@pytest.mark.asyncio
 async def test_rollover_accounts_for_rejected_pilot(app_client):
     client, settings = app_client
     conn = await asyncpg.connect(settings.database_url)
