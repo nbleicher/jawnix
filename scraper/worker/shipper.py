@@ -48,13 +48,15 @@ ON CONFLICT (dedup_key) DO UPDATE
 """
 
 RESULT_COUNT_SQL = """
-INSERT INTO scrape_results (job_id, keyword, result_count, phone_count, created_at)
-VALUES (%s, %s, %s, %s, NOW())
+INSERT INTO scrape_results (job_id, keyword, result_count, phone_count, new_phone_count, yield_verified, created_at)
+VALUES (%s, %s, %s, %s, %s, true, NOW())
 ON CONFLICT (job_id) DO UPDATE SET
   keyword = EXCLUDED.keyword,
   result_count = EXCLUDED.result_count,
   phone_count = EXCLUDED.phone_count,
-  created_at = EXCLUDED.created_at
+  new_phone_count = EXCLUDED.new_phone_count,
+  yield_verified = true,
+  created_at = scrape_results.created_at
 """
 
 
@@ -284,6 +286,8 @@ def main():
 
     import psycopg2
     from psycopg2.extras import execute_values
+    sys.path.insert(0,str(Path(__file__).resolve().parent))
+    from phone_yield import membership, claim_new_phones, LookupUnavailable
     archive.mkdir(parents=True, exist_ok=True)
     conn = psycopg2.connect(args.dsn)
 
@@ -316,6 +320,9 @@ def main():
                 move_pair(data, m, quarantine)
                 continue
             try:
+                # Membership is read-only and happens before the publication transaction.
+                # Failed lookup leaves the complete spool intact for a later retry.
+                valid, existing = membership(parsed.rows)
                 with conn.cursor() as cur:
                     if parsed.rows:
                         execute_values(
@@ -325,6 +332,7 @@ def main():
                             page_size=500,
                         )
                     if parsed.job_id is not None:
+                        new_phones = claim_new_phones(cur, parsed.job_id, valid, existing)
                         cur.execute(
                             RESULT_COUNT_SQL,
                             (
@@ -332,6 +340,7 @@ def main():
                                 parsed.keyword,
                                 parsed.result_count,
                                 phone_count(parsed.rows),
+                                new_phones,
                             ),
                         )
                 conn.commit()
@@ -339,6 +348,11 @@ def main():
                 move_pair(data, m, archive_destination(archive, data))
                 shipped_files += 1
                 shipped_rows += parsed.result_count
+            except LookupUnavailable:
+                conn.rollback()
+                failed += 1
+                print("  canonical yield lookup unavailable — complete spools retained for retry", file=sys.stderr)
+                break
             except Exception as e:
                 conn.rollback()
                 failed += 1

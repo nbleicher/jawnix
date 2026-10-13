@@ -14,6 +14,8 @@ SELECT
   (SELECT count(*) FROM river_job WHERE kind='scrape' AND state='retryable') AS retryable_jobs,
   COALESCE((SELECT extract(epoch FROM now()-min(created_at))::bigint FROM river_job WHERE kind='scrape' AND state IN ('available','pending','retryable')),0) AS oldest_queue_secs,
   (SELECT count(*) FROM businesses WHERE first_seen >= now() - interval '1 hour') AS added_last_hour,
+  (SELECT count(*) FROM acquisition_phone_registry WHERE first_job_id IS NOT NULL AND first_seen_at>=now()-interval '1 hour') AS new_phones_last_hour,
+  (SELECT count(*) FROM acquisition_phone_registry WHERE first_job_id IS NOT NULL AND first_seen_at>=now()-interval '1 minute') AS new_phones_last_minute,
   COALESCE((SELECT empty_rate FROM acquisition_quality_1h), 0) AS empty_rate
 FROM business_counts
 """
@@ -309,10 +311,20 @@ ORDER BY keyword
 """
 
 KEYWORD_WINNERS = """
-SELECT keyword, businesses, phone_businesses, posted_cells, last_used,
-       phones_per_cell, phone_rate
-FROM keyword_winners_cache
-ORDER BY phones_per_cell DESC, phone_businesses DESC, keyword
+WITH duration AS (
+  SELECT job_id,sum(duration_ms) AS duration_ms FROM scrape_attempts
+  WHERE created_at>=now()-interval '24 hours' GROUP BY job_id
+), measured AS (
+  SELECT sr.keyword,sum(sr.new_phone_count)::bigint AS new_phone_count,
+         60000.0*sum(sr.new_phone_count)/greatest(sum(d.duration_ms),1000) AS new_phones_per_minute
+  FROM scrape_results sr JOIN duration d ON d.job_id=sr.job_id
+  WHERE sr.yield_verified AND sr.created_at>=now()-interval '24 hours' GROUP BY sr.keyword
+)
+SELECT w.keyword,w.businesses,w.phone_businesses,w.posted_cells,w.last_used,w.phones_per_cell,w.phone_rate,
+       COALESCE(m.new_phone_count,0) AS new_phone_count,
+       COALESCE(m.new_phones_per_minute,0)::float AS new_phones_per_minute
+FROM keyword_winners_cache w LEFT JOIN measured m ON m.keyword=w.keyword
+ORDER BY new_phones_per_minute DESC,new_phone_count DESC,w.phones_per_cell DESC,w.phone_businesses DESC,w.keyword
 LIMIT 50
 """
 
@@ -360,13 +372,13 @@ SELECT
      UNION
      SELECT lower(keyword),lower(state) FROM keyword_yield_evaluations
       WHERE lower(keyword)=ANY($1::text[]) AND lower(state)=ANY($2::text[])
-        AND started_on=$3::date AND status IN ('rejected','unverified')
+        AND started_on=$3::date AND status IN ('rejected','unverified','completed')
    ) terminal) AS completed_pairs,
-  (SELECT COALESCE(sum(full_cells-jsonb_array_length(sample_cells)),0) FROM keyword_yield_evaluations
+  (SELECT COALESCE(sum(full_cells-jsonb_array_length(COALESCE(coverage_cells,sample_cells))),0) FROM keyword_yield_evaluations
    WHERE lower(keyword)=ANY($1::text[]) AND lower(state)=ANY($2::text[])
-     AND started_on=$3::date AND status IN ('rejected','unverified')) AS avoided_jobs,
+     AND started_on=$3::date AND status NOT IN ('legacy','accepted')) AS avoided_jobs,
   (SELECT count(*) FROM keyword_yield_evaluations WHERE lower(keyword)=ANY($1::text[])
-   AND lower(state)=ANY($2::text[]) AND started_on=$3::date AND status='testing') AS testing_pairs,
+   AND lower(state)=ANY($2::text[]) AND started_on=$3::date AND status IN ('testing','expanding')) AS testing_pairs,
   (SELECT count(*) FROM keyword_yield_evaluations WHERE lower(keyword)=ANY($1::text[])
    AND lower(state)=ANY($2::text[]) AND started_on=$3::date AND status='rejected') AS rejected_pairs,
   (SELECT count(*) FROM river_job

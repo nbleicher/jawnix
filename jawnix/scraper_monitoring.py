@@ -127,6 +127,8 @@ class DashboardStats(BaseModel):
     retryable_jobs: int = 0
     oldest_queue_secs: int = 0
     added_last_hour: int = 0
+    new_phones_last_hour: int = 0
+    new_phones_last_minute: int = 0
     empty_rate: float = 0.0
 
 

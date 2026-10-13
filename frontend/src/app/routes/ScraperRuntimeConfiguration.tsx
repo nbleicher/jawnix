@@ -57,6 +57,13 @@ const QUEUE_FIELDS: Array<{
   { key: "batch_size", label: "Batch size" },
   { key: "poll_secs", label: "Poll interval (sec)" },
   { key: "skip_recent_days", label: "Skip recent days" },
+  { key: "yield_pilot_cells", label: "Keyword pilot cells" },
+  { key: "yield_wave_cells", label: "Expansion wave cells" },
+  { key: "yield_min_new_phones", label: "Minimum new phones per pilot" },
+  { key: "yield_min_productive_cells", label: "Productive cells per pilot" },
+  { key: "yield_wave_min_new_phones", label: "Minimum new phones per wave" },
+  { key: "yield_wave_min_productive_cells", label: "Productive cells per wave" },
+  { key: "yield_max_cells", label: "Coverage cap (0 = full grid)" },
 ];
 
 type Errors = Record<string, string>;
@@ -555,7 +562,7 @@ export function ScraperRuntimeConfigurationRoute() {
           <Section
             id="runtime-queue"
             title="Queue settings"
-            description="River refill, batching, polling, and campaign deduplication controls."
+            description="River refill and acquisition yield controls. New keywords expand in waves while they meet new unique phone thresholds. Yield rule changes apply to the next campaign."
           >
             <Grid minColumnWidth="13rem" gap={3}>
               {QUEUE_FIELDS.map((field) => (

@@ -72,8 +72,8 @@ async def rollover_context(request: Request) -> dict:
     elif posted_jobs < expected_jobs or completed_pairs < expected_pairs:
         state = {
             "key": "working", "label": "Current batch active",
-            "detail": (f"{progress['testing_pairs']} keyword pilots active. "
-                       f"{progress['rejected_pairs']} rejected for low yield. "
+            "detail": (f"{progress['testing_pairs']} keyword pilots or waves active. "
+                       f"{progress['rejected_pairs']} rejected for low new-phone yield. "
                        f"{posted_jobs:,} of {expected_jobs:,} eligible jobs enqueued"),
         }
     elif active_jobs:

@@ -77,6 +77,8 @@ export interface DashboardStats {
   retryable_jobs: number;
   oldest_queue_secs: number;
   added_last_hour: number;
+  new_phones_last_hour?: number;
+  new_phones_last_minute?: number;
   empty_rate: number;
 }
 

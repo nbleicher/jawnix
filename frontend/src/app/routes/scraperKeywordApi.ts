@@ -13,6 +13,8 @@ export interface KeywordRollover {
 }
 
 export interface KeywordWinner {
+  new_phone_count?: number;
+  new_phones_per_minute?: number;
   rank: number;
   keyword: string;
   phone_businesses: number;

@@ -600,6 +600,8 @@ export function ScraperKeywordsRoute() {
                       <tr>
                         <th>Rank</th>
                         <th>Keyword</th>
+                        <th>New phones (24h)</th>
+                        <th>New / worker min</th>
                         <th>Phone leads</th>
                         <th>Businesses</th>
                         <th>Posted cells</th>
@@ -616,6 +618,8 @@ export function ScraperKeywordsRoute() {
                             <strong>{winner.keyword}</strong>
                             <small>Last used {winner.last_used}</small>
                           </td>
+                          <td data-label="New phones (24h)">{integer(winner.new_phone_count ?? 0)}</td>
+                          <td data-label="New / worker min">{(winner.new_phones_per_minute ?? 0).toFixed(2)}</td>
                           <td data-label="Phone leads">{integer(winner.phone_businesses)}</td>
                           <td data-label="Businesses">{integer(winner.businesses)}</td>
                           <td data-label="Posted cells">{integer(winner.posted_cells)}</td>

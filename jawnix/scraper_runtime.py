@@ -105,6 +105,13 @@ class QueueSettings(BaseModel):
     batch_size: int = Field(default=100, ge=1, le=10_000)
     poll_secs: int = Field(default=5, ge=5, le=3_600)
     skip_recent_days: int = Field(default=0, ge=0, le=365)
+    yield_pilot_cells: int = Field(default=6, ge=2, le=50)
+    yield_wave_cells: int = Field(default=12, ge=2, le=100)
+    yield_min_new_phones: int = Field(default=3, ge=1, le=1000)
+    yield_min_productive_cells: int = Field(default=2, ge=1, le=50)
+    yield_wave_min_new_phones: int = Field(default=3, ge=1, le=1000)
+    yield_wave_min_productive_cells: int = Field(default=2, ge=1, le=100)
+    yield_max_cells: int = Field(default=0, ge=0, le=100000)
 
     @model_validator(mode="after")
     def ordered_depth_bounds(self):
@@ -112,6 +119,10 @@ class QueueSettings(BaseModel):
             raise ValueError(
                 "Minimum queue depth cannot exceed maximum queue depth."
             )
+        if self.yield_min_productive_cells>self.yield_pilot_cells or self.yield_wave_min_productive_cells>self.yield_wave_cells:
+            raise ValueError("Required productive cells cannot exceed the pilot or wave size.")
+        if self.yield_max_cells and self.yield_max_cells<self.yield_pilot_cells:
+            raise ValueError("Coverage cap cannot be smaller than the pilot.")
         return self
 
 
@@ -206,6 +217,13 @@ RUNTIME_BOUNDS = RuntimeBounds(
         "batch_size": FieldBounds(minimum=1, maximum=10_000),
         "poll_secs": FieldBounds(minimum=5, maximum=3_600),
         "skip_recent_days": FieldBounds(minimum=0, maximum=365),
+        "yield_pilot_cells": FieldBounds(minimum=2, maximum=50),
+        "yield_wave_cells": FieldBounds(minimum=2, maximum=100),
+        "yield_min_new_phones": FieldBounds(minimum=1, maximum=1000),
+        "yield_min_productive_cells": FieldBounds(minimum=1, maximum=50),
+        "yield_wave_min_new_phones": FieldBounds(minimum=1, maximum=1000),
+        "yield_wave_min_productive_cells": FieldBounds(minimum=1, maximum=100),
+        "yield_max_cells": FieldBounds(minimum=0, maximum=100000),
     },
     override={
         "cell_size_km": FieldBounds(minimum=1, maximum=500, step=0.5),

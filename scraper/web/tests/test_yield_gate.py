@@ -36,23 +36,40 @@ async def test_pilot_gates_expansion_and_retains_history(seeded_database):
             for n, cell in enumerate(cells):
                 cur.execute("""INSERT INTO scrape_attempts (job_id,attempt,keyword,state,cell,outcome)
                     VALUES (%s,2,%s,'tn',%s,'empty')""",(8000+n,keyword,cell))
+                cur.execute("INSERT INTO scrape_results(job_id,keyword,yield_verified) VALUES(%s,%s,true)",(8000+n,keyword))
         assert eligible_jobs(ledger,jobs,today,today)==[]
         with conn.cursor() as cur:
             cur.execute("SELECT status FROM keyword_yield_evaluations WHERE keyword=%s",(keyword,))
             assert cur.fetchone()[0]=="rejected"
             cur.execute("SELECT count(*) FROM keyword_history WHERE keyword='plumbers'")
             assert cur.fetchone()[0]>0
-        # Productive candidates unlock the remaining grid without resetting history.
+        # Productive candidates unlock one wave without resetting history.
         productive = [{**job,"keyword":"productive fixture"} for job in jobs]
         pilot = eligible_jobs(ledger,productive,today,today)
         with conn.cursor() as cur:
-            for n, job in enumerate(pilot[:2]):
+            for n, job in enumerate(pilot):
                 cur.execute("""INSERT INTO scrape_attempts (job_id,attempt,keyword,state,cell,outcome,result_count,phone_count)
                     VALUES (%s,1,'productive fixture','tn',%s,'success',2,2)""",(9000+n,job["geo_coordinates"]))
-        assert len(eligible_jobs(ledger,productive,today,today))==20
+                cur.execute("""INSERT INTO scrape_results(job_id,keyword,result_count,phone_count,new_phone_count,yield_verified)
+                    VALUES(%s,'productive fixture',2,2,%s,true)""",(9000+n,2 if n<2 else 0))
+        expanded=eligible_jobs(ledger,productive,today,today)
+        assert len(expanded)==18
+        with conn.cursor() as cur:
+            for n,job in enumerate([job for job in expanded if job not in pilot]):
+                cur.execute("""INSERT INTO scrape_attempts(job_id,attempt,keyword,state,cell,outcome)
+                    VALUES(%s,1,'productive fixture','tn',%s,'success')""",(9030+n,job["geo_coordinates"]))
+                cur.execute("""INSERT INTO scrape_results(job_id,keyword,result_count,phone_count,new_phone_count,yield_verified)
+                    VALUES(%s,'productive fixture',20,20,0,true)""",(9030+n,))
+        assert eligible_jobs(ledger,productive,today,today)==[]
+        with conn.cursor() as cur:
+            cur.execute("SELECT status,new_phone_count,jsonb_array_length(coverage_cells) FROM keyword_yield_evaluations WHERE keyword='productive fixture'")
+            assert cur.fetchone()==('completed',4,18)
+            cur.execute("SELECT count(*) FROM keyword_history WHERE keyword='productive fixture'")
+            assert cur.fetchone()[0]==0
     finally:
         with conn.cursor() as cur:
-            cur.execute("DELETE FROM scrape_attempts WHERE job_id BETWEEN 8000 AND 9010")
+            cur.execute("DELETE FROM scrape_attempts WHERE job_id BETWEEN 8000 AND 9050")
+            cur.execute("DELETE FROM scrape_results WHERE job_id BETWEEN 8000 AND 9050")
             cur.execute("DELETE FROM keyword_yield_evaluations WHERE keyword IN ('yield fixture','productive fixture')")
         conn.close()
 

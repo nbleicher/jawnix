@@ -154,10 +154,11 @@ func (w *ScrapeWorker) Work(ctx context.Context, job *river.Job[ScrapeJobArgs]) 
 		}
 	}
 	defer w.Manager.JobDone()
+	attemptStart := time.Now()
 	resultCount, phoneCount := 0, 0
 	defer func() {
 		if w.Health != nil {
-			if err := w.Health.Record(job, retErr, resultCount, phoneCount); err != nil {
+			if err := w.Health.Record(job, retErr, resultCount, phoneCount, time.Since(attemptStart)); err != nil {
 				log.Error("failed recording acquisition outcome", "job_id", job.ID, "error", err)
 				if retErr == nil {
 					retErr = err
