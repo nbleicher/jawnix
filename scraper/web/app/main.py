@@ -11,6 +11,7 @@ from .contracts import Health
 from .control_api import router as control_router
 from .control_bridge import ControlBridge
 from .db import close_pools, create_pools
+from .dashboard_stats import DashboardStatsCache
 from .keyword_generator import KeywordGenerator
 
 
@@ -23,8 +24,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.control = ControlBridge(settings)
         app.state.keyword_generator = KeywordGenerator(settings)
         await create_pools(app)
-        yield
-        await close_pools(app)
+        app.state.dashboard_stats = DashboardStatsCache(app.state.pool_ro)
+        try:
+            await app.state.dashboard_stats.refresh()
+            yield
+        finally:
+            await app.state.dashboard_stats.close()
+            await close_pools(app)
 
     app = FastAPI(
         title="Scraper Control",

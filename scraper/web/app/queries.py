@@ -1,8 +1,12 @@
 DASHBOARD_STATS = """
+WITH business_counts AS (
+  SELECT count(*) AS businesses,
+         count(*) FILTER (WHERE COALESCE(phone,'')<>'') AS phone_businesses,
+         count(DISTINCT phone COLLATE "C") FILTER (WHERE COALESCE(phone,'')<>'') AS unique_phones
+  FROM businesses
+)
 SELECT
-  (SELECT count(*) FROM businesses) AS businesses,
-  (SELECT count(*) FROM businesses WHERE COALESCE(phone,'')<>'') AS phone_businesses,
-  (SELECT count(DISTINCT phone) FROM businesses WHERE COALESCE(phone,'')<>'') AS unique_phones,
+  businesses, phone_businesses, unique_phones,
   (SELECT count(*) FROM leads) AS leads,
   (SELECT count(*) FROM available_leads) AS available_leads,
   (SELECT count(*) FROM river_job WHERE kind='scrape' AND state IN ('available','pending','scheduled','retryable')) AS queue_depth,
@@ -11,6 +15,7 @@ SELECT
   COALESCE((SELECT extract(epoch FROM now()-min(created_at))::bigint FROM river_job WHERE kind='scrape' AND state IN ('available','pending','retryable')),0) AS oldest_queue_secs,
   (SELECT count(*) FROM businesses WHERE first_seen >= now() - interval '1 hour') AS added_last_hour,
   COALESCE((SELECT avg((result_count = 0)::int)::float FROM scrape_results WHERE created_at >= now() - interval '1 hour'), 0) AS empty_rate
+FROM business_counts
 """
 
 CURRENT_WORKERS = """
@@ -37,18 +42,21 @@ WITH queue AS (
          count(*) FILTER (WHERE kind='scrape' AND state='running') AS running_jobs,
          count(*) FILTER (WHERE kind='scrape' AND state='retryable') AS retryable_jobs
   FROM river_job
+  WHERE kind='scrape' AND state IN ('available','pending','scheduled','retryable','running')
 ), recent AS (
   SELECT count(*) FILTER (WHERE created_at >= now()-interval '1 minute') AS jobs_last_minute,
          count(*) FILTER (WHERE created_at >= now()-interval '5 minutes') AS jobs_last_five_minutes,
          COALESCE(sum(result_count) FILTER (WHERE created_at >= now()-interval '1 minute'), 0) AS results_last_minute,
-         max(created_at) AS latest_result_at
+         (SELECT max(created_at) FROM scrape_results) AS latest_result_at
   FROM scrape_results
+  WHERE created_at >= now()-interval '5 minutes'
 ), touched AS (
   SELECT count(*) FILTER (WHERE last_seen >= now()-interval '1 minute') AS businesses_last_minute,
          count(*) FILTER (WHERE last_seen >= now()-interval '5 minutes') AS businesses_last_five_minutes,
-         count(*) AS businesses_total,
-         max(last_seen) AS latest_business_at
+         (SELECT count(*) FROM businesses) AS businesses_total,
+         (SELECT max(last_seen) FROM businesses) AS latest_business_at
   FROM businesses
+  WHERE last_seen >= now()-interval '5 minutes'
 ), latest AS (
   SELECT COALESCE(NULLIF(sr.keyword,''), NULLIF(j.args->>'keyword',''), 'unknown') AS latest_keyword,
          COALESCE(upper(j.args->>'state'), 'UNKNOWN') AS latest_state,

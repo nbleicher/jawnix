@@ -13,8 +13,7 @@ router = APIRouter(dependencies=[Depends(require_user)])
 
 
 async def stats_context(request: Request) -> dict:
-    row = await fetchrow(request, queries.DASHBOARD_STATS)
-    return {"stats": dict(row)}
+    return request.app.state.dashboard_stats.read()
 
 
 async def stack_context(request: Request) -> dict:

@@ -431,6 +431,7 @@ class DashboardSnapshot(ContractModel):
     sample: StackSample | None = None
     services: list[ServiceRow] | None = None
     stats: DashboardStats | None = None
+    stats_fetched_at: datetime | None = None
     activity: PipelineActivity | None = None
     pipeline_state: PipelineState | None = None
     pause_info: PauseInfo | None = None

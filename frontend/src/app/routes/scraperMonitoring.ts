@@ -178,7 +178,7 @@ export interface RegionData {
 
 export interface MonitoringRegion {
   region: RegionKey;
-  state: "ok" | "unavailable";
+  state: "ok" | "unavailable" | "loading";
   refresh_seconds: number;
   fetched_at: string | null;
   data: RegionData | null;
@@ -223,7 +223,7 @@ export class PrivilegedSessionExpired extends Error {
 }
 
 export async function scraperOverviewLoader(): Promise<MonitoringSnapshot> {
-  const response = await fetch(BASE, {
+  const response = await fetch(`${BASE}?bootstrap=true`, {
     credentials: "same-origin",
     headers: { "X-CSRF-Token": csrf() },
   });
