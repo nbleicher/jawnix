@@ -315,10 +315,10 @@ WITH duration AS (
   SELECT job_id,sum(duration_ms) AS duration_ms FROM scrape_attempts
   WHERE created_at>=now()-interval '24 hours' GROUP BY job_id
 ), measured AS (
-  SELECT sr.keyword,sum(sr.new_phone_count)::bigint AS new_phone_count,
+  SELECT lower(trim(sr.keyword)) AS keyword,sum(sr.new_phone_count)::bigint AS new_phone_count,
          60000.0*sum(sr.new_phone_count)/greatest(sum(d.duration_ms),1000) AS new_phones_per_minute
   FROM scrape_results sr JOIN duration d ON d.job_id=sr.job_id
-  WHERE sr.yield_verified AND sr.created_at>=now()-interval '24 hours' GROUP BY sr.keyword
+  WHERE sr.yield_verified AND sr.created_at>=now()-interval '24 hours' GROUP BY lower(trim(sr.keyword))
 )
 SELECT w.keyword,w.businesses,w.phone_businesses,w.posted_cells,w.last_used,w.phones_per_cell,w.phone_rate,
        COALESCE(m.new_phone_count,0) AS new_phone_count,
