@@ -128,6 +128,11 @@ export async function customerAccessLoader({
   // root lands here, so hand them to their own shell; the admin boundary
   // still decides admission.
   if (response.status === 404) {
+    const destination = await fetch("/api/auth/destination", { credentials: "same-origin" });
+    if (destination.ok) {
+      const value = await destination.json() as { next: string };
+      throw redirect(routerPath(value.next));
+    }
     throw redirect("/admin/overview");
   }
   if (!response.ok) {

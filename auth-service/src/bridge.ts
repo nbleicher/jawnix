@@ -2,6 +2,7 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { APIError } from "better-auth/api";
 import QRCode from "qrcode";
 import type { JawnixAuth } from "./auth.js";
+import { accessLinkContext } from "./auth.js";
 
 export function bridgeAuthorized(header: string | null, secret: string) {
   const supplied = Buffer.from(header || "");
@@ -62,7 +63,7 @@ export async function bridge(auth: JawnixAuth, body: Payload) {
   };
   const requireAdmin = async () => {
     const session = await requireSession();
-    if (session.user.jawnixRole !== "admin") throw new APIError("FORBIDDEN");
+    if (!["admin", "manager"].includes(session.user.jawnixRole)) throw new APIError("FORBIDDEN");
     return session;
   };
   const sessionJSON = async (token: string) => {
@@ -175,6 +176,33 @@ export async function bridge(auth: JawnixAuth, body: Payload) {
         { method: "email-password" },
       );
       return userJSON(user);
+    }
+    case "provision-manager": {
+      const existing = await context.adapter.findOne<{ id: string; email: string; name: string; jawnixRole?: string }>({
+        model: "user", where: [{ field: "email", value: body.email!.toLowerCase() }],
+      });
+      if (existing) {
+        if (existing.jawnixRole !== "manager")
+          throw new APIError("CONFLICT", { message: "This email already has another Jawnix role." });
+        return userJSON(existing);
+      }
+      const user = await adapter.createUser({
+        id: body.userId || randomUUID(), email: body.email!.toLowerCase(),
+        name: body.name || body.email!, emailVerified: true, jawnixRole: "manager",
+      }, { method: "email-password" });
+      return userJSON(user);
+    }
+    case "manager-access-link": {
+      const user = await context.adapter.findOne<{ id: string; email: string; jawnixRole?: string }>({
+        model: "user", where: [{ field: "id", value: body.userId! }],
+      });
+      if (!user || user.jawnixRole !== "manager") throw new APIError("FORBIDDEN");
+      const capture: { url?: string } = {};
+      await accessLinkContext.run(capture, () => auth.api.requestPasswordReset({
+        body: { email: user.email, redirectTo: `${new URL(auth.options.baseURL as string).origin}/app/accept-invitation` },
+      }));
+      if (!capture.url) throw new APIError("INTERNAL_SERVER_ERROR");
+      return { url: capture.url, expiresIn: 3600 };
     }
     case "reset-user": {
       await auth.api.requestPasswordReset({

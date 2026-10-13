@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session, aliased
 
 from .models import (
     Lead,
+    LeadDatabaseMembership,
     ListingObservation,
     NicheAssignment,
     NicheAssignmentUpload,
@@ -99,20 +100,21 @@ def effective_niche_expression():
     )
 
 
-def policy_clause(customer_id: int, niche_expression):
+def policy_clause(customer_id: int, niche_expression, *, state_expression=None):
     """SQL condition for a Customer's effective state policy."""
     policy_row = aliased(NichePolicyRow)
     override_row = aliased(NichePolicyRow)
+    state_column = Lead.state if state_expression is None else state_expression
     state_override = exists(
         select(override_row.id).where(
             override_row.customer_id == customer_id,
-            override_row.state == Lead.state,
+            override_row.state == state_column,
         )
-    ).correlate(Lead)
+    ).correlate(Lead, LeadDatabaseMembership)
     policy_scope = and_(
         policy_row.customer_id == customer_id,
         or_(
-            policy_row.state == Lead.state,
+            policy_row.state == state_column,
             and_(policy_row.state.is_(None), ~state_override),
         ),
     )
@@ -138,10 +140,11 @@ def policy_clause(customer_id: int, niche_expression):
     return and_(~excluded, or_(~has_only, allowed_only))
 
 
-def policy_clause_for_rows(rows: list[dict], niche_expression):
+def policy_clause_for_rows(rows: list[dict], niche_expression, *, state_expression=None):
     """Same override-not-merge semantics against an in-memory draft policy."""
 
     normalized = normalize_policy_rows(rows)
+    state_column = Lead.state if state_expression is None else state_expression
     if not normalized:
         return True
     by_state: dict[str | None, list[dict]] = defaultdict(list)
@@ -152,10 +155,10 @@ def policy_clause_for_rows(rows: list[dict], niche_expression):
     for state, state_rows in by_state.items():
         if state is None:
             state_match = (
-                ~Lead.state.in_(specific_states) if specific_states else True
+                ~state_column.in_(specific_states) if specific_states else True
             )
         else:
-            state_match = Lead.state == state
+            state_match = state_column == state
         mode = state_rows[0]["mode"]
         niches = [row["niche"].casefold() for row in state_rows]
         lowered = func.lower(niche_expression)
@@ -175,7 +178,7 @@ def policy_clause_for_rows(rows: list[dict], niche_expression):
             )
     if specific_states and None not in by_state:
         # Unlisted states with no default: all niches allowed.
-        parts.append(~Lead.state.in_(specific_states))
+        parts.append(~state_column.in_(specific_states))
     return or_(*parts) if parts else True
 
 

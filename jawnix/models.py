@@ -36,6 +36,15 @@ class JobStatus(str, enum.Enum):
     failed = "failed"
 
 
+class ManagedAdmin(Base):
+    __tablename__ = "managed_admins"
+    auth_user_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class Agency(Base):
     __tablename__ = "agencies"
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
@@ -67,6 +76,9 @@ class Agent(Base):
     )
     agency_id: Mapped[int | None] = mapped_column(ForeignKey("agencies.id", ondelete="SET NULL"), index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    lead_database: Mapped[str] = mapped_column(String(4), default="db1", server_default="db1", nullable=False)
+    allowed_manager_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("managed_admins.auth_user_id", ondelete="RESTRICT"), index=True)
+    manager_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("managed_admins.auth_user_id", ondelete="RESTRICT"), index=True)
     billing_enabled: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -90,6 +102,8 @@ class Agent(Base):
     agency: Mapped[Agency | None] = relationship()
 
     __table_args__ = (
+        CheckConstraint("lead_database IN ('db1', 'db2')", name="ck_customer_lead_database"),
+        CheckConstraint("manager_id IS NULL OR (allowed_manager_id IS NOT NULL AND manager_id = allowed_manager_id)", name="ck_customer_manager_allowed"),
         CheckConstraint(
             "NOT billing_enabled OR lead_rate_cents_per_thousand IS NOT NULL",
             name="ck_agent_billing_rate_required",
@@ -655,6 +669,9 @@ class Lead(Base):
     __tablename__ = "lead_inventory"
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     phone: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)
+    # DB2-only endpoints have no DB1 listing. The normalized endpoint still
+    # anchors shared cooldown, exclusion, hold, and permanent delivery history.
+    in_db1: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"), nullable=False)
     title: Mapped[str] = mapped_column(Text, default="", nullable=False)
     state: Mapped[str] = mapped_column(String(2), index=True, nullable=False)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
@@ -690,7 +707,10 @@ class Lead(Base):
     )
     last_distributed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
-    __table_args__ = (Index("lead_inventory_state_age_idx", "state", "last_distributed_at", "id"),)
+    __table_args__ = (
+        Index("lead_inventory_state_age_idx", "state", "last_distributed_at", "id"),
+        Index("lead_inventory_allocation_age_idx", text("last_distributed_at ASC NULLS FIRST"), "id").ddl_if(dialect="postgresql"),
+    )
 
 
 class ExclusionList(Base):
@@ -893,6 +913,7 @@ class LeadCorrectionEvent(Base):
         ),
         index=True,
     )
+    based_on_upload_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("lead_uploads.id", ondelete="RESTRICT"))
     based_on_title: Mapped[str] = mapped_column(
         Text,
         default="",
@@ -914,7 +935,7 @@ class LeadCorrectionEvent(Base):
         CheckConstraint(
             (
                 "based_on_kind IN ('current_listing', 'legacy_snapshot', "
-                "'prior_correction', 'none', 'unknown')"
+                "'prior_correction', 'csv_upload', 'none', 'unknown')"
             ),
             name="ck_lead_correction_based_on_kind",
         ),
@@ -923,6 +944,7 @@ class LeadCorrectionEvent(Base):
 
 class DistributionEvent(Base):
     __tablename__ = "distribution_events"
+    inventory_database: Mapped[str] = mapped_column(String(4), default="db1", server_default="db1", nullable=False)
     id: Mapped[int] = mapped_column(ID_TYPE, primary_key=True, autoincrement=True)
     lead_id: Mapped[int] = mapped_column(ForeignKey("lead_inventory.id", ondelete="RESTRICT"), index=True)
     agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"), index=True)
@@ -1210,6 +1232,43 @@ class BatchArtifact(Base):
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     request: Mapped[LeadRequest] = relationship(back_populates="artifact")
+
+
+class LeadUpload(Base):
+    __tablename__ = "lead_uploads"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    manager_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("managed_admins.auth_user_id", ondelete="RESTRICT"), index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    state: Mapped[str] = mapped_column(String(2), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="uploading", nullable=False)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    bytes: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    processed_rows: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    valid_rows: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    rejected_rows: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    imported_rows: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    updated_rows: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    duplicate_rows: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    error: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class LeadDatabaseMembership(Base):
+    """DB2 eligibility index. Listing content remains in the physical DB2."""
+    __tablename__ = "lead_database_memberships"
+    lead_id: Mapped[int] = mapped_column(ForeignKey("lead_inventory.id", ondelete="RESTRICT"), primary_key=True)
+    upload_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("lead_uploads.id", ondelete="RESTRICT"), nullable=False, index=True)
+    state: Mapped[str] = mapped_column(String(2), nullable=False, index=True)
+
+
+class LeadDatabaseSummary(Base):
+    __tablename__ = "lead_database_summaries"
+    id: Mapped[str] = mapped_column(String(4), primary_key=True)
+    total: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    states: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class Job(Base):

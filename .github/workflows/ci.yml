@@ -179,7 +179,7 @@ jobs:
       - name: Verify committed worker wakeups and request updates on PostgreSQL
         env:
           JAWNIX_ACCEPTANCE_DATABASE_URL: postgresql+psycopg://jawnix_test:jawnix_test@127.0.0.1:5432/jawnix_worker_test
-        run: uv run pytest tests/test_postgres_job_updates.py
+        run: uv run pytest tests/test_postgres_job_updates.py tests/test_postgres_lead_databases.py
 
   scraper-worker:
     name: Scraper worker (build, test)

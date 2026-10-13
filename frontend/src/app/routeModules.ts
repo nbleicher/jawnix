@@ -27,6 +27,7 @@ const pages = {
   CustomerRequests: () => import("./routes/CustomerRequests"),
   CustomerAuth: () => import("./routes/CustomerAuth"),
   DesignSystem: () => import("./routes/DesignSystem"),
+  ManagedAdmin: () => import("./routes/ManagedAdmin"),
 };
 type PageName = keyof typeof pages;
 type PageModule = Record<string, unknown>;
@@ -62,6 +63,8 @@ const destinations: Record<string, { page: PageName; reads?: string[] }> = {
   "/requests": { page:"CustomerRequests", reads:["/api/me/batch-requests"] },
   "/feedback": { page:"CustomerFeedback" },
   "/account": { page:"CustomerAccount" },
+  "/manager/uploads": { page:"ManagedAdmin" },
+  "/manager/customers": { page:"ManagedAdmin" },
 };
 
 export function prefetchDestination(href: string) {

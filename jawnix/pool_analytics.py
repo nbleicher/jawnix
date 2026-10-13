@@ -32,6 +32,7 @@ from .models import (
     utcnow,
 )
 from .niche_policy import effective_niche_expression, policy_clause
+from .lead_databases import inventory_database, inventory_scope, inventory_state
 
 
 UNMAPPED_NICHE = "unmapped"
@@ -89,6 +90,7 @@ def compute_pool_breakdown(session: Session) -> list[dict]:
         )
         .outerjoin(NicheAssignment, NicheAssignment.phone == Lead.phone)
         .where(
+            Lead.in_db1.is_(True),
             Lead.suppressed.is_(False),
             ~_actively_held(),
             ~_globally_excluded(),
@@ -179,11 +181,12 @@ def _candidate_base_query(customer: Customer):
         )
     )
     niche = effective_niche_expression()
-    return (
+    database = inventory_database(customer)
+    return inventory_scope(
         select(Lead)
         .outerjoin(
             ListingObservation,
-            ListingObservation.id == Lead.current_listing_observation_id,
+            and_(ListingObservation.id == Lead.current_listing_observation_id, database == "db1"),
         )
         .outerjoin(
             SourceNicheMapping,
@@ -194,13 +197,13 @@ def _candidate_base_query(customer: Customer):
         )
         .outerjoin(NicheAssignment, NicheAssignment.phone == Lead.phone)
         .where(
-            Lead.state.in_(list(customer.licensed_states or [])),
+            inventory_state(database).in_(list(customer.licensed_states or [])),
             Lead.suppressed.is_(False),
             ~previously_sent,
             ~_actively_held(),
             ~excluded_phone,
-            policy_clause(customer.id, niche),
-        )
+            policy_clause(customer.id, niche, state_expression=inventory_state(database)),
+        ), database,
     )
 
 

@@ -30,7 +30,7 @@ def nightly_operational_snapshot(session: Session) -> dict:
     inventory_by_state = {
         state: int(count)
         for state, count in session.execute(
-            select(Lead.state, func.count(Lead.id))
+            select(Lead.state, func.count(Lead.id)).where(Lead.in_db1.is_(True))
             .group_by(Lead.state)
             .order_by(Lead.state)
         )
@@ -38,7 +38,7 @@ def nightly_operational_snapshot(session: Session) -> dict:
     return {
         "inventory": {
             "total": int(
-                session.scalar(select(func.count(Lead.id))) or 0
+                session.scalar(select(func.count(Lead.id)).where(Lead.in_db1.is_(True))) or 0
             ),
             "byState": inventory_by_state,
         },

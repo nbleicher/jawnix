@@ -28,7 +28,7 @@ from .agency_management import (
     assign_customer,
     assignment_preview,
 )
-from .auth import Principal, clear_session, issue_session, require_admin, require_principal, verify_supabase_token
+from .auth import Principal, administration_home, clear_session, issue_session, require_admin, require_principal, verify_supabase_token
 from .admin_mfa_api import router as admin_mfa_router
 from .billing import (
     BillingError,
@@ -222,6 +222,8 @@ from .fulfillment import (
 )
 from .transitions import TransitionError, transition_request
 from .request_updates import request_events, request_updates_lifespan
+from .models import ManagedAdmin
+from .managed_admin_api import router as managed_admin_router
 
 
 MAX_CSV_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -237,6 +239,7 @@ log = logging.getLogger("jawnix.api")
 app = FastAPI(title="Jawnix VPS API", version="1.0.0", lifespan=request_updates_lifespan)
 app.include_router(admin_mfa_router)
 app.include_router(native_scraper_router)
+app.include_router(managed_admin_router)
 
 
 @app.exception_handler(RequestValidationError)
@@ -523,11 +526,17 @@ async def create_session(
 ):
     user = await verify_supabase_token(payload.access_token, settings)
     role = str((user.get("app_metadata") or {}).get("jawnix_role") or "customer")
+    if role not in {"admin", "manager", "customer"}:
+        raise HTTPException(status_code=403, detail="This identity has no Jawnix access.")
+    if role == "manager":
+        manager = db.get(ManagedAdmin, uuid.UUID(str(user["id"])))
+        if manager is None or not manager.active:
+            raise HTTPException(status_code=403, detail="Managed administration is unavailable.")
     if payload.requested_next == "/admin.html" and role != "admin":
         raise HTTPException(status_code=403, detail="Sign in with noah@jawnix.com to access administration.")
     session_kwargs: dict = {}
-    admin_next = "/app/admin/overview"
-    if role == "admin":
+    admin_next = "/app/manager/uploads" if role == "manager" else "/app/admin/overview"
+    if role in {"admin", "manager"}:
         state = db.get(AdminMFAState, uuid.UUID(str(user["id"])))
         if state is None:
             state = AdminMFAState(
@@ -571,11 +580,12 @@ async def create_session(
             admin_next = "/app/admin/mfa/challenge"
         else:
             requested = payload.requested_next or ""
+            prefix = "/app/manager/" if role == "manager" else "/app/admin/"
             admin_next = (
                 requested
-                if requested.startswith("/app/admin/")
+                if requested.startswith(prefix)
                 and not requested.startswith("//")
-                else "/app/admin/overview"
+                else admin_next
             )
     principal = issue_session(
         response,
@@ -583,7 +593,7 @@ async def create_session(
         settings,
         **session_kwargs,
     )
-    if principal.role != "admin":
+    if principal.role == "customer":
         # Signing in is what acceptance means: the invited person has proved
         # they hold the invited identity. Do this before the replaced-account
         # guard below, so an invitation that has just been accepted is not
@@ -607,7 +617,7 @@ async def create_session(
             status_code=403,
             detail="This User Account has been replaced or deactivated.",
         )
-    if profile is None and principal.role != "admin":
+    if profile is None and principal.role == "customer":
         metadata = user.get("user_metadata") or {}
         profile = CustomerProfile(
             user_id=principal.user_id,
@@ -619,7 +629,7 @@ async def create_session(
         db.add(profile)
     elif profile is not None:
         profile.email = principal.email
-        if profile.customer_id is not None and principal.role != "admin":
+        if profile.customer_id is not None and principal.role == "customer":
             current_account = db.scalar(
                 select(UserAccount).where(
                     UserAccount.customer_id == profile.customer_id,
@@ -649,7 +659,7 @@ async def create_session(
                     detail="User Account and Customer mapping do not match.",
                 )
     db.commit()
-    if principal.role == "admin":
+    if principal.role in {"admin", "manager"}:
         next_path = admin_next
     else:
         requested = payload.requested_next or ""
@@ -657,6 +667,7 @@ async def create_session(
             requested
             if requested.startswith("/app/")
             and not requested.startswith("/app/admin/")
+            and not requested.startswith("/app/manager/")
             and not requested.startswith("//")
             else "/app/overview"
         )
@@ -666,6 +677,11 @@ async def create_session(
         "assurance": principal.assurance,
         "next": next_path,
     }
+
+
+@app.get("/api/auth/destination")
+def authentication_destination(principal: Principal = Depends(require_principal)):
+    return {"next": administration_home(principal) if principal.role in {"admin", "manager"} else "/app/overview"}
 
 
 @app.post("/api/auth/logout")

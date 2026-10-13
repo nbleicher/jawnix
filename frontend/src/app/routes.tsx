@@ -2,6 +2,8 @@ import { createBrowserRouter, Navigate } from "react-router";
 import { AdminShell } from "./shells/AdminShell";
 import { MFAShell } from "./shells/MFAShell";
 import { CustomerShell } from "./shells/CustomerShell";
+import { ManagedAdminShell } from "./shells/ManagedAdminShell";
+import { managerAccessLoader } from "./auth/managedAdmin";
 import { RouteError } from "./routes/RouteError";
 import { adminAccessLoader, adminMFAStatusLoader } from "./auth/adminMFA";
 import { customerAccessLoader, invitationLoader, signInLoader } from "./auth/customerAuth";
@@ -105,6 +107,17 @@ export const router = createBrowserRouter(
               loader: adminMFAStatusLoader,
               lazy: lazyPage("AdminMFA", "AdminMFARecoveryRoute"),
             },
+          ],
+        },
+
+        {
+          path: "manager",
+          element: <ManagedAdminShell />,
+          loader: managerAccessLoader,
+          children: [
+            { index:true, element:<Navigate to="/manager/uploads" replace /> },
+            { path:"uploads", lazy:lazyPage("ManagedAdmin", "ManagedUploadsRoute", "managedUploadsLoader") },
+            { path:"customers", lazy:lazyPage("ManagedAdmin", "ManagedCustomersRoute", "managedCustomersLoader") },
           ],
         },
 

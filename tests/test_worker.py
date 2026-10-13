@@ -24,6 +24,37 @@ from jawnix.models import (
 from jawnix.worker import process_job
 
 
+@pytest.mark.parametrize("attempts,expected", [(1,"queued"), (4,"failed")])
+def test_csv_connection_failure_retries_then_marks_upload_failed(tmp_path, monkeypatch, settings, attempts, expected):
+    from jawnix.lead_uploads import ImportInterrupted
+    from jawnix.models import LeadUpload, ManagedAdmin
+    engine = create_engine(f"sqlite:///{tmp_path / 'csv-worker.db'}")
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    Base.metadata.create_all(engine)
+    with factory.begin() as session:
+        manager = ManagedAdmin(auth_user_id=uuid.uuid4(), name="Fixture", email="fixture@example.test")
+        session.add(manager); session.flush()
+        upload = LeadUpload(manager_id=manager.auth_user_id, filename="fixture.csv", state="TN", path="fixture.csv", status="processing")
+        session.add(upload); session.flush()
+        job = Job(kind="import_lead_upload", payload={"upload_id":str(upload.id)}, status="running", attempts=attempts)
+        session.add(job); session.flush()
+        upload_id, job_id = upload.id, job.id
+    monkeypatch.setattr("jawnix.worker.SessionLocal",factory)
+    monkeypatch.setattr("jawnix.worker.get_settings",lambda:settings)
+    def interrupted(*args, **kwargs):
+        raise ImportInterrupted("Fixture connection interrupted")
+    monkeypatch.setattr("jawnix.worker.import_lead_upload",interrupted)
+    process_job(job_id)
+    with factory() as session:
+        job, upload = session.get(Job,job_id), session.get(LeadUpload,upload_id)
+        assert job.status == upload.status == expected
+        assert job.locked_at is None and job.locked_by == ""
+        assert upload.error and job.last_error
+        if expected == "queued":
+            assert job.run_after > job.created_at
+    engine.dispose()
+
+
 class EmailResponse:
     def __init__(
         self,
