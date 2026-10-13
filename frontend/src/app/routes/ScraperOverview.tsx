@@ -76,7 +76,14 @@ function useRegionFeeds(
 ): [Feeds, (region: MonitoringRegion) => void] {
   const [feeds, setFeeds] = useState<Feeds>(() => seedFeeds(initial));
   const expired = useRef(onExpired);
+  const inFlight = useRef(new Set<string>());
+  const mounted = useRef(false);
   expired.current = onExpired;
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   // The plan itself is read through a ref so the effect depends only on a
   // primitive: re-running it would restart all nine timers, which would skew
@@ -89,11 +96,14 @@ function useRegionFeeds(
 
   useEffect(() => {
     if (!watching) return;
-    const timers = plan.current.map((entry) =>
-      setInterval(() => {
+    const timers = plan.current.map((entry) => {
+      const refresh = () => {
         const key = entry.region;
+        if (inFlight.current.has(key)) return;
+        inFlight.current.add(key);
         void fetchRegion(key)
           .then((next) => {
+            if (!mounted.current) return;
             setFeeds((current) => {
               if (next.state === "ok") {
                 return { ...current, [key]: { region: next, live: true } };
@@ -103,13 +113,18 @@ function useRegionFeeds(
               const previous = current[key];
               return {
                 ...current,
-                [key]: previous
-                  ? { ...previous, live: false }
-                  : { region: next, live: false },
+                [key]: {
+                  region: {
+                    ...(previous?.region.data ? previous.region : next),
+                    state: "unavailable",
+                  },
+                  live: false,
+                },
               };
             });
           })
           .catch((caught: unknown) => {
+            if (!mounted.current) return;
             if (caught instanceof PrivilegedSessionExpired) {
               expired.current();
               return;
@@ -117,12 +132,21 @@ function useRegionFeeds(
             setFeeds((current) => {
               const previous = current[key];
               return previous
-                ? { ...current, [key]: { ...previous, live: false } }
+                ? {
+                    ...current,
+                    [key]: {
+                      region: { ...previous.region, state: "unavailable" },
+                      live: false,
+                    },
+                  }
                 : current;
             });
-          });
-      }, entry.refresh_seconds * 1000),
-    );
+          })
+          .finally(() => inFlight.current.delete(key));
+      };
+      if (entry.state === "loading") refresh();
+      return setInterval(refresh, entry.refresh_seconds * 1000);
+    });
     return () => timers.forEach(clearInterval);
   }, [planKey, watching]);
 
@@ -162,10 +186,12 @@ function Panel({
   const [open, setOpen] = useState(true);
   const data = feed?.region.data ?? null;
   const stale = feed ? !feed.live : true;
+  const loading = feed?.region.state === "loading";
   return (
     <details
       className="ops-panel"
       aria-label={title}
+      aria-busy={loading}
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
       {...(id ? { id } : {})}
@@ -175,7 +201,9 @@ function Panel({
         <span className="ops-panel__cadence">{cadence}</span>
       </summary>
       <div className="ops-panel__content">
-        {stale ? (
+        {loading ? (
+          <p role="status">Loading…</p>
+        ) : stale ? (
           <p className="ops-panel__stale" role="status">
             {data
               ? `Not refreshing. Showing the last reading from ${clock(

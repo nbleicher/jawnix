@@ -1,5 +1,6 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StrictMode } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -190,9 +191,11 @@ function renderOverview(data: MonitoringSnapshot) {
     },
   );
   return render(
-    <ThemeProvider>
-      <RouterProvider router={router} />
-    </ThemeProvider>,
+    <StrictMode>
+      <ThemeProvider>
+        <RouterProvider router={router} />
+      </ThemeProvider>
+    </StrictMode>,
   );
 }
 
@@ -212,7 +215,63 @@ function mockPipeline(response: unknown, ok = true) {
   return calls;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+describe("independent loading and refreshes", () => {
+  it("does not overlap a slow panel refresh", async () => {
+    vi.useFakeTimers();
+    const activityCalls: ((value: Response) => void)[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      const key = url.split("/").at(-1) as RegionKey;
+      if (key === "activity") return new Promise<Response>((resolve) => activityCalls.push(resolve));
+      return Promise.resolve({ ok: true, status: 200, json: async () => region(key) } as Response);
+    }));
+    renderOverview(snapshot());
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
+    expect(activityCalls).toHaveLength(1);
+    await act(async () => {
+      activityCalls[0]?.({ ok: true, status: 200, json: async () => region("activity") } as Response);
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(activityCalls).toHaveLength(2);
+  });
+
+  it("loads deferred panels immediately without waiting for a slow panel", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: string) => {
+      const key = url.split("/").at(-1) as RegionKey;
+      if (key === "workers") return new Promise<Response>(() => {});
+      return Promise.resolve({ ok: true, status: 200, json: async () => region(key) } as Response);
+    }));
+    renderOverview(snapshot({ regions: snapshot().regions.map((entry) =>
+      entry.region === "workers" || entry.region === "log"
+        ? { ...entry, state: "loading", data: null, fetched_at: null }
+        : entry,
+    ) }));
+    expect(screen.getByRole("group", { name: "Workers" })).toHaveTextContent("Loading");
+    await waitFor(() => expect(screen.getByRole("group", { name: "Database activity" })).toHaveTextContent("dentist"));
+    expect(screen.getByRole("group", { name: "Workers" })).toHaveTextContent("Loading");
+    expect(screen.getByRole("group", { name: "Headline totals" })).toHaveTextContent("9,244,326");
+  });
+
+  it("ends a deferred panel's loading state when its first read fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({
+      ok: true, status: 200,
+      json: async () => region("workers", { state: "unavailable", data: null }),
+    } as Response)));
+    renderOverview(snapshot({ regions: snapshot().regions.map((entry) =>
+      entry.region === "workers"
+        ? { ...entry, state: "loading", data: null, fetched_at: null }
+        : entry,
+    ) }));
+    const workers = screen.getByRole("group", { name: "Workers" });
+    await waitFor(() => expect(workers).toHaveTextContent("No reading yet."));
+    expect(workers).toHaveAttribute("aria-busy", "false");
+    expect(screen.getByRole("group", { name: "Headline totals" })).toHaveTextContent("9,244,326");
+  });
+});
 
 describe("every monitoring read survives the rebuild", () => {
   it("renders all nine regions", () => {

@@ -252,6 +252,7 @@ class RegionData(BaseModel):
     sample: StackSample | None = None
     services: list[ServiceRow] | None = None
     stats: DashboardStats | None = None
+    stats_fetched_at: datetime | None = None
     activity: PipelineActivity | None = None
     pipeline_state: PipelineState | None = None
     pause_info: PauseInfo | None = None
@@ -273,7 +274,7 @@ class MonitoringRegion(BaseModel):
     """
 
     region: RegionKey
-    state: Literal["ok", "unavailable"]
+    state: Literal["ok", "unavailable", "loading"]
     refresh_seconds: int
     fetched_at: datetime | None = None
     data: RegionData | None = None
@@ -342,12 +343,32 @@ def snapshot_regions(payload: dict, *, fetched_at: datetime) -> list[MonitoringR
     """Split one aggregate upstream read into its nine independent regions."""
 
     return [
-        MonitoringRegion(
-            region=region,
-            state="ok",
-            refresh_seconds=REGION_INTERVALS[region],
-            fetched_at=fetched_at,
-            data=region_data(region, payload),
-        )
+        monitoring_region(region, payload, fetched_at=fetched_at)
         for region in REGIONS
     ]
+
+
+def monitoring_region(
+    region: str, payload: dict, *, fetched_at: datetime,
+) -> MonitoringRegion:
+    captured_at = fetched_at
+    state = "ok"
+    if region == "stats":
+        if not payload.get("stats"):
+            return MonitoringRegion(
+                region=region,
+                state="unavailable",
+                refresh_seconds=REGION_INTERVALS[region],
+            )
+        if payload.get("stats_fetched_at") is not None:
+            captured_at = RegionData.model_validate(payload).stats_fetched_at
+            stale_after = REGION_INTERVALS[region] * STALE_AFTER_CYCLES
+            if (fetched_at - captured_at).total_seconds() > stale_after:
+                state = "unavailable"
+    return MonitoringRegion(
+        region=region,
+        state=state,
+        refresh_seconds=REGION_INTERVALS[region],
+        fetched_at=captured_at,
+        data=region_data(region, payload),
+    )

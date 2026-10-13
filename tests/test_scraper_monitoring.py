@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -48,6 +48,44 @@ def test_the_snapshot_carries_all_nine_regions_at_their_own_cadence(
     assert {
         region["region"]: region["refresh_seconds"] for region in body["regions"]
     } == REGION_INTERVALS
+
+
+def test_bootstrap_loads_only_status_and_cached_totals(workspace_client):
+    class BootstrapOnly(ScraperFake):
+        async def monitoring_dashboard(self):
+            raise AssertionError("First paint must not wait for every panel")
+
+    client, csrf, _, _ = workspace_client
+    fake = arm(BootstrapOnly())
+    monitoring(client, csrf)
+    body = client.get("/api/admin/scraper/monitoring?bootstrap=true").json()
+
+    assert body["service_state"] == "connected"
+    assert set(fake.monitoring_calls) == {"overall", "stats"}
+    assert {r["region"] for r in body["regions"] if r["state"] == "loading"} == (
+        set(REGIONS) - {"overall", "stats"}
+    )
+
+
+def test_cached_totals_keep_their_capture_time_and_become_stale(workspace_client):
+    from jawnix.scraper_monitoring import RegionData
+
+    client, csrf, _, now = workspace_client
+    captured_at = now[0] - timedelta(seconds=40)
+
+    class CachedTotals(ScraperFake):
+        async def monitoring_region(self, region):
+            result = await super().monitoring_region(region)
+            return RegionData.model_validate({
+                **result.model_dump(), "stats_fetched_at": captured_at,
+            })
+
+    arm(CachedTotals())
+    monitoring(client, csrf)
+    body = client.get("/api/admin/scraper/monitoring/stats").json()
+    assert datetime.fromisoformat(body["fetched_at"]) == captured_at
+    assert body["state"] == "unavailable"
+    assert body["data"]["stats"]["businesses"] == 9_244_326
 
 
 @pytest.mark.parametrize(
@@ -194,7 +232,11 @@ def test_upstream_failure_never_leaks_its_body(workspace_client):
 
 @pytest.mark.parametrize(
     "path",
-    ["/api/admin/scraper/monitoring", "/api/admin/scraper/monitoring/stats"],
+    [
+        "/api/admin/scraper/monitoring",
+        "/api/admin/scraper/monitoring?bootstrap=true",
+        "/api/admin/scraper/monitoring/stats",
+    ],
 )
 def test_monitoring_requires_the_scraper_privileged_session(
     workspace_client,

@@ -66,6 +66,7 @@ from .scraper_monitoring import (
     MonitoringRegion,
     MonitoringSnapshot,
     RegionKey,
+    monitoring_region,
     region_data,
     snapshot_regions,
 )
@@ -1001,6 +1002,7 @@ async def scraper_monitoring(
     response: Response,
     principal: Principal = Depends(require_admin),
     settings: Settings = Depends(get_settings),
+    bootstrap: bool = False,
 ):
     """Every monitoring region at once, for the workspace's first paint.
 
@@ -1012,6 +1014,36 @@ async def scraper_monitoring(
 
     _require_scraper_grant(request, response, principal, settings)
     state = _state(request, settings)
+    if bootstrap:
+        operations = _scraper_operations(request, settings)
+
+        async def initial_region(key):
+            try:
+                payload = await operations.monitoring_region(key)
+            except ScraperOperationsError:
+                return _unavailable_region(key)
+            return monitoring_region(
+                key, payload.model_dump(mode="json", exclude_none=True),
+                fetched_at=_workspace_now(request),
+            )
+
+        initial = await asyncio.gather(initial_region("overall"), initial_region("stats"))
+        connected = any(region.data is not None for region in initial)
+        if connected:
+            _mark_operations_success(request, settings)
+        ready = {region.region: region for region in initial}
+        return MonitoringSnapshot(
+            service_state="connected" if connected else "unavailable",
+            last_successful_at=state.last_success,
+            idle_expires_in=SCRAPER_IDLE_SECONDS,
+            regions=[
+                ready.get(region) or MonitoringRegion(
+                    region=region, state="loading" if connected else "unavailable",
+                    refresh_seconds=REGION_INTERVALS[region],
+                )
+                for region in REGIONS
+            ],
+        )
     try:
         payload = await _scraper_operations(
             request,
@@ -1062,15 +1094,9 @@ async def scraper_monitoring_region(
     except ScraperOperationsError:
         return _unavailable_region(region)
     _mark_operations_success(request, settings)
-    return MonitoringRegion(
-        region=region,
-        state="ok",
-        refresh_seconds=REGION_INTERVALS[region],
+    return monitoring_region(
+        region, payload.model_dump(mode="json", exclude_none=True),
         fetched_at=_workspace_now(request),
-        data=region_data(
-            region,
-            payload.model_dump(mode="json", exclude_none=True),
-        ),
     )
 
 

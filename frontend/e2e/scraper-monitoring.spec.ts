@@ -16,6 +16,7 @@ interface OverrideOptions {
   pipeline?: unknown;
   pipelineStatus?: number;
   failingRegions?: RegionKey[];
+  pendingRegions?: Partial<Record<RegionKey, Promise<void>>>;
 }
 
 async function openWorkspace(page: Page, options: OverrideOptions = {}) {
@@ -23,15 +24,16 @@ async function openWorkspace(page: Page, options: OverrideOptions = {}) {
   const writes: unknown[] = [];
 
   // Registered after mockAdminMFA so these win for the paths they claim.
-  await page.route(/\/api\/admin\/scraper\/monitoring$/, (route) =>
+  await page.route(/\/api\/admin\/scraper\/monitoring(?:\?.*)?$/, (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(options.snapshot ?? monitoringSnapshot()),
     }),
   );
-  await page.route(/\/api\/admin\/scraper\/monitoring\/[^/]+$/, (route) => {
+  await page.route(/\/api\/admin\/scraper\/monitoring\/[^/]+$/, async (route) => {
     const region = new URL(route.request().url()).pathname.split("/").pop() as RegionKey;
+    await options.pendingRegions?.[region];
     const failed = (options.failingRegions ?? []).includes(region);
     return route.fulfill({
       status: 200,
@@ -60,6 +62,30 @@ async function openWorkspace(page: Page, options: OverrideOptions = {}) {
 }
 
 test.describe("Scraper monitoring", () => {
+  test("shows cached totals while a deferred panel is still loading", async ({ page }) => {
+    let release: (() => void) | undefined;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const snapshot = monitoringSnapshot();
+    const initial = {
+      ...snapshot,
+      regions: snapshot.regions.map((entry) => entry.region === "workers"
+        ? { ...entry, state: "loading", data: null, fetched_at: null }
+        : entry),
+    };
+    try {
+      await openWorkspace(page, { snapshot: initial, pendingRegions: { workers: pending } });
+      await expect(page.getByRole("group", { name: "Headline totals" })).toContainText("9,244,326");
+      const workers = page.getByRole("group", { name: "Workers" });
+      await expect(workers).toContainText("Loading");
+      await expect(workers).toHaveAttribute("aria-busy", "true");
+      release?.();
+      await expect(workers).toContainText("gms-worker-1");
+      await expect(workers).toHaveAttribute("aria-busy", "false");
+    } finally {
+      release?.();
+    }
+  });
+
   test("keeps every dashboard region and its cadence", async ({ page }) => {
     await openWorkspace(page);
 
