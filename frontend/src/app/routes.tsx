@@ -1,110 +1,16 @@
 import { createBrowserRouter, Navigate } from "react-router";
-
 import { AdminShell } from "./shells/AdminShell";
 import { MFAShell } from "./shells/MFAShell";
 import { CustomerShell } from "./shells/CustomerShell";
 import { RouteError } from "./routes/RouteError";
-import { DesignSystemRoute } from "./routes/DesignSystem";
-import {
-  AdminMFAChallengeRoute,
-  AdminMFAEnrollmentRoute,
-  AdminMFARecoveryRoute,
-  AdminMFASecurityRoute,
-} from "./routes/AdminMFA";
-import {
-  AdminDestinationRoute,
-  adminOverviewLoader,
-} from "./routes/AdminDestinations";
-import {
-  AdminAcquisitionRoute,
-  acquisitionLoader,
-} from "./routes/AdminAcquisition";
-import {
-  ScrapeRunDetailsRoute,
-  ScraperConfigurationDetailsRoute,
-  scrapeRunDetailsLoader,
-  scraperConfigurationDetailsLoader,
-} from "./routes/AdminAcquisitionDetails";
-import {
-  AdminSourcePerformanceRoute,
-  sourcePerformanceLoader,
-} from "./routes/AdminSourcePerformance";
-import {
-  AdminCustomersRoute,
-  adminCustomerDirectoryLoader,
-} from "./routes/AdminCustomers";
-import {
-  AdminCustomerDetailsRoute,
-  adminCustomerDetailsLoader,
-} from "./routes/AdminCustomerDetails";
-import {
-  AdminAgenciesRoute,
-  AdminAgencyDetailsRoute,
-  adminAgencyDetailsLoader,
-  adminAgencyDirectoryLoader,
-} from "./routes/AdminAgencies";
-import {
-  AdminFulfillmentConflictRoute,
-  AdminFulfillmentRequestRoute,
-  AdminFulfillmentRoute,
-  fulfillmentConflictLoader,
-  fulfillmentLoader,
-  fulfillmentRequestLoader,
-} from "./routes/AdminFulfillment";
-import {
-  AdminLeadReportRoute,
-  adminLeadReportLoader,
-} from "./routes/AdminLeadReport";
-import {
-  AdminActivityRoute,
-  adminActivityLoader,
-} from "./routes/AdminActivity";
-import {
-  adminAccessLoader,
-  adminMFAStatusLoader,
-} from "./auth/adminMFA";
-import {
-  customerAccessLoader,
-  invitationLoader,
-  signInLoader,
-} from "./auth/customerAuth";
-import {
-  ScraperStepUpRoute,
-  scraperEntryLoader,
-} from "./routes/ScraperWorkspace";
-import { ScraperOverviewRoute } from "./routes/ScraperOverview";
+import { adminAccessLoader, adminMFAStatusLoader } from "./auth/adminMFA";
+import { customerAccessLoader, invitationLoader, signInLoader } from "./auth/customerAuth";
+import { lazyPage } from "./routeModules";
 import { scraperOverviewLoader } from "./routes/scraperMonitoring";
-import { ScraperKeywordsRoute } from "./routes/ScraperKeywords";
 import { scraperKeywordsLoader } from "./routes/scraperKeywordApi";
-import { ScraperCampaignHistoryRoute } from "./routes/ScraperCampaignHistory";
-import { ScraperRuntimeConfigurationRoute } from "./routes/ScraperRuntimeConfiguration";
-import {
-  scraperCampaignHistoryLoader,
-  scraperRuntimeLoader,
-} from "./routes/scraperRuntimeApi";
-import {
-  scraperDatabaseLoader,
-  scraperDatabaseStateLoader,
-} from "./routes/scraperDatabaseData";
-import {
-  ScraperDatabaseRoute,
-  ScraperDatabaseStateRoute,
-} from "./routes/ScraperDatabase";
-import {
-  ScraperStateCoverageRoute,
-  ScraperStateDetailRoute,
-} from "./routes/ScraperCoverage";
-import {
-  stateCoverageDetailLoader,
-  stateCoverageLoader,
-} from "./routes/scraperCoverageData";
-import { CustomerOverviewRoute } from "./routes/CustomerOverview";
-import { CustomerAccountRoute } from "./routes/CustomerAccount";
-import {
-  CustomerFeedbackRoute,
-  feedbackLoader,
-} from "./routes/CustomerFeedback";
-import { CustomerRequestsRoute } from "./routes/CustomerRequests";
+import { scraperCampaignHistoryLoader, scraperRuntimeLoader } from "./routes/scraperRuntimeApi";
+import { scraperDatabaseLoader, scraperDatabaseStateLoader } from "./routes/scraperDatabaseData";
+import { stateCoverageDetailLoader, stateCoverageLoader } from "./routes/scraperCoverageData";
 import { batchRequestsLoader } from "./routes/batchRequests";
 import { customerAccountLoader } from "./routes/licensedStates";
 
@@ -155,25 +61,24 @@ export const router = createBrowserRouter(
           children: [
             {
               path: "overview",
-              element: <CustomerOverviewRoute />,
+              lazy: lazyPage("CustomerOverview", "CustomerOverviewRoute"),
             },
             {
               path: "requests",
               loader: batchRequestsLoader,
-              element: <CustomerRequestsRoute />,
+              lazy: lazyPage("CustomerRequests", "CustomerRequestsRoute"),
             },
             // #53 replaced the placeholder with the guided flow. The loader
             // reads the Lead Disposition catalog, whose consequence copy is
             // derived from the rule that materializes the controls.
             {
               path: "feedback",
-              loader: feedbackLoader,
-              element: <CustomerFeedbackRoute />,
+              lazy: lazyPage("CustomerFeedback", "CustomerFeedbackRoute", "feedbackLoader"),
             },
             {
               path: "account",
               loader: customerAccountLoader,
-              element: <CustomerAccountRoute />,
+              lazy: lazyPage("CustomerAccount", "CustomerAccountRoute"),
             },
           ],
         },
@@ -188,17 +93,17 @@ export const router = createBrowserRouter(
             {
               path: "enroll",
               loader: adminMFAStatusLoader,
-              element: <AdminMFAEnrollmentRoute />,
+              lazy: lazyPage("AdminMFA", "AdminMFAEnrollmentRoute"),
             },
             {
               path: "challenge",
               loader: adminMFAStatusLoader,
-              element: <AdminMFAChallengeRoute />,
+              lazy: lazyPage("AdminMFA", "AdminMFAChallengeRoute"),
             },
             {
               path: "recover",
               loader: adminMFAStatusLoader,
-              element: <AdminMFARecoveryRoute />,
+              lazy: lazyPage("AdminMFA", "AdminMFARecoveryRoute"),
             },
           ],
         },
@@ -213,8 +118,7 @@ export const router = createBrowserRouter(
             { index: true, element: <Navigate to="/admin/overview" replace /> },
             {
               path: "overview",
-              loader: adminOverviewLoader,
-              element: <AdminDestinationRoute />,
+              lazy: lazyPage("AdminDestinations", "AdminDestinationRoute", "adminOverviewLoader"),
             },
             // #57 replaced the Fulfillment task map with the real workspace.
             // Its loaders read one aggregate contract, and every action the
@@ -222,26 +126,22 @@ export const router = createBrowserRouter(
             // here, so the UI cannot offer what the domain refuses.
             {
               path: "fulfillment",
-              loader: fulfillmentLoader,
-              element: <AdminFulfillmentRoute />,
+              lazy: lazyPage("AdminFulfillment", "AdminFulfillmentRoute", "fulfillmentLoader"),
             },
             {
               path: "fulfillment/requests/:requestId",
-              loader: fulfillmentRequestLoader,
-              element: <AdminFulfillmentRequestRoute />,
+              lazy: lazyPage("AdminFulfillment", "AdminFulfillmentRequestRoute", "fulfillmentRequestLoader"),
             },
             {
               path: "fulfillment/conflicts/:conflictId",
-              loader: fulfillmentConflictLoader,
-              element: <AdminFulfillmentConflictRoute />,
+              lazy: lazyPage("AdminFulfillment", "AdminFulfillmentConflictRoute", "fulfillmentConflictLoader"),
             },
             // #58 added the Lead Report and its eligibility controls. The
             // report is immutable evidence; the controls beside it act on the
             // Lead, so this route reads one report and never edits it.
             {
               path: "fulfillment/reports/:reportId",
-              loader: adminLeadReportLoader,
-              element: <AdminLeadReportRoute />,
+              lazy: lazyPage("AdminLeadReport", "AdminLeadReportRoute", "adminLeadReportLoader"),
             },
             // #68 replaced the Acquisition task map with the native
             // terminal-themed workspace. Its decisions post back to the
@@ -249,18 +149,15 @@ export const router = createBrowserRouter(
             // second path to change acquisition.
             {
               path: "acquisition",
-              loader: acquisitionLoader,
-              element: <AdminAcquisitionRoute />,
+              lazy: lazyPage("AdminAcquisition", "AdminAcquisitionRoute", "acquisitionLoader"),
             },
             {
               path: "acquisition/configurations/:configurationId",
-              loader: scraperConfigurationDetailsLoader,
-              element: <ScraperConfigurationDetailsRoute />,
+              lazy: lazyPage("AdminAcquisitionDetails", "ScraperConfigurationDetailsRoute", "scraperConfigurationDetailsLoader"),
             },
             {
               path: "acquisition/runs/:runId",
-              loader: scrapeRunDetailsLoader,
-              element: <ScrapeRunDetailsRoute />,
+              lazy: lazyPage("AdminAcquisitionDetails", "ScrapeRunDetailsRoute", "scrapeRunDetailsLoader"),
             },
             // #173 A1 restored Source Performance as its own destination —
             // the descriptive nightly evidence Acquisition's optimizer reads,
@@ -268,13 +165,11 @@ export const router = createBrowserRouter(
             // decisions that already live there.
             {
               path: "acquisition/performance",
-              loader: sourcePerformanceLoader,
-              element: <AdminSourcePerformanceRoute />,
+              lazy: lazyPage("AdminSourcePerformance", "AdminSourcePerformanceRoute", "sourcePerformanceLoader"),
             },
             {
               path: "acquisition/scraper",
-              loader: scraperEntryLoader,
-              element: <ScraperStepUpRoute />,
+              lazy: lazyPage("ScraperWorkspace", "ScraperStepUpRoute", "scraperEntryLoader"),
             },
             {
               path: "acquisition/scraper/workspace",
@@ -282,72 +177,67 @@ export const router = createBrowserRouter(
               // overview: nine monitoring regions on their own refresh
               // cadences, and the audited pipeline controls.
               loader: scraperOverviewLoader,
-              element: <ScraperOverviewRoute />,
+              lazy: lazyPage("ScraperOverview", "ScraperOverviewRoute"),
             },
             {
               path: "acquisition/scraper/workspace/keywords",
               loader: scraperKeywordsLoader,
-              element: <ScraperKeywordsRoute />,
+              lazy: lazyPage("ScraperKeywords", "ScraperKeywordsRoute"),
             },
             {
               path: "acquisition/scraper/workspace/history",
               loader: scraperCampaignHistoryLoader,
-              element: <ScraperCampaignHistoryRoute />,
+              lazy: lazyPage("ScraperCampaignHistory", "ScraperCampaignHistoryRoute"),
             },
             {
               path: "acquisition/scraper/workspace/runtime",
               loader: scraperRuntimeLoader,
-              element: <ScraperRuntimeConfigurationRoute />,
+              lazy: lazyPage("ScraperRuntimeConfiguration", "ScraperRuntimeConfigurationRoute"),
             },
             {
               path: "acquisition/scraper/workspace/states",
               loader: stateCoverageLoader,
-              element: <ScraperStateCoverageRoute />,
+              lazy: lazyPage("ScraperCoverage", "ScraperStateCoverageRoute"),
             },
             {
               path: "acquisition/scraper/workspace/states/:state",
               loader: stateCoverageDetailLoader,
-              element: <ScraperStateDetailRoute />,
+              lazy: lazyPage("ScraperCoverage", "ScraperStateDetailRoute"),
             },
             {
               path: "acquisition/scraper/workspace/database",
               loader: scraperDatabaseLoader,
-              element: <ScraperDatabaseRoute />,
+              lazy: lazyPage("ScraperDatabase", "ScraperDatabaseRoute"),
             },
             {
               path: "acquisition/scraper/workspace/database/states/:state",
               loader: scraperDatabaseStateLoader,
-              element: <ScraperDatabaseStateRoute />,
+              lazy: lazyPage("ScraperDatabase", "ScraperDatabaseStateRoute"),
             },
             {
               path: "customers",
-              loader: adminCustomerDirectoryLoader,
-              element: <AdminCustomersRoute />,
+              lazy: lazyPage("AdminCustomers", "AdminCustomersRoute", "adminCustomerDirectoryLoader"),
             },
             {
               path: "activity",
-              loader: adminActivityLoader,
-              element: <AdminActivityRoute />,
+              lazy: lazyPage("AdminActivity", "AdminActivityRoute", "adminActivityLoader"),
             },
             {
               path: "customers/:customerId",
-              loader: adminCustomerDetailsLoader,
-              element: <AdminCustomerDetailsRoute />,
+              lazy: lazyPage("AdminCustomerDetails", "AdminCustomerDetailsRoute", "adminCustomerDetailsLoader"),
             },
             {
               path: "agencies",
-              loader: adminAgencyDirectoryLoader,
-              element: <AdminAgenciesRoute />,
+              lazy: lazyPage("AdminAgencies", "AdminAgenciesRoute", "adminAgencyDirectoryLoader"),
             },
             {
               path: "agencies/:agencyId",
-              loader: adminAgencyDetailsLoader,
-              element: <AdminAgencyDetailsRoute />,
+              lazy: lazyPage("AdminAgencies", "AdminAgencyDetailsRoute", "adminAgencyDetailsLoader"),
             },
             {
               path: "security",
               loader: adminMFAStatusLoader,
-              element: <AdminMFASecurityRoute />,
+              lazy: lazyPage("AdminMFA", "AdminMFASecurityRoute"),
             },
           ],
         },
@@ -355,7 +245,7 @@ export const router = createBrowserRouter(
         // The design-system gallery renders every primitive in both themes. It
         // is the fixture the accessibility and visual-regression gates in #70
         // run against.
-        { path: "design-system", element: <DesignSystemRoute /> },
+        { path: "design-system", lazy: lazyPage("DesignSystem", "DesignSystemRoute") },
         ...(import.meta.env.DEV
           ? [
               {

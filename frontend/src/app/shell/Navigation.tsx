@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import "./Navigation.css";
 import { cx } from "../../design-system/primitives/cx";
+import { prefetchDestination } from "../routeModules";
 
 export interface NavigationDestination {
   to: string;
@@ -33,6 +34,8 @@ export function Navigation({ label, destinations }: NavigationProps) {
           <li key={destination.to} className="jx-nav__item">
             <NavLink
               to={destination.to}
+              onMouseEnter={() => prefetchDestination(destination.to)}
+              onFocus={() => prefetchDestination(destination.to)}
               // `end` is deliberately off: a nested route such as
               // /app/requests/1234 still belongs to Requests. React Router
               // matches on path segments, so /app/requests-archive does not.

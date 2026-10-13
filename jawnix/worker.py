@@ -5,14 +5,15 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from .allocation import allocate_request, fulfill_round_robin
 from .config import get_settings
 from .database import SessionLocal
 from .delivery import deliver_request, mark_delivery_failed
 from .billing import release_batch_hold
-from .jobs import claim_next_job, enqueue_job
+from .jobs import FULFILLMENT_JOB_KINDS, claim_next_job, enqueue_job
+from .job_wakeup import JobWakeup
 from .metrics_emit import (
     EMIT_LEAD_ASSIGNED_JOB,
     EMIT_MAX_ATTEMPTS,
@@ -368,6 +369,10 @@ def process_job(job_id: int) -> None:
         return
     try:
         with SessionLocal.begin() as session:
+            if job_kind in FULFILLMENT_JOB_KINDS and session.get_bind().dialect.name == "postgresql":
+                # Serialize rotation even if a second fulfillment process is
+                # accidentally started. Request and Lead row locks still apply.
+                session.execute(text("SELECT pg_advisory_xact_lock(641901)"))
             job = session.get(Job, job_id)
             if job is None:
                 return
@@ -750,6 +755,9 @@ def run() -> None:
         settings.worker_id,
         settings.worker_lane,
     )
+    wakeup = JobWakeup(settings)
+    # Listen before the first empty-queue check to avoid a check/listen race.
+    wakeup.connect()
     while True:
         job_id = None
         with SessionLocal.begin() as session:
@@ -762,7 +770,7 @@ def run() -> None:
             if job:
                 job_id = job.id
         if job_id is None:
-            time.sleep(settings.worker_poll_seconds)
+            wakeup.wait()
             continue
         process_job(job_id)
 

@@ -258,6 +258,7 @@ export interface BatchRequestMockOptions {
 
 export interface BatchRequestMockState {
   workspaceRequests: number;
+  requestReads: string[];
   submissions: Array<Record<string, unknown>>;
   cancellations: string[];
   artifactDownloads: string[];
@@ -281,12 +282,22 @@ export async function mockBatchRequests(
 ): Promise<BatchRequestMockState> {
   const state: BatchRequestMockState = {
     workspaceRequests: 0,
+    requestReads: [],
     submissions: [],
     cancellations: [],
     artifactDownloads: [],
   };
   const workspace = options.workspace ?? BATCH_REQUEST_WORKSPACE;
   const bySubmissionKey = new Map<string, unknown>();
+
+  await page.route(/\/api\/me\/batch-requests\/[^/]+$/, (route) => {
+    const id = new URL(route.request().url()).pathname.split("/").at(-1) ?? "";
+    if (id === "events") return route.fulfill({status:503, contentType:"text/plain", body:"Push unavailable in this fixture"});
+    state.requestReads.push(id);
+    const source = options.workspaceSequence?.[Math.min(state.requestReads.length, options.workspaceSequence.length-1)] ?? workspace;
+    const request = (source as { requests: Array<{id:string}> }).requests.find((item) => item.id === id);
+    return json(route, request ?? {detail:"Request was not found."}, request ? 200 : 404);
+  });
 
   await page.route(/\/api\/me\/batch-requests\/[^/]+\/artifact$/, (route) => {
     const id = new URL(route.request().url()).pathname.split("/").at(-2) ?? "";

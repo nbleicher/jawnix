@@ -132,6 +132,10 @@ async def run_automatic_keyword_rollover(
     pool.candidates = [by_term[term] for term in valid]
     if rollover.state == "ready" and len(pool.candidates) >= 25:
         return await _activate_pool(session, operations, workspace, pool, counts, now)
+    if rollover.state == "draining" and len(pool.candidates) >= 25:
+        # Keep the prepared batch ready for the next drain check instead of
+        # delaying the handoff with another provider request.
+        return {"outcome": "pooling", "available": len(pool.candidates), "added": 0}
     if len(pool.candidates) >= POOL_TARGET:
         return {"outcome": "idle", "state": rollover.state}
     refill_at = pool.next_refill_at
@@ -233,7 +237,9 @@ async def run_automatic_keyword_rollover(
         )
         await _record_error_event(operations, message)
         return {"outcome": "generation_failed", "message": message}
-    if rollover.state == "ready" and len(pool.candidates) >= 25:
+    if len(pool.candidates) >= 25:
+        # The campaign may have drained during generation. Revalidate the
+        # current state before waiting for another scheduler cycle.
         return await _activate_pool(session, operations, workspace, pool, counts, now)
     return {
         "outcome": "pooling",

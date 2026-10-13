@@ -1,4 +1,5 @@
 import { redirect } from "react-router";
+import { clearReadPrefetch, readResponse } from "../routeReadCache";
 
 /**
  * The Customer read/write contract for Batch Requests.
@@ -174,7 +175,7 @@ async function mutate<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export async function batchRequestsLoader(): Promise<BatchRequestWorkspace> {
-  const response = await fetch(WORKSPACE_PATH, { credentials: "same-origin" });
+  const response = await readResponse(WORKSPACE_PATH);
   if (response.status === 401 || response.status === 403) {
     throw redirect(`/sign-in?next=${encodeURIComponent("/app/requests")}`);
   }
@@ -196,11 +197,19 @@ export async function batchRequestsLoader(): Promise<BatchRequestWorkspace> {
 export function submitBatchRequest(
   submission: BatchRequestSubmission,
 ): Promise<BatchRequestReceipt> {
-  return mutate<BatchRequestReceipt>(WORKSPACE_PATH, submission);
+  clearReadPrefetch();
+  return mutate<BatchRequestReceipt>(WORKSPACE_PATH, submission).finally(clearReadPrefetch);
 }
 
 export function cancelBatchRequest(id: string): Promise<BatchRequest> {
-  return mutate<BatchRequest>(`${WORKSPACE_PATH}/${id}/cancel`);
+  clearReadPrefetch();
+  return mutate<BatchRequest>(`${WORKSPACE_PATH}/${id}/cancel`).finally(clearReadPrefetch);
+}
+
+export async function loadBatchRequest(id: string): Promise<BatchRequest> {
+  const response = await fetch(`${WORKSPACE_PATH}/${id}`, { credentials: "same-origin" });
+  if (!response.ok) throw Object.assign(new Error("Batch Request updates are temporarily unavailable."), { status: response.status });
+  return response.json() as Promise<BatchRequest>;
 }
 
 /** One key per guided flow, minted when the flow starts. */

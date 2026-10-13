@@ -55,7 +55,31 @@ services:
     command: ["python", "-m", "jawnix.worker"]
     environment:
       JAWNIX_WORKER_ID: worker-1
-      JAWNIX_WORKER_LANE: default
+      JAWNIX_WORKER_LANE: maintenance
+      JAWNIX_DATABASE_POOL_SIZE: "2"
+      JAWNIX_DATABASE_MAX_OVERFLOW: "1"
+
+  fulfillment-worker:
+    <<: *app
+    command: ["python", "-m", "jawnix.worker"]
+    mem_limit: 2g
+    cpus: 2
+    environment:
+      JAWNIX_WORKER_ID: fulfillment-worker-1
+      JAWNIX_WORKER_LANE: fulfillment
+      JAWNIX_DATABASE_POOL_SIZE: "2"
+      JAWNIX_DATABASE_MAX_OVERFLOW: "1"
+
+  notifications-worker:
+    <<: *app
+    command: ["python", "-m", "jawnix.worker"]
+    mem_limit: 512m
+    cpus: 1
+    environment:
+      JAWNIX_WORKER_ID: notifications-worker-1
+      JAWNIX_WORKER_LANE: notifications
+      JAWNIX_DATABASE_POOL_SIZE: "2"
+      JAWNIX_DATABASE_MAX_OVERFLOW: "1"
 
   metrics-worker:
     <<: *app
@@ -67,6 +91,15 @@ services:
   scheduler:
     <<: *app
     command: ["python", "-m", "jawnix_data.scheduler"]
+
+  keyword-worker:
+    <<: *app
+    command: ["python", "-m", "jawnix.keyword_worker"]
+    mem_limit: 512m
+    cpus: 1
+    environment:
+      JAWNIX_DATABASE_POOL_SIZE: "2"
+      JAWNIX_DATABASE_MAX_OVERFLOW: "1"
 
   backup:
     <<: *app

@@ -439,13 +439,34 @@ test.describe("Batch Request detail deep links", () => {
 });
 
 test.describe("Active request refresh", () => {
+  test("a pushed change updates the request before the polling interval", async ({ page }) => {
+    await page.clock.install();
+    await page.addInitScript(() => {
+      class Source extends EventTarget {
+        static latest: Source | undefined;
+        constructor() { super(); Source.latest = this; }
+        close() {}
+      }
+      Object.assign(window, { EventSource: Source, pushRequest: (id: string) => {
+        Source.latest?.dispatchEvent(new MessageEvent("change", {data:JSON.stringify({requestIds:[id]})}));
+      } });
+    });
+    const state = await openRequests(page, {
+      workspaceSequence:[BATCH_REQUEST_WORKSPACE, {...BATCH_REQUEST_WORKSPACE, requests:[{...DELIVERED_REQUEST,id:WAITING_REQUEST.id}, REJECTED_REQUEST]}],
+    });
+    await page.evaluate((id) => { (window as unknown as {pushRequest:(id:string)=>void}).pushRequest(id); }, WAITING_REQUEST.id);
+    await expect(page.getByText("Your Batch is ready.")).toBeVisible();
+    expect(state.requestReads).toEqual([WAITING_REQUEST.id]);
+    expect(state.workspaceRequests).toBe(1);
+  });
+
   test("starts for active work and stops once the last request settles", async ({
     page,
   }) => {
     await page.clock.install();
     const settledWorkspace = {
       ...BATCH_REQUEST_WORKSPACE,
-      requests: [DELIVERED_REQUEST, REJECTED_REQUEST],
+      requests: [{ ...DELIVERED_REQUEST, id: WAITING_REQUEST.id }, REJECTED_REQUEST],
     };
     const state = await openRequests(page, {
       workspaceSequence: [BATCH_REQUEST_WORKSPACE, settledWorkspace],
@@ -453,11 +474,12 @@ test.describe("Active request refresh", () => {
 
     expect(state.workspaceRequests).toBe(1);
     await page.clock.fastForward(10_000);
-    await expect.poll(() => state.workspaceRequests).toBe(2);
+    await expect.poll(() => state.requestReads.length).toBe(1);
     await expect(page.getByText("Your Batch is ready.")).toBeVisible();
 
     await page.clock.fastForward(30_000);
-    expect(state.workspaceRequests).toBe(2);
+    expect(state.workspaceRequests).toBe(1);
+    expect(state.requestReads).toHaveLength(1);
   });
 
   test("never starts when all requests are already settled", async ({ page }) => {

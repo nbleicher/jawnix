@@ -1,6 +1,6 @@
 import { redirect } from "react-router";
 
-import { getProviderSession } from "./providerSession";
+import { clearReadPrefetch, readResponse } from "../routeReadCache";
 
 export interface FactorUseLocation {
   ipAddress: string;
@@ -66,12 +66,15 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
     headers.set("X-CSRF-Token", csrf());
   }
-  const response = await fetch(path, {
+  const options = {
     ...init,
     method,
     headers,
-    credentials: "same-origin",
-  });
+    credentials: "same-origin" as const,
+  };
+  if (method !== "GET") clearReadPrefetch();
+  const response = method === "GET" ? await readResponse(path, options) : await fetch(path, options);
+  if (method !== "GET") clearReadPrefetch();
   const body = (await response.json().catch(() => ({}))) as APIErrorBody;
   if (!response.ok) {
     const detail = body.detail;
@@ -115,6 +118,7 @@ export async function adminAccessLoader() {
 }
 
 export async function providerAccessToken(): Promise<string> {
+  const { getProviderSession } = await import("./providerSession");
   return (await getProviderSession()).access_token;
 }
 

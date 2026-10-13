@@ -1,9 +1,7 @@
 import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
-import {
-  signOutProvider,
-} from "./providerSession";
+import { clearReadPrefetch } from "../routeReadCache";
 
 interface SessionExchangeResponse {
   ok: true;
@@ -99,6 +97,7 @@ export async function exchangeJawnixSession(
   accessToken: string,
   requestedNext: string,
 ): Promise<SessionExchangeResponse> {
+  clearReadPrefetch();
   const response = await fetch("/api/auth/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -142,6 +141,7 @@ export async function customerAccessLoader({
 // Shared by the Customer and Administration shells: clears the Jawnix session
 // cookie and then the provider session. The endpoint is role-agnostic.
 export async function signOut(): Promise<void> {
+  clearReadPrefetch();
   try {
     await fetch("/api/auth/logout", {
       method: "POST",
@@ -149,6 +149,7 @@ export async function signOut(): Promise<void> {
       credentials: "same-origin",
     });
   } finally {
+    const { signOutProvider } = await import("./providerSession");
     await signOutProvider();
   }
 }

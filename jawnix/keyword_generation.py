@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from enum import Enum
+from functools import lru_cache
 from typing import Literal, Protocol
 
 import httpx
@@ -251,6 +252,7 @@ def normalize_keyword(value: object) -> str:
     return " ".join(keyword.strip(" \t\r\n\"'.,;:").split())
 
 
+@lru_cache(maxsize=32768)
 def comparison_tokens(value: str) -> tuple[str, ...]:
     tokens = []
     for token in re.findall(
@@ -281,7 +283,14 @@ def is_near_duplicate(candidate: str, existing: str) -> bool:
         overlap = len(candidate_set & existing_set) / len(candidate_set | existing_set)
         if overlap >= 0.8:
             return True
-    return SequenceMatcher(None, candidate_key, existing_key).ratio() >= 0.88
+    matcher = SequenceMatcher(None, candidate_key, existing_key)
+    # These are upper bounds, so they cannot exclude a fuzzy match that the
+    # existing threshold would reject as a duplicate.
+    return (
+        matcher.real_quick_ratio() >= 0.88
+        and matcher.quick_ratio() >= 0.88
+        and matcher.ratio() >= 0.88
+    )
 
 
 def _invalid_reason(keyword: str) -> str | None:

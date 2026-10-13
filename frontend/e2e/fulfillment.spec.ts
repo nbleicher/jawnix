@@ -134,6 +134,29 @@ test.describe("Delivery recovery keeps its two paths apart", () => {
 });
 
 test.describe("Consequential actions are confirmed with a reason", () => {
+  test("shows the committed approval while the follow-up read is still pending", async ({ page }) => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    await page.route(`**/api/admin/requests/${PENDING_REQUEST_ID}`, async (route) => {
+      await held;
+      return route.fallback();
+    });
+    await page.route(`**/api/admin/requests/${PENDING_REQUEST_ID}/approve`, (route) => route.fulfill({
+      status:200, contentType:"application/json",
+      body:JSON.stringify({ id:PENDING_REQUEST_ID, status:"approved", statusMessage:"Approved; allocation is queued.", actions:[] }),
+    }));
+    await page.goto("./admin/fulfillment");
+    const batch = page.getByRole("region", {name:"Batch Requests"});
+    await batch.locator("summary").click();
+    await batch.getByRole("button", {name:"Approve", exact:true}).click();
+    await page.getByRole("dialog").getByLabel("Reason (required)").fill("Inventory verified.");
+    await page.getByRole("dialog").getByRole("button", {name:"Approve",exact:true}).click();
+    try {
+      await expect(batch.getByText("Approved; allocation is queued.")).toBeVisible();
+      await expect(batch.getByRole("button", {name:"Approve",exact:true})).toHaveCount(0);
+    } finally { release(); }
+  });
+
   test("the reason reaches the server and the dialog states the consequence", async ({
     page,
   }) => {

@@ -7,6 +7,7 @@ import type {
 
 import "./Button.css";
 import { cx } from "./cx";
+import { ApplicationLink } from "./ApplicationLink";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -78,7 +79,7 @@ export function ButtonLink({
   ...rest
 }: ButtonLinkProps) {
   return (
-    <a
+    <ApplicationLink
       className={cx(
         "jx-button",
         `jx-button--${variant}`,
@@ -88,7 +89,7 @@ export function ButtonLink({
       {...rest}
     >
       {children}
-    </a>
+    </ApplicationLink>
   );
 }
 
@@ -115,8 +116,8 @@ export function ActionLink({
   void variant;
   void fullWidth;
   return (
-    <a className={cx("jx-action-link", className)} {...rest}>
+    <ApplicationLink className={cx("jx-action-link", className)} {...rest}>
       {children}
-    </a>
+    </ApplicationLink>
   );
 }
