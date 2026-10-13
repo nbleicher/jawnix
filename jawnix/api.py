@@ -213,6 +213,7 @@ from .telegram import (
     verify_telegram_secret,
 )
 from .fulfillment import (
+    OPEN_STATUSES,
     TRANSITION_ACTIONS,
     artifact_available,
     describe_conflict,
@@ -220,6 +221,7 @@ from .fulfillment import (
     workspace as fulfillment_workspace,
 )
 from .transitions import TransitionError, transition_request
+from .request_updates import request_events, request_updates_lifespan
 
 
 MAX_CSV_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -232,7 +234,7 @@ class UploadTooLargeError(ValueError):
 
 log = logging.getLogger("jawnix.api")
 
-app = FastAPI(title="Jawnix VPS API", version="1.0.0")
+app = FastAPI(title="Jawnix VPS API", version="1.0.0", lifespan=request_updates_lifespan)
 app.include_router(admin_mfa_router)
 app.include_router(native_scraper_router)
 
@@ -1196,6 +1198,37 @@ def get_batch_request_workspace(
         user_id=principal.user_id,
         profile=_current_customer_profile(db, principal),
     )
+
+
+@app.get("/api/me/batch-requests/events")
+def customer_batch_request_events(
+    request: Request,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    _current_customer_profile(db, principal)
+    scope = {str(value) for value in db.scalars(select(LeadRequest.id).where(LeadRequest.user_id == principal.user_id))}
+    db.close()
+    async def authorize():
+        try:
+            _current_customer_profile(db, require_principal(request, settings))
+        finally:
+            db.close()
+    return StreamingResponse(request_events(request, scope, authorize), media_type="text/event-stream", headers={"Cache-Control":"private, no-store", "X-Accel-Buffering":"no"})
+
+
+@app.get("/api/me/batch-requests/{request_id}", response_model=CustomerRequestDetail)
+def customer_batch_request_detail(
+    request_id: uuid.UUID,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    _current_customer_profile(db, principal)
+    item = db.scalar(select(LeadRequest).where(LeadRequest.id == request_id, LeadRequest.user_id == principal.user_id))
+    if item is None:
+        raise HTTPException(status_code=404, detail="Request was not found.")
+    return request_detail(item)
 
 
 @app.post(
@@ -2446,6 +2479,23 @@ def admin_fulfillment(
     return fulfillment_workspace(db)
 
 
+@app.get("/api/admin/requests/events")
+def admin_workspace_request_events(
+    request: Request,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    scope = {str(value) for value in db.scalars(select(LeadRequest.id).where(LeadRequest.status.in_(OPEN_STATUSES)))}
+    db.close()
+    async def authorize():
+        try:
+            await require_admin(require_principal(request, settings), settings, db)
+        finally:
+            db.close()
+    return StreamingResponse(request_events(request, scope, authorize), media_type="text/event-stream", headers={"Cache-Control":"private, no-store", "X-Accel-Buffering":"no"})
+
+
 @app.get("/api/admin/requests/{request_id}")
 def admin_request_detail(
     request_id: uuid.UUID,
@@ -2456,6 +2506,25 @@ def admin_request_detail(
     if item is None:
         raise HTTPException(status_code=404, detail="Request was not found.")
     return describe_request(db, item)
+
+
+@app.get("/api/admin/requests/{request_id}/events")
+def admin_batch_request_events(
+    request_id: uuid.UUID,
+    request: Request,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    if db.get(LeadRequest, request_id) is None:
+        raise HTTPException(status_code=404, detail="Request was not found.")
+    db.close()
+    async def authorize():
+        try:
+            await require_admin(require_principal(request, settings), settings, db)
+        finally:
+            db.close()
+    return StreamingResponse(request_events(request, {str(request_id)}, authorize), media_type="text/event-stream", headers={"Cache-Control":"private, no-store", "X-Accel-Buffering":"no"})
 
 
 @app.get("/api/admin/inventory-conflicts/{conflict_id}")
@@ -5017,7 +5086,7 @@ def admin_request_action(
     except TransitionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
     db.commit()
-    return _request_dict(item)
+    return {**_request_dict(item), **describe_request(db, item)}
 
 
 @app.post("/api/admin/requests/{request_id}/artifact/regenerate")

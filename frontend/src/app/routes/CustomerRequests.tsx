@@ -44,10 +44,12 @@ import type { CreditWallet } from "../billing/wallet";
 import { MilestoneGraph, formatMilestoneTime } from "./MilestoneGraph";
 import {
   cancelBatchRequest,
+  loadBatchRequest,
   formatRequestRef,
   newSubmissionKey,
   submitBatchRequest,
 } from "./batchRequests";
+import { useLiveRequests } from "./useLiveRequests";
 import type {
   BatchArtifact,
   BatchRequest,
@@ -231,11 +233,13 @@ function RequestFlow({
   billing,
   onSubmitted,
   onSubmitFailed,
+  updates,
 }: {
   limits: RequestLimits;
   billing: CreditWallet | null;
-  onSubmitted: () => void;
+  onSubmitted: (receipt: BatchRequestReceipt) => void;
   onSubmitFailed: () => void;
+  updates: Record<string, BatchRequest>;
 }) {
   const [stage, setStage] = useState(0);
   const [submissionKey, setSubmissionKey] = useState(newSubmissionKey);
@@ -368,8 +372,7 @@ function RequestFlow({
     setBusy(true);
     setFailure("");
     try {
-      setReceipt(
-        await submitBatchRequest({
+      const submitted = await submitBatchRequest({
           idempotency_key: submissionKey,
           lead_count: Number(quantity.trim()),
           ...(oneFile
@@ -377,9 +380,9 @@ function RequestFlow({
             : { rows_per_file: Number(rowsPerFile.trim()) }),
           state_mode: wholeScope ? "all_saved" : "selected",
           states: wholeScope ? [] : chosenStates,
-        }),
-      );
-      onSubmitted();
+        });
+      setReceipt(submitted);
+      onSubmitted(submitted);
     } catch (caught) {
       const message =
         caught instanceof Error
@@ -431,7 +434,7 @@ function RequestFlow({
   }
 
   if (receipt) {
-    return <Receipt receipt={receipt} onRestart={restart} />;
+    return <Receipt receipt={{ ...receipt, request: updates[receipt.request.id] ?? receipt.request }} onRestart={restart} />;
   }
 
   return (
@@ -1014,29 +1017,39 @@ export function CustomerRequestsRoute() {
   // A cancellation answers with the request's new timeline, so the screen shows
   // it at once instead of waiting for the list to be fetched again.
   const [canceled, setCanceled] = useState<Record<string, BatchRequest>>({});
+  const revisions = useRef<Record<string, number>>({});
   useEffect(() => {
+    for (const item of workspace.requests) revisions.current[item.id] = (revisions.current[item.id] ?? 0) + 1;
     setCanceled((current) => (Object.keys(current).length ? {} : current));
   }, [workspace]);
 
-  const requests = workspace.requests.map(
-    (request) => canceled[request.id] ?? request,
-  );
+  const known = new Set(workspace.requests.map((request) => request.id));
+  const requests = [
+    ...Object.values(canceled).filter((request) => !known.has(request.id)),
+    ...workspace.requests.map((request) => canceled[request.id] ?? request),
+  ];
 
   const selectedRequest = requestId
     ? requests.find((request) => request.id === requestId)
     : undefined;
-  const hasActiveRequest = requests.some(
-    (request) => !isRequestSettled(request),
-  );
   useDocumentTitle(selectedRequest ? "Batch Request" : "Requests");
 
-  useEffect(() => {
-    if (!hasActiveRequest) return;
-    const interval = window.setInterval(() => {
-      if (revalidator.state === "idle") void revalidator.revalidate();
-    }, ACTIVE_REQUEST_REFRESH_MS);
-    return () => window.clearInterval(interval);
-  }, [hasActiveRequest, revalidator]);
+  function applyConfirmed(updated: BatchRequest) {
+    revisions.current[updated.id] = (revisions.current[updated.id] ?? 0) + 1;
+    setCanceled((current) => ({ ...current, [updated.id]: updated }));
+  }
+
+  useLiveRequests("/api/me/batch-requests/events", requests.filter((request) => !isRequestSettled(request)).map((request) => request.id), async (ids) => {
+    const versions = ids.map((id) => revisions.current[id] ?? 0);
+    const updates = await Promise.all(ids.map(loadBatchRequest));
+    setCanceled((current) => {
+      const next = { ...current };
+      updates.forEach((updated, index) => {
+        if ((revisions.current[updated.id] ?? 0) === versions[index]) next[updated.id] = updated;
+      });
+      return next;
+    });
+  }, () => { void revalidator.revalidate(); });
 
   if (requestId) {
     return (
@@ -1055,10 +1068,7 @@ export function CustomerRequestsRoute() {
               request={selectedRequest}
               onCanceled={(updated) =>
                 {
-                  setCanceled((current) => ({
-                    ...current,
-                    [updated.id]: updated,
-                  }));
+                  applyConfirmed(updated);
                   void refreshWallet();
                 }
               }
@@ -1099,9 +1109,10 @@ export function CustomerRequestsRoute() {
           <RequestFlow
             limits={workspace.limits}
             billing={billing}
-            onSubmitted={() => {
+            updates={canceled}
+            onSubmitted={(receipt) => {
+              applyConfirmed(receipt.request);
               void refreshWallet();
-              void revalidator.revalidate();
             }}
             onSubmitFailed={() => {
               void refreshWallet();

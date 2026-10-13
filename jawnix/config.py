@@ -71,7 +71,9 @@ class Settings(BaseSettings):
     global_cooldown_days: int = Field(default=7, alias="JAWNIX_GLOBAL_COOLDOWN_DAYS")
     worker_poll_seconds: float = Field(default=2.0, alias="JAWNIX_WORKER_POLL_SECONDS")
     worker_id: str = Field(default="worker-1", alias="JAWNIX_WORKER_ID")
-    # default = Telegram/email/allocate/deliver; metrics = emit_lead_assigned only.
+    database_pool_size: int = Field(default=10, ge=1, alias="JAWNIX_DATABASE_POOL_SIZE")
+    database_max_overflow: int = Field(default=20, ge=0, alias="JAWNIX_DATABASE_MAX_OVERFLOW")
+    # default remains compatible with unsplit deployments.
     worker_lane: str = Field(default="default", alias="JAWNIX_WORKER_LANE")
     job_lock_timeout_seconds: int = Field(default=900, alias="JAWNIX_JOB_LOCK_TIMEOUT_SECONDS")
     # Metrics platform ingest for lead.assigned (PRD §4.1). Empty URL or secret

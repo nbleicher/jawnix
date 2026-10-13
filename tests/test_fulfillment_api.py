@@ -296,7 +296,7 @@ class TestRequestDetail:
         session.add_all(
             [
                 Job(
-                    kind="fulfill_round_robin",
+                    kind="update_notification",
                     request_id=blocking.id,
                     status=JobStatus.running.value,
                     locked_at=datetime.now(timezone.utc),
@@ -319,7 +319,7 @@ class TestRequestDetail:
 
         blocker = body["live"]["blocker"]
         assert blocker is not None
-        assert blocker["kind"] == "fulfill_round_robin"
+        assert blocker["kind"] == "update_notification"
         assert "another batch" in blocker["detail"]
         assert str(blocking.id) in blocker["detail"]
 

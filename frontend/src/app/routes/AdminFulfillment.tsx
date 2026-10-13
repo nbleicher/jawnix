@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { Link, useLoaderData, useRevalidator } from "react-router";
@@ -29,6 +29,7 @@ import {
 import type { ActivityPage } from "./AdminActivity";
 import type { MilestoneGraphData } from "./batchRequests";
 import { MilestoneGraph } from "./MilestoneGraph";
+import { useLiveRequests } from "./useLiveRequests";
 
 import "./AdminFulfillmentProgressLog.css";
 
@@ -545,11 +546,15 @@ export async function fulfillmentLoader(): Promise<WorkspaceData> {
 export async function fulfillmentRequestLoader({
   params,
 }: LoaderFunctionArgs): Promise<RequestDetail> {
+  return loadFulfillmentRequest(params.requestId!);
+}
+
+async function loadFulfillmentRequest(requestId: string): Promise<RequestDetail> {
   const [details, activityTimeline] = await Promise.all([
     api<Omit<RequestDetail, "activityTimeline">>(
-      `/api/admin/requests/${params.requestId}`,
+      `/api/admin/requests/${requestId}`,
     ),
-    loadEntityActivity("batch_request", params.requestId),
+    loadEntityActivity("batch_request", requestId),
   ]);
   return { ...details, activityTimeline };
 }
@@ -594,6 +599,8 @@ interface ControlActionBarProps {
   extras?: (action: ControlAction, control: ControlExtras) => ReactNode;
   /** Checked before anything is sent. Returns the message to show, or "". */
   validate?: (action: ControlAction, values: Record<string, string>) => string;
+  onConfirmed?: ((result: Partial<RequestDetail>) => void) | undefined;
+  refresh?: (() => void) | undefined;
 }
 
 /**
@@ -610,6 +617,8 @@ export function ControlActionBar({
   settled,
   extras,
   validate,
+  onConfirmed,
+  refresh,
 }: ControlActionBarProps) {
   const [pending, setPending] = useState<ControlAction | null>(null);
   const [reason, setReason] = useState("");
@@ -648,17 +657,19 @@ export function ControlActionBar({
     setBusy(true);
     setError("");
     try {
-      await api(request.url, {
+      const result = await api<Partial<RequestDetail>>(request.url, {
         method: request.method,
         body: JSON.stringify(request.body),
       });
       close();
-      revalidator.revalidate();
+      if (onConfirmed) onConfirmed(result);
+      else revalidator.revalidate();
     } catch (caught) {
       setError(errorMessage(caught));
       // A 409 means this report was already decided somewhere else. Re-read it
       // so the screen stops offering a decision that has already been taken.
-      revalidator.revalidate();
+      if (refresh) refresh();
+      else revalidator.revalidate();
     } finally {
       setBusy(false);
     }
@@ -780,7 +791,7 @@ function conflictEndpoint(id: string) {
     `/api/admin/inventory-conflicts/${id}/${action.name}`;
 }
 
-function RequestCard({ item }: { item: RequestSummary }) {
+function RequestCard({ item, onConfirmed, refresh }: { item: RequestSummary; onConfirmed?: (result: Partial<RequestDetail>) => void; refresh?: () => void }) {
   return (
     <Card as="article">
       <Stack gap={4}>
@@ -808,6 +819,8 @@ function RequestCard({ item }: { item: RequestSummary }) {
           actions={item.actions}
           resolve={postReason(requestEndpoint(item.id))}
           settled="No action is valid in this state."
+          onConfirmed={onConfirmed}
+          refresh={refresh}
         />
       </Stack>
     </Card>
@@ -990,7 +1003,43 @@ function PoolBreakdownSection({
 }
 
 export function AdminFulfillmentRoute() {
-  const data = useLoaderData<WorkspaceData>();
+  const initial = useLoaderData<WorkspaceData>();
+  const revalidator = useRevalidator();
+  const [updates, setUpdates] = useState<Record<string, RequestDetail>>({});
+  const revisions = useRef<Record<string, number>>({});
+  useEffect(() => {
+    for (const row of initial.batchRequests) revisions.current[row.id] = (revisions.current[row.id] ?? 0)+1;
+    setUpdates({});
+  }, [initial]);
+  const terminal = new Set(["delivered", "rejected", "canceled"]);
+  const batchRequests = initial.batchRequests.flatMap((row) => {
+    const updated = updates[row.id];
+    return updated && terminal.has(updated.status) ? [] : [updated ?? row];
+  });
+  const failures = new Map(initial.deliveryFailures.map((row) => [row.id, row]));
+  for (const row of Object.values(updates)) {
+    if (row.status === "failed" && row.artifact) {
+      failures.set(row.id, { ...row, ...row.artifact });
+    } else failures.delete(row.id);
+  }
+  const data = { ...initial, batchRequests, deliveryFailures: [...failures.values()] };
+  async function refreshRequests(ids: string[]) {
+    const versions = ids.map((id) => revisions.current[id] ?? 0);
+    const changed = await Promise.all(ids.map(loadFulfillmentRequest));
+    setUpdates((current) => {
+      const next = { ...current };
+      changed.forEach((row, index) => { if ((revisions.current[row.id] ?? 0) === versions[index]) next[row.id] = row; });
+      return next;
+    });
+  }
+  function confirmed(row: Partial<RequestDetail>) {
+    if (!row.id || !row.status || !row.actions) { void revalidator.revalidate(); return; }
+    const id = row.id;
+    revisions.current[id] = (revisions.current[id] ?? 0)+1;
+    setUpdates((current) => ({ ...current, [id]: { ...initial.batchRequests.find((item) => item.id === id), ...current[id], ...row } as RequestDetail }));
+    void refreshRequests([id]).catch(() => undefined);
+  }
+  useLiveRequests("/api/admin/requests/events", batchRequests.filter((row) => row.status !== "failed").map((row) => row.id), refreshRequests, () => { void revalidator.revalidate(); });
   useDocumentTitle("Fulfillment");
 
   // A response cached before #58 shipped carries none of these arrays; an empty
@@ -1015,7 +1064,7 @@ export function AdminFulfillmentRoute() {
           {data.batchRequests.length ? (
             <Grid minColumnWidth="20rem">
               {data.batchRequests.map((item) => (
-                <RequestCard item={item} key={item.id} />
+                <RequestCard item={item} key={item.id} onConfirmed={confirmed} refresh={() => { void refreshRequests([item.id]).catch(() => undefined); }} />
               ))}
             </Grid>
           ) : (
@@ -1167,21 +1216,31 @@ export function AdminFulfillmentRoute() {
 }
 
 export function AdminFulfillmentRequestRoute() {
-  const item = useLoaderData<RequestDetail>();
+  const initial = useLoaderData<RequestDetail>();
+  const [item, setItem] = useState(initial);
+  const revision = useRef(0);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; revision.current += 1; };
+  }, []);
+  useEffect(() => { revision.current += 1; setItem(initial); }, [initial]);
   const revalidator = useRevalidator();
   useDocumentTitle(`Batch Request · ${item.customerIdentity}`);
 
   const live = item.live;
-  const refreshSeconds = live?.refreshSeconds ?? 10;
-  const shouldPoll = live != null && !live.settled;
+  const refresh = useCallback(async () => {
+    const version = revision.current;
+    const updated = await loadFulfillmentRequest(initial.id);
+    if (mounted.current && revision.current === version) setItem(updated);
+  }, [initial.id]);
+  useLiveRequests(`/api/admin/requests/${item.id}/events`, live && !live.settled ? [item.id] : [], refresh, () => { void revalidator.revalidate(); });
 
-  useEffect(() => {
-    if (!shouldPoll) return;
-    const interval = window.setInterval(() => {
-      if (revalidator.state === "idle") void revalidator.revalidate();
-    }, refreshSeconds * 1000);
-    return () => window.clearInterval(interval);
-  }, [shouldPoll, refreshSeconds, revalidator]);
+  function confirmed(result: Partial<RequestDetail>) {
+    revision.current += 1;
+    if (result.id === item.id && result.status) setItem((current) => ({ ...current, ...result }));
+    void refresh().catch(() => undefined);
+  }
 
   const byState = item.distribution.byState ?? [];
 
@@ -1295,6 +1354,8 @@ export function AdminFulfillmentRequestRoute() {
               actions={item.actions}
               resolve={postReason(requestEndpoint(item.id))}
               settled="This Batch Request has reached a state with no valid actions."
+              onConfirmed={confirmed}
+              refresh={() => { void refresh().catch(() => undefined); }}
             />
           </Stack>
         </Section>

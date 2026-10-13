@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy import and_, exists, func, nullsfirst, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from .billing import capture_batch_hold
 from .activity import record_activity
@@ -295,34 +295,84 @@ def _part_rows(
     ]
 
 
+@dataclass(frozen=True)
+class _ListingLookups:
+    observations: dict[int, ListingObservation]
+    publications: dict[str, DatasetPublication]
+    runs: dict[int, ScraperRun]
+    configurations: dict[uuid.UUID, ScraperConfiguration]
+    corrections: dict[uuid.UUID, LeadCorrectionEvent]
+
+
+def _listing_lookups(session: Session, leads: list[Lead]) -> _ListingLookups | None:
+    observation_ids = {lead.current_listing_observation_id for lead in leads} - {None}
+    correction_ids = {lead.active_correction_id for lead in leads} - {None}
+    # Legacy inventory already needs no provenance queries.
+    if not observation_ids and not correction_ids:
+        return None
+
+    def load(model, values, *, key="id"):
+        values = list(values - {None})
+        result = {}
+        for offset in range(0, len(values), 1000):
+            columns = {
+                ListingObservation: (ListingObservation.id, ListingObservation.dataset_checksum, ListingObservation.source, ListingObservation.niche),
+                DatasetPublication: (DatasetPublication.id, DatasetPublication.checksum, DatasetPublication.version, DatasetPublication.scraper_run_id, DatasetPublication.configuration_id),
+                ScraperRun: (ScraperRun.id,),
+                ScraperConfiguration: (ScraperConfiguration.id, ScraperConfiguration.version),
+                LeadCorrectionEvent: (LeadCorrectionEvent.id,),
+            }
+            rows = session.scalars(select(model).options(load_only(*columns[model])).where(getattr(model, key).in_(values[offset:offset + 1000])))
+            result.update((getattr(row, key), row) for row in rows)
+        return result
+
+    observations = load(ListingObservation, observation_ids)
+    publications = load(DatasetPublication, {row.dataset_checksum for row in observations.values()}, key="checksum")
+    return _ListingLookups(
+        observations=observations,
+        publications=publications,
+        runs=load(ScraperRun, {row.scraper_run_id for row in publications.values()}),
+        configurations=load(ScraperConfiguration, {row.configuration_id for row in publications.values()}),
+        corrections=load(LeadCorrectionEvent, correction_ids),
+    )
+
+
 def _listing_snapshot(
     session: Session,
     lead: Lead,
+    *,
+    lookups: _ListingLookups | None = None,
 ) -> tuple[dict, str, str, str]:
     observation = (
-        session.get(ListingObservation, lead.current_listing_observation_id)
+        (lookups.observations.get(lead.current_listing_observation_id) if lookups is not None
+         else session.get(ListingObservation, lead.current_listing_observation_id))
         if lead.current_listing_observation_id is not None
         else None
     )
     publication = (
-        session.scalar(
-            select(DatasetPublication).where(
-                DatasetPublication.checksum
-                == observation.dataset_checksum
+        (
+            lookups.publications.get(observation.dataset_checksum)
+            if lookups is not None
+            else session.scalar(
+                select(DatasetPublication).where(
+                    DatasetPublication.checksum == observation.dataset_checksum
+                )
             )
         )
         if observation is not None
         else None
     )
     scrape_run = (
-        session.get(ScraperRun, publication.scraper_run_id)
+        (lookups.runs.get(publication.scraper_run_id) if lookups is not None
+         else session.get(ScraperRun, publication.scraper_run_id))
         if publication is not None
         else None
     )
     configuration = (
-        session.get(
-            ScraperConfiguration,
-            publication.configuration_id,
+        (
+            lookups.configurations.get(publication.configuration_id)
+            if lookups is not None
+            else session.get(ScraperConfiguration, publication.configuration_id)
         )
         if publication is not None
         else None
@@ -340,7 +390,8 @@ def _listing_snapshot(
         ),
     }
     correction = (
-        session.get(LeadCorrectionEvent, lead.active_correction_id)
+        (lookups.corrections.get(lead.active_correction_id) if lookups is not None
+         else session.get(LeadCorrectionEvent, lead.active_correction_id))
         if lead.active_correction_id is not None
         else None
     )
@@ -560,10 +611,12 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
         return AllocationResult(request.status, 0, available)
 
     distributed_at = datetime.now(timezone.utc)
+    lookups = _listing_lookups(session, candidates)
     for lead in candidates:
         provenance, source_kind, segment_key, niche = _listing_snapshot(
             session,
             lead,
+            lookups=lookups,
         )
         lead.last_distributed_at = distributed_at
         session.add(

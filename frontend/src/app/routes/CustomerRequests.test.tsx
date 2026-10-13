@@ -878,24 +878,27 @@ describe("artifact expiry countdown", () => {
 });
 
 describe("active request refresh", () => {
-  it("revalidates while any request is non-terminal", async () => {
+  it("refreshes only the active request while push updates are unavailable", async () => {
     vi.useFakeTimers();
     const data = workspace({ requests: [batchRequest()] });
     const loader = vi.fn(() => data);
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(batchRequest())));
     renderRoute(data, { loader });
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(ACTIVE_REQUEST_REFRESH_MS);
     });
 
-    expect(loader).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(`/api/me/batch-requests/${batchRequest().id}`, { credentials: "same-origin" });
+    expect(loader).not.toHaveBeenCalled();
   });
 
-  it("stops entirely after revalidation settles the last active request", async () => {
+  it("stops after the scoped refresh settles the last active request", async () => {
     vi.useFakeTimers();
     const active = workspace({ requests: [batchRequest()] });
     const settled = workspace({ requests: [deliveredRequest()] });
     const loader = vi.fn(() => settled);
+    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(deliveredRequest())));
     renderRoute(active, { loader });
 
     await act(async () => {
@@ -907,7 +910,8 @@ describe("active request refresh", () => {
       await vi.advanceTimersByTimeAsync(ACTIVE_REQUEST_REFRESH_MS * 3);
     });
 
-    expect(loader).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(loader).not.toHaveBeenCalled();
   });
 
   it("never starts when every request is already settled", async () => {

@@ -124,6 +124,45 @@ def test_candidates_are_generated_while_the_active_batch_is_working(
     assert operations.keyword_writes == []
 
 
+def test_campaign_drains_while_candidates_are_being_generated(session, settings):
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "working"
+    session.add(models.KeywordCandidatePool(
+        id=1, candidates=[{"term": term, "model": "previous/model"} for term in terms(1, 20)],
+    ))
+    session.flush()
+
+    def generated(request):
+        # The fleet finishes its last jobs while the provider call is in flight.
+        operations.rollover_state_override = "ready"
+        return completion(terms(100, 10))
+
+    outcome = run(session, settings, operations, provider(settings, generated))
+
+    assert outcome == {"outcome": "generated", "activated": 25}
+    assert operations.keyword_writes[0]["enqueue"] is True
+    assert len(pool(session).candidates) == 5
+
+
+def test_prepared_batch_does_not_start_generation_while_last_jobs_drain(session, settings):
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "draining"
+    session.add(models.KeywordCandidatePool(
+        id=1, candidates=[{"term": term, "model": "previous/model"} for term in terms(1, 25)],
+    ))
+    session.flush()
+
+    def unexpected(request):
+        raise AssertionError("Generation would delay an already-prepared handoff")
+
+    outcome = run(session, settings, operations, provider(settings, unexpected))
+
+    assert outcome["outcome"] == "pooling"
+    assert operations.keyword_writes == []
+
+
 def test_ready_batch_uses_the_pool_even_when_the_provider_is_unavailable(
     session, settings
 ):

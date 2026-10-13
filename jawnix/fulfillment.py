@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import func, nullslast, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .eligibility import active_holds, report_summaries, suppressed_leads
 from .jobs import job_lane
@@ -39,6 +39,7 @@ from .milestones import build_milestones
 from .models import (
     AuditEntry,
     BatchArtifact,
+    Customer,
     DistributionEvent,
     InventoryConflict,
     Job,
@@ -338,11 +339,18 @@ def request_context(
     notified = db.scalar(
         select(func.count(Notification.id)).where(Notification.request_id == item.id)
     )
+    return _request_context(item, committed or 0, bool(notified), now=moment)
+
+
+def _request_context(
+    item: LeadRequest, committed: int, notified: bool, *, now: datetime
+) -> RequestActionContext:
+    artifact = item.artifact
     context = RequestActionContext(
         status=item.status,
         has_artifact=artifact is not None,
-        artifact_available=artifact_available(artifact, now=moment),
-        committed_distributions=committed or 0,
+        artifact_available=artifact_available(artifact, now=now),
+        committed_distributions=committed,
         distribution_complete=committed == item.lead_count,
     )
     # A Telegram message exists and its keyboard is still live for this state.
@@ -350,6 +358,36 @@ def request_context(
         context,
         telegram_decision_pending=bool(notified)
         and bool(telegram_actions(context)),
+    )
+
+
+def _request_contexts(
+    db: Session, items: list[LeadRequest], *, now: datetime
+) -> dict:
+    if not items:
+        return {}
+    ids = [item.id for item in items]
+    committed = dict(db.execute(
+        select(DistributionEvent.request_id, func.count())
+        .where(DistributionEvent.request_id.in_(ids))
+        .group_by(DistributionEvent.request_id)
+    ).all())
+    notified = set(db.scalars(
+        select(Notification.request_id)
+        .where(Notification.request_id.in_(ids))
+        .distinct()
+    ))
+    return {
+        item.id: _request_context(item, committed.get(item.id, 0), item.id in notified, now=now)
+        for item in items
+    }
+
+
+def _request_load_options():
+    return (
+        selectinload(LeadRequest.artifact),
+        selectinload(LeadRequest.profile),
+        selectinload(LeadRequest.agent).selectinload(Customer.agency),
     )
 
 
@@ -818,20 +856,24 @@ OPEN_STATUSES: frozenset[str] = frozenset(
 )
 
 
-def workspace(db: Session, *, now: datetime | None = None) -> dict[str, object]:
+def workspace(
+    db: Session, *, now: datetime | None = None, include_expired: bool = True
+) -> dict[str, object]:
     """The one aggregate the Fulfillment workspace reads."""
     moment = now or datetime.now(timezone.utc)
     open_requests = list(
         db.scalars(
             select(LeadRequest)
+            .options(*_request_load_options())
             .where(LeadRequest.status.in_(OPEN_STATUSES))
             .order_by(LeadRequest.created_at.desc())
         )
     )
     batch_requests = []
     delivery_failures = []
+    contexts = _request_contexts(db, open_requests, now=moment)
     for item in open_requests:
-        ctx = request_context(db, item, now=moment)
+        ctx = contexts[item.id]
         summary = _summarize_request(item, ctx)
         batch_requests.append(summary)
         artifact = item.artifact
@@ -851,7 +893,7 @@ def workspace(db: Session, *, now: datetime | None = None) -> dict[str, object]:
             for conflict in pending_conflicts(db)
         ],
         "deliveryFailures": delivery_failures,
-        "expiredArtifacts": _expired_artifacts(db, now=moment),
+        "expiredArtifacts": _expired_artifacts(db, now=moment) if include_expired else [],
         # #58 folded the eligibility controls into the same workspace: a Lead
         # Report and the Batch Request it came from are the same shift's work,
         # and splitting them across screens hid one behind the other.
@@ -884,15 +926,17 @@ def _expired_artifacts(db: Session, *, now: datetime) -> list[dict[str, object]]
     artifact. A file that goes missing before its expiry is therefore not
     listed here; it is still offered on that request's own detail screen.
     """
-    candidates = db.scalars(
+    candidates = list(db.scalars(
         select(LeadRequest)
+        .options(*_request_load_options())
         .join(BatchArtifact, BatchArtifact.request_id == LeadRequest.id)
         .where(BatchArtifact.expires_at <= now)
         .order_by(LeadRequest.created_at.desc())
-    )
+    ))
     listed = []
+    contexts = _request_contexts(db, candidates, now=now)
     for item in candidates:
-        ctx = request_context(db, item, now=now)
+        ctx = contexts[item.id]
         if "regenerate" in available_action_names(ctx):
             listed.append(_summarize_request(item, ctx))
     return listed

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
+
 from jawnix.jobs import (
     WORKER_LANE_DEFAULT,
     WORKER_LANE_METRICS,
@@ -9,6 +11,28 @@ from jawnix.jobs import (
     higher_priority_job_waiting,
 )
 from jawnix.models import Job, JobStatus
+
+
+@pytest.mark.parametrize("lane,expected", [
+    ("fulfillment", "fulfill_round_robin"),
+    ("notifications", "deliver_request"),
+    ("maintenance", "sync_inventory"),
+])
+def test_worker_lanes_isolate_slow_notification_and_inventory_jobs(session, lane, expected):
+    for kind in ("send_request_milestone_email", "sync_inventory", "update_notification", "fulfill_round_robin", "deliver_request"):
+        session.add(Job(kind=kind, payload={}))
+    session.flush()
+    item = claim_next_job(session, f"{lane}-worker", lane=lane)
+    assert item is not None and item.kind == expected
+
+
+def test_lane_mapping_covers_fulfillment_controls_and_notifications():
+    from jawnix.jobs import job_lane
+    assert job_lane("telegram_inventory_conflict_action") == "fulfillment"
+    assert job_lane("telegram_action") == "fulfillment"
+    assert job_lane("notify_nightly_review") == "notifications"
+    assert job_lane("send_request_milestone_email") == "notifications"
+    assert job_lane("unknown_maintenance_job") == "maintenance"
 
 
 def test_claim_prefers_notify_over_emit_on_default_lane_when_both_allowed(session):

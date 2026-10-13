@@ -127,6 +127,20 @@ jobs:
   backend:
     name: Backend (pytest)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: jawnix_test
+          POSTGRES_PASSWORD: jawnix_test
+          POSTGRES_DB: jawnix_worker_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U jawnix_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     # Waits on the frontend build so the shell integration tests run for real
     # instead of skipping.
     needs: frontend
@@ -161,6 +175,11 @@ jobs:
 
       - name: Tests
         run: uv run pytest
+
+      - name: Verify committed worker wakeups and request updates on PostgreSQL
+        env:
+          JAWNIX_ACCEPTANCE_DATABASE_URL: postgresql+psycopg://jawnix_test:jawnix_test@127.0.0.1:5432/jawnix_worker_test
+        run: uv run pytest tests/test_postgres_job_updates.py
 
   scraper-worker:
     name: Scraper worker (build, test)

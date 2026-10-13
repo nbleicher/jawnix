@@ -147,7 +147,7 @@ def _queue(
 
 def read_fulfillment_source(db: Session) -> OperationSource:
     """Adapt the existing Fulfillment aggregate without re-deriving actions."""
-    data = fulfillment_workspace(db)
+    data = fulfillment_workspace(db, include_expired=False)
     delivery_failures = list(data["deliveryFailures"])
     delivery_failure_ids = {str(item["id"]) for item in delivery_failures}
 
