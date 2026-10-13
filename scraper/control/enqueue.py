@@ -4,7 +4,7 @@ enqueue.py — queue-era job producer with continuous top-up + idempotent ledger
 ==============================================================================
 Runs on the CONTROL VPS. Reads active_states.yaml + keywords.txt, expands every
 active state into grid cells, and inserts (keyword × cell) scrape jobs into the
-River queue via the serve API (POST /api/v1/scrape).
+River queue via the serve API (POST /api/v1/scrape/bulk).
 
 Idempotency / campaign dedup (Postgres ledger — migration 20260618000000):
   • O-11: every enqueued (keyword, state, cell, day) is logged in `enqueue_log`
@@ -279,6 +279,9 @@ def filter_jobs(jobs: list, recent: set, done: set) -> tuple:
 
 
 # ── Queue API ─────────────────────────────────────────────────────────────────
+MAX_ENQUEUE_BATCH = 100
+
+
 def queue_depth(api_base: str, api_key: str = None) -> int:
     try:
         req = Request(api_base.rstrip("/") + "/api/v1/jobs")
@@ -312,11 +315,42 @@ def insert_job(api_base: str, job: dict, api_key: str = None) -> tuple[bool, str
         return False, str(e)
 
 
+def insert_batch(api_base: str, jobs: list, day: date, expected_cells: dict,
+                 api_key: str = None) -> tuple[int | None, str | None]:
+    """Submit one atomic ledger-backed batch. Failed responses are safe to replay."""
+    payload = []
+    for job in jobs:
+        item = {key:value for key,value in job.items() if not key.startswith("_")}
+        item["expected_cells"] = expected_cells.get((job["keyword"],job["state"]),0)
+        payload.append(item)
+    headers = {"Content-Type":"application/json"}
+    if api_key:
+        headers["X-API-Key"] = api_key
+    request = Request(api_base.rstrip("/")+"/api/v1/scrape/bulk",
+                      data=json.dumps({"day":str(day),"jobs":payload}).encode(),
+                      headers=headers,method="POST")
+    try:
+        with urlopen(request,timeout=30) as response:
+            if response.status != 202:
+                return None,f"unexpected HTTP status {response.status}"
+            result = json.load(response)
+        inserted, skipped = result.get("inserted"),result.get("skipped")
+        if type(inserted) is not int or type(skipped) is not int or min(inserted,skipped)<0 or inserted+skipped!=len(jobs):
+            return None,"invalid bulk response"
+        return inserted,None
+    except HTTPError as error:
+        return None,f"HTTP {error.code}"
+    except Exception:
+        # Response loss may follow a successful commit. Keep the cursor and replay
+        # instead of marking committed reservations failed or using the single API.
+        return None,"bulk response unavailable"
+
+
 def top_up(api_base: str, jobs: list, cursor: int, target_depth: int, batch_size: int,
            ledger, day, expected_cells: dict, api_key: str = None,
            pause_file: Path | None = None) -> tuple:
-    """Insert jobs until queue depth reaches target_depth or batch exhausted.
-    Records successful inserts in the ledger. Returns (cursor, inserted, depth)."""
+    """Refill the queue with atomic ledger-backed batches, or single jobs in
+    explicit no-ledger mode. Returns (cursor, inserted, depth)."""
     if ledger:
         try:
             depth = ledger.queue_depth()
@@ -332,43 +366,35 @@ def top_up(api_base: str, jobs: list, cursor: int, target_depth: int, batch_size
     if need == 0:
         return cursor, 0, depth
     n = min(need, batch_size, len(jobs) - cursor)
-    inserted, recorded = 0, []
+    inserted = 0
     i = cursor
     stop = cursor + n
+    if ledger:
+        while i < stop:
+            if pause_file and pause_file.exists():
+                break
+            end = min(stop,i+MAX_ENQUEUE_BATCH)
+            accepted, error = insert_batch(api_base,jobs[i:end],day,expected_cells,api_key)
+            if accepted is None:
+                print(f"  warn: bulk POST failed; batch retained for safe retry: {error}",file=sys.stderr)
+                break
+            inserted += accepted
+            i = end
+            cursor = i
+        return cursor,inserted,depth
     while i < stop:
         if pause_file and pause_file.exists():
             break
         j = jobs[i]
-        if ledger:
-            try:
-                reserved = ledger.reserve(j["keyword"], j["state"], j["geo_coordinates"], day)
-            except Exception as e:
-                print(f"  warn: ledger reserve failed: {e}", file=sys.stderr)
-                break
-            if not reserved:
-                i += 1
-                cursor = i
-                continue
         ok, err = insert_job(api_base, j, api_key)
         if ok:
             inserted += 1
-            recorded.append((j["keyword"], j["state"], j["geo_coordinates"]))
             i += 1
             cursor = i
             continue
-        if ledger:
-            try:
-                ledger.mark_failed(j["keyword"], j["state"], j["geo_coordinates"], day, err or "POST failed")
-            except Exception as e:
-                print(f"  warn: ledger failure mark failed: {e}", file=sys.stderr)
         print(f"  warn: POST failed for {j['keyword']} {j['state']} {j['geo_coordinates']}: {err}",
               file=sys.stderr)
         break
-    if ledger and recorded:
-        try:
-            ledger.mark_posted(recorded, day, expected_cells)
-        except Exception as e:
-            print(f"  warn: ledger record failed: {e}", file=sys.stderr)
     return cursor, inserted, depth
 
 

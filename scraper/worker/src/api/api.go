@@ -45,6 +45,7 @@ func Routes(r chi.Router, appState *AppState) {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", healthCheckHandler(appState))
 		r.Post("/scrape", scrapeHandler(appState))
+		r.Post("/scrape/bulk", bulkScrapeHandler(appState))
 		r.Get("/jobs", listJobsHandler(appState))
 		r.Get("/jobs/{job_id}", getJobHandler(appState))
 		r.Delete("/jobs/{job_id}", deleteJobHandler(appState))
