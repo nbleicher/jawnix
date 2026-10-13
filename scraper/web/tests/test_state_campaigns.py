@@ -6,7 +6,14 @@ import asyncpg,psycopg2,pytest
 sys.path.insert(0,str(Path(__file__).parents[2]/'control'))
 from state_campaigns import register,pending,order_states,prepare
 from enqueue import build_jobs
+import enqueue
 from yield_gate import eligible_jobs
+
+def test_independent_mode_cannot_fall_back_to_unguarded_enqueue(monkeypatch):
+    monkeypatch.setenv('GMS_STATE_BACKLOGS','true')
+    args=SimpleNamespace(dry_run=False,no_ledger=True,dsn=None)
+    with pytest.raises(RuntimeError,match='require the durable acquisition ledger'):
+        enqueue.prepare_jobs(args)
 
 def test_order_preserves_waves_and_borrows_empty_state_capacity():
     jobs=[{'state':st,'cell':i} for st,n in [('sc',70),('tn',30)] for i in range(n)]

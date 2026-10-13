@@ -400,6 +400,9 @@ def top_up(api_base: str, jobs: list, cursor: int, target_depth: int, batch_size
 
 
 def prepare_jobs(args) -> tuple[dict, list, dict, object | None, date, str, int, int, int, str | None]:
+    independent=os.environ.get('GMS_STATE_BACKLOGS','').lower() in ('1','true','yes')
+    if independent and not args.dry_run and (args.no_ledger or not args.dsn):
+        raise RuntimeError('Independent state backlogs require the durable acquisition ledger')
     states_cfg = load_states(Path(args.states))
     keywords = load_keywords(Path(args.keywords))
     api_base = args.api_base or states_cfg["api_base"]
@@ -430,7 +433,7 @@ def prepare_jobs(args) -> tuple[dict, list, dict, object | None, date, str, int,
                     min(max_target_depth, alive_workers * target_per_worker),
                 )
             started_on = date.fromtimestamp(Path(args.keywords).stat().st_mtime)
-            if os.environ.get('GMS_STATE_BACKLOGS','').lower() in ('1','true','yes'):
+            if independent:
                 jobs,expected_cells,selected = prepare_state_campaigns(
                     ledger,states_cfg,keywords,started_on,today,build_jobs,eligible_jobs)
                 n_recent=n_done=0
