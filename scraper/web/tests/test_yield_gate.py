@@ -157,6 +157,27 @@ async def test_rollover_accounts_for_rejected_pilot(app_client):
 
 
 @pytest.mark.asyncio
+async def test_migration_preserves_inflight_campaigns(seeded_database):
+    import os
+    conn = await asyncpg.connect(os.environ["TEST_DATABASE_URL"])
+    try:
+        for status in ("testing","accepted","rejected","unverified"):
+            await conn.execute("""INSERT INTO keyword_yield_evaluations
+                (keyword,state,started_on,sample_cells,full_cells,status)
+                VALUES ($1,'tn',current_date,'["35,-86","36,-86"]',20,$2)""",
+                "migration fixture " + status,status)
+        migration = Path(__file__).parents[2] / "scraper_changes/migrations/20261013100000-new-phone-yield-and-waves.sql"
+        await conn.execute(migration.read_text().split("-- +migrate Up",1)[1].split("-- +migrate Down",1)[0])
+        rows = await conn.fetch("SELECT keyword,status FROM keyword_yield_evaluations WHERE keyword LIKE 'migration fixture %'")
+        assert {row["keyword"].removeprefix("migration fixture "): row["status"] for row in rows} == {
+            "testing":"legacy","accepted":"legacy","rejected":"rejected","unverified":"unverified",
+        }
+    finally:
+        await conn.execute("DELETE FROM keyword_yield_evaluations WHERE keyword LIKE 'migration fixture %'")
+        await conn.close()
+
+
+@pytest.mark.asyncio
 async def test_recovery_pause_is_visible_and_preserves_operator_pause(app_client):
     client, settings = app_client
     conn = await asyncpg.connect(settings.database_url)

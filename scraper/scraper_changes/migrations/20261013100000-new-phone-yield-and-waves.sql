@@ -30,8 +30,9 @@ ALTER TABLE keyword_yield_evaluations ADD COLUMN IF NOT EXISTS new_phones_per_mi
 ALTER TABLE keyword_yield_evaluations DROP CONSTRAINT IF EXISTS keyword_yield_evaluations_status_check;
 ALTER TABLE keyword_yield_evaluations ADD CONSTRAINT keyword_yield_evaluations_status_check
     CHECK (status IN ('testing','accepted','expanding','completed','rejected','unverified','legacy'));
--- Preserve campaigns that already passed the old gate. New candidates use wave policy.
-UPDATE keyword_yield_evaluations SET status='legacy' WHERE status='accepted' AND policy IS NULL;
+-- Preserve in-flight campaigns whose old results have no canonical yield evidence.
+-- New candidates snapshot the wave policy and require verified endpoint membership.
+UPDATE keyword_yield_evaluations SET status='legacy' WHERE status IN ('accepted','testing') AND policy IS NULL;
 
 -- +migrate Down
 UPDATE keyword_yield_evaluations SET status='accepted' WHERE status IN ('expanding','completed');
