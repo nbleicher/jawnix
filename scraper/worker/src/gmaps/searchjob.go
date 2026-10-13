@@ -125,11 +125,11 @@ func (j *SearchJob) Process(_ context.Context, resp *scrapemate.Response) (any, 
 		resp.Meta = nil
 	}()
 
-	if resp.Error != nil {
-		return j.fail(FailureOutcome(resp.Error), resp.Error)
-	}
 	if resp.StatusCode == 403 || resp.StatusCode == 429 {
 		return j.fail("blocked", fmt.Errorf("HTTP %d", resp.StatusCode))
+	}
+	if resp.Error != nil {
+		return j.fail(FailureOutcome(resp.Error), resp.Error)
 	}
 	if resp.StatusCode >= 400 {
 		return j.fail("fetch_error", fmt.Errorf("HTTP %d", resp.StatusCode))

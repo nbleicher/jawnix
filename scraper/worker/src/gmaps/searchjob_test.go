@@ -2,6 +2,7 @@ package gmaps
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -31,7 +32,7 @@ func TestSearchFailureClassification(t *testing.T) {
 		response scrapemate.Response
 		outcome  string
 	}{
-		{"throttled", scrapemate.Response{StatusCode: 429}, "blocked"},
+		{"throttled", scrapemate.Response{StatusCode: 429, Error: fmt.Errorf("status code 429")}, "blocked"},
 		{"denied", scrapemate.Response{StatusCode: 403}, "blocked"},
 		{"challenge", scrapemate.Response{StatusCode: 200, Body: []byte("<html>captcha</html>")}, "blocked"},
 		{"upstream", scrapemate.Response{StatusCode: 503}, "fetch_error"},
