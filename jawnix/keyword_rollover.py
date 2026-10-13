@@ -7,8 +7,10 @@ The control service never holds a model credential (Stage B ownership rule).
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .activity import record_activity
@@ -22,7 +24,6 @@ from .keyword_generation import (
     exclusion_metrics,
     generation_error,
     keyword_history_terms,
-    try_generation_lock,
     validated_keyword_terms,
 )
 from .keyword_history import observe_keyword_history
@@ -42,7 +43,14 @@ ROLLOVER_ACTOR = "system:keyword-rollover"
 ROLLOVER_TARGET = "scraper_keyword_rollover"
 ROLLOVER_FAILURE_COOLDOWN = timedelta(minutes=15)
 ACTIVATION_MESSAGE = "Activated 25 automatically generated keywords"
-POOL_TARGET = 50
+POOL_TARGET = 150
+POOL_REFILL_BELOW = 100
+ACTIVATION_COUNT = 25
+REFILL_INTERVAL = timedelta(seconds=60)
+URGENT_REFILL_INTERVAL = timedelta(seconds=15)
+_LOCK_NAMESPACE = 0x4A41574E
+_GENERATION_RESOURCE = 0x4B574745
+_POOL_RESOURCE = 0x4B57504C
 
 
 def _record_failure(
@@ -79,36 +87,60 @@ async def _record_error_event(
         pass
 
 
-async def run_automatic_keyword_rollover(
-    session: Session,
-    settings: Settings,
-    *,
-    operations: ScraperOperations | None = None,
-    provider=None,
-    now: datetime | None = None,
-) -> dict:
-    """Fill ahead, retain partial work, and activate a complete unused batch."""
+def _pool_lock(session: Session, *, wait: bool = False) -> bool:
+    if session.get_bind().dialect.name != "postgresql":
+        return True
+    lock = func.pg_advisory_xact_lock if wait else func.pg_try_advisory_xact_lock
+    result = session.scalar(select(lock(_LOCK_NAMESPACE, _POOL_RESOURCE)))
+    return True if wait else bool(result)
 
-    now = now or datetime.now(timezone.utc)
-    operations = operations or HTTPScraperOperations(settings)
-    workspace = await operations.list_keywords()
-    rollover = workspace.rollover
-    if not rollover.enabled:
-        return {"outcome": "idle", "state": rollover.state}
-    if not try_generation_lock(session):
-        return {"outcome": "locked"}
+
+@contextmanager
+def _generation_lock(session_factory):
+    """One generator across processes, without holding a pool transaction."""
+    with session_factory() as session:
+        engine = session.get_bind()
+    if engine.dialect.name != "postgresql":
+        yield True
+        return
+    with engine.connect() as connection:
+        acquired = bool(
+            connection.scalar(
+                select(func.pg_try_advisory_lock(_LOCK_NAMESPACE, _GENERATION_RESOURCE))
+            )
+        )
+        try:
+            connection.commit()
+            yield acquired
+        finally:
+            if acquired:
+                try:
+                    connection.execute(
+                        select(
+                            func.pg_advisory_unlock(
+                                _LOCK_NAMESPACE, _GENERATION_RESOURCE
+                            )
+                        )
+                    )
+                    connection.commit()
+                except Exception:
+                    # A pooled connection must never retain the session lock.
+                    connection.invalidate()
+                    raise
+
+
+def _pool(session: Session) -> KeywordCandidatePool:
     pool = session.get(KeywordCandidatePool, 1, with_for_update=True)
     if pool is None:
         pool = KeywordCandidatePool(id=1, candidates=[], focus_index=0)
         session.add(pool)
         session.flush()
-    winners = await operations.keyword_winners()
-    history = keyword_history_terms(session)
+    return pool
+
+
+def _revalidate_pool(session, pool, workspace, winners, now):
     observe_keyword_history(
-        session,
-        workspace.current,
-        origin="active_list",
-        observed_at=now,
+        session, workspace.current, origin="active_list", observed_at=now
     )
     observe_keyword_history(
         session,
@@ -119,133 +151,219 @@ async def run_automatic_keyword_rollover(
     exclusions, counts = exclusion_metrics(
         active=workspace.current,
         winners=(winner.keyword for winner in winners),
-        history=history,
+        history=keyword_history_terms(session),
     )
-    # Active terms, imported history, and newly selected terms all remain
-    # excluded. Another operator may have used a candidate since it was saved.
     valid = validated_keyword_terms(
-        (item["term"] for item in pool.candidates),
-        exclusions,
-        limit=POOL_TARGET,
+        (item["term"] for item in pool.candidates), exclusions, limit=POOL_TARGET
     )
     by_term = {item["term"]: item for item in reversed(pool.candidates)}
     pool.candidates = [by_term[term] for term in valid]
-    if rollover.state == "ready" and len(pool.candidates) >= 25:
-        return await _activate_pool(session, operations, workspace, pool, counts, now)
-    if rollover.state == "draining" and len(pool.candidates) >= 25:
-        # Keep the prepared batch ready for the next drain check instead of
-        # delaying the handoff with another provider request.
-        return {"outcome": "pooling", "available": len(pool.candidates), "added": 0}
-    if len(pool.candidates) >= POOL_TARGET:
-        return {"outcome": "idle", "state": rollover.state}
-    refill_at = pool.next_refill_at
-    if refill_at and refill_at.tzinfo is None:
-        refill_at = refill_at.replace(tzinfo=timezone.utc)
-    if refill_at and refill_at > now:
-        return {"outcome": "cooldown"}
+    return exclusions, counts
 
-    provider = provider or build_generation_provider(settings)
-    if not provider.available:
-        message = "OpenRouter is not configured for automatic rollover"
-        pool.next_refill_at = now + ROLLOVER_FAILURE_COOLDOWN
-        _record_failure(
-            session,
-            reason="Automatic keyword rollover requires Jawnix generation",
-            details={"outcome": "not_configured"},
-            now=now,
-        )
-        await _record_error_event(operations, message)
-        return {"outcome": "not_configured"}
-    focus = KEYWORD_INDUSTRY_FOCI[pool.focus_index % len(KEYWORD_INDUSTRY_FOCI)]
-    pool.focus_index += 1
-    pending = [item["term"] for item in pool.candidates]
-    failure = None
-    try:
-        result = provider.generate_keywords(
-            mode="broad",
-            excluded_keywords=[*exclusions, *pending],
-            count=min(KEYWORD_CANDIDATE_BATCH_SIZE, POOL_TARGET - len(pending)),
-            industry_focus=focus,
-        )
-        candidates, metrics = result.terms, result.candidate_metrics
-    except KeywordGenerationError as error:
-        failure = error
-        candidates, metrics = error.partial_terms, error.metrics
-    accepted = validated_keyword_terms(
-        candidates,
-        [*exclusions, *pending],
-        limit=min(KEYWORD_CANDIDATE_BATCH_SIZE, POOL_TARGET - len(pending)),
+
+def _utc(value):
+    return (
+        value.replace(tzinfo=timezone.utc) if value and value.tzinfo is None else value
     )
-    candidate_models = {
-        item["term"]: item["model"] for item in metrics.get("termModels", [])
-    }
-    pool.candidates = [
-        *pool.candidates,
-        *[
-            {
-                "term": term,
-                "model": candidate_models.get(term, provider.model),
-                "focus": focus,
-                "createdAt": now.isoformat(),
+
+
+async def run_automatic_keyword_rollover(
+    session: Session,
+    settings: Settings,
+    *,
+    operations: ScraperOperations | None = None,
+    now: datetime | None = None,
+) -> dict:
+    """Activate a prepared batch, independently of model requests and backoff."""
+    now = now or datetime.now(timezone.utc)
+    operations = operations or HTTPScraperOperations(settings)
+    workspace = await operations.list_keywords()
+    if not workspace.rollover.enabled:
+        return {"outcome": "idle", "state": workspace.rollover.state}
+    if not _pool_lock(session):
+        return {"outcome": "locked"}
+    pool = _pool(session)
+    winners = await operations.keyword_winners()
+    _, counts = _revalidate_pool(session, pool, workspace, winners, now)
+    if len(pool.candidates) < POOL_REFILL_BELOW:
+        pool.refilling = True
+    if workspace.rollover.state != "ready" or len(pool.candidates) < ACTIVATION_COUNT:
+        return {"outcome": "pooling", "available": len(pool.candidates), "added": 0}
+    return await _activate_pool(session, operations, workspace, pool, counts, now)
+
+
+async def refill_keyword_reserve(
+    session_factory,
+    settings: Settings,
+    *,
+    operations: ScraperOperations | None = None,
+    provider=None,
+    now: datetime | None = None,
+) -> dict:
+    """Refill in short transactions, releasing the pool during the model call."""
+    started_at = now or datetime.now(timezone.utc)
+    operations = operations or HTTPScraperOperations(settings)
+    with _generation_lock(session_factory) as acquired:
+        if not acquired:
+            return {"outcome": "locked"}
+        workspace = await operations.list_keywords()
+        if not workspace.rollover.enabled:
+            return {"outcome": "idle", "state": workspace.rollover.state}
+        winners = await operations.keyword_winners()
+        with session_factory.begin() as session:
+            if not _pool_lock(session):
+                return {"outcome": "locked"}
+            pool = _pool(session)
+            exclusions, counts = _revalidate_pool(
+                session, pool, workspace, winners, started_at
+            )
+            available = len(pool.candidates)
+            if available >= POOL_TARGET:
+                pool.refilling = False
+            elif available < POOL_REFILL_BELOW:
+                pool.refilling = True
+            if not pool.refilling:
+                return {"outcome": "idle", "available": available}
+            interval = (
+                URGENT_REFILL_INTERVAL
+                if available < ACTIVATION_COUNT
+                else REFILL_INTERVAL
+            )
+            retry_at = _utc(pool.next_refill_at)
+            last_refill = _utc(pool.last_refill_at)
+            if (retry_at and retry_at > started_at) or (
+                last_refill and last_refill + interval > started_at
+            ):
+                return {"outcome": "cooldown"}
+            focus = KEYWORD_INDUSTRY_FOCI[pool.focus_index % len(KEYWORD_INDUSTRY_FOCI)]
+            pool.focus_index += 1
+            pending = [item["term"] for item in pool.candidates]
+            requested = min(KEYWORD_CANDIDATE_BATCH_SIZE, POOL_TARGET - available)
+
+        # Neither the pool row nor a database transaction is held here.
+        provider = provider or build_generation_provider(settings)
+        failure = None
+        if not provider.available:
+            failure = generation_error(GenerationErrorCode.INVALID_API_KEY)
+            candidates, metrics = [], {}
+        else:
+            try:
+                result = provider.generate_keywords(
+                    mode="broad",
+                    excluded_keywords=[*exclusions, *pending],
+                    count=requested,
+                    industry_focus=focus,
+                )
+                candidates, metrics = result.terms, result.candidate_metrics
+            except KeywordGenerationError as error:
+                failure = error
+                candidates, metrics = error.partial_terms, error.metrics
+        finished_at = now or datetime.now(timezone.utc)
+        # Recheck current state after the model call. If the control service is
+        # unavailable, retain candidates against current durable history; the
+        # activation process still requires its own successful revalidation.
+        refresh_failed = False
+        try:
+            workspace = await operations.list_keywords()
+            winners = await operations.keyword_winners()
+        except ScraperOperationsError:
+            refresh_failed = True
+        with session_factory.begin() as session:
+            _pool_lock(session, wait=True)
+            pool = _pool(session)
+            exclusions, counts = _revalidate_pool(
+                session, pool, workspace, winners, finished_at
+            )
+            room = min(requested, POOL_TARGET - len(pool.candidates))
+            if room <= 0:
+                pool.refilling = False
+                return {"outcome": "idle", "available": len(pool.candidates)}
+            accepted = validated_keyword_terms(
+                candidates,
+                [*exclusions, *(item["term"] for item in pool.candidates)],
+                limit=room,
+            )
+            candidate_models = {
+                item["term"]: item["model"] for item in metrics.get("termModels", [])
             }
-            for term in accepted
-        ],
-    ]
-    pool.updated_at = now
-    account_blocked = failure and failure.code in {
-        GenerationErrorCode.INVALID_API_KEY,
-        GenerationErrorCode.INSUFFICIENT_CREDIT,
-        GenerationErrorCode.RATE_LIMITED,
-    }
-    pool.next_refill_at = now + (
-        timedelta(minutes=1)
-        if accepted and not account_blocked
-        else ROLLOVER_FAILURE_COOLDOWN
-    )
-    if accepted:
-        record_activity(
-            session,
-            action="scraper_keyword_pool_refilled",
-            target_type=ROLLOVER_TARGET,
-            target_id="primary",
-            actor_id=ROLLOVER_ACTOR,
-            reason="Validated keyword candidates retained for a future batch",
-            details={
-                "added": len(accepted),
-                "available": len(pool.candidates),
-                "focus": focus,
-                "candidateMetrics": metrics,
-                "exclusions": counts,
-            },
-        )
-    else:
-        message = (
-            failure.message
-            if failure
-            else generation_error(GenerationErrorCode.INSUFFICIENT_CANDIDATES).message
-        )
-        _record_failure(
-            session,
-            reason="Automatic keyword rollover generation failed",
-            details={
-                "outcome": "generation_failed",
-                "message": message,
-                "exclusions": counts,
-                "candidateMetrics": metrics,
-            },
-            now=now,
-        )
-        await _record_error_event(operations, message)
-        return {"outcome": "generation_failed", "message": message}
-    if len(pool.candidates) >= 25:
-        # The campaign may have drained during generation. Revalidate the
-        # current state before waiting for another scheduler cycle.
-        return await _activate_pool(session, operations, workspace, pool, counts, now)
-    return {
-        "outcome": "pooling",
-        "available": len(pool.candidates),
-        "added": len(accepted),
-    }
+            pool.candidates = [
+                *pool.candidates,
+                *[
+                    {
+                        "term": term,
+                        "model": candidate_models.get(term, provider.model),
+                        "focus": focus,
+                        "createdAt": finished_at.isoformat(),
+                    }
+                    for term in accepted
+                ],
+            ]
+            pool.updated_at = finished_at
+            pool.refilling = len(pool.candidates) < POOL_TARGET
+            account_blocked = failure and failure.code in {
+                GenerationErrorCode.INVALID_API_KEY,
+                GenerationErrorCode.INSUFFICIENT_CREDIT,
+                GenerationErrorCode.RATE_LIMITED,
+            }
+            pool.next_refill_at = (
+                finished_at + ROLLOVER_FAILURE_COOLDOWN
+                if account_blocked or not accepted
+                else None
+            )
+            if accepted:
+                pool.last_refill_at = finished_at
+                record_activity(
+                    session,
+                    action="scraper_keyword_pool_refilled",
+                    target_type=ROLLOVER_TARGET,
+                    target_id="primary",
+                    actor_id=ROLLOVER_ACTOR,
+                    reason="Validated keyword candidates retained for a future batch",
+                    details={
+                        "added": len(accepted),
+                        "available": len(pool.candidates),
+                        "focus": focus,
+                        "candidateMetrics": metrics,
+                        "exclusions": counts,
+                        "revalidationFailed": refresh_failed,
+                    },
+                )
+            else:
+                message = (
+                    "OpenRouter is not configured for automatic rollover"
+                    if not provider.available
+                    else (
+                        failure.message
+                        if failure
+                        else generation_error(
+                            GenerationErrorCode.INSUFFICIENT_CANDIDATES
+                        ).message
+                    )
+                )
+                _record_failure(
+                    session,
+                    reason="Automatic keyword rollover generation failed",
+                    details={
+                        "outcome": (
+                            "not_configured"
+                            if not provider.available
+                            else "generation_failed"
+                        ),
+                        "message": message,
+                        "exclusions": counts,
+                        "candidateMetrics": metrics,
+                    },
+                    now=finished_at,
+                )
+            available = len(pool.candidates)
+        if not accepted:
+            await _record_error_event(operations, message)
+            return (
+                {"outcome": "not_configured"}
+                if not provider.available
+                else {"outcome": "generation_failed", "message": message}
+            )
+        return {"outcome": "pooling", "available": available, "added": len(accepted)}
 
 
 async def _activate_pool(
@@ -256,8 +374,7 @@ async def _activate_pool(
     counts: dict,
     now: datetime,
 ) -> dict:
-    # A model request can take minutes. Recheck readiness and permanent history
-    # after it returns, before submitting the version-checked activation.
+    # Recheck readiness and history immediately before version-checked activation.
     try:
         latest = await operations.list_keywords()
         winners = await operations.keyword_winners()
@@ -289,9 +406,9 @@ async def _activate_pool(
     )
     by_term = {item["term"]: item for item in reversed(pool.candidates)}
     pool.candidates = [by_term[term] for term in valid]
-    if len(pool.candidates) < 25:
+    if len(pool.candidates) < ACTIVATION_COUNT:
         return {"outcome": "pooling", "available": len(pool.candidates), "added": 0}
-    selected = pool.candidates[:25]
+    selected = pool.candidates[:ACTIVATION_COUNT]
     terms = [item["term"] for item in selected]
 
     try:
@@ -359,5 +476,7 @@ async def _activate_pool(
             "exclusions": counts,
         },
     )
-    pool.candidates = pool.candidates[25:]
+    pool.candidates = pool.candidates[ACTIVATION_COUNT:]
+    if len(pool.candidates) < POOL_REFILL_BELOW:
+        pool.refilling = True
     return {"outcome": "generated", "activated": len(saved.current)}

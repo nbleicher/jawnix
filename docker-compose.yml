@@ -105,7 +105,16 @@ services:
 
   keyword-worker:
     <<: *app
-    command: ["python", "-m", "jawnix.keyword_worker"]
+    command: ["python", "-m", "jawnix.keyword_worker", "--lane", "activate"]
+    mem_limit: 512m
+    cpus: 1
+    environment:
+      JAWNIX_DATABASE_POOL_SIZE: "2"
+      JAWNIX_DATABASE_MAX_OVERFLOW: "1"
+
+  keyword-refill-worker:
+    <<: *app
+    command: ["python", "-m", "jawnix.keyword_worker", "--lane", "refill"]
     mem_limit: 512m
     cpus: 1
     environment:
