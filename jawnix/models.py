@@ -1487,6 +1487,8 @@ class KeywordCandidatePool(Base):
     candidates: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     focus_index: Mapped[int] = mapped_column(default=0, nullable=False)
     next_refill_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_refill_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    refilling: Mapped[bool] = mapped_column(default=False, server_default="false", nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (

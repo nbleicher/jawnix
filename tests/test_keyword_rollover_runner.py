@@ -6,6 +6,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
 
 from jawnix.keyword_generation import (
     GenerationErrorCode,
@@ -14,6 +15,7 @@ from jawnix.keyword_generation import (
 from jawnix.keyword_rollover import (
     ROLLOVER_ACTOR,
     run_automatic_keyword_rollover,
+    refill_keyword_reserve,
 )
 from jawnix.models import AuditEntry, KeywordHistory, KeywordCandidatePool
 
@@ -23,22 +25,30 @@ NOW = datetime(2026, 8, 17, 12, 0, tzinfo=timezone.utc)
 
 
 def run(session, settings, fake, provider, now=NOW):
-    return asyncio.run(
-        run_automatic_keyword_rollover(
-            session,
-            settings,
-            operations=fake,
-            provider=provider,
-            now=now,
+    async def cycle():
+        result = await run_automatic_keyword_rollover(
+            session, settings, operations=fake, now=now
         )
-    )
+        session.commit()
+        if result["outcome"] not in {"pooling", "idle"} or result.get("state") == "off":
+            return result
+        factory = sessionmaker(session.get_bind(), expire_on_commit=False)
+        refill = await refill_keyword_reserve(
+            factory, settings, operations=fake, provider=provider, now=now
+        )
+        session.expire_all()
+        result = await run_automatic_keyword_rollover(
+            session, settings, operations=fake, now=now
+        )
+        session.commit()
+        return result if result["outcome"] not in {"pooling", "idle"} else refill
+
+    return asyncio.run(cycle())
 
 
 def audit_actions(session) -> list[str]:
     return list(
-        session.scalars(
-            select(AuditEntry.action).order_by(AuditEntry.created_at)
-        )
+        session.scalars(select(AuditEntry.action).order_by(AuditEntry.created_at))
     )
 
 
@@ -71,7 +81,9 @@ def test_ready_rollover_generates_saves_and_records(session, settings):
     previous = list(fake.keywords)
 
     for index in range(3):
-        outcome = run(session, settings, fake, provider, now=NOW + timedelta(minutes=index))
+        outcome = run(
+            session, settings, fake, provider, now=NOW + timedelta(minutes=index)
+        )
 
     assert outcome == {"outcome": "generated", "activated": 25}
     assert provider.calls[0]["mode"] == "broad"
@@ -86,13 +98,15 @@ def test_ready_rollover_generates_saves_and_records(session, settings):
         }
     ]
     assert audit_actions(session).count("scraper_keyword_pool_refilled") == 3
-    entry = session.scalars(select(AuditEntry).where(AuditEntry.action == "scraper_keyword_rollover_completed")).one()
+    entry = session.scalars(
+        select(AuditEntry).where(
+            AuditEntry.action == "scraper_keyword_rollover_completed"
+        )
+    ).one()
     assert entry.actor_user_id == ROLLOVER_ACTOR
     assert entry.details["activatedCount"] == 25
     assert entry.details["enqueued"] is True
-    history_terms = set(
-        session.scalars(select(KeywordHistory.term))
-    )
+    history_terms = set(session.scalars(select(KeywordHistory.term)))
     assert history_terms  # active list and winners were observed
 
 
@@ -136,7 +150,13 @@ def test_generation_failure_records_error_event_and_cooldown(
     )
     assert recovered["outcome"] == "pooling"
     for minute in (21, 22):
-        recovered = run(session, settings, fake, GenerationFake(), now=NOW + timedelta(minutes=minute))
+        recovered = run(
+            session,
+            settings,
+            fake,
+            GenerationFake(),
+            now=NOW + timedelta(minutes=minute),
+        )
     assert recovered["outcome"] == "generated"
 
 
@@ -173,7 +193,13 @@ def test_concurrent_list_change_retains_candidates(session, settings):
     fake.rollover_enabled = True
     fake.rollover_state_override = "ready"
     terms = GenerationFake().generate_keywords(mode="broad", excluded_keywords=[]).terms
-    session.add(KeywordCandidatePool(id=1, candidates=[{"term": term, "model": "fake"} for term in terms], focus_index=0))
+    session.add(
+        KeywordCandidatePool(
+            id=1,
+            candidates=[{"term": term, "model": "fake"} for term in terms],
+            focus_index=0,
+        )
+    )
     session.flush()
 
     outcome = run(session, settings, fake, GenerationFake())

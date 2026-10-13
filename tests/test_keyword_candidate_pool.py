@@ -9,16 +9,22 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from jawnix import models
 from jawnix.config import Settings
-from jawnix.keyword_generation import OpenRouterGenerationProvider
-from jawnix.keyword_rollover import run_automatic_keyword_rollover
+from jawnix.keyword_generation import (
+    OpenRouterGenerationProvider,
+    GenerationErrorCode,
+    generation_error,
+)
+from jawnix.keyword_rollover import (
+    refill_keyword_reserve,
+    run_automatic_keyword_rollover,
+)
 from jawnix.keyword_history import observe_keyword_history
 from jawnix.scraper_operations import ScraperOperationsError
 from scraper_fake import ScraperFake
-
 
 NOW = datetime(2026, 10, 12, 12, tzinfo=timezone.utc)
 
@@ -57,11 +63,25 @@ def provider(settings, handler):
 
 
 def run(session, settings, operations, model, now=NOW):
-    return asyncio.run(
-        run_automatic_keyword_rollover(
-            session, settings, operations=operations, provider=model, now=now
+    async def cycle():
+        result = await run_automatic_keyword_rollover(
+            session, settings, operations=operations, now=now
         )
-    )
+        session.commit()
+        if result["outcome"] not in {"pooling", "idle"} or result.get("state") == "off":
+            return result
+        factory = sessionmaker(session.get_bind(), expire_on_commit=False)
+        refill = await refill_keyword_reserve(
+            factory, settings, operations=operations, provider=model, now=now
+        )
+        session.expire_all()
+        result = await run_automatic_keyword_rollover(
+            session, settings, operations=operations, now=now
+        )
+        session.commit()
+        return result if result["outcome"] not in {"pooling", "idle"} else refill
+
+    return asyncio.run(cycle())
 
 
 def pool(session):
@@ -128,9 +148,14 @@ def test_campaign_drains_while_candidates_are_being_generated(session, settings)
     operations = ScraperFake()
     operations.rollover_enabled = True
     operations.rollover_state_override = "working"
-    session.add(models.KeywordCandidatePool(
-        id=1, candidates=[{"term": term, "model": "previous/model"} for term in terms(1, 20)],
-    ))
+    session.add(
+        models.KeywordCandidatePool(
+            id=1,
+            candidates=[
+                {"term": term, "model": "previous/model"} for term in terms(1, 20)
+            ],
+        )
+    )
     session.flush()
 
     def generated(request):
@@ -145,21 +170,26 @@ def test_campaign_drains_while_candidates_are_being_generated(session, settings)
     assert len(pool(session).candidates) == 5
 
 
-def test_prepared_batch_does_not_start_generation_while_last_jobs_drain(session, settings):
+def test_generation_continues_while_last_jobs_drain(session, settings):
     operations = ScraperFake()
     operations.rollover_enabled = True
     operations.rollover_state_override = "draining"
-    session.add(models.KeywordCandidatePool(
-        id=1, candidates=[{"term": term, "model": "previous/model"} for term in terms(1, 25)],
-    ))
-    session.flush()
-
-    def unexpected(request):
-        raise AssertionError("Generation would delay an already-prepared handoff")
-
-    outcome = run(session, settings, operations, provider(settings, unexpected))
-
-    assert outcome["outcome"] == "pooling"
+    session.add(
+        models.KeywordCandidatePool(
+            id=1,
+            candidates=[
+                {"term": term, "model": "previous/model"} for term in terms(1, 25)
+            ],
+        )
+    )
+    session.commit()
+    outcome = run(
+        session,
+        settings,
+        operations,
+        provider(settings, lambda request: completion(terms(100, 10))),
+    )
+    assert outcome == {"outcome": "pooling", "available": 35, "added": 10}
     assert operations.keyword_writes == []
 
 
@@ -369,7 +399,9 @@ def test_credit_failure_preserves_partial_work_and_stops_fallback_requests(
     assert outcome == {"outcome": "pooling", "available": 4, "added": 4}
     assert len(requests) == 2
     assert all(request["model"] == settings.openrouter_model for request in requests)
-    assert pool(session).next_refill_at == NOW + timedelta(minutes=15)
+    assert pool(session).next_refill_at.replace(tzinfo=timezone.utc) == NOW + timedelta(
+        minutes=15
+    )
     entry = (
         session.query(models.AuditEntry)
         .filter_by(action="scraper_keyword_pool_refilled")
@@ -397,6 +429,7 @@ def test_history_import_during_generation_is_rechecked_before_activation(
         observe_keyword_history(
             session, prepared[:1], origin="active_list", observed_at=NOW
         )
+        session.commit()
         return completion(terms(100, 10))
 
     outcome = run(session, settings, operations, provider(settings, handler))
@@ -439,7 +472,7 @@ def test_failed_activation_revalidation_keeps_newly_generated_candidates(
 
         async def list_keywords(self):
             self.reads += 1
-            if self.reads == 2:
+            if self.reads == 5:
                 raise ScraperOperationsError(status_code=503)
             return await super().list_keywords()
 
@@ -467,3 +500,161 @@ def test_failed_activation_revalidation_keeps_newly_generated_candidates(
     assert operations.keyword_writes == []
     with Session(session.get_bind(), expire_on_commit=False) as restarted:
         assert len(pool(restarted).candidates) == 25
+
+
+def refill(session, settings, operations, model, now=NOW):
+    session.commit()
+    result = asyncio.run(
+        refill_keyword_reserve(
+            sessionmaker(session.get_bind(), expire_on_commit=False),
+            settings,
+            operations=operations,
+            provider=model,
+            now=now,
+        )
+    )
+    session.expire_all()
+    return result
+
+
+def test_reserve_starts_below_100_and_fills_to_150_across_restart(session, settings):
+    from scraper_fake import GenerationFake
+
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "working"
+    session.add(
+        models.KeywordCandidatePool(
+            id=1,
+            candidates=[{"term": term, "model": "fixture"} for term in terms(1, 100)],
+        )
+    )
+    model = GenerationFake()
+    assert refill(session, settings, operations, model) == {
+        "outcome": "idle",
+        "available": 100,
+    }
+    assert model.calls == []
+    pool(session).candidates = pool(session).candidates[:99]
+    assert refill(session, settings, operations, model)["available"] == 109
+    assert pool(session).refilling
+    for index in range(1, 6):
+        refill(session, settings, operations, model, NOW + timedelta(minutes=index))
+    assert len(pool(session).candidates) == 150
+    assert not pool(session).refilling
+    assert model.calls[-1]["count"] == 1
+    count = len(model.calls)
+    assert (
+        refill(session, settings, operations, model, NOW + timedelta(minutes=6))[
+            "outcome"
+        ]
+        == "idle"
+    )
+    assert len(model.calls) == count
+
+
+def test_urgent_refill_uses_15_seconds_and_normal_refill_uses_60(session, settings):
+    from scraper_fake import GenerationFake
+
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "working"
+    model = GenerationFake()
+    assert refill(session, settings, operations, model)["available"] == 10
+    assert (
+        refill(session, settings, operations, model, NOW + timedelta(seconds=14))[
+            "outcome"
+        ]
+        == "cooldown"
+    )
+    assert (
+        refill(session, settings, operations, model, NOW + timedelta(seconds=15))[
+            "available"
+        ]
+        == 20
+    )
+    assert (
+        refill(session, settings, operations, model, NOW + timedelta(seconds=30))[
+            "available"
+        ]
+        == 30
+    )
+    assert (
+        refill(session, settings, operations, model, NOW + timedelta(seconds=89))[
+            "outcome"
+        ]
+        == "cooldown"
+    )
+    assert (
+        refill(session, settings, operations, model, NOW + timedelta(seconds=90))[
+            "available"
+        ]
+        == 40
+    )
+    # Consuming a batch shortens successful refill pacing as the reserve empties.
+    operations.rollover_state_override = "ready"
+    result = asyncio.run(
+        run_automatic_keyword_rollover(
+            session, settings, operations=operations, now=NOW + timedelta(seconds=91)
+        )
+    )
+    assert result["activated"] == 25
+    operations.rollover_state_override = "working"
+    assert (
+        refill(session, settings, operations, model, NOW + timedelta(seconds=105))[
+            "available"
+        ]
+        == 25
+    )
+
+
+def test_error_backoff_does_not_block_a_prepared_activation(session, settings):
+    from scraper_fake import GenerationFake
+
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "working"
+    session.add(
+        models.KeywordCandidatePool(
+            id=1,
+            candidates=[{"term": term, "model": "fixture"} for term in terms(1, 25)],
+        )
+    )
+    failure = generation_error(GenerationErrorCode.RATE_LIMITED)
+    assert (
+        refill(session, settings, operations, GenerationFake(error=failure))["outcome"]
+        == "generation_failed"
+    )
+    operations.rollover_state_override = "ready"
+    assert (
+        asyncio.run(
+            run_automatic_keyword_rollover(
+                session, settings, operations=operations, now=NOW + timedelta(seconds=5)
+            )
+        )["activated"]
+        == 25
+    )
+    operations.rollover_state_override = "working"
+    model = GenerationFake()
+    assert (
+        refill(session, settings, operations, model, NOW + timedelta(seconds=30))[
+            "outcome"
+        ]
+        == "cooldown"
+    )
+    assert model.calls == []
+    assert pool(session).next_refill_at == (NOW + timedelta(minutes=15)).replace(
+        tzinfo=None
+    )
+
+
+def test_disabled_refill_does_not_call_the_provider(session, settings):
+    from scraper_fake import GenerationFake
+
+    operations = ScraperFake()
+    model = GenerationFake()
+    assert refill(session, settings, operations, model) == {
+        "outcome": "idle",
+        "state": "off",
+    }
+    assert model.calls == []
