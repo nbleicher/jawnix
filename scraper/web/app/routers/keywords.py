@@ -67,8 +67,17 @@ async def rollover_context(request: Request) -> dict:
     active_jobs = int(progress["active_jobs"] or 0)
     completed_pairs = int(progress["completed_pairs"] or 0)
     expected_jobs = max(0, expected_jobs - int(progress["avoided_jobs"] or 0))
+    ready_states=[]
+    if request.app.state.settings.independent_state_backlogs:
+        by_state=await fetch(request,queries.STATE_CAMPAIGN_ROLLOVER_PROGRESS,keyword_keys,states)
+        ready_states=[row['state'].upper() for row in by_state
+                      if row['registered_pairs']==len(keyword_keys)
+                      and row['completed_pairs']==len(keyword_keys) and row['active_jobs']==0]
     if not status["enabled"]:
         state = {"key": "off", "label": "Off", "detail": "Manual keyword batches"}
+    elif ready_states:
+        state = {"key":"ready","label":"State backlog ready",
+                 "detail":f"{', '.join(ready_states)} needs fresh keywords. Unfinished campaigns continue in their state backlogs."}
     elif posted_jobs < expected_jobs or completed_pairs < expected_pairs:
         state = {
             "key": "working", "label": "Current batch active",

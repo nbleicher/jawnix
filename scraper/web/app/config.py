@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     exports_dir: Path = Path("/app/exports/by_state")
     worker_stale_secs: int = 180
     expected_workers: int = 8
+    independent_state_backlogs: bool = False
     telemetry_stale_secs: int = 180
     queue_max_depth: int = 500
     queue_max_age_mins: float = 30
