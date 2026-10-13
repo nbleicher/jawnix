@@ -478,9 +478,9 @@ async def test_new_endpoint_yield_survives_control_serialization(app_client):
     conn = await asyncpg.connect(settings.database_url)
     try:
         await conn.execute("""INSERT INTO scrape_results(job_id,keyword,new_phone_count,yield_verified)
-            VALUES(95001,'plumbers',9,true)""")
+            VALUES(95001,'Plumbers',9,true)""")
         await conn.execute("""INSERT INTO scrape_attempts(job_id,attempt,keyword,state,cell,outcome,duration_ms)
-            VALUES(95001,1,'plumbers','tn','35,-86','success',30000)""")
+            VALUES(95001,1,'Plumbers','tn','35,-86','success',30000)""")
         await conn.execute("""INSERT INTO acquisition_phone_registry(phone,first_job_id)
             VALUES('6159999901',95001),('6159999902',95001)""")
         application = create_app(settings)
