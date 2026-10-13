@@ -166,6 +166,8 @@ def test_keyword_workspace_projects_editor_rankings_and_rollover(
         "phones_per_cell": 2.48,
         "phone_rate": 0.62,
         "last_used": "Jul 28",
+        "new_phone_count": 0,
+        "new_phones_per_minute": 0.0,
     }
     assert sorted(fake.keyword_calls) == ["list", "winners"]
     assert set(

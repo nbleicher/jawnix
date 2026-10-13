@@ -48,6 +48,8 @@ class KeywordWinner(BaseModel):
     posted_cells: int = Field(ge=0)
     phones_per_cell: float = Field(ge=0)
     phone_rate: float = Field(ge=0)
+    new_phone_count: int = Field(default=0, ge=0)
+    new_phones_per_minute: float = Field(default=0, ge=0)
     last_used: str
 
     @field_validator("last_used", mode="before")

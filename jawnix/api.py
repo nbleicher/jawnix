@@ -224,6 +224,7 @@ from .transitions import TransitionError, transition_request
 from .request_updates import request_events, request_updates_lifespan
 from .models import ManagedAdmin
 from .managed_admin_api import router as managed_admin_router
+from .acquisition_yield_api import router as acquisition_yield_router
 
 
 MAX_CSV_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -238,6 +239,7 @@ log = logging.getLogger("jawnix.api")
 
 app = FastAPI(title="Jawnix VPS API", version="1.0.0", lifespan=request_updates_lifespan)
 app.include_router(admin_mfa_router)
+app.include_router(acquisition_yield_router)
 app.include_router(native_scraper_router)
 app.include_router(managed_admin_router)
 

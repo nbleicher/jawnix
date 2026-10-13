@@ -188,7 +188,10 @@ class Ledger:
                     (kw, st, day),
                 )
                 if cur.fetchone()[0] >= total_cells:
-                    complete.append((kw, st, day))
+                    cur.execute("SELECT status FROM keyword_yield_evaluations WHERE keyword=%s AND state=%s ORDER BY started_on DESC LIMIT 1", (kw,st))
+                    evaluation=cur.fetchone()
+                    if evaluation is None or evaluation[0] == "legacy":
+                        complete.append((kw, st, day))
             if complete:
                 cur.executemany(
                     "INSERT INTO keyword_history (keyword, state, last_enqueued) VALUES (%s,%s,%s) "
@@ -402,7 +405,7 @@ def prepare_jobs(args) -> tuple[dict, list, dict, object | None, date, str, int,
             recent = ledger.load_recent(skip_days)
             done = ledger.load_done(today, states_cfg["states"])
             started_on = date.fromtimestamp(Path(args.keywords).stat().st_mtime)
-            jobs = eligible_jobs(ledger, jobs, started_on, today)
+            jobs = eligible_jobs(ledger, jobs, started_on, today, q)
             jobs, n_recent, n_done = filter_jobs(jobs, recent, done)
             print(f"  Ledger: skipped {n_recent:,} (recent ≤{skip_days}d, O-12) + "
                   f"{n_done:,} (already queued/reserved today, O-11)")

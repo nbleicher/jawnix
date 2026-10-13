@@ -46,6 +46,14 @@ export interface QueueSettings {
   batch_size: number;
   poll_secs: number;
   skip_recent_days: number;
+  yield_pilot_cells: number;
+  yield_wave_cells: number;
+  yield_min_new_phones: number;
+  yield_min_productive_cells: number;
+  yield_wave_min_new_phones: number;
+  yield_wave_min_productive_cells: number;
+  yield_max_cells: number;
+
 }
 
 export interface StateOverride {

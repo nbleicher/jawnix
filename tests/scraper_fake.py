@@ -341,6 +341,14 @@ RUNTIME_CONFIGURATION = {
         "batch_size": 100,
         "poll_secs": 5,
         "skip_recent_days": 0,
+        "yield_pilot_cells": 6,
+        "yield_wave_cells": 12,
+        "yield_min_new_phones": 3,
+        "yield_min_productive_cells": 2,
+        "yield_wave_min_new_phones": 3,
+        "yield_wave_min_productive_cells": 2,
+        "yield_max_cells": 0,
+
     },
     "overrides": {},
 }

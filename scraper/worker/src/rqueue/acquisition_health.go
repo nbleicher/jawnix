@@ -33,7 +33,7 @@ func (h *AcquisitionHealth) Delay(ctx context.Context) (time.Duration, error) {
 	return 0, err
 }
 
-func (h *AcquisitionHealth) Record(job *river.Job[ScrapeJobArgs], failure error, results, phones int) error {
+func (h *AcquisitionHealth) Record(job *river.Job[ScrapeJobArgs], failure error, results, phones int, elapsed ...time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	outcome := "success"
@@ -51,9 +51,13 @@ func (h *AcquisitionHealth) Record(job *river.Job[ScrapeJobArgs], failure error,
 		return err
 	}
 	defer tx.Rollback(ctx)
-	tag, err := tx.Exec(ctx, `INSERT INTO scrape_attempts (job_id,attempt,keyword,state,cell,outcome,result_count,phone_count)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING`,
-		job.ID, job.Attempt, job.Args.Keyword, job.Args.State, job.Args.GeoCoordinates, outcome, results, phones)
+	durationMs := int64(0)
+	if len(elapsed) > 0 {
+		durationMs = max(1, elapsed[0].Milliseconds())
+	}
+	tag, err := tx.Exec(ctx, `INSERT INTO scrape_attempts (job_id,attempt,keyword,state,cell,outcome,result_count,phone_count,duration_ms)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`,
+		job.ID, job.Attempt, job.Args.Keyword, job.Args.State, job.Args.GeoCoordinates, outcome, results, phones, durationMs)
 	if err != nil {
 		return err
 	}

@@ -39,6 +39,8 @@ func healthFixture(t *testing.T) *AcquisitionHealth {
 	require.NoError(t, err)
 	_, err = db.Exec(ctx, strings.Split(string(migration), "-- +migrate Down")[0])
 	require.NoError(t, err)
+	_, err = db.Exec(ctx, "ALTER TABLE scrape_attempts ADD COLUMN duration_ms BIGINT NOT NULL DEFAULT 0")
+	require.NoError(t, err)
 	return NewAcquisitionHealth(db)
 }
 

@@ -497,6 +497,8 @@ export function ScraperOverviewRoute() {
                     <Metric label="Phone leads" value={count(data.stats?.phone_businesses)} />
                     <Metric label="Unique phones" value={count(data.stats?.unique_phones)} />
                     <Metric label="Added / hour" value={count(data.stats?.added_last_hour)} />
+                    <Metric label="New unique phones / hour" value={count(data.stats?.new_phones_last_hour)} />
+                    <Metric label="New unique phones / min" value={count(data.stats?.new_phones_last_minute)} />
                     <Metric label="Projected / day" value={count((data.stats?.added_last_hour ?? 0) * 24)} />
                     <Metric label="Empty rate" value={ratio(data.stats?.empty_rate)} />
                   </div>
