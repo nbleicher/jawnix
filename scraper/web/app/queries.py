@@ -387,6 +387,20 @@ SELECT
     AND lower(args->>'state')=ANY($2::text[])) AS active_jobs
 """
 
+STATE_CAMPAIGN_ROLLOVER_PROGRESS = """
+SELECT b.state,count(*) AS registered_pairs,
+       count(*) FILTER (WHERE e.status IN ('rejected','unverified','completed') OR
+         EXISTS(SELECT 1 FROM keyword_history h WHERE h.keyword=b.keyword AND h.state=b.state
+                 AND h.last_enqueued>=b.started_on)) AS completed_pairs,
+       (SELECT count(*) FROM river_job j WHERE j.kind='scrape'
+         AND j.state IN ('available','pending','scheduled','retryable','running')
+         AND lower(j.args->>'state')=b.state AND lower(j.args->>'keyword')=ANY($1::text[])) AS active_jobs
+FROM state_campaign_backlog b
+LEFT JOIN keyword_yield_evaluations e ON e.keyword=b.keyword AND e.state=b.state AND e.started_on=b.started_on
+WHERE lower(b.keyword)=ANY($1::text[]) AND b.state=ANY($2::text[])
+GROUP BY b.state
+"""
+
 SET_AUTO_KEYWORD_ROLLOVER = """
 INSERT INTO app_config (key,value,encrypted,updated_at)
 VALUES ('auto_keyword_rollover',$1,false,NOW())

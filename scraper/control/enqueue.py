@@ -50,6 +50,7 @@ REPO = HERE.parent
 sys.path.insert(0, str(HERE))
 from grid import generate_grid_cells, STATE_CONFIG  # noqa: E402
 from yield_gate import eligible_jobs  # noqa: E402
+from state_campaigns import prepare as prepare_state_campaigns  # noqa: E402
 
 
 # ── Inputs ────────────────────────────────────────────────────────────────────
@@ -399,6 +400,9 @@ def top_up(api_base: str, jobs: list, cursor: int, target_depth: int, batch_size
 
 
 def prepare_jobs(args) -> tuple[dict, list, dict, object | None, date, str, int, int, int, str | None]:
+    independent=os.environ.get('GMS_STATE_BACKLOGS','').lower() in ('1','true','yes')
+    if independent and not args.dry_run and (args.no_ledger or not args.dsn):
+        raise RuntimeError('Independent state backlogs require the durable acquisition ledger')
     states_cfg = load_states(Path(args.states))
     keywords = load_keywords(Path(args.keywords))
     api_base = args.api_base or states_cfg["api_base"]
@@ -428,11 +432,17 @@ def prepare_jobs(args) -> tuple[dict, list, dict, object | None, date, str, int,
                     min_target_depth,
                     min(max_target_depth, alive_workers * target_per_worker),
                 )
-            recent = ledger.load_recent(skip_days)
-            done = ledger.load_done(today, states_cfg["states"])
             started_on = date.fromtimestamp(Path(args.keywords).stat().st_mtime)
-            jobs = eligible_jobs(ledger, jobs, started_on, today, q)
-            jobs, n_recent, n_done = filter_jobs(jobs, recent, done)
+            if independent:
+                jobs,expected_cells,selected = prepare_state_campaigns(
+                    ledger,states_cfg,keywords,started_on,today,build_jobs,eligible_jobs)
+                n_recent=n_done=0
+                print(f"  Independent state backlogs: {selected}")
+            else:
+                recent = ledger.load_recent(skip_days)
+                done = ledger.load_done(today, states_cfg["states"])
+                jobs = eligible_jobs(ledger, jobs, started_on, today, q)
+                jobs, n_recent, n_done = filter_jobs(jobs, recent, done)
             print(f"  Ledger: skipped {n_recent:,} (recent ≤{skip_days}d, O-12) + "
                   f"{n_done:,} (already queued/reserved today, O-11)")
         except Exception as e:
