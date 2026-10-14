@@ -94,6 +94,20 @@ interface CreatedCustomer {
   mappingConfirmed: boolean;
 }
 
+interface ArchivedCustomerMatch {
+  id: number;
+  name: string;
+  slug: string;
+  email: string;
+}
+
+interface CustomerInvitation {
+  name: string;
+  email: string;
+  first_name: string | undefined;
+  last_name: string | undefined;
+}
+
 interface NicheAssignmentUploadStatus {
   id: string;
   filename: string;
@@ -303,25 +317,39 @@ function CreateCustomerDialog({
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
+  const [matches, setMatches] = useState<ArchivedCustomerMatch[]>([]);
+  const [invitation, setInvitation] = useState<CustomerInvitation | null>(null);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const fields = new FormData(event.currentTarget);
     const text = (key: string) => String(fields.get(key) ?? "").trim();
+    const values = {
+      name: text("name"),
+      email: text("email"),
+      first_name: text("first_name") || undefined,
+      last_name: text("last_name") || undefined,
+    };
+    setInvitation(values);
+    await sendInvitation(values);
+  }
+
+  async function sendInvitation(values: CustomerInvitation, restoreCustomerId?: number, createNewIdentity = false) {
     setBusy(true);
     setFailure("");
     try {
       const created = await api<CreatedCustomer>("/api/admin/customers", {
         method: "POST",
         body: JSON.stringify({
-          name: text("name"),
-          email: text("email"),
-          first_name: text("first_name") || undefined,
-          last_name: text("last_name") || undefined,
+          ...values,
+          ...(restoreCustomerId ? { restore_customer_id: restoreCustomerId } : {}),
+          ...(createNewIdentity ? { create_new_identity: true } : {}),
         }),
       });
       await navigate(`/admin/customers/${created.customerId}`);
     } catch (caught) {
+      const conflict = caught as { detail?: { archivedCustomers?: ArchivedCustomerMatch[] } };
+      setMatches(conflict.detail?.archivedCustomers ?? []);
       // The dialog stays open so the operator keeps everything they typed.
       setFailure(errorMessage(caught));
     } finally {
@@ -336,29 +364,45 @@ function CreateCustomerDialog({
       title="Create Customer"
       description="This creates the durable Customer and emails an invitation to the first User Account. The Customer sets Licensed States from Account after accepting; administrators never set or see a password."
     >
-      <form onSubmit={(event) => void submit(event)}>
+      <form onSubmit={(event) => void submit(event)} onChange={() => setMatches([])}>
         <Stack gap={4}>
           {failure ? (
             <Text role="alert" tone="danger" size="sm">
               {failure}
             </Text>
           ) : null}
+          {matches.length > 0 && invitation ? (
+            <Stack gap={3}>
+              <Text>Confirm the returning customer before restoring previous batches, billing, and lead history.</Text>
+              {matches.map((match) => (
+                <Stack key={match.id} gap={2}>
+                  <Text>{match.name} · {match.slug}{match.email ? ` · ${match.email}` : ""}</Text>
+                  <Button busy={busy} onClick={() => void sendInvitation(invitation, match.id)}>
+                    Restore {match.slug} and send invitation
+                  </Button>
+                </Stack>
+              ))}
+              <Button busy={busy} onClick={() => void sendInvitation(invitation, undefined, true)}>
+                Create separate Customer without old history
+              </Button>
+            </Stack>
+          ) : null}
           <Field label="Customer name" required>
-            <Input name="name" autoComplete="off" autoFocus />
+            <Input name="name" autoComplete="off" autoFocus disabled={busy} />
           </Field>
           <Field
             label="Email"
             description="The invitation is sent here. It is the address that signs in, not the Customer's identity."
             required
           >
-            <Input name="email" type="email" autoComplete="off" />
+            <Input name="email" type="email" autoComplete="off" disabled={busy} />
           </Field>
           <Grid minColumnWidth="12rem" gap={4}>
-            <Field label="First name">
-              <Input name="first_name" autoComplete="off" />
+            <Field label="First name" description="Enter both names to check for archived customer history.">
+              <Input name="first_name" autoComplete="off" disabled={busy} />
             </Field>
             <Field label="Last name">
-              <Input name="last_name" autoComplete="off" />
+              <Input name="last_name" autoComplete="off" disabled={busy} />
             </Field>
           </Grid>
           <Cluster gap={3}>

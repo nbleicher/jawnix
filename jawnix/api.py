@@ -56,6 +56,7 @@ from .customer_directory import (
     build_customer_directory,
     customer_dependency_counts,
 )
+from .customer_history import archived_customer_matches, remember_customer_name, request_history_scope
 from .customer_overview import build_customer_overview
 from .customer_requests import (
     RequestSubmissionError,
@@ -1225,8 +1226,8 @@ def customer_batch_request_events(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    _current_customer_profile(db, principal)
-    scope = {str(value) for value in db.scalars(select(LeadRequest.id).where(LeadRequest.user_id == principal.user_id))}
+    profile = _current_customer_profile(db, principal)
+    scope = {str(value) for value in db.scalars(select(LeadRequest.id).where(request_history_scope(profile, principal.user_id)))}
     db.close()
     async def authorize():
         try:
@@ -1242,8 +1243,8 @@ def customer_batch_request_detail(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
-    _current_customer_profile(db, principal)
-    item = db.scalar(select(LeadRequest).where(LeadRequest.id == request_id, LeadRequest.user_id == principal.user_id))
+    profile = _current_customer_profile(db, principal)
+    item = db.scalar(select(LeadRequest).where(LeadRequest.id == request_id, request_history_scope(profile, principal.user_id)))
     if item is None:
         raise HTTPException(status_code=404, detail="Request was not found.")
     return request_detail(item)
@@ -1384,6 +1385,7 @@ def update_profile(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
+    _current_customer_profile(db, principal)
     profile = db.scalar(
         select(CustomerProfile)
         .where(CustomerProfile.user_id == principal.user_id)
@@ -1413,9 +1415,10 @@ def update_profile(
 
 @app.get("/api/me/requests", response_model=list[RequestOut])
 def list_my_requests(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
+    profile = _current_customer_profile(db, principal)
     return list(
         db.scalars(
-            select(LeadRequest).where(LeadRequest.user_id == principal.user_id).order_by(LeadRequest.created_at.desc())
+            select(LeadRequest).where(request_history_scope(profile, principal.user_id)).order_by(LeadRequest.created_at.desc())
         )
     )
 
@@ -1460,7 +1463,7 @@ def lookup_feedback(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
-    profile = db.get(CustomerProfile, principal.user_id)
+    profile = _current_customer_profile(db, principal)
     phone = normalize_phone(payload.phone)
     if (
         profile is None
@@ -1510,7 +1513,7 @@ def search_feedback(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
-    profile = db.get(CustomerProfile, principal.user_id)
+    profile = _current_customer_profile(db, principal)
     if profile is None or profile.customer_id is None:
         return []
     query = payload.query
@@ -1532,7 +1535,6 @@ def search_feedback(
             .where(
                 DistributionEvent.agent_id == profile.customer_id,
                 LeadRequest.agent_id == profile.customer_id,
-                LeadRequest.user_id == principal.user_id,
                 LeadRequest.status == RequestStatus.delivered.value,
                 or_(*conditions),
             )
@@ -1571,7 +1573,7 @@ def _customer_distribution(
     principal: Principal,
     event_id: int,
 ) -> tuple[CustomerProfile, DistributionEvent]:
-    profile = db.get(CustomerProfile, principal.user_id)
+    profile = _current_customer_profile(db, principal)
     if profile is None or profile.customer_id is None:
         raise HTTPException(status_code=404, detail="Customer was not found.")
     event = db.scalar(
@@ -2390,7 +2392,7 @@ def create_request(
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
-    profile = db.get(CustomerProfile, principal.user_id)
+    profile = _current_customer_profile(db, principal)
     if (
         profile is None
         or profile.customer is None
@@ -2559,9 +2561,18 @@ def admin_inventory_conflict_detail(
     return describe_conflict(db, conflict)
 
 
+def _available_account_profiles(db: Session) -> list[CustomerProfile]:
+    return list(db.scalars(
+        select(CustomerProfile)
+        .outerjoin(UserAccount, UserAccount.auth_user_id == CustomerProfile.user_id)
+        .where(or_(UserAccount.auth_user_id.is_(None), UserAccount.active.is_(True)))
+        .order_by(CustomerProfile.email)
+    ))
+
+
 @app.get("/api/admin/recipients", include_in_schema=False)
 def admin_recipients(_: Principal = Depends(require_admin), db: Session = Depends(get_db)):
-    profiles = list(db.scalars(select(CustomerProfile).order_by(CustomerProfile.email)))
+    profiles = _available_account_profiles(db)
     agencies = list(db.scalars(select(Agency).where(Agency.deleted_at.is_(None)).order_by(Agency.name)))
     agents = list(
         db.scalars(
@@ -2615,11 +2626,7 @@ def admin_customers(
             .order_by(Customer.name)
         )
     )
-    profiles = list(
-        db.scalars(
-            select(CustomerProfile).order_by(CustomerProfile.email)
-        )
-    )
+    profiles = _available_account_profiles(db)
     agencies = list(
         db.scalars(
             select(Agency)
@@ -4431,11 +4438,13 @@ def delete_customer(
         db.delete(customer)
         db.commit()
         return {"ok": True, "hardDeleted": True}
+    remember_customer_name(db, customer)
     for profile in db.scalars(
         select(CustomerProfile).where(
             CustomerProfile.agent_id == customer.id
         )
     ):
+        profile.email = f"archived-{profile.user_id}@invalid.local"
         profile.customer_id = None
         profile.mapping_confirmed_at = None
     for account in db.scalars(
@@ -4552,6 +4561,10 @@ def erase_customer_personal_data(
     customer.slug = f"deleted-customer-{customer.id}"
     customer.licensed_states = []
     customer.deleted_at = customer.deleted_at or utcnow()
+    from .models import CustomerHistoryIdentity
+    identity = db.get(CustomerHistoryIdentity, customer.id)
+    if identity is not None:
+        db.delete(identity)
     record_activity(
         db,
         action="customer_personal_data_erased",
@@ -4965,18 +4978,35 @@ async def create_customer(
                 "Agency assignment."
             ),
         )
-    slug = _customer_slug(db, name, payload.slug)
+    matches = archived_customer_matches(db, payload.first_name, payload.last_name)
+    customer = None
+    if payload.restore_customer_id is not None:
+        if payload.create_new_identity or payload.restore_customer_id not in {match["id"] for match in matches}:
+            raise HTTPException(status_code=409, detail="The selected archived Customer does not match this first and last name.")
+        customer = db.scalar(select(Customer).where(Customer.id == payload.restore_customer_id).with_for_update().execution_options(populate_existing=True))
+        # Recheck after locking: concurrent restoration cannot invite two
+        # accounts or turn a now-active Customer into a new restoration.
+        if customer is None or customer.active or customer.deleted_at is None or db.scalar(select(CustomerTombstone.id).where(CustomerTombstone.former_customer_id == customer.id)) is not None:
+            raise HTTPException(status_code=409, detail="This Customer has already been restored.")
+    elif matches and not payload.create_new_identity:
+        raise HTTPException(status_code=409, detail={
+            "message": "Archived customer history matches this first and last name. Confirm which Customer to restore, or create a separate Customer.",
+            "archivedCustomers": matches,
+        })
+    slug = customer.slug if customer is not None else _customer_slug(db, name, payload.slug)
     auth_user_id = await _dispatch_invitation(settings, payload)
-    creation_reason = "Created a Customer and invited its User Account"
+    restored = customer is not None
+    creation_reason = ("Operator approved archived Customer restoration and invited a new User Account"
+                       if restored else "Created a Customer and invited its User Account")
 
-    customer = Customer(
-        slug=slug,
-        name=name,
-        licensed_states=[],
-        agency_id=None,
-        active=True,
-    )
-    db.add(customer)
+    if customer is None:
+        customer = Customer(slug=slug, name=name, licensed_states=[], agency_id=None, active=True)
+        db.add(customer)
+    else:
+        customer.active = True
+        customer.deleted_at = None
+        if customer.agency is not None and (not customer.agency.active or customer.agency.deleted_at is not None):
+            customer.agency_id = None
     db.flush()
     profile = db.get(CustomerProfile, auth_user_id)
     if profile is None:
@@ -4994,13 +5024,13 @@ async def create_customer(
     db.flush()
     record_activity(
         db,
-        action="customer_created",
+        action="customer_history_restored" if restored else "customer_created",
         target_type="customer",
         target_id=customer.id,
         actor_id=principal.user_id,
         reason=creation_reason,
         details={
-            "before": None,
+            "before": {"archived": True} if restored else None,
             "after": {
                 "slug": customer.slug,
                 "name": customer.name,
@@ -5008,6 +5038,7 @@ async def create_customer(
                 "agencyId": customer.agency_id,
                 "licensedStates": list(customer.licensed_states),
             },
+            **({"operatorApproved": True, "historyPreserved": True} if restored else {}),
         },
     )
     try:
@@ -5031,6 +5062,7 @@ async def create_customer(
         "slug": customer.slug,
         "userId": str(result.auth_user_id),
         "mappingConfirmed": result.activated,
+        "historyRestored": restored,
     }
 
 

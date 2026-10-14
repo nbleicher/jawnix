@@ -234,6 +234,8 @@ class CustomerCreate(BaseModel):
     agency_id: int | None = None
     first_name: str = Field(default="", max_length=120)
     last_name: str = Field(default="", max_length=120)
+    restore_customer_id: int | None = Field(default=None, gt=0)
+    create_new_identity: bool = False
 
 
 class UserAccountInvite(BaseModel):

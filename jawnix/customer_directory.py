@@ -99,6 +99,7 @@ _PENDING_INVITATION = CustomerAdminStatus(
 
 #: Audit actions worth surfacing on Customer details, in administrator words.
 _ACTIVITY_LABELS: dict[str, str] = {
+    "customer_history_restored": "Archived customer history restored",
     "customer_inventory_scope_changed": "Inventory database or manager changed",
     "customer_manager_assigned": "Managed administrator assigned",
     "customer_created": "Customer created",

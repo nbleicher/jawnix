@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .fulfillment import artifact_available
+from .customer_history import request_history_scope
 from .models import (
     AuditEntry,
     CustomerProfile,
@@ -114,7 +115,7 @@ def build_customer_overview(
     requests = list(
         db.scalars(
             select(LeadRequest)
-            .where(LeadRequest.user_id == user_id)
+            .where(request_history_scope(profile, user_id))
             .order_by(LeadRequest.created_at.desc(), LeadRequest.id.desc())
         )
     )
