@@ -183,6 +183,23 @@ def nightly_reviews_needing_attention(
     )
     attention = []
     for review in reviews:
+        resolution = (
+            review.summary.get("resolution")
+            if isinstance(review.summary, dict)
+            else None
+        )
+        if (
+            review.status == "missed"
+            and review.telegram_delivery_state != "unknown"
+            and isinstance(resolution, dict)
+            and resolution.get("outcome") == "publication_missed_during_outage"
+            and resolution.get("operatorApproved") is True
+            and resolution.get("resolvedAt")
+            and resolution.get("resolvedBy")
+        ):
+            # Closure preserves the missed publication and failure evidence.
+            # It does not claim a publication succeeded or hide unknown delivery.
+            continue
         failures = (
             review.summary.get("failures")
             if isinstance(review.summary, dict)

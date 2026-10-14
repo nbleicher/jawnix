@@ -100,6 +100,63 @@ def test_nightly_review_count_is_not_capped_by_workspace_history(session):
     assert reviews.items[0].status == "Waiting publication"
 
 
+def test_closed_missed_publication_preserves_history_without_pending_work(session):
+    failure = {"kind": "publication_delayed", "message": "No publication recorded."}
+    review = NightlyReview(
+        status="missed",
+        summary={
+            "failures": [failure],
+            "resolution": {
+                "outcome": "publication_missed_during_outage",
+                "resolvedAt": "2026-10-14T16:00:00Z",
+                "resolvedBy": "system:conductor",
+                "operatorApproved": True,
+            },
+        },
+        telegram_delivery_state="pending",
+    )
+    session.add(review)
+    session.flush()
+
+    source = overview.read_acquisition_source(session)
+    reviews = next(
+        queue for queue in source.queues if queue.key == "nightlyReviews"
+    )
+
+    assert reviews.count == 0
+    assert review.status == "missed"
+    assert review.summary["failures"] == [failure]
+
+
+def test_missed_review_requires_explicit_resolution_and_known_delivery(session):
+    resolution = {
+        "outcome": "publication_missed_during_outage",
+        "resolvedAt": "2026-10-14T16:00:00Z",
+        "resolvedBy": "system:conductor",
+        "operatorApproved": True,
+    }
+    for summary, delivery in [
+        ({"failures": [{"kind": "publication_delayed"}]}, "pending"),
+        ({"resolution": {**resolution, "operatorApproved": False}}, "pending"),
+        ({"resolution": resolution}, "unknown"),
+    ]:
+        session.add(
+            NightlyReview(
+                status="missed",
+                summary=summary,
+                telegram_delivery_state=delivery,
+            )
+        )
+    session.flush()
+
+    source = overview.read_acquisition_source(session)
+    reviews = next(
+        queue for queue in source.queues if queue.key == "nightlyReviews"
+    )
+
+    assert reviews.count == 3
+
+
 def test_breaking_one_source_degrades_only_that_section(
     session,
     monkeypatch,
