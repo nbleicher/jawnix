@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CustomerDirectoryData } from "./AdminCustomers";
 import { AdminCustomersRoute } from "./AdminCustomers";
@@ -68,6 +68,32 @@ function renderDirectory(data: CustomerDirectoryData) {
 }
 
 describe("administrator Customer directory", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("requires a second operator action to restore matching archived history", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ detail: {
+      message: "Confirm archived customer history.",
+      archivedCustomers: [{ id: 19, name: "River Morgan", slug: "river-morgan", email: "old@example.com" }],
+    } }), { status: 409, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Captured confirmation" }), { status: 409 }));
+    vi.stubGlobal("fetch", fetcher);
+    const user = userEvent.setup();
+    renderDirectory(directory());
+    await user.click(screen.getByRole("button", { name: "Create Customer" }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/Customer name/), "River Morgan");
+    await user.type(within(dialog).getByLabelText(/Email/), "new@example.com");
+    await user.type(within(dialog).getByLabelText("First name"), "River");
+    await user.type(within(dialog).getByLabelText("Last name"), "Morgan");
+    await user.click(within(dialog).getByRole("button", { name: "Create Customer and send invitation" }));
+    const restore = await screen.findByRole("button", { name: "Restore river-morgan and send invitation" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetcher.mock.calls[0]![1].body)).not.toHaveProperty("restore_customer_id");
+    expect(screen.getByRole("button", { name: "Create separate Customer without old history" })).toBeVisible();
+    await user.click(restore);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(fetcher.mock.calls[1]![1].body)).toMatchObject({ email: "new@example.com", restore_customer_id: 19 });
+  });
   it("shows durable Customer standing and replaceable access standing separately", () => {
     renderDirectory(directory());
 

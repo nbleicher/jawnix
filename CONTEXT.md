@@ -133,6 +133,10 @@ _Avoid_: Deleted customer, suspended request, erased history
 An anonymous Customer identity retained after personal data erasure when historical records exist. It preserves immutable audit and no-repeat history without retaining login or profile details.
 _Avoid_: Active customer, hard deletion
 
+**Archived Customer**:
+A Customer removed from active use whose name and history remain available for operator-approved restoration. An exact first-and-last-name match proposes restoration but never grants access by itself.
+_Avoid_: New customer, automatic account recovery
+
 **Licensed States**:
 The Customer-maintained set of states where the Customer is authorized to operate. Removing a state automatically narrows unallocated requests with notification, while additions apply only to future requests and historical distributions never change.
 _Avoid_: Preferred states, administrator-assigned states

@@ -22,6 +22,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from .customer_history import request_history_scope
 
 from .billing import (
     BillingError,
@@ -207,7 +208,7 @@ def build_request_workspace(
     items = list(
         db.scalars(
             select(LeadRequest)
-            .where(LeadRequest.user_id == user_id)
+            .where(request_history_scope(profile, user_id))
             .order_by(LeadRequest.created_at.desc(), LeadRequest.id.desc())
             .limit(history_limit)
         )
@@ -371,11 +372,12 @@ def cancel_request(
 ) -> LeadRequest:
     """Withdraw a Batch Request that has not committed any distribution yet."""
 
+    profile = db.get(CustomerProfile, user_id)
     item = db.scalar(
         select(LeadRequest)
         .where(
             LeadRequest.id == request_id,
-            LeadRequest.user_id == user_id,
+            request_history_scope(profile, user_id) if profile is not None else LeadRequest.user_id == user_id,
         )
         .with_for_update()
     )

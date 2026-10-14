@@ -128,6 +128,19 @@ class Agent(Base):
 Customer = Agent
 
 
+class CustomerHistoryIdentity(Base):
+    __tablename__ = "customer_history_identities"
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True
+    )
+    first_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(120), nullable=False)
+
+    __table_args__ = (
+        Index("ix_customer_history_identity_name", "first_name", "last_name"),
+    )
+
+
 class AgencyMembershipHistory(Base):
     """One period of current membership, retained after every reassignment.
 
