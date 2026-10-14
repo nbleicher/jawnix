@@ -42,10 +42,10 @@ from .scraper_operations import (
 ROLLOVER_ACTOR = "system:keyword-rollover"
 ROLLOVER_TARGET = "scraper_keyword_rollover"
 ROLLOVER_FAILURE_COOLDOWN = timedelta(minutes=15)
-ACTIVATION_MESSAGE = "Activated 25 automatically generated keywords"
 POOL_TARGET = 150
 POOL_REFILL_BELOW = 100
 ACTIVATION_COUNT = 25
+MIN_ACTIVATION_COUNT = 5
 REFILL_INTERVAL = timedelta(seconds=60)
 URGENT_REFILL_INTERVAL = timedelta(seconds=15)
 _LOCK_NAMESPACE = 0x4A41574E
@@ -187,7 +187,7 @@ async def run_automatic_keyword_rollover(
     _, counts = _revalidate_pool(session, pool, workspace, winners, now)
     if len(pool.candidates) < POOL_REFILL_BELOW:
         pool.refilling = True
-    if workspace.rollover.state != "ready" or len(pool.candidates) < ACTIVATION_COUNT:
+    if workspace.rollover.state != "ready" or len(pool.candidates) < MIN_ACTIVATION_COUNT:
         return {"outcome": "pooling", "available": len(pool.candidates), "added": 0}
     return await _activate_pool(session, operations, workspace, pool, counts, now)
 
@@ -201,6 +201,8 @@ async def refill_keyword_reserve(
     now: datetime | None = None,
 ) -> dict:
     """Refill in short transactions, releasing the pool during the model call."""
+    if settings.keyword_catalogue_enabled:
+        return {"outcome": "idle", "reason": "catalogue_primary"}
     started_at = now or datetime.now(timezone.utc)
     operations = operations or HTTPScraperOperations(settings)
     with _generation_lock(session_factory) as acquired:
@@ -430,7 +432,7 @@ async def _activate_pool(
     )
     by_term = {item["term"]: item for item in reversed(pool.candidates)}
     pool.candidates = [by_term[term] for term in valid]
-    if len(pool.candidates) < ACTIVATION_COUNT:
+    if len(pool.candidates) < MIN_ACTIVATION_COUNT:
         return {"outcome": "pooling", "available": len(pool.candidates), "added": 0}
     selected = pool.candidates[:ACTIVATION_COUNT]
     terms = [item["term"] for item in selected]
@@ -477,7 +479,7 @@ async def _activate_pool(
                 status="generated",
                 previous_keywords=list(workspace.current),
                 next_keywords=list(saved.current),
-                message=ACTIVATION_MESSAGE,
+                message=f"Activated {len(selected)} automatically generated keywords",
             )
         )
     except ScraperOperationsError:
@@ -500,7 +502,7 @@ async def _activate_pool(
             "exclusions": counts,
         },
     )
-    pool.candidates = pool.candidates[ACTIVATION_COUNT:]
+    pool.candidates = pool.candidates[len(selected):]
     if len(pool.candidates) < POOL_REFILL_BELOW:
         pool.refilling = True
     return {"outcome": "generated", "activated": len(saved.current)}

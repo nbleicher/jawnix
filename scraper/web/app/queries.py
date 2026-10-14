@@ -413,3 +413,21 @@ INSERT INTO keyword_rollover_events (status,previous_keywords,next_keywords,mess
 VALUES ($1,$2::jsonb,$3::jsonb,$4)
 RETURNING id
 """
+
+
+CATEGORY_CATALOGUE_PROGRESS = """
+WITH decisions AS (
+ SELECT c.id,s.state,
+   (EXISTS(SELECT 1 FROM acquisition_category_aliases a JOIN keyword_history h
+       ON lower(h.keyword)=a.alias WHERE a.category_id=c.id AND h.state=s.state)
+    OR EXISTS(SELECT 1 FROM acquisition_category_aliases a JOIN keyword_yield_evaluations e
+       ON lower(e.keyword)=a.alias WHERE a.category_id=c.id AND e.state=s.state
+       AND (e.status IN ('rejected','completed','unverified','legacy') OR
+            (e.status='accepted' AND e.policy IS NULL)))) AS terminal
+ FROM acquisition_categories c CROSS JOIN unnest($1::text[]) AS s(state) WHERE c.enabled
+)
+SELECT count(*) AS expected_pairs,count(*) FILTER(WHERE terminal) AS completed_pairs,
+ (SELECT count(*) FROM river_job WHERE kind='scrape' AND state IN ('available','pending','scheduled','retryable','running') AND lower(args->>'state')=ANY($1::text[])) AS active_jobs,
+ (SELECT count(*) FROM acquisition_categories WHERE enabled) AS categories
+FROM decisions
+"""

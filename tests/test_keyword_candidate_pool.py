@@ -29,6 +29,44 @@ from scraper_fake import ScraperFake
 NOW = datetime(2026, 10, 12, 12, tzinfo=timezone.utc)
 
 
+def test_catalogue_mode_does_not_request_a_paid_automatic_refill(session, settings):
+    settings = settings.model_copy(update={"keyword_catalogue_enabled": True})
+    class UnexpectedProvider:
+        @property
+        def available(self):
+            raise AssertionError("Catalogue scheduling must not call a paid provider")
+    result = asyncio.run(refill_keyword_reserve(sessionmaker(session.get_bind(),expire_on_commit=False),settings,operations=ScraperFake(),provider=UnexpectedProvider(),now=NOW))
+    assert result == {"outcome": "idle", "reason": "catalogue_primary"}
+
+
+@pytest.mark.parametrize("count", [5, 17])
+def test_partial_prepared_batch_activates_without_paid_generation(session, settings, count):
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "ready"
+    prepared = terms(10000, count)
+    session.add(models.KeywordCandidatePool(id=1, candidates=[{"term": term, "model": "fixture"} for term in prepared]))
+    session.commit()
+    with session.begin():
+        outcome = asyncio.run(run_automatic_keyword_rollover(session, settings, operations=operations, now=NOW))
+    assert outcome == {"outcome": "generated", "activated": count}
+    assert operations.keywords == prepared
+    assert pool(session).candidates == []
+    assert operations.rollover_events[-1]["message"] == f"Activated {count} automatically generated keywords"
+
+
+def test_fewer_than_five_prepared_keywords_waits(session, settings):
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "ready"
+    session.add(models.KeywordCandidatePool(id=1, candidates=[{"term": term, "model": "fixture"} for term in terms(10000, 4)]))
+    session.commit()
+    with session.begin():
+        outcome = asyncio.run(run_automatic_keyword_rollover(session, settings, operations=operations, now=NOW))
+    assert outcome == {"outcome": "pooling", "available": 4, "added": 0}
+    assert operations.keyword_writes == []
+
+
 def test_empty_focus_does_not_block_the_next_focus(session, settings, monkeypatch):
     monkeypatch.setattr("jawnix.keyword_generation.KEYWORD_GENERATION_MAX_ATTEMPTS", 1)
     operations = ScraperFake()
@@ -233,11 +271,10 @@ def test_partial_generation_survives_a_new_database_session(
         followup = run(
             restarted, settings, operations, second, NOW + timedelta(minutes=1)
         )
-        assert followup["available"] == 7
-        assert {item["term"] for item in pool(restarted).candidates} == set(
-            terms(1, 3) + terms(100, 4)
-        )
-        assert operations.keyword_writes == []
+        assert followup == {"outcome": "generated", "activated": 7}
+        assert pool(restarted).candidates == []
+        assert set(operations.keywords) == set(terms(1, 3) + terms(100, 4))
+        assert len(operations.keyword_writes) == 1
 
 
 def test_candidates_are_generated_while_the_active_batch_is_working(
@@ -525,7 +562,7 @@ def test_credit_failure_preserves_partial_work_and_stops_fallback_requests(
 def test_history_import_during_generation_is_rechecked_before_activation(
     session, settings
 ):
-    prepared = terms(1, 15)
+    prepared = terms(1, 3)
     session.add(
         models.KeywordCandidatePool(
             id=1,
@@ -546,14 +583,13 @@ def test_history_import_during_generation_is_rechecked_before_activation(
 
     outcome = run(session, settings, operations, provider(settings, handler))
 
-    assert outcome["outcome"] == "pooling"
-    assert outcome["available"] == 24
-    assert operations.keyword_writes == []
-    assert prepared[0] not in [item["term"] for item in pool(session).candidates]
+    assert outcome == {"outcome": "generated", "activated": 12}
+    assert prepared[0] not in operations.keywords
+    assert pool(session).candidates == []
 
 
 def test_work_started_during_generation_delays_activation(session, settings):
-    prepared = terms(1, 15)
+    prepared = terms(1, 3)
     session.add(
         models.KeywordCandidatePool(
             id=1,
@@ -572,7 +608,7 @@ def test_work_started_during_generation_delays_activation(session, settings):
     outcome = run(session, settings, operations, provider(settings, handler))
 
     assert outcome["outcome"] == "pooling"
-    assert outcome["available"] == 25
+    assert outcome["available"] == 13
     assert operations.keyword_writes == []
 
 
@@ -588,7 +624,7 @@ def test_failed_activation_revalidation_keeps_newly_generated_candidates(
                 raise ScraperOperationsError(status_code=503)
             return await super().list_keywords()
 
-    prepared = terms(1, 15)
+    prepared = terms(1, 3)
     session.add(
         models.KeywordCandidatePool(
             id=1,
@@ -611,7 +647,7 @@ def test_failed_activation_revalidation_keeps_newly_generated_candidates(
     assert outcome == {"outcome": "revalidation_failed"}
     assert operations.keyword_writes == []
     with Session(session.get_bind(), expire_on_commit=False) as restarted:
-        assert len(pool(restarted).candidates) == 25
+        assert len(pool(restarted).candidates) == 13
 
 
 def refill(session, settings, operations, model, now=NOW):

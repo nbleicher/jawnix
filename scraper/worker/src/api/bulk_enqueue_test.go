@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -56,6 +57,10 @@ func batchFixture(t *testing.T) (http.Handler, *pgxpool.Pool) {
 		UNIQUE(keyword,state,cell,day));
 		CREATE TABLE keyword_history(keyword text,state text,last_enqueued date,PRIMARY KEY(keyword,state));
 		CREATE TABLE keyword_yield_evaluations(keyword text,state text,started_on date,status text,PRIMARY KEY(keyword,state,started_on));`)
+	require.NoError(t, err)
+	catalogueSQL, err := os.ReadFile("../migrations/20261014140100-category-identities.sql")
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, strings.Split(strings.Split(string(catalogueSQL), "-- +migrate Up")[1], "-- +migrate Down")[0])
 	require.NoError(t, err)
 	client, err := rqueue.NewClient(db, nil)
 	require.NoError(t, err)
@@ -191,4 +196,55 @@ func TestBulkEnqueueRetainsWaveHistoryAndReservationLeases(t *testing.T) {
 	require.JSONEq(t, `{"inserted":2,"skipped":1}`, response.Body.String())
 	require.Equal(t, 1, countRows(t, db, "SELECT count(*) FROM enqueue_log WHERE status='reserved'"))
 	require.Zero(t, countRows(t, db, "SELECT count(*) FROM keyword_history"), "the verified wave gate owns new campaign completion")
+}
+
+func TestCategoryAliasesSharePermanentCellCoverage(t *testing.T) {
+	handler, db := batchFixture(t)
+	ctx := context.Background()
+	category := strings.Repeat("a", 64)
+	_, err := db.Exec(ctx, `INSERT INTO acquisition_categories(id,canonical_query,started_on,origin) VALUES($1,'plumber',current_date,'fixture');`, category)
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `INSERT INTO acquisition_category_aliases(alias,category_id,origin) VALUES('plumbers',$1,'fixture'),('plumbing service',$1,'fixture')`, category)
+	require.NoError(t, err)
+	first := batchRequest(fixtureJob("36,-86", 2))
+	require.JSONEq(t, `{"inserted":1,"skipped":0}`, sendBatch(handler, first, "fixture").Body.String())
+	_, err = db.Exec(ctx, "DELETE FROM river_job")
+	require.NoError(t, err)
+	alias := fixtureJob("36,-86", 2)
+	alias.Keyword = "plumbing service"
+	replay := batchRequest(alias)
+	replay.Day = "2026-10-14"
+	require.JSONEq(t, `{"inserted":0,"skipped":1}`, sendBatch(handler, replay, "fixture").Body.String())
+	require.Zero(t, countRows(t, db, "SELECT count(*) FROM river_job"))
+	require.Equal(t, 1, countRows(t, db, "SELECT count(*) FROM acquisition_category_cells"))
+	alias.GeoCoordinates = "35,-86"
+	require.JSONEq(t, `{"inserted":1,"skipped":0}`, sendBatch(handler, batchRequest(alias), "fixture").Body.String())
+}
+
+func TestConcurrentCategoryAliasesEnqueueOneCell(t *testing.T) {
+	handler, db := batchFixture(t)
+	ctx := context.Background()
+	category := strings.Repeat("b", 64)
+	_, err := db.Exec(ctx, `INSERT INTO acquisition_categories(id,canonical_query,started_on,origin) VALUES($1,'plumber',current_date,'fixture')`, category)
+	require.NoError(t, err)
+	_, err = db.Exec(ctx, `INSERT INTO acquisition_category_aliases(alias,category_id,origin) VALUES('plumbers',$1,'fixture'),('plumbing service',$1,'fixture')`, category)
+	require.NoError(t, err)
+	var wait sync.WaitGroup
+	responses := make(chan *httptest.ResponseRecorder, 2)
+	for _, keyword := range []string{"Plumbers", "plumbing service"} {
+		wait.Add(1)
+		go func(keyword string) {
+			defer wait.Done()
+			job := fixtureJob("36,-86", 1)
+			job.Keyword = keyword
+			responses <- sendBatch(handler, batchRequest(job), "fixture")
+		}(keyword)
+	}
+	wait.Wait()
+	close(responses)
+	for response := range responses {
+		require.Equal(t, http.StatusAccepted, response.Code, response.Body.String())
+	}
+	require.Equal(t, 1, countRows(t, db, "SELECT count(*) FROM river_job"))
+	require.Equal(t, 1, countRows(t, db, "SELECT count(*) FROM acquisition_category_cells"))
 }

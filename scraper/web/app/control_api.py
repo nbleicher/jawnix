@@ -121,8 +121,8 @@ async def _keyword_rollover(request: Request) -> KeywordRollover:
         label=state["label"],
         detail=state["detail"],
         percent_complete=int(progress["percent_complete"]),
-        posted_jobs=int(progress["posted_jobs"] or 0),
-        expected_jobs=int(progress["expected_jobs"] or 0),
+        posted_jobs=int(progress["posted_jobs"]) if progress["posted_jobs"] is not None else None,
+        expected_jobs=int(progress["expected_jobs"]) if progress["expected_jobs"] is not None else None,
         last_status=status.get("last_status"),
         last_event=last_event.isoformat() if last_event else None,
     )

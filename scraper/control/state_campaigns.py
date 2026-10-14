@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from collections import deque
 from datetime import date
 
@@ -82,4 +83,17 @@ def prepare(ledger, cfg, keywords, started_on, today, build_jobs, gate, weights=
                     (status='posted' OR (status='reserved' AND updated_at>=now()-interval '15 minutes'))""",(day,state))
                 done=set(cur.fetchall())
             jobs.extend(job for job in candidates if (job['keyword'],state,job['geo_coordinates']) not in done)
-    return order_states(jobs,states,weights),expected,{state:len(campaigns) for state,campaigns in selected.items()}
+    counts={state:len(campaigns) for state,campaigns in selected.items()}
+    if os.environ.get('GMS_CATEGORY_CATALOGUE','').lower() in ('1','true','yes'):
+        from category_catalogue import sync_catalogue,prepare as prepare_catalogue
+        sync_catalogue(ledger,keywords,started_on,origin='approved_campaign')
+        with ledger.conn.cursor() as cur:
+            cur.execute("SELECT lower(value) IN ('true','1','yes','on') FROM app_config WHERE key='auto_keyword_rollover'")
+            row=cur.fetchone()
+            allow_new=bool(row and row[0])
+        catalogue_jobs,catalogue_expected,catalogue_counts=prepare_catalogue(ledger,cfg,today,build_jobs,gate,allow_new=allow_new)
+        existing={(job['keyword'],job['state'],job['geo_coordinates']) for job in jobs}
+        jobs.extend(job for job in catalogue_jobs if (job['keyword'],job['state'],job['geo_coordinates']) not in existing)
+        expected.update(catalogue_expected)
+        counts={state:counts.get(state,0)+catalogue_counts.get(state,0) for state in states}
+    return order_states(jobs,states,weights),expected,counts

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     worker_stale_secs: int = 180
     expected_workers: int = 8
     independent_state_backlogs: bool = False
+    category_catalogue_enabled: bool = Field(default=False, validation_alias="GMS_CATEGORY_CATALOGUE")
     telemetry_stale_secs: int = 180
     queue_max_depth: int = 500
     queue_max_age_mins: float = 30

@@ -121,6 +121,7 @@ class Settings(BaseSettings):
         default=None,
         alias="OPENROUTER_API_KEY",
     )
+    keyword_catalogue_enabled: bool = Field(default=False, alias="JAWNIX_KEYWORD_CATALOGUE_ENABLED")
     keyword_generation_provider: Literal["openrouter", "anthropic"] = Field(
         default="openrouter", alias="JAWNIX_KEYWORD_GENERATION_PROVIDER"
     )
