@@ -29,6 +29,118 @@ from scraper_fake import ScraperFake
 NOW = datetime(2026, 10, 12, 12, tzinfo=timezone.utc)
 
 
+def test_empty_focus_does_not_block_the_next_focus(session, settings, monkeypatch):
+    monkeypatch.setattr("jawnix.keyword_generation.KEYWORD_GENERATION_MAX_ATTEMPTS", 1)
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "working"
+    factory = sessionmaker(session.get_bind(), expire_on_commit=False)
+    instructions = []
+
+    def generated(request):
+        instructions.append(json.loads(request.content)["messages"][1]["content"])
+        return completion(
+            list(operations.keywords) if len(instructions) == 1 else terms(100, 10)
+        )
+
+    model = provider(settings, generated)
+    first = asyncio.run(
+        refill_keyword_reserve(
+            factory, settings, operations=operations, provider=model, now=NOW
+        )
+    )
+    second = asyncio.run(
+        refill_keyword_reserve(
+            factory,
+            settings,
+            operations=operations,
+            provider=model,
+            now=NOW + timedelta(seconds=15),
+        )
+    )
+
+    assert first["added"] == 0
+    assert second["added"] == 10
+    assert len(instructions) == 2
+    assert (
+        json.loads(instructions[0])["industry_focus"]
+        != json.loads(instructions[1])["industry_focus"]
+    )
+    session.expire_all()
+    assert pool(session).next_refill_at is None
+    assert (
+        json.loads(instructions[0])["industry_focus"] in pool(session).focus_cooldowns
+    )
+
+
+def test_focus_cooldown_survives_restart_and_expires(session, settings):
+    from jawnix.keyword_generation import KEYWORD_INDUSTRY_FOCI
+
+    session.add(
+        models.KeywordCandidatePool(
+            id=1,
+            candidates=[],
+            focus_index=0,
+            focus_cooldowns={
+                KEYWORD_INDUSTRY_FOCI[0]: (NOW + timedelta(minutes=15)).isoformat()
+            },
+        )
+    )
+    session.commit()
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "working"
+    requests = []
+    model = provider(
+        settings,
+        lambda request: (
+            requests.append(json.loads(request.content))
+            or completion(terms(200 + 100 * len(requests), 10))
+        ),
+    )
+    outcome = run(session, settings, operations, model, now=NOW)
+    assert outcome["added"] == 10
+    assert (
+        json.loads(requests[0]["messages"][1]["content"])["industry_focus"]
+        == KEYWORD_INDUSTRY_FOCI[1]
+    )
+    pool(session).focus_index = 0
+    session.commit()
+    followup = run(
+        session, settings, operations, model, now=NOW + timedelta(minutes=16)
+    )
+    assert (
+        json.loads(requests[1]["messages"][1]["content"])["industry_focus"]
+        == KEYWORD_INDUSTRY_FOCI[0]
+    )
+    assert KEYWORD_INDUSTRY_FOCI[0] not in pool(session).focus_cooldowns
+
+
+def test_all_cooled_focuses_make_no_provider_call(session, settings):
+    from jawnix.keyword_generation import KEYWORD_INDUSTRY_FOCI
+
+    session.add(
+        models.KeywordCandidatePool(
+            id=1,
+            candidates=[],
+            focus_index=0,
+            focus_cooldowns={
+                focus: (NOW + timedelta(minutes=15)).isoformat()
+                for focus in KEYWORD_INDUSTRY_FOCI
+            },
+        )
+    )
+    session.commit()
+    operations = ScraperFake()
+    operations.rollover_enabled = True
+    operations.rollover_state_override = "working"
+    requests = []
+    model = provider(settings, lambda request: requests.append(request))
+    outcome = run(session, settings, operations, model, now=NOW)
+    assert outcome["outcome"] == "cooldown"
+    assert requests == []
+
+
 def terms(start, count):
     return [
         "Trade " + hashlib.sha256(str(i).encode()).hexdigest()[:10]

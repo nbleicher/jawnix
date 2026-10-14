@@ -1,7 +1,7 @@
 """Jawnix-owned automatic keyword rollover.
 
 The acquisition host reports campaign drain through the typed control API;
-Jawnix owns the decision, the OpenRouter call, and the audited activation.
+Jawnix owns the decision, the provider call, and the audited activation.
 The control service never holds a model credential (Stage B ownership rule).
 """
 
@@ -235,13 +235,23 @@ async def refill_keyword_reserve(
                 last_refill and last_refill + interval > started_at
             ):
                 return {"outcome": "cooldown"}
-            focus = KEYWORD_INDUSTRY_FOCI[pool.focus_index % len(KEYWORD_INDUSTRY_FOCI)]
-            pool.focus_index += 1
+            cooldowns = {focus: deadline for focus, deadline in (pool.focus_cooldowns or {}).items()
+                if datetime.fromisoformat(deadline) > started_at}
+            pool.focus_cooldowns = cooldowns
+            focus = None
+            for _ in KEYWORD_INDUSTRY_FOCI:
+                candidate = KEYWORD_INDUSTRY_FOCI[pool.focus_index % len(KEYWORD_INDUSTRY_FOCI)]
+                pool.focus_index += 1
+                if candidate not in cooldowns:
+                    focus = candidate
+                    break
+            if focus is None:
+                return {"outcome": "cooldown", "available": available}
             pending = [item["term"] for item in pool.candidates]
-            requested = min(KEYWORD_CANDIDATE_BATCH_SIZE, POOL_TARGET - available)
+            requested = min(25 if settings.keyword_generation_provider == "anthropic" else KEYWORD_CANDIDATE_BATCH_SIZE, POOL_TARGET - available)
 
         # Neither the pool row nor a database transaction is held here.
-        provider = provider or build_generation_provider(settings)
+        provider = provider or build_generation_provider(settings, session_factory=session_factory)
         failure = None
         if not provider.available:
             failure = generation_error(GenerationErrorCode.INVALID_API_KEY)
@@ -300,14 +310,20 @@ async def refill_keyword_reserve(
             ]
             pool.updated_at = finished_at
             pool.refilling = len(pool.candidates) < POOL_TARGET
-            account_blocked = failure and failure.code in {
-                GenerationErrorCode.INVALID_API_KEY,
-                GenerationErrorCode.INSUFFICIENT_CREDIT,
-                GenerationErrorCode.RATE_LIMITED,
+            empty_focus = not accepted and failure and failure.code in {
+                GenerationErrorCode.INSUFFICIENT_CANDIDATES,
+                GenerationErrorCode.NO_CANDIDATES,
             }
+            provider_blocked = failure and failure.code not in {
+                GenerationErrorCode.INSUFFICIENT_CANDIDATES,
+                GenerationErrorCode.NO_CANDIDATES,
+            }
+            if empty_focus:
+                pool.focus_cooldowns = {**(pool.focus_cooldowns or {}),
+                    focus: (finished_at + ROLLOVER_FAILURE_COOLDOWN).isoformat()}
             pool.next_refill_at = (
                 finished_at + ROLLOVER_FAILURE_COOLDOWN
-                if account_blocked or not accepted
+                if provider_blocked
                 else None
             )
             if accepted:
@@ -328,9 +344,15 @@ async def refill_keyword_reserve(
                         "revalidationFailed": refresh_failed,
                     },
                 )
+            elif empty_focus:
+                record_activity(session, action="scraper_keyword_focus_cooled_down",
+                    target_type=ROLLOVER_TARGET, target_id="primary", actor_id=ROLLOVER_ACTOR,
+                    reason="No unused candidates in this focus; other focuses remain available",
+                    details={"focus": focus, "retryAt": pool.focus_cooldowns[focus],
+                        "candidateMetrics": metrics, "available": len(pool.candidates)})
             else:
                 message = (
-                    "OpenRouter is not configured for automatic rollover"
+                    f"{'Anthropic' if settings.keyword_generation_provider == 'anthropic' else 'OpenRouter'} is not configured for automatic rollover"
                     if not provider.available
                     else (
                         failure.message
@@ -356,6 +378,8 @@ async def refill_keyword_reserve(
                     now=finished_at,
                 )
             available = len(pool.candidates)
+        if empty_focus:
+            return {"outcome": "pooling", "available": available, "added": 0}
         if not accepted:
             await _record_error_event(operations, message)
             return (

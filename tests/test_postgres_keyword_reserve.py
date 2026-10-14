@@ -72,6 +72,28 @@ def activate(factory, operations, settings):
         )
 
 
+def test_daily_native_budget_serializes_concurrent_reservations(reserve):
+    from decimal import Decimal
+    from jawnix.anthropic_generation import KeywordSpendError
+    from jawnix.keyword_spend import DatabaseKeywordBudget
+
+    factory, _, _ = reserve
+    barrier = Barrier(2)
+
+    def request(_):
+        barrier.wait(timeout=5)
+        try:
+            return DatabaseKeywordBudget(factory, Decimal("1")).reserve(
+                Decimal("0.7"), trial="acceptance", payload_sha256="fixture"
+            )
+        except KeywordSpendError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        requests = list(pool.map(request, range(2)))
+    assert sum(bool(request) for request in requests) == 1
+
+
 def test_activation_proceeds_while_generation_is_blocked_then_merge_revalidates(
     reserve, settings
 ):
@@ -111,9 +133,9 @@ def test_activation_proceeds_while_generation_is_blocked_then_merge_revalidates(
             ) == {"outcome": "locked"}
             assert second.calls == []
             with factory.begin() as db:
-                assert not try_generation_lock(
-                    db
-                ), "Manual generation must share the generator lock"
+                assert not try_generation_lock(db), (
+                    "Manual generation must share the generator lock"
+                )
             operations.rollover_state_override = "ready"
             before = time.perf_counter()
             assert activate(factory, operations, settings) == {

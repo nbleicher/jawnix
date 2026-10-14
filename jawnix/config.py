@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal
@@ -119,6 +120,17 @@ class Settings(BaseSettings):
     openrouter_api_key: SecretStr | None = Field(
         default=None,
         alias="OPENROUTER_API_KEY",
+    )
+    keyword_generation_provider: Literal["openrouter", "anthropic"] = Field(
+        default="openrouter", alias="JAWNIX_KEYWORD_GENERATION_PROVIDER"
+    )
+    anthropic_api_key: SecretStr | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    anthropic_workspace_id: str = Field(default="", alias="ANTHROPIC_WORKSPACE_ID")
+    keyword_daily_spend_usd: Decimal = Field(
+        default=Decimal("1"), ge=0, alias="JAWNIX_KEYWORD_DAILY_SPEND_USD"
+    )
+    keyword_budget_timezone: str = Field(
+        default="UTC", alias="JAWNIX_KEYWORD_BUDGET_TIMEZONE"
     )
     openrouter_model: str = Field(
         default="deepseek/deepseek-v4-flash",
