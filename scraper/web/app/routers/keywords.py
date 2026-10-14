@@ -92,7 +92,20 @@ async def rollover_context(request: Request) -> dict:
         }
     else:
         state = {"key": "ready", "label": "Rollover ready", "detail": "Next generation check is due"}
-    percent_complete = min(100, round(100 * posted_jobs / expected_jobs)) if expected_jobs else 0
+    if status["enabled"] and request.app.state.settings.category_catalogue_enabled:
+        catalogue=dict(await fetchrow(request,queries.CATEGORY_CATALOGUE_PROGRESS,states))
+        checked=int(catalogue['completed_pairs'] or 0)
+        planned=int(catalogue['expected_pairs'] or 0)
+        live=int(catalogue['active_jobs'] or 0)
+        state={'key':'working' if live or checked<planned else 'ready',
+               'label':'Category catalogue active' if live or checked<planned else 'Catalogue checks complete',
+               'detail':f"{catalogue['categories']:,} approved categories. {checked:,} of {planned:,} state checks complete. {live:,} queued or running jobs."}
+        progress.update(completed_pairs=checked,active_jobs=live,posted_jobs=None)
+        expected_pairs=planned
+        expected_jobs=None
+        percent_complete=min(100,round(100*checked/planned)) if planned else 0
+    else:
+        percent_complete = min(100, round(100 * posted_jobs / expected_jobs)) if expected_jobs else 0
     return {
         "rollover": status,
         "rollover_state": state,

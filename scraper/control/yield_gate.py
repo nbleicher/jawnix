@@ -97,7 +97,7 @@ def cell_scores(ledger, cur):
     return _scores_cache[key][1]
 
 
-def eligible_jobs(ledger, jobs, started_on, today, queue=None):
+def eligible_jobs(ledger, jobs, started_on, today, queue=None, *, allow_legacy=True):
     pairs={}
     for job in jobs:pairs.setdefault((job["keyword"],job["state"]),[]).append(job)
     pilots,expanded=[],[]
@@ -113,7 +113,7 @@ def eligible_jobs(ledger, jobs, started_on, today, queue=None):
             if row is None:
                 cur.execute("SELECT EXISTS(SELECT 1 FROM enqueue_log WHERE keyword=%s AND state=%s AND day>=%s AND status='posted')",
                             (keyword,state,started_on))
-                legacy=cur.fetchone()[0]
+                legacy=bool(cur.fetchone()[0]) and allow_legacy
                 policy=policy_from_queue(queue or {})
                 cells=sample_cells(grid,{cell:value for (st,cell),value in scores.items() if st==state},policy["pilot_cells"])
                 status="legacy" if legacy else "testing"

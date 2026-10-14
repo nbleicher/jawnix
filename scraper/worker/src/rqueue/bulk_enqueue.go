@@ -76,18 +76,37 @@ func (c *Client) InsertEnqueueBatch(ctx context.Context, jobs []EnqueueJob, day 
 		return 0, err
 	}
 	defer tx.Rollback(context.Background()) //nolint:errcheck // no-op after a successful commit
+	// Keep alias membership stable until jobs and canonical coverage commit.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared(hashtextextended('acquisition-category-catalogue',0))`); err != nil {
+		return 0, err
+	}
 	// Disjoint batches for the same campaign must also see each other's posted
 	// cells before deciding whether legacy coverage is complete.
 	if _, err := tx.Exec(ctx, `WITH pairs AS MATERIALIZED (
-		SELECT DISTINCT keyword,state FROM jsonb_to_recordset($1::jsonb)
-		AS input(keyword text,state text,cell text) ORDER BY keyword,state
+		SELECT DISTINCT coalesce(alias.category_id,input.keyword) AS keyword,input.state
+		FROM jsonb_to_recordset($1::jsonb) AS input(keyword text,state text,cell text)
+		LEFT JOIN acquisition_category_aliases alias ON alias.alias=lower(input.keyword)
+		ORDER BY keyword,state
 	) SELECT pg_advisory_xact_lock(hashtextextended('acquisition-enqueue:'||keyword||':'||state,0)) FROM pairs`, payload); err != nil {
 		return 0, err
 	}
 
-	rows, err := tx.Query(ctx, `INSERT INTO enqueue_log(keyword,state,cell,day,status,updated_at)
-		SELECT keyword,state,cell,$2::date,'reserved',now()
-		FROM jsonb_to_recordset($1::jsonb) AS input(keyword text,state text,cell text)
+	rows, err := tx.Query(ctx, `WITH identified AS (
+        SELECT input.*,alias.category_id
+        FROM jsonb_to_recordset($1::jsonb) AS input(keyword text,state text,cell text)
+        LEFT JOIN acquisition_category_aliases alias ON alias.alias=lower(input.keyword)
+    ), chosen AS (
+        SELECT DISTINCT ON(coalesce(category_id,keyword),state,cell) * FROM identified
+        ORDER BY coalesce(category_id,keyword),state,cell,keyword
+    ) INSERT INTO enqueue_log(keyword,state,cell,day,status,updated_at)
+        SELECT keyword,state,cell,$2::date,'reserved',now() FROM chosen input
+        WHERE input.category_id IS NULL OR (
+            NOT EXISTS(SELECT 1 FROM acquisition_category_cells covered
+                WHERE covered.category_id=input.category_id AND covered.state=input.state AND covered.cell=input.cell)
+            AND NOT EXISTS(SELECT 1 FROM enqueue_log covered
+                JOIN acquisition_category_aliases alias ON alias.alias=lower(covered.keyword)
+                WHERE alias.category_id=input.category_id AND covered.state=input.state AND covered.cell=input.cell AND covered.status='posted')
+        )
 		ORDER BY keyword,state,cell
 		ON CONFLICT(keyword,state,cell,day) DO UPDATE SET
 		  status='reserved',updated_at=now(),last_error=NULL
@@ -132,6 +151,13 @@ func (c *Client) InsertEnqueueBatch(ctx context.Context, jobs []EnqueueJob, day 
 			FROM jsonb_to_recordset($1::jsonb) AS input(keyword text,state text,cell text)
 			WHERE ledger.keyword=input.keyword AND ledger.state=input.state AND ledger.cell=input.cell AND ledger.day=$2::date`,
 			payload, day.Format(time.DateOnly)); err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO acquisition_category_cells(category_id,state,cell)
+            SELECT alias.category_id,input.state,input.cell
+            FROM jsonb_to_recordset($1::jsonb) AS input(keyword text,state text,cell text)
+            JOIN acquisition_category_aliases alias ON alias.alias=lower(input.keyword)
+            ON CONFLICT DO NOTHING`, payload); err != nil {
 			return 0, err
 		}
 	}
