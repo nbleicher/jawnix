@@ -48,6 +48,21 @@ def test_reported_cost_releases_unused_reservation(tmp_path):
     assert budget.summary()["remaining_usd"] == "0.00"
 
 
+def test_conservative_resumption_keeps_the_entire_unknown_charge_in_the_cap(tmp_path):
+    budget = BenchmarkBudget(tmp_path / "budget.json", Decimal("1"))
+    request = budget.reserve(Decimal("0.7"), trial="test", payload_sha256="test")
+    with pytest.raises(BenchmarkBudgetError):
+        budget.settle(request, cost=None, metadata={})
+    budget.account_uncertain_at_upper_bound(
+        request, reason="The request's token and price ceilings are bounded"
+    )
+    assert budget.summary()["held_usd"] == "0.7"
+    assert budget.summary()["metered_usd"] == "0"
+    budget.reserve(Decimal("0.3"), trial="test", payload_sha256="test")
+    with pytest.raises(BenchmarkBudgetError, match="cap reached"):
+        budget.reserve(Decimal("0.001"), trial="test", payload_sha256="test")
+
+
 def provider(transport):
     return AnthropicHaikuProvider(
         "must-not-be-recorded", transport=transport, prompt_history_limit=96

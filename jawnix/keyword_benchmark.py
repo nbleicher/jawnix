@@ -16,37 +16,24 @@ from pathlib import Path
 
 import httpx
 
-from .config import Settings
+from .anthropic_generation import (
+    MODEL,
+    money,
+)
+from .anthropic_generation import (
+    AnthropicBudgetTransport as BudgetedTransport,
+)
+from .anthropic_generation import (
+    AnthropicGenerationProvider as AnthropicHaikuProvider,
+)
+from .anthropic_generation import (
+    KeywordSpendError as BenchmarkBudgetError,
+)
+from .anthropic_generation import anthropic_cost as anthropic_cost  # noqa: PLC0414 - public re-export
 from .keyword_generation import (
     KEYWORD_INDUSTRY_FOCI,
-    GenerationErrorCode,
     KeywordGenerationError,
-    OpenRouterGenerationProvider,
-    generation_error,
 )
-
-MODEL = "claude-haiku-5-5"
-# Includes the >100k tier, highest cache-write price, and US-only surcharge. No cache discount
-# or provider routing assumption is used to authorize a request.
-INPUT_CEILING = Decimal("1.10")
-OUTPUT_CEILING = Decimal("2.75")
-MILLION = Decimal(1000000)
-
-
-class BenchmarkBudgetError(RuntimeError):
-    pass
-
-
-def money(value) -> Decimal:
-    if isinstance(value, bool):
-        raise BenchmarkBudgetError("Invalid monetary amount")
-    try:
-        amount = Decimal(str(value))
-    except Exception as error:
-        raise BenchmarkBudgetError("Missing or invalid request cost") from error
-    if not amount.is_finite() or amount < 0:
-        raise BenchmarkBudgetError("Invalid monetary amount")
-    return amount
 
 
 def save_json(path: Path, value: dict) -> None:
@@ -57,170 +44,6 @@ def save_json(path: Path, value: dict) -> None:
         os.fsync(stream.fileno())
     temporary.chmod(0o600)
     os.replace(temporary, path)
-
-
-def anthropic_cost(usage: dict) -> Decimal:
-    counts = {}
-    for field in [
-        "input_tokens",
-        "output_tokens",
-        "cache_creation_input_tokens",
-        "cache_read_input_tokens",
-    ]:
-        value = usage.get(field, 0) if field.startswith("cache_") else usage.get(field)
-        if type(value) is not int or value < 0:
-            raise BenchmarkBudgetError(
-                "Anthropic token accounting is missing or invalid"
-            )
-        counts[field] = value
-    total_input = (
-        counts["input_tokens"]
-        + counts["cache_creation_input_tokens"]
-        + counts["cache_read_input_tokens"]
-    )
-    multiplier = Decimal(5) if total_input > 100000 else Decimal(1)
-    geo = usage.get("inference_geo", "global")
-    if geo not in ("global", "us"):
-        raise BenchmarkBudgetError("Anthropic inference geography is unknown")
-    if geo == "us":
-        multiplier *= Decimal("1.1")
-    creation = usage.get("cache_creation") or {}
-    short = creation.get(
-        "ephemeral_5m_input_tokens", counts["cache_creation_input_tokens"]
-    )
-    long = creation.get("ephemeral_1h_input_tokens", 0)
-    if (
-        type(short) is not int
-        or type(long) is not int
-        or min(short, long) < 0
-        or short + long != counts["cache_creation_input_tokens"]
-    ):
-        raise BenchmarkBudgetError("Anthropic cache-write accounting is inconsistent")
-    return (
-        multiplier
-        * (
-            counts["input_tokens"] * Decimal("0.10")
-            + counts["output_tokens"] * Decimal("0.50")
-            + short * Decimal("0.125")
-            + long * Decimal("0.20")
-            + counts["cache_read_input_tokens"] * Decimal("0.01")
-        )
-        / MILLION
-    )
-
-
-class AnthropicHaikuProvider(OpenRouterGenerationProvider):
-    """Reuse the existing prompt/filter/retry policy, with native Anthropic HTTP."""
-
-    def __init__(
-        self, key: str, *, transport=None, prompt_history_limit=None, workspace_id=None
-    ):
-        super().__init__(
-            Settings(_env_file=None, OPENROUTER_KEYWORD_FALLBACK_MODELS=""),
-            transport=transport,
-            prompt_history_limit=prompt_history_limit,
-        )
-        self._native_key = key
-        self._headers = {"x-api-key": key, "anthropic-version": "2023-06-01"}
-        if workspace_id:
-            self._headers["anthropic-workspace-id"] = workspace_id
-
-    @property
-    def model(self):
-        return MODEL
-
-    def _api_key(self):
-        return self._native_key
-
-    def _request(
-        self,
-        *,
-        messages,
-        response_schema,
-        schema_name,
-        max_tokens,
-        temperature,
-        deadline,
-        model=None,
-    ):
-        if schema_name != "keyword_candidates" or model != MODEL:
-            raise BenchmarkBudgetError(
-                "Benchmark only supports Haiku keyword candidates"
-            )
-        started = time.monotonic()
-        self._last_request_metrics = {}
-        requested = response_schema["properties"]["keywords"]["maxItems"]
-        # Native structured outputs do not support all string/array bounds.
-        # The existing parser and full-history validator still enforce them.
-        schema = {
-            "type": "object",
-            "properties": {
-                "keywords": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": f"Between 1 and {requested} categories, each 2 to 60 characters",
-                }
-            },
-            "required": ["keywords"],
-            "additionalProperties": False,
-        }
-        payload = {
-            "model": MODEL,
-            "max_tokens": max_tokens,
-            "stream": False,
-            "thinking": {"type": "disabled"},
-            "service_tier": "standard_only",
-            "system": "\n\n".join(
-                m["content"] for m in messages if m["role"] == "system"
-            ),
-            "messages": [m for m in messages if m["role"] != "system"],
-            "output_config": {
-                "effort": "low",
-                "format": {"type": "json_schema", "schema": schema},
-            },
-        }
-        try:
-            with httpx.Client(
-                timeout=self._remaining(deadline), transport=self._transport
-            ) as client:
-                response = client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    json=payload,
-                    headers=self._headers,
-                )
-        except httpx.TimeoutException as error:
-            raise generation_error(GenerationErrorCode.TIMEOUT) from error
-        except httpx.HTTPError as error:
-            raise generation_error(GenerationErrorCode.PROVIDER_UNREACHABLE) from error
-        if response.status_code >= 400:
-            code = {
-                401: GenerationErrorCode.INVALID_API_KEY,
-                403: GenerationErrorCode.MODEL_FORBIDDEN,
-                429: GenerationErrorCode.RATE_LIMITED,
-                529: GenerationErrorCode.PROVIDER_UNAVAILABLE,
-            }.get(response.status_code, GenerationErrorCode.PROVIDER_REJECTED)
-            raise generation_error(code)
-        data = response.json()
-        usage = data["usage"]
-        self._last_request_metrics = {
-            "latencyMs": round((time.monotonic() - started) * 1000),
-            "inputUnits": sum(
-                usage.get(field, 0)
-                for field in [
-                    "input_tokens",
-                    "cache_creation_input_tokens",
-                    "cache_read_input_tokens",
-                ]
-            ),
-            "outputUnits": usage["output_tokens"],
-            "cost": float(anthropic_cost(usage)),
-        }
-        self._remaining(deadline)
-        if data["stop_reason"] == "max_tokens":
-            raise generation_error(GenerationErrorCode.TRUNCATED)
-        return "".join(
-            block["text"] for block in data["content"] if block["type"] == "text"
-        )
 
 
 class BenchmarkBudget:
@@ -311,6 +134,19 @@ class BenchmarkBudget:
         if blocked:
             raise BenchmarkBudgetError(blocked)
 
+    def account_uncertain_at_upper_bound(self, request_id: str, *, reason: str):
+        """Resume without refunding any part of a bounded, uncertain request."""
+        with self.locked() as state:
+            call = next(c for c in state["calls"] if c["id"] == request_id)
+            if call["status"] != "uncertain" or call["metered_usd"] is not None:
+                raise BenchmarkBudgetError("Only an uncertain bounded request may be accounted conservatively")
+            if state["blocked_reason"] != "Request cost is unknown; further spending is blocked":
+                raise BenchmarkBudgetError("The request's upper bound is not valid for resumption")
+            call.update(status="conservative", accounting_reason=reason,
+                accounted_at=datetime.now(timezone.utc).isoformat())
+            if not any(c["status"] == "uncertain" for c in state["calls"]):
+                state["blocked_reason"] = None
+
     def summary(self):
         with self.locked() as state:
             charged = sum(
@@ -330,98 +166,6 @@ class BenchmarkBudget:
                 "requests": len(state["calls"]),
                 "blocked_reason": state["blocked_reason"],
             }
-
-
-class BudgetedTransport(httpx.BaseTransport):
-    """Enforce the cap at the HTTP seam, including the provider's internal retries."""
-
-    def __init__(self, budget: BenchmarkBudget, inner: httpx.BaseTransport):
-        self.budget = budget
-        self.inner = inner
-        self.trial = "unassigned"
-
-    def handle_request(self, request: httpx.Request) -> httpx.Response:
-        if (
-            request.method != "POST"
-            or request.url.host != "api.anthropic.com"
-            or request.url.path != "/v1/messages"
-        ):
-            raise BenchmarkBudgetError(
-                "Benchmark only permits native Anthropic Messages"
-            )
-        payload = json.loads(request.read())
-        if (
-            payload.get("model") != MODEL
-            or payload.get("stream") is not False
-            or payload.get("thinking") != {"type": "disabled"}
-            or payload.get("service_tier") != "standard_only"
-            or payload.get("plugins")
-            or payload.get("models")
-            or payload.get("tools")
-            or payload.get("cache_control")
-        ):
-            raise BenchmarkBudgetError("Unexpected benchmark model or paid feature")
-        maximum_output = payload.get("max_tokens")
-        if type(maximum_output) is not int or not 1 <= maximum_output <= 800:
-            raise BenchmarkBudgetError("Benchmark requires an output-token ceiling")
-        content = json.dumps(payload, ensure_ascii=True).encode()
-        # UTF-8/escaped bytes conservatively bound text tokens, with additional
-        # allowance for chat framing and schema scaffolding. Use the higher tier
-        # for every reservation; do not assume caching discounts.
-        maximum_input = len(content) + 8192
-        if maximum_input + maximum_output > 1000000:
-            raise BenchmarkBudgetError(
-                "Prompt cannot be bounded inside Haiku's context window"
-            )
-        reservation = (
-            maximum_input * INPUT_CEILING + maximum_output * OUTPUT_CEILING
-        ) / MILLION
-        request_id = self.budget.reserve(
-            reservation,
-            trial=self.trial,
-            payload_sha256=hashlib.sha256(content).hexdigest(),
-        )
-        headers = dict(request.headers)
-        headers.pop("content-length", None)
-        outgoing = httpx.Request(
-            request.method,
-            request.url,
-            headers=headers,
-            content=content,
-            extensions=request.extensions,
-        )
-        try:
-            response = self.inner.handle_request(outgoing)
-            response.read()
-            data = json.loads(response.content, parse_float=Decimal)
-            usage = data.get("usage") or {}
-            cost = anthropic_cost(usage)
-            metadata = {
-                "http_status": response.status_code,
-                "generation_id": data.get("id"),
-                "model": data.get("model"),
-                "input_tokens": sum(
-                    usage.get(field, 0)
-                    for field in [
-                        "input_tokens",
-                        "cache_creation_input_tokens",
-                        "cache_read_input_tokens",
-                    ]
-                ),
-                "output_tokens": usage.get("output_tokens"),
-                "prompt_bytes": len(content),
-                "maximum_input_tokens": maximum_input,
-                "inference_geo": usage.get("inference_geo", "global"),
-            }
-        except Exception:
-            self.budget.settle(
-                request_id,
-                cost=None,
-                metadata={"transport_or_accounting_failure": True},
-            )
-            raise
-        self.budget.settle(request_id, cost=cost, metadata=metadata)
-        return response
 
 
 def main():

@@ -46,6 +46,18 @@ KEYWORD_INDUSTRY_FOCI = (
     "local commercial cleaning, printing, and business services",
     "hospitality, events, and leisure businesses",
 )
+KEYWORD_SUBFAMILIES = (
+    ("doors and windows", "heating and cooling", "household equipment", "interior finishes", "building exteriors", "outdoor property care"),
+    ("mechanical repair", "body and glass", "tires and wheels", "vehicle sales and rentals", "commercial fleets", "local passenger and freight transportation"),
+    ("hair and beauty", "skin care and grooming", "massage and bodywork", "physical fitness", "exercise and recreation", "general wellness services"),
+    ("full-service restaurants", "quick-service food", "bakeries and sweets", "cafes and drinks", "specialty food retail", "catering and prepared meals"),
+    ("home goods", "clothing and accessories", "specialty consumer retail", "resale and used goods", "consumer repair shops", "everyday personal services"),
+    ("pet grooming and boarding", "pet training and care", "pet supplies", "garden care", "plants and garden centers", "landscaping and outdoor living"),
+    ("childcare and early education", "academic tutoring", "music and performing arts instruction", "sports and movement instruction", "youth science and creative instruction", "children's camps and recreation"),
+    ("building contractors", "plumbing and electrical trades", "heating and cooling installation", "roofing and exteriors", "interior renovation", "outdoor structures and improvements"),
+    ("commercial cleaning", "printing and signs", "business document services", "equipment rental and repair", "workplace furnishings and supplies", "local business support"),
+    ("accommodation", "event venues", "event services", "outdoor leisure", "indoor entertainment", "tourism and local attractions"),
+)
 NICHE_PROPOSAL_MAX_ATTEMPTS = 3
 KEYWORD_DRAFT_TTL = timedelta(hours=24)
 KEYWORD_DRAFT_RETENTION = timedelta(days=90)
@@ -97,6 +109,8 @@ class GenerationErrorCode(str, Enum):
     TRUNCATED = "provider_response_truncated"
     MALFORMED = "provider_response_malformed"
     INSUFFICIENT_CANDIDATES = "insufficient_candidates"
+    NO_CANDIDATES = "no_new_candidates"
+    SPEND_BLOCKED = "generation_spend_blocked"
     NICHE_PROPOSAL_FAILED = "niche_proposal_failed"
     FAILED = "generation_failed"
 
@@ -125,6 +139,12 @@ class KeywordGenerationError(Exception):
 
 
 ERRORS: Mapping[GenerationErrorCode, KeywordGenerationError] = {
+    GenerationErrorCode.NO_CANDIDATES: KeywordGenerationError(
+        GenerationErrorCode.NO_CANDIDATES, "No unused categories were found in this focus", retryable=False,
+    ),
+    GenerationErrorCode.SPEND_BLOCKED: KeywordGenerationError(
+        GenerationErrorCode.SPEND_BLOCKED, "Keyword generation spending is blocked", status_code=429, retryable=False,
+    ),
     GenerationErrorCode.NOT_CONFIGURED: KeywordGenerationError(
         GenerationErrorCode.NOT_CONFIGURED,
         "AI generation is not configured",
@@ -404,6 +424,9 @@ class OpenRouterGenerationProvider:
         transport: httpx.BaseTransport | None = None,
         clock=time.monotonic,
         prompt_history_limit: int | None = None,
+        candidate_batch_size: int = KEYWORD_CANDIDATE_BATCH_SIZE,
+        oversample: bool = False,
+        subfamily_prompt: bool = False,
     ) -> None:
         self._settings = settings
         self._transport = transport
@@ -411,6 +434,9 @@ class OpenRouterGenerationProvider:
         if prompt_history_limit is not None and prompt_history_limit < 1:
             raise ValueError("Prompt history limit must be positive")
         self._prompt_history_limit = prompt_history_limit
+        self._candidate_batch_size = candidate_batch_size
+        self._oversample = oversample
+        self._subfamily_prompt = subfamily_prompt
 
     @property
     def model(self) -> str:
@@ -463,6 +489,11 @@ class OpenRouterGenerationProvider:
             "or rare industrial specialties to evade the exclusion history. "
             "If no qualifying unused categories remain, return fewer candidates."
         )
+        if self._subfamily_prompt:
+            system = system.replace(
+                "no more than two candidates from one industry family.",
+                "up to five candidates per distinct subfamily. Spread candidates across the supplied subfamilies when present; do not fill a quota with synonyms.",
+            )
         prompt_exclusions = excluded
         if self._prompt_history_limit is not None:
             focus_tokens = set(comparison_tokens(industry_focus + " " + (seed_keyword or "")))
@@ -499,6 +530,11 @@ class OpenRouterGenerationProvider:
                 "These are examples, prioritizing this industry. Every candidate "
                 "is also checked against the complete history locally."
             )
+        if self._subfamily_prompt:
+            instruction["max_candidates_per_subfamily"] = 5
+            if industry_focus in KEYWORD_INDUSTRY_FOCI:
+                instruction["industry_subfamilies"] = list(KEYWORD_SUBFAMILIES[KEYWORD_INDUSTRY_FOCI.index(industry_focus)])
+            instruction["shortfall_rule"] = "Return fewer candidates, including an empty array, when no valid unused categories remain. Never invent a category to fill the request."
         if accepted or rejected or previous_error:
             rejection_limit = (
                 _COMPACT_REJECTION_LIMIT
@@ -672,7 +708,11 @@ class OpenRouterGenerationProvider:
 
         for attempt_number in range(1, KEYWORD_GENERATION_MAX_ATTEMPTS + 1):
             remaining_count = count - len(accepted)
-            requested_count = min(KEYWORD_CANDIDATE_BATCH_SIZE, remaining_count)
+            requested_count = (
+                self._candidate_batch_size
+                if self._oversample
+                else min(self._candidate_batch_size, remaining_count)
+            )
             request_model = configured_models[model_index]
             try:
                 content = self._request(
@@ -717,9 +757,11 @@ class OpenRouterGenerationProvider:
                     model=request_model,
                 )
                 candidates = parse_candidate_content(content)
+                if not candidates and self._subfamily_prompt:
+                    raise generation_error(GenerationErrorCode.NO_CANDIDATES)
                 if (
                     not candidates
-                    or len(candidates) > requested_count
+                    or (len(candidates) > requested_count and not self._oversample)
                     or not all(isinstance(item, str) for item in candidates)
                 ):
                     raise generation_error(GenerationErrorCode.MALFORMED)
@@ -950,7 +992,31 @@ def build_generation_provider(
     settings: Settings,
     *,
     transport: httpx.BaseTransport | None = None,
+    session_factory=None,
 ) -> GenerationProvider:
+    if settings.keyword_generation_provider == "anthropic":
+        from .anthropic_generation import AnthropicGenerationProvider
+        from .keyword_spend import DatabaseKeywordBudget
+
+        if session_factory is None:
+            from .database import SessionLocal
+
+            session_factory = SessionLocal
+        budget = DatabaseKeywordBudget(
+            session_factory,
+            settings.keyword_daily_spend_usd,
+            timezone_name=settings.keyword_budget_timezone,
+        )
+        return AnthropicGenerationProvider(
+            settings.anthropic_api_key.get_secret_value().strip()
+            if settings.anthropic_api_key else "",
+            settings=settings,
+            workspace_id=settings.anthropic_workspace_id,
+            transport=transport,
+            budget=budget,
+            production=True,
+            prompt_history_limit=96,
+        )
     return OpenRouterGenerationProvider(settings, transport=transport)
 
 

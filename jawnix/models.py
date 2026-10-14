@@ -3,8 +3,9 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import date, datetime, timezone
+from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, event, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, event, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -1486,6 +1487,7 @@ class KeywordCandidatePool(Base):
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
     candidates: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     focus_index: Mapped[int] = mapped_column(default=0, nullable=False)
+    focus_cooldowns: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, server_default="{}", nullable=False)
     next_refill_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_refill_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     refilling: Mapped[bool] = mapped_column(default=False, server_default="false", nullable=False)
@@ -1494,6 +1496,26 @@ class KeywordCandidatePool(Base):
     __table_args__ = (
         CheckConstraint("id = 1", name="ck_keyword_candidate_pool_singleton"),
         CheckConstraint("focus_index >= 0", name="ck_keyword_candidate_pool_focus"),
+    )
+
+
+class KeywordGenerationCharge(Base):
+    """A reserved or metered native-provider request, shared across workers."""
+
+    __tablename__ = "keyword_generation_charges"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    budget_day: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    model: Mapped[str] = mapped_column(String(80), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(80), nullable=False)
+    reserved_usd: Mapped[Decimal] = mapped_column(Numeric(14, 10), nullable=False)
+    metered_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 10))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    __table_args__ = (
+        CheckConstraint("reserved_usd >= 0", name="ck_keyword_charge_reservation"),
+        CheckConstraint("metered_usd IS NULL OR metered_usd >= 0", name="ck_keyword_charge_metered"),
+        CheckConstraint("status IN ('pending', 'settled', 'uncertain')", name="ck_keyword_charge_status"),
     )
 
 
