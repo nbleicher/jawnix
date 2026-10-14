@@ -8,6 +8,7 @@ provider protocol or credentials.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -51,6 +52,8 @@ KEYWORD_DRAFT_RETENTION = timedelta(days=90)
 _GENERATION_LOCK_NAMESPACE = 0x4A41574E  # "JAWN", shared convention.
 _GENERATION_LOCK_RESOURCE = 0x4B574745  # "KWGE", keyword generation.
 _PROMPT_REJECTION_LIMIT = 100
+_COMPACT_EXCLUSION_BYTES = 3072
+_COMPACT_REJECTION_LIMIT = 16
 
 GENERIC_WORDS = {
     "business",
@@ -400,10 +403,14 @@ class OpenRouterGenerationProvider:
         *,
         transport: httpx.BaseTransport | None = None,
         clock=time.monotonic,
+        prompt_history_limit: int | None = None,
     ) -> None:
         self._settings = settings
         self._transport = transport
         self._clock = clock
+        if prompt_history_limit is not None and prompt_history_limit < 1:
+            raise ValueError("Prompt history limit must be positive")
+        self._prompt_history_limit = prompt_history_limit
 
     @property
     def model(self) -> str:
@@ -456,17 +463,51 @@ class OpenRouterGenerationProvider:
             "or rare industrial specialties to evade the exclusion history. "
             "If no qualifying unused categories remain, return fewer candidates."
         )
+        prompt_exclusions = excluded
+        if self._prompt_history_limit is not None:
+            focus_tokens = set(comparison_tokens(industry_focus + " " + (seed_keyword or "")))
+            ranked = sorted(
+                excluded,
+                key=lambda term: (
+                    -len(focus_tokens.intersection(comparison_tokens(term))),
+                    hashlib.sha256(
+                        (industry_focus + "\0" + term.casefold()).encode()
+                    ).digest(),
+                ),
+            )
+            prompt_exclusions = []
+            remaining = _COMPACT_EXCLUSION_BYTES
+            for term in ranked:
+                size = len(json.dumps(term, ensure_ascii=True).encode()) + 2
+                if size > remaining:
+                    continue
+                prompt_exclusions.append(term)
+                remaining -= size
+                if len(prompt_exclusions) == self._prompt_history_limit:
+                    break
         instruction: dict[str, object] = {
             "task": "generate_unused_local_business_keywords",
             "mode": mode,
             "candidate_count": count,
-            "excluded_keywords": excluded,
+            "excluded_keywords": prompt_exclusions,
             "industry_focus": industry_focus,
         }
+        if self._prompt_history_limit is not None:
+            instruction["exclusion_history_count"] = len(excluded)
+            instruction["exclusion_history_complete"] = len(prompt_exclusions) == len(excluded)
+            instruction["history_check"] = (
+                "These are examples, prioritizing this industry. Every candidate "
+                "is also checked against the complete history locally."
+            )
         if accepted or rejected or previous_error:
+            rejection_limit = (
+                _COMPACT_REJECTION_LIMIT
+                if self._prompt_history_limit is not None
+                else _PROMPT_REJECTION_LIMIT
+            )
             instruction["retry_context"] = {
                 "accepted_keywords": accepted,
-                "rejected_candidates": rejected[-_PROMPT_REJECTION_LIMIT:],
+                "rejected_candidates": rejected[-rejection_limit:],
                 "previous_error": previous_error,
                 "instruction": (
                     "Accepted terms are already retained. Return only additional "
