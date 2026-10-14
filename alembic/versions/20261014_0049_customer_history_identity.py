@@ -10,6 +10,9 @@ depends_on = None
 
 
 def upgrade():
+    # The initial migration bootstraps current Base metadata on a fresh DB.
+    if sa.inspect(op.get_bind()).has_table("customer_history_identities"):
+        return
     op.create_table(
         "customer_history_identities",
         sa.Column("customer_id", sa.BigInteger().with_variant(sa.Integer(), "sqlite"), sa.ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True),
