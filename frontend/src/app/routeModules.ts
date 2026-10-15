@@ -26,6 +26,7 @@ const pages = {
   CustomerFeedback: () => import("./routes/CustomerFeedback"),
   CustomerRequests: () => import("./routes/CustomerRequests"),
   CustomerAuth: () => import("./routes/CustomerAuth"),
+  CustomerSignup: () => import("./routes/CustomerSignup"),
   DesignSystem: () => import("./routes/DesignSystem"),
   ManagedAdmin: () => import("./routes/ManagedAdmin"),
 };

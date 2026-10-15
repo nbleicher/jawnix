@@ -13,11 +13,15 @@ const database = new pg.Pool({ connectionString: url });
 const bridgeSecret = "jawnix-integration-bridge-secret-for-tests-only";
 const password = "integration-password-for-tests-only";
 const messages: { email: string; url: string }[] = [];
+const verificationMessages: { email: string; url: string }[] = [];
 let auth: JawnixAuth;
 const server = createServer((request, response) => {
   if (request.url === "/fixture/password-links") {
     response.setHeader("Content-Type", "application/json");
     response.end(JSON.stringify(messages));
+  } else if (request.url === "/fixture/verification-links") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify(verificationMessages));
   } else void createHandler(auth, bridgeSecret)(request, response);
 });
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -28,11 +32,15 @@ const origin = `http://127.0.0.1:${address.port}`;
 auth = createAuth(database, {
   baseURL: `${origin}/auth`,
   secret: "jawnix-provider-secret-for-isolated-tests-only",
+  sendVerification: async (email, url) => { verificationMessages.push({ email, url }); },
   sendReset: async (email, url) => {
     messages.push({ email, url });
   },
 });
 await (await getMigrations(auth.options)).runMigrations();
+// The HTTP fixture issues many deliberate sign-in failures from one test IP.
+// Production rate limiting is exercised by the provider's separate tests.
+(await auth.$context).rateLimit.enabled = false;
 const context = await auth.$context;
 const admin = {
   userId: randomUUID(),

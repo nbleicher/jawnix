@@ -30,7 +30,12 @@ function remember(token: string): ProviderIdentitySession {
   return { access_token: token, refresh_token: token };
 }
 export class MFARequired extends Error {}
-export async function getProviderSession(): Promise<ProviderIdentitySession> {
+export class EmailVerificationRequired extends Error {}
+export async function getProviderSession(fresh = false): Promise<ProviderIdentitySession> {
+  if (fresh) {
+    sessionStorage.removeItem(ACCESS_TOKEN_KEY);
+    sessionStorage.removeItem(REFRESH_TOKEN_KEY);
+  }
   // Enrollment can rotate the provider session through the server bridge.
   const stored = sessionStorage.getItem(ACCESS_TOKEN_KEY);
   if (stored) return { access_token: stored, refresh_token: stored };
@@ -48,10 +53,30 @@ export async function signInWithPassword(
   sessionStorage.removeItem(ACCESS_TOKEN_KEY);
   sessionStorage.removeItem(REFRESH_TOKEN_KEY);
   const { data, error } = await auth().signIn.email({ email, password });
+  if (error?.code === "EMAIL_NOT_VERIFIED") throw new EmailVerificationRequired();
   if (error) throw new Error("Sign in was not accepted.");
   if (data && "twoFactorRedirect" in data && data.twoFactorRedirect)
     throw new MFARequired();
   return getProviderSession();
+}
+export interface SignupDetails {
+  first_name: string;
+  last_name: string;
+  phone: string;
+  licensed_states: string[];
+}
+const signupCallback = () => `${window.location.origin}/app/complete-signup`;
+export async function signUpWithPassword(email: string, password: string, details: SignupDetails): Promise<void> {
+  const response = await fetch("/auth/sign-up/email", {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password, name: `${details.first_name} ${details.last_name}`, signupProfile: details, callbackURL: signupCallback() }),
+  });
+  if (!response.ok) throw new Error("We could not create your account. Check your details, or sign in if you already registered.");
+}
+export async function resendVerificationEmail(email: string): Promise<void> {
+  const { error } = await auth().sendVerificationEmail({ email, callbackURL: signupCallback() });
+  if (error) throw new Error("Verification email is temporarily unavailable. Try again shortly.");
 }
 export async function verifyProviderSignIn(
   code: string,

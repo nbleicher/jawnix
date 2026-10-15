@@ -22,6 +22,7 @@ from .models import (
     BatchHold,
     Customer,
     CustomerProfile,
+    CustomerRegistration,
     CustomerTombstone,
     CreditLedgerEntry,
     CreditPurchase,
@@ -147,6 +148,9 @@ def customer_dependency_counts(db: Session, customer_id: int) -> dict[str, int]:
         ).where(LeadDispositionTransition.customer_id == customer_id),
         "profiles": select(func.count(CustomerProfile.user_id)).where(
             CustomerProfile.agent_id == customer_id
+        ),
+        "registrations": select(func.count(CustomerRegistration.auth_user_id)).where(
+            CustomerRegistration.customer_id == customer_id
         ),
         "userAccounts": select(func.count(UserAccount.auth_user_id)).where(
             UserAccount.customer_id == customer_id

@@ -404,6 +404,17 @@ def _activate(
     return account
 
 
+def activate_registered_user_account(
+    db: Session, *, customer: Customer, auth_user_id: uuid.UUID, email: str,
+) -> UserAccount:
+    """Grant an email-verified registration access without inventing an invitation."""
+    _refuse_foreign_account(db, auth_user_id, customer.id)
+    current = active_user_account(db, customer.id)
+    if current is not None or pending_invitation(db, customer.id) is not None:
+        raise UserAccountConflict("This Customer already has access or an invitation.", guard="account_in_use")
+    return _activate(db, customer, auth_user_id, email, utcnow())
+
+
 def _confirm_profile(
     db: Session,
     customer: Customer,

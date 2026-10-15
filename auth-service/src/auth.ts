@@ -5,6 +5,7 @@ import { bearer, twoFactor } from "better-auth/plugins";
 import pg from "pg";
 import { attachDatabasePool } from "@vercel/functions";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { signupProfile } from "./signup.js";
 
 // Trusted bridge calls can return an onboarding link to the operator without
 // sending email. Per-call storage keeps simultaneous resets isolated.
@@ -16,6 +17,7 @@ export function createAuth(
     baseURL: string;
     secret: string;
     sendReset: (email: string, url: string) => Promise<void>;
+    sendVerification?: (email: string, url: string) => Promise<void>;
   },
 ) {
   return betterAuth({
@@ -34,7 +36,7 @@ export function createAuth(
     advanced: { database: { generateId: () => randomUUID() } },
     emailAndPassword: {
       enabled: true,
-      disableSignUp: true,
+      requireEmailVerification: true,
       minPasswordLength: 8,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url }) => {
@@ -43,9 +45,19 @@ export function createAuth(
         else await options.sendReset(user.email, url);
       },
     },
+    emailVerification: {
+      sendOnSignUp: true,
+      autoSignInAfterVerification: true,
+      expiresIn: 3600,
+      sendVerificationEmail: async ({ user, url }) => {
+        if (!options.sendVerification) throw new Error("Auth email delivery is unavailable.");
+        await options.sendVerification(user.email, url);
+      },
+    },
     user: {
       additionalFields: {
         jawnixRole: { type: "string", defaultValue: "customer", input: false },
+        signupProfile: { type: "json", required: false, input: true },
       },
     },
     session: {
@@ -56,9 +68,15 @@ export function createAuth(
         mfaMethod: { type: "string", defaultValue: "", input: false },
       },
     },
-    rateLimit: { enabled: true, storage: "database", window: 60, max: 60 },
+    rateLimit: { enabled: true, storage: "database", window: 60, max: 60,
+      customRules: { "/sign-up/email": { window: 60, max: 5 }, "/send-verification-email": { window: 60, max: 3 } } },
     plugins: [bearer(), twoFactor({ issuer: "Jawnix" })],
     hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path !== "/sign-up/email") return;
+        const details = signupProfile(ctx.body?.signupProfile);
+        return { context: { body: { ...ctx.body, signupProfile: details, name: `${details.first_name} ${details.last_name}` } } };
+      }),
       after: createAuthMiddleware(async (ctx) => {
         if (
           ![
@@ -104,29 +122,23 @@ export function getRuntime() {
     connectionTimeoutMillis: 10000,
   });
   if (process.env.VERCEL) attachDatabasePool(database);
+  async function sendMail(email: string, subject: string, text: string) {
+    if (!process.env.RESEND_API_KEY) throw new Error("Auth email delivery is unavailable.");
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: process.env.JAWNIX_BATCH_FROM_EMAIL || "Noah Bleicher (Jawnix) <noah@jawnix.com>",
+        to: [email], subject, text,
+      }),
+    });
+    if (!response.ok) throw new Error("Auth email delivery failed.");
+  }
   const auth = createAuth(database, {
     secret,
     baseURL,
-    sendReset: async (email, url) => {
-      if (!process.env.RESEND_API_KEY)
-        throw new Error("Auth email delivery is unavailable.");
-      const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from:
-            process.env.JAWNIX_BATCH_FROM_EMAIL ||
-            "Noah Bleicher (Jawnix) <noah@jawnix.com>",
-          to: [email],
-          subject: "Set your Jawnix password",
-          text: `Set your Jawnix password using this link:\n\n${url}\n\nThis link expires in one hour. If you did not request it, you can ignore this email.\n\n— Noah\nnoah@jawnix.com`,
-        }),
-      });
-      if (!response.ok) throw new Error("Auth email delivery failed.");
-    },
+    sendReset: (email, url) => sendMail(email, "Set your Jawnix password", `Set your Jawnix password using this link:\n\n${url}\n\nThis link expires in one hour. If you did not request it, you can ignore this email.\n\n— Noah\nnoah@jawnix.com`),
+    sendVerification: (email, url) => sendMail(email, "Verify your Jawnix email", `Verify your email to finish creating your Jawnix account:\n\n${url}\n\nThis link expires in one hour. If you did not request it, you can ignore this email.\n\n— Noah\nnoah@jawnix.com`),
   });
   runtime = { auth, database };
   return runtime;

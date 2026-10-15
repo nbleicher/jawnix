@@ -10,6 +10,7 @@ import os
 import struct
 import subprocess
 import time
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -21,6 +22,7 @@ from jawnix.api import app
 from jawnix.auth import CSRF_COOKIE
 from jawnix.config import Settings, get_settings
 from jawnix.database import get_db
+from jawnix.models import Customer, CustomerProfile, ManagedAdmin, UserAccount
 
 
 @pytest.fixture
@@ -190,5 +192,60 @@ def test_provider_enrollment_step_up_and_password_reset_revoke_app_sessions(
                 assert saved.status_code == 200
                 assert client.get("/api/auth/admin-mfa/access").status_code == 401
                 assert client.get("/api/auth/admin-mfa").status_code == 401
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_public_verification_creates_customer_and_password_only_manager_stays_revocable(session, settings, better_auth_server):
+    fixture = better_auth_server
+    config = Settings(JAWNIX_AUTH_PROVIDER="better-auth", JAWNIX_BETTER_AUTH_URL=fixture["url"],
+                      JAWNIX_AUTH_BRIDGE_SECRET=fixture["bridgeSecret"], JAWNIX_COOKIE_SECURE=False,
+                      JAWNIX_SESSION_SECRET=settings.session_secret, JAWNIX_BATCH_DIR=settings.batch_dir)
+    app.dependency_overrides[get_settings] = lambda: config
+    def database():
+        yield session
+    app.dependency_overrides[get_db] = database
+    email = f"{uuid.uuid4()}@example.test"
+    try:
+        with httpx.Client(base_url=fixture["url"], headers={"Origin":fixture["url"]}) as provider, TestClient(app) as client:
+            created = provider.post("/auth/sign-up/email", json={"email":email, "password":fixture["password"], "name":"New Customer", "signupProfile":{
+                "first_name":"New", "last_name":"Customer", "phone":"6155550100", "licensed_states":["TN", "SC"]},
+                "callbackURL":fixture["url"] + "/app/complete-signup", "jawnixRole":"admin"})
+            assert created.status_code == 200, created.text
+            user_id = uuid.UUID(created.json()["user"]["id"])
+            assert created.json()["token"] is None
+            assert provider.post("/auth/sign-in/email", json={"email":email,"password":fixture["password"]}).status_code == 403
+            link = next(row["url"] for row in provider.get("/fixture/verification-links").json() if row["email"] == email)
+            assert provider.get(link).status_code == 302
+            login = provider.post("/auth/sign-in/email", json={"email":email, "password":fixture["password"]})
+            assert login.status_code == 200
+            for _ in range(2):
+                exchange = client.post("/api/auth/session", json={"access_token":login.json()["token"]})
+                assert exchange.status_code == 200, exchange.text
+                assert exchange.json()["next"] == "/app/overview"
+            profile = session.get(CustomerProfile, user_id)
+            assert profile.phone == "6155550100" and profile.licensed_states == ["SC", "TN"]
+            assert session.get(Customer, profile.customer_id).active
+            assert session.get(UserAccount, user_id).active
+            assert client.get("/api/me/overview").status_code == 200
+            assert client.get("/api/auth/admin-mfa").status_code == 403
+            bridge_headers = {"Authorization":f"Bearer {fixture['bridgeSecret']}"}
+            manager_email = f"{uuid.uuid4()}@example.test"
+            manager = provider.post("/bridge", headers=bridge_headers, json={"action":"provision-manager", "email":manager_email, "name":"Alex fixture"}).json()
+            manager_id = uuid.UUID(manager["id"])
+            session.add(ManagedAdmin(auth_user_id=manager_id, name="Alex fixture", email=manager_email)); session.commit()
+            setup = provider.post("/bridge", headers=bridge_headers, json={"action":"manager-access-link", "userId":str(manager_id)}).json()
+            reset_token = urlparse(setup["url"]).path.split("/")[-1]
+            assert provider.post("/auth/reset-password", json={"token":reset_token,"newPassword":fixture["password"]}).status_code == 200
+            login = provider.post("/auth/sign-in/email", json={"email":manager_email,"password":fixture["password"]})
+            assert login.status_code == 200 and "token" in login.json()
+            exchange = client.post("/api/auth/session", json={"access_token":login.json()["token"]})
+            assert exchange.status_code == 200 and exchange.json()["next"] == "/app/manager/uploads"
+            assert exchange.json()["assurance"] == "aal1"
+            assert client.get("/api/manager/access").status_code == 200
+            assert client.get("/api/auth/admin-mfa").status_code == 403
+            assert client.get("/api/admin/registrations").status_code == 403
+            assert provider.post("/bridge", headers=bridge_headers, json={"action":"logout", "accessToken":login.json()["token"]}).status_code == 200
+            assert client.get("/api/manager/access").status_code == 401
     finally:
         app.dependency_overrides.clear()

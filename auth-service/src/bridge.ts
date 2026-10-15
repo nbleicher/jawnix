@@ -46,10 +46,13 @@ export async function bridge(auth: JawnixAuth, body: Payload) {
     email: string;
     name: string;
     jawnixRole?: string;
+    emailVerified?: boolean;
+    signupProfile?: unknown;
   }) => ({
     id: user.id,
     email: user.email,
-    user_metadata: { name: user.name },
+    email_verified: user.emailVerified === true,
+    user_metadata: { name: user.name, ...(user.signupProfile ? { signup_profile:user.signupProfile } : {}) },
     app_metadata: { jawnix_role: user.jawnixRole || "customer" },
   });
   const requireSession = async () => {
@@ -63,7 +66,7 @@ export async function bridge(auth: JawnixAuth, body: Payload) {
   };
   const requireAdmin = async () => {
     const session = await requireSession();
-    if (!["admin", "manager"].includes(session.user.jawnixRole)) throw new APIError("FORBIDDEN");
+    if (session.user.jawnixRole !== "admin") throw new APIError("FORBIDDEN");
     return session;
   };
   const sessionJSON = async (token: string) => {
@@ -82,6 +85,13 @@ export async function bridge(auth: JawnixAuth, body: Payload) {
   };
 
   switch (body.action) {
+    case "validate-session": {
+      const session = await context.adapter.findOne<{ userId:string; expiresAt:Date }>({ model:"session", where:[{ field:"id", value:body.sessionId! }] });
+      const user = await context.adapter.findOne<{ jawnixRole: string }>({ model: "user", where: [{ field: "id", value: body.userId! }] });
+      if (!session || session.userId !== body.userId || session.expiresAt <= new Date() || !user || user.jawnixRole !== body.role)
+        throw new APIError("UNAUTHORIZED", { code:"SESSION_EXPIRED", message:"Identity session expired." });
+      return { valid:true };
+    }
     case "identity": {
       const session = await requireSession();
       const factor = await factorFor(session.user.id);

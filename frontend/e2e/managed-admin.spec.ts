@@ -88,6 +88,7 @@ test("operator changes a user's database and withdraws Alex access without a pag
   await page.route("**/api/**", async route => {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/auth/admin-mfa/access") { await route.fulfill({json:{ok:true}}); return; }
+    if (path === "/api/admin/registrations") { await route.fulfill({json:[]}); return; }
     if (path === "/api/admin/customers/7/scope") {
       const change = route.request().postDataJSON() as Record<string,unknown>;
       changes.push(change); scope = { ...scope, ...change };

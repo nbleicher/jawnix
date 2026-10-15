@@ -1,0 +1,7 @@
+# Public registration and operator-only MFA
+
+Users can register from Jawnix with first name, last name, phone number, appointed states, email, and password. Better Auth owns passwords and email verification. The platform accepts signup metadata only from a verified provider session, validates it again, and creates one Customer and active User Account transactionally. Public input cannot grant operator or Managed Administrator access.
+
+This extends ADR 0013's invitation-only entry rule. Invitations remain the only administrator-initiated provisioning and replacement mechanism. Public registrations establish their own verified identity. An exact, trimmed, case-sensitive first-and-last-name match against archived customer identities requires operator review before activation. Only the operator can restore the original Customer or approve a separate new Customer. Historical requests and distribution events retain their original ownership and permanent no-repeat rules. Customers cannot inspect matching archived identities.
+
+Only the operator requires MFA. Managed Administrators retain their existing grants and active-status checks, with live Better Auth session validation on every privileged request. Revoking a provider session still removes their access immediately. Customers and Managed Administrators cannot enroll operator MFA. The operator's authenticator, recovery codes, and fresh Scraper Operations verification remain enforced.

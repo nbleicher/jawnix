@@ -147,12 +147,8 @@ def require_admin_identity(
 ) -> Principal:
     """Authorize the enrollment-only surface without granting administration."""
 
-    if principal.role not in {"admin", "manager"} or principal.audience != "admin":
+    if principal.role != "admin" or principal.audience != "admin":
         raise HTTPException(status_code=403, detail="Admin access required.")
-    if principal.role == "manager":
-        manager = db.get(ManagedAdmin, principal.user_id)
-        if manager is None or not manager.active:
-            raise HTTPException(status_code=403, detail="Managed administration is unavailable.")
     return principal
 
 
@@ -171,13 +167,28 @@ async def require_admin(
 
 
 async def require_manager(
-    principal: Principal = Depends(require_admin_identity),
+    principal: Principal = Depends(require_principal),
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ) -> Principal:
-    if principal.role != "manager":
+    if principal.role != "manager" or principal.audience != "admin":
         raise HTTPException(status_code=403, detail="Managed admin access required.")
-    return await require_administrator_assurance(principal, settings, db)
+    manager = db.get(ManagedAdmin, principal.user_id)
+    if manager is None or not manager.active:
+        raise HTTPException(status_code=403, detail="Managed administration is unavailable.")
+    if not principal.provider_session_id:
+        raise HTTPException(status_code=401, detail="Sign in again to continue.")
+    try:
+        result = await get_mfa_provider(settings).request(
+            "validate-session", userId=str(principal.user_id),
+            sessionId=principal.provider_session_id, role="manager",
+        )
+        if result.get("valid") is not True:
+            raise MFAProviderError(expired_session=True)
+    except MFAProviderError as error:
+        raise HTTPException(status_code=401 if error.expired_session else 503,
+                            detail="Managed administration sign-in is unavailable.") from None
+    return principal
 
 
 async def require_administrator_assurance(principal: Principal, settings: Settings, db: Session) -> Principal:

@@ -13,6 +13,8 @@ import {
   MFARequired,
   verifyProviderSignIn,
   requestProviderPasswordReset,
+  EmailVerificationRequired,
+  resendVerificationEmail,
 } from "../auth/providerSession";
 import { BrandLockup, RoutingPlate } from "../../brand/BrandLockup";
 import { Button } from "../../design-system/primitives/Button";
@@ -26,7 +28,7 @@ const SIGN_IN_ERROR =
 const INVITATION_ERROR =
   "This invitation cannot be used. Email noah@jawnix.com and I'll send a replacement, or sign in if you already set your password.";
 
-function AuthRouteFrame({ children }: { children: ReactNode }) {
+export function AuthRouteFrame({ children }: { children: ReactNode }) {
   return (
     <div className="jx-auth-route">
       <a className="jx-auth-route__skip-link" href="#jx-auth-main">
@@ -45,7 +47,7 @@ function AuthRouteFrame({ children }: { children: ReactNode }) {
   );
 }
 
-function FormError({
+export function FormError({
   children,
   errorRef,
 }: {
@@ -77,6 +79,8 @@ export function SignInRoute() {
   const [recovery, setRecovery] = useState(false);
   const [code, setCode] = useState("");
   const [resetSent, setResetSent] = useState(false);
+  const [unverified, setUnverified] = useState(false);
+  const [verificationSent, setVerificationSent] = useState(false);
 
   useEffect(() => {
     if (error) errorRef.current?.focus();
@@ -97,6 +101,9 @@ export function SignInRoute() {
       if (caught instanceof MFARequired) {
         setMfa(true);
         setPassword("");
+      } else if (caught instanceof EmailVerificationRequired) {
+        setUnverified(true);
+        setError("Verify your email before signing in. Check your inbox for the verification link.");
       } else
         setError(
           mfa
@@ -117,9 +124,17 @@ export function SignInRoute() {
             ? "Enter an authenticator code or one unused recovery code."
             : "Use the email address and password for your Jawnix account."
         }
+        footer={!mfa ? <Link className="jx-auth-route__link" to="/sign-up">Create an account</Link> : undefined}
       >
         <form className="jx-auth-form" onSubmit={submit} noValidate>
           {error ? <FormError errorRef={errorRef}>{error}</FormError> : null}
+          {unverified ? <Button type="button" disabled={busy || !email.trim()} onClick={async () => {
+            setBusy(true);
+            try { await resendVerificationEmail(email.trim()); setVerificationSent(true); }
+            catch { setError("Verification email is temporarily unavailable. Try again shortly."); }
+            finally { setBusy(false); }
+          }}>Resend verification email</Button> : null}
+          {verificationSent ? <p role="status">If your account needs verification, a new link is on its way.</p> : null}
           {resetSent ? (
             <p role="status">
               If that address has a Jawnix account, a password link is on its

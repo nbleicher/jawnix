@@ -395,6 +395,7 @@ export async function mockAdminCustomers(
   await page.route(/\/api\/auth\/admin-mfa\/access$/, (route) =>
     json(route, { ok: true }),
   );
+  await page.route(/\/api\/admin\/registrations$/, route => json(route, []));
 
   await page.route(/\/api\/admin\/customers\/directory/, (route) => {
     const url = new URL(route.request().url());

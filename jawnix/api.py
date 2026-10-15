@@ -57,6 +57,7 @@ from .customer_directory import (
     customer_dependency_counts,
 )
 from .customer_history import archived_customer_matches, remember_customer_name, request_history_scope
+from .customer_registration import complete_registration, decide_registration, lock_registration_identity, registration_status
 from .customer_overview import build_customer_overview
 from .customer_requests import (
     RequestSubmissionError,
@@ -144,6 +145,7 @@ from .models import (
     SourceNicheMapping,
     SourceSegment,
     UserAccount,
+    CustomerRegistration,
     UserAccountInvitation,
     WebhookReceipt,
     utcnow,
@@ -151,6 +153,7 @@ from .models import (
 from .operations_overview import OperationsOverview, operations_overview
 from .mfa_provider import MFAProviderError, get_mfa_provider
 from .schemas import (
+    RegistrationDecision,
     AgencyAssignment,
     AgencyCreate,
     AgencyUpdate,
@@ -539,7 +542,7 @@ async def create_session(
         raise HTTPException(status_code=403, detail="Sign in with noah@jawnix.com to access administration.")
     session_kwargs: dict = {}
     admin_next = "/app/manager/uploads" if role == "manager" else "/app/admin/overview"
-    if role in {"admin", "manager"}:
+    if role == "admin":
         state = db.get(AdminMFAState, uuid.UUID(str(user["id"])))
         if state is None:
             state = AdminMFAState(
@@ -590,6 +593,10 @@ async def create_session(
                 and not requested.startswith("//")
                 else admin_next
             )
+    if role == "manager":
+        requested = payload.requested_next or ""
+        if requested.startswith("/app/manager/") and not requested.startswith("//"):
+            admin_next = requested
     principal = issue_session(
         response,
         user,
@@ -597,6 +604,7 @@ async def create_session(
         **session_kwargs,
     )
     if principal.role == "customer":
+        lock_registration_identity(db, principal.user_id)
         # Signing in is what acceptance means: the invited person has proved
         # they hold the invited identity. Do this before the replaced-account
         # guard below, so an invitation that has just been accepted is not
@@ -661,6 +669,18 @@ async def create_session(
                     status_code=409,
                     detail="User Account and Customer mapping do not match.",
                 )
+    signup_profile = (user.get("user_metadata") or {}).get("signup_profile")
+    registration = db.get(CustomerRegistration, principal.user_id)
+    if principal.role == "customer" and signup_profile is not None and account is None:
+        if user.get("email_verified") is not True:
+            raise HTTPException(status_code=403, detail="Verify your email before completing signup.")
+        from .schemas import SignupProfile
+        try:
+            details = SignupProfile.model_validate(signup_profile)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="The signup details are invalid.") from None
+        db.flush()
+        registration = complete_registration(db, user_id=principal.user_id, email=principal.email, details=details)
     db.commit()
     if principal.role in {"admin", "manager"}:
         next_path = admin_next
@@ -674,6 +694,8 @@ async def create_session(
             and not requested.startswith("//")
             else "/app/overview"
         )
+        if registration is not None and registration.status != "active":
+            next_path = "/app/registration-status"
     return {
         "ok": True,
         "role": principal.role,
@@ -682,8 +704,43 @@ async def create_session(
     }
 
 
+@app.get("/api/auth/signup-options")
+def signup_options():
+    from .states import US_STATE_OPTIONS
+    return {"states": [{"code": code, "name": name} for code, name in US_STATE_OPTIONS]}
+
+
+@app.get("/api/me/registration")
+def my_registration(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
+    item = db.get(CustomerRegistration, principal.user_id)
+    if item is None:
+        return {"status": "active", "next": "/app/overview"}
+    return registration_status(item)
+
+
+@app.get("/api/admin/registrations")
+def pending_registrations(_: Principal = Depends(require_admin), db: Session = Depends(get_db)):
+    return [{**registration_status(item), "id": str(item.auth_user_id),
+             "matches": archived_customer_matches(db, item.first_name, item.last_name)}
+            for item in db.scalars(select(CustomerRegistration).where(CustomerRegistration.status == "awaiting_review").order_by(CustomerRegistration.created_at))]
+
+
+@app.post("/api/admin/registrations/{user_id}/decision")
+def decide_signup(user_id: uuid.UUID, payload: "RegistrationDecision", principal: Principal = Depends(require_admin), db: Session = Depends(get_db)):
+    try:
+        result = decide_registration(db, user_id, payload, str(principal.user_id))
+    except UserAccountConflict as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=error.message) from None
+    db.commit()
+    return registration_status(result)
+
+
 @app.get("/api/auth/destination")
-def authentication_destination(principal: Principal = Depends(require_principal)):
+def authentication_destination(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
+    registration = db.get(CustomerRegistration, principal.user_id)
+    if registration is not None and registration.status != "active":
+        return {"next": "/app/registration-status"}
     return {"next": administration_home(principal) if principal.role in {"admin", "manager"} else "/app/overview"}
 
 
@@ -707,6 +764,9 @@ def _current_customer_profile(
     before it can read or write anything under its old identity.
     """
 
+    registration = db.get(CustomerRegistration, principal.user_id)
+    if registration is not None and registration.status != "active":
+        raise HTTPException(status_code=409, detail="Your account review is not complete.")
     account = db.get(UserAccount, principal.user_id)
     if account is not None and not account.active:
         raise HTTPException(
@@ -4557,6 +4617,13 @@ def erase_customer_personal_data(
             invitation.status = "canceled"
             invitation.canceled_at = utcnow()
     original_slug = customer.slug
+    for registration in db.scalars(select(CustomerRegistration).where(CustomerRegistration.customer_id == customer.id)):
+        registration.email = anonymous_email
+        registration.first_name = ""
+        registration.last_name = ""
+        registration.phone = ""
+        registration.licensed_states = []
+        registration.status = "rejected"
     customer.name = "Deleted Customer"
     customer.slug = f"deleted-customer-{customer.id}"
     customer.licensed_states = []
