@@ -57,7 +57,7 @@ from .customer_directory import (
     customer_dependency_counts,
 )
 from .customer_history import archived_customer_matches, remember_customer_name, request_history_scope
-from .customer_registration import complete_registration, decide_registration, lock_registration_identity, registration_status
+from .customer_registration import complete_registration, decide_registration, lock_registration_identity, registration_next, registration_status, set_registration_states
 from .customer_overview import build_customer_overview
 from .customer_requests import (
     RequestSubmissionError,
@@ -154,6 +154,7 @@ from .operations_overview import OperationsOverview, operations_overview
 from .mfa_provider import MFAProviderError, get_mfa_provider
 from .schemas import (
     RegistrationDecision,
+    RegistrationStates,
     AgencyAssignment,
     AgencyCreate,
     AgencyUpdate,
@@ -694,8 +695,8 @@ async def create_session(
             and not requested.startswith("//")
             else "/app/overview"
         )
-        if registration is not None and registration.status != "active":
-            next_path = "/app/registration-status"
+        if registration is not None and registration_next(registration) != "/app/overview":
+            next_path = registration_next(registration)
     return {
         "ok": True,
         "role": principal.role,
@@ -714,15 +715,28 @@ def signup_options():
 def my_registration(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
     item = db.get(CustomerRegistration, principal.user_id)
     if item is None:
-        return {"status": "active", "next": "/app/overview"}
+        return {"status": "active", "next": administration_home(principal) if principal.role in {"admin", "manager"} else "/app/overview"}
     return registration_status(item)
+
+
+@app.post("/api/me/registration/states")
+def complete_signup_states(payload: RegistrationStates, principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
+    if principal.role != "customer":
+        raise HTTPException(status_code=403, detail="Only customers can complete signup state setup.")
+    try:
+        result = set_registration_states(db, principal.user_id, payload.states)
+    except UserAccountConflict as error:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=error.message) from None
+    db.commit()
+    return registration_status(result)
 
 
 @app.get("/api/admin/registrations")
 def pending_registrations(_: Principal = Depends(require_admin), db: Session = Depends(get_db)):
     return [{**registration_status(item), "id": str(item.auth_user_id),
              "matches": archived_customer_matches(db, item.first_name, item.last_name)}
-            for item in db.scalars(select(CustomerRegistration).where(CustomerRegistration.status == "awaiting_review").order_by(CustomerRegistration.created_at))]
+            for item in db.scalars(select(CustomerRegistration).where(CustomerRegistration.status == "awaiting_review").order_by(CustomerRegistration.created_at)) if item.licensed_states]
 
 
 @app.post("/api/admin/registrations/{user_id}/decision")
@@ -739,8 +753,8 @@ def decide_signup(user_id: uuid.UUID, payload: "RegistrationDecision", principal
 @app.get("/api/auth/destination")
 def authentication_destination(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
     registration = db.get(CustomerRegistration, principal.user_id)
-    if registration is not None and registration.status != "active":
-        return {"next": "/app/registration-status"}
+    if principal.role == "customer" and registration is not None:
+        return {"next": registration_next(registration)}
     return {"next": administration_home(principal) if principal.role in {"admin", "manager"} else "/app/overview"}
 
 
@@ -766,7 +780,7 @@ def _current_customer_profile(
 
     registration = db.get(CustomerRegistration, principal.user_id)
     if registration is not None and registration.status != "active":
-        raise HTTPException(status_code=409, detail="Your account review is not complete.")
+        raise HTTPException(status_code=409, detail="Your account setup or review is not complete.")
     account = db.get(UserAccount, principal.user_id)
     if account is not None and not account.active:
         raise HTTPException(

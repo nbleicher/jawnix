@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from .activity import record_activity
 from .customer_accounts import activate_registered_user_account, UserAccountConflict
 from .customer_history import archived_customer_matches
-from .models import Customer, CustomerProfile, CustomerRegistration, CustomerTombstone, LeadRequest, utcnow
+from .models import Customer, CustomerProfile, CustomerRegistration, CustomerTombstone, LeadRequest, UserAccount, utcnow
 from .schemas import RegistrationDecision, SignupProfile
 
 
@@ -19,6 +19,8 @@ def lock_registration_identity(db: Session, user_id: uuid.UUID) -> None:
 
 
 def _activate(db: Session, registration: CustomerRegistration, customer: Customer | None, actor_id: str) -> None:
+    if not registration.licensed_states:
+        raise UserAccountConflict("Appointed states must be selected before activation.", guard="registration_incomplete")
     restored = customer is not None
     if customer is None:
         full_name = f"{registration.first_name} {registration.last_name}"
@@ -68,13 +70,44 @@ def complete_registration(db: Session, *, user_id: uuid.UUID, email: str, detail
         for key, value in details.model_dump().items():
             setattr(profile, key, value)
     db.flush()
-    matches = archived_customer_matches(db, details.first_name, details.last_name)
+    if registration.licensed_states:
+        _finish_state_setup(db, registration)
+    return registration
+
+
+def _finish_state_setup(db: Session, registration: CustomerRegistration) -> None:
+    user_id = registration.auth_user_id
+    matches = archived_customer_matches(db, registration.first_name, registration.last_name)
     if not matches:
         _activate(db, registration, None, f"user_account:{user_id}")
     else:
         record_activity(db, action="customer_registration_review_requested", target_type="user_account", target_id=user_id,
                         actor_id=f"user_account:{user_id}", reason="Verified signup needs an operator history decision.",
                         details={"matchingCustomerIds":[row["id"] for row in matches]})
+
+
+def set_registration_states(db: Session, user_id: uuid.UUID, states: list[str]) -> CustomerRegistration:
+    """Complete initial state setup once; later edits use Licensed State review."""
+    lock_registration_identity(db, user_id)
+    registration = db.scalar(select(CustomerRegistration).where(CustomerRegistration.auth_user_id == user_id).with_for_update().execution_options(populate_existing=True))
+    account = db.get(UserAccount, user_id)
+    if account is not None and not account.active:
+        raise UserAccountConflict("This User Account has been replaced or deactivated.", guard="account_inactive")
+    if registration is None or registration.status == "rejected":
+        raise UserAccountConflict("This registration cannot complete state setup.", guard="registration_closed")
+    if registration.licensed_states:
+        return registration
+    if registration.status != "awaiting_review":
+        raise UserAccountConflict("This registration no longer needs state setup.", guard="registration_closed")
+    profile = db.get(CustomerProfile, user_id)
+    if profile is None or profile.customer_id is not None or account is not None:
+        raise UserAccountConflict("This User Account is already mapped to a Customer.", guard="account_mapped")
+    registration.licensed_states = list(states)
+    profile.licensed_states = list(states)
+    _finish_state_setup(db, registration)
+    record_activity(db, action="customer_registration_states_selected", target_type="user_account", target_id=user_id,
+                    actor_id=f"user_account:{user_id}", reason="Customer completed appointed state setup after email verification.",
+                    details={"licensedStates":states})
     return registration
 
 
@@ -83,6 +116,8 @@ def decide_registration(db: Session, user_id: uuid.UUID, decision: RegistrationD
     registration = db.scalar(select(CustomerRegistration).where(CustomerRegistration.auth_user_id == user_id).with_for_update().execution_options(populate_existing=True))
     if registration is None or registration.status != "awaiting_review":
         raise UserAccountConflict("This registration is no longer awaiting review.", guard="registration_closed")
+    if not registration.licensed_states and decision.decision != "reject":
+        raise UserAccountConflict("Appointed states must be selected before activation.", guard="registration_incomplete")
     customer = None
     if decision.decision == "restore":
         matches = archived_customer_matches(db, registration.first_name, registration.last_name)
@@ -107,4 +142,10 @@ def decide_registration(db: Session, user_id: uuid.UUID, decision: RegistrationD
 def registration_status(registration: CustomerRegistration) -> dict:
     return {"status":registration.status,"firstName":registration.first_name,"lastName":registration.last_name,
             "email":registration.email,"phone":registration.phone,"states":registration.licensed_states,
-            "next":"/app/overview" if registration.status == "active" else "/app/registration-status"}
+            "next":registration_next(registration)}
+
+
+def registration_next(registration: CustomerRegistration) -> str:
+    if registration.status != "rejected" and not registration.licensed_states:
+        return "/app/appointed-states"
+    return "/app/overview" if registration.status == "active" else "/app/registration-status"

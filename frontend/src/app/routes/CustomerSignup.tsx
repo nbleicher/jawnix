@@ -11,31 +11,37 @@ import { AuthRouteFrame, FormError } from "./CustomerAuth";
 import "./CustomerSignup.css";
 
 interface StateOption { code: string; name: string }
-export interface RegistrationStatus { status: "active" | "awaiting_review" | "rejected"; next: string }
+export interface RegistrationStatus { status: "active" | "awaiting_review" | "rejected"; next: string; states?: string[] }
 
 export async function signupOptionsLoader(): Promise<{ states: StateOption[] }> {
   const response = await fetch("/api/auth/signup-options");
   if (!response.ok) throw new Response("Signup is temporarily unavailable.", { status: response.status });
   return response.json();
 }
-export async function registrationStatusLoader(): Promise<RegistrationStatus> {
+async function loadRegistration(): Promise<RegistrationStatus> {
   const response = await fetch("/api/me/registration", { credentials: "same-origin" });
-  if (response.status === 401) throw redirect("/sign-in");
+  if (response.status === 401 || response.status === 403) throw redirect("/sign-in");
   if (!response.ok) throw new Response("Account status is temporarily unavailable.", { status: response.status });
-  const data = await response.json() as RegistrationStatus;
-  if (data.status === "active") throw redirect(routerPath(data.next));
+  return response.json() as Promise<RegistrationStatus>;
+}
+export async function registrationStatusLoader(): Promise<RegistrationStatus> {
+  const data = await loadRegistration();
+  if (data.next !== "/app/registration-status") throw redirect(routerPath(data.next));
   return data;
+}
+export async function appointedStatesLoader(): Promise<{ states: StateOption[] }> {
+  const data = await loadRegistration();
+  if (data.next !== "/app/appointed-states") throw redirect(routerPath(data.next));
+  return signupOptionsLoader();
 }
 
 export function CustomerSignupRoute() {
   useDocumentTitle("Create account");
-  const { states } = useLoaderData() as { states: StateOption[] };
   const [first, setFirst] = useState("");
   const [last, setLast] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [chosen, setChosen] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
@@ -45,16 +51,15 @@ export function CustomerSignupRoute() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
-    if (!chosen.length) { setError("Select at least one appointed state."); return; }
     setBusy(true); setError("");
     try {
-      await signUpWithPassword(email.trim(), password, { first_name: first.trim(), last_name: last.trim(), phone, licensed_states: chosen });
+      await signUpWithPassword(email.trim(), password, { first_name: first.trim(), last_name: last.trim(), phone });
       setPassword(""); setSent(true);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Signup is temporarily unavailable."); }
     finally { setBusy(false); }
   }
   return <AuthRouteFrame><AuthPanel title={sent ? "Check your email" : "Create your account"}
-    description={sent ? "Open the verification link to finish creating your account." : "Enter your details and the states where you are appointed."}
+    description={sent ? "Open the verification link to finish creating your account." : "Enter your details to get started."}
     footer={<Link className="jx-auth-route__link" to="/sign-in">Already registered? Sign in</Link>}>
     {sent ? <div className="jx-auth-form">
       <p role="status">We sent a verification link to {email}. The link expires in one hour.</p>
@@ -74,7 +79,44 @@ export function CustomerSignupRoute() {
       <Field label="Phone number" required><Input name="phone" type="tel" autoComplete="tel-national" maxLength={40} value={phone} onChange={event => setPhone(event.target.value)} required /></Field>
       <Field label="Email address" required><Input name="email" type="email" autoComplete="email" maxLength={320} value={email} onChange={event => setEmail(event.target.value)} required /></Field>
       <Field label="Password" description="Use at least 8 characters." required><Input name="password" type="password" autoComplete="new-password" minLength={8} value={password} onChange={event => setPassword(event.target.value)} required /></Field>
-      <fieldset className="jx-signup-states"><legend>Appointed states (required)</legend>
+      <Button type="submit" variant="primary" fullWidth busy={busy} busyLabel="Creating account…">Create account</Button>
+    </form>}
+  </AuthPanel></AuthRouteFrame>;
+}
+
+export function AppointedStatesRoute() {
+  useDocumentTitle("Appointed states");
+  const { states } = useLoaderData() as { states: StateOption[] };
+  const navigate = useNavigate();
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (busy) return;
+    if (!chosen.length) { setError("Select at least one appointed state."); return; }
+    setBusy(true); setError("");
+    try {
+      const cookie = document.cookie.split(";").map(value => value.trim()).find(value => value.startsWith("jawnix_csrf="));
+      const response = await fetch("/api/me/registration/states", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": decodeURIComponent(cookie?.split("=", 2)[1] ?? "") },
+        body: JSON.stringify({ states: chosen }),
+      });
+      if (response.status === 401) { navigate("/sign-in", { replace: true }); return; }
+      if (!response.ok) throw new Error("We could not save your appointed states. Please try again.");
+      const result = await response.json() as RegistrationStatus;
+      navigate(routerPath(result.next), { replace: true });
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Please try again."); }
+    finally { setBusy(false); }
+  }
+  return <AuthRouteFrame><AuthPanel title="Select your appointed states" description="Choose the states where you are appointed to finish setting up your account."
+    footer={<Button type="button" onClick={async () => { await signOut(); navigate("/sign-in", { replace: true }); }}>Sign out</Button>}>
+    <form className="jx-auth-form" onSubmit={submit}>
+      {error ? <FormError errorRef={errorRef}>{error}</FormError> : null}
+      <fieldset className="jx-signup-states" disabled={busy}><legend>Appointed states (required)</legend>
         <p className="jx-signup-states__count" aria-live="polite">{chosen.length ? chosen.join(", ") : "No states selected"}</p>
         <div className="jx-signup-states__options">
           {states.map(state => <label key={state.code} title={`${state.name} (${state.code})`}>
@@ -83,8 +125,8 @@ export function CustomerSignupRoute() {
           </label>)}
         </div>
       </fieldset>
-      <Button type="submit" variant="primary" fullWidth busy={busy} busyLabel="Creating account…">Create account</Button>
-    </form>}
+      <Button type="submit" variant="primary" fullWidth busy={busy} busyLabel="Saving states…">Continue</Button>
+    </form>
   </AuthPanel></AuthRouteFrame>;
 }
 

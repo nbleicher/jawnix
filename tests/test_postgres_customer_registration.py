@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from jawnix.customer_accounts import UserAccountConflict
-from jawnix.customer_registration import complete_registration, decide_registration, lock_registration_identity
+from jawnix.customer_registration import complete_registration, decide_registration, lock_registration_identity, set_registration_states
 from jawnix.database import Base
 from jawnix.models import Customer, CustomerHistoryIdentity, CustomerRegistration, UserAccount, utcnow
 from jawnix.schemas import RegistrationDecision, SignupProfile
@@ -76,3 +76,26 @@ def test_two_registrations_cannot_restore_the_same_history(registration_engine):
     with Session(registration_engine) as db:
         assert db.scalar(select(func.count()).select_from(UserAccount).where(UserAccount.customer_id == customer_id, UserAccount.active.is_(True))) == 1
         assert sorted(db.get(CustomerRegistration, user_id).status for user_id in users) == ["active", "awaiting_review"]
+
+
+def test_concurrent_state_setup_activates_one_customer_without_overwriting_states(registration_engine):
+    user_id = uuid.uuid4()
+    with Session(registration_engine) as db:
+        complete_registration(db, user_id=user_id, email=f"{user_id}@example.test",
+                              details=SignupProfile(first_name="New", last_name=user_id.hex, phone="6155550100"))
+        db.commit()
+    ready = Barrier(2)
+    def finish(states):
+        with Session(registration_engine) as db:
+            ready.wait(timeout=5)
+            registration = set_registration_states(db, user_id, states)
+            result = registration.customer_id, registration.licensed_states
+            db.commit()
+            return result
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(finish, [["TN"], ["SC"]]))
+    assert results[0] == results[1]
+    assert results[0][0] is not None and results[0][1] in [["TN"], ["SC"]]
+    with Session(registration_engine) as db:
+        assert db.get(UserAccount, user_id).active
+        assert db.get(Customer, results[0][0]).licensed_states == results[0][1]
