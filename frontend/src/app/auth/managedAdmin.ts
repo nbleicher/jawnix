@@ -1,5 +1,5 @@
 import { redirect } from "react-router";
-import { api, type AdminMFAStatus } from "./adminMFA";
+import { api } from "./adminMFA";
 import { clearReadPrefetch } from "../routeReadCache";
 
 export async function managerAccessLoader() {
@@ -7,11 +7,6 @@ export async function managerAccessLoader() {
     return await api<{ ok: true; id: string; email: string }>("/api/manager/access");
   } catch (error) {
     if ((error as { status?: number }).status === 401) {
-      const response = await fetch("/api/auth/admin-mfa", { credentials: "same-origin" });
-      if (response.ok) {
-        const state = await response.json() as AdminMFAStatus;
-        throw redirect(state.next.replace(/^\/app/, ""));
-      }
       throw redirect("/sign-in?next=%2Fapp%2Fmanager%2Fuploads");
     }
     throw error;

@@ -45,6 +45,12 @@ export const router = createBrowserRouter(
           },
         },
         {
+          path: "sign-up",
+          lazy: lazyPage("CustomerSignup", "CustomerSignupRoute", "signupOptionsLoader"),
+        },
+        { path: "complete-signup", lazy: lazyPage("CustomerSignup", "CompleteSignupRoute") },
+        { path: "registration-status", lazy: lazyPage("CustomerSignup", "RegistrationStatusRoute", "registrationStatusLoader") },
+        {
           path: "accept-invitation",
           loader: invitationLoader,
           lazy: async () => {

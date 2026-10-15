@@ -141,6 +141,24 @@ class CustomerHistoryIdentity(Base):
     )
 
 
+class CustomerRegistration(Base):
+    __tablename__ = "customer_registrations"
+    auth_user_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    first_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    phone: Mapped[str] = mapped_column(String(40), nullable=False)
+    licensed_states: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id", ondelete="RESTRICT"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    decided_by: Mapped[str | None] = mapped_column(String(160))
+    __table_args__ = (
+        CheckConstraint("status IN ('awaiting_review', 'active', 'rejected')", name="ck_customer_registration_status"),
+    )
+
+
 class AgencyMembershipHistory(Base):
     """One period of current membership, retained after every reassignment.
 

@@ -16,7 +16,57 @@ from pydantic import (
     model_validator,
 )
 
-from .states import normalize_states
+from .states import normalize_phone, normalize_states
+
+
+class SignupProfile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    first_name: str = Field(min_length=1, max_length=120)
+    last_name: str = Field(min_length=1, max_length=120)
+    phone: str = Field(min_length=1, max_length=40)
+    licensed_states: list[str] = Field(min_length=1, max_length=51)
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def valid_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Enter your first and last name.")
+        return value
+
+    @field_validator("phone")
+    @classmethod
+    def valid_phone(cls, value: str) -> str:
+        normalized = normalize_phone(value)
+        if normalized is None:
+            raise ValueError("Enter a US phone number with ten digits.")
+        return normalized
+
+    @field_validator("licensed_states")
+    @classmethod
+    def valid_signup_states(cls, value: list[str]) -> list[str]:
+        normalized = normalize_states(value)
+        if not normalized:
+            raise ValueError("Select at least one appointed state.")
+        return normalized
+
+    @model_validator(mode="after")
+    def valid_full_name(self):
+        if len(f"{self.first_name} {self.last_name}") > 160:
+            raise ValueError("Your full name must be 160 characters or fewer.")
+        return self
+
+
+class RegistrationDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: Literal["new", "restore", "reject"]
+    restore_customer_id: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def valid_decision(self):
+        if (self.decision == "restore") != (self.restore_customer_id is not None):
+            raise ValueError("Select a matching Customer only for restoration.")
+        return self
 
 
 class SessionExchange(BaseModel):

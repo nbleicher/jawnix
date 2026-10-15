@@ -13,9 +13,11 @@ if (!databaseURL || !new URL(databaseURL).pathname.endsWith("_test"))
   throw new Error("Use an isolated *_test database for auth tests.");
 const database = new pg.Pool({ connectionString: databaseURL });
 const emails: { email: string; url: string }[] = [];
+const verificationEmails: { email: string; url: string }[] = [];
 const auth = createAuth(database, {
   baseURL: "http://localhost:3001/auth",
   secret: "test-only-secret-at-least-thirty-two-characters-long",
+  sendVerification: async (email, url) => { verificationEmails.push({ email, url }); },
   sendReset: async (email, url) => {
     emails.push({ email, url });
   },
@@ -56,7 +58,7 @@ test("bridge authorization uses a separate secret", () => {
   assert.equal(bridgeAuthorized("", ""), false);
 });
 
-test("manager provisioning returns a private setup link without email and uses the same TOTP boundary", async () => {
+test("manager uses password-only access with live session validation and cannot enroll MFA", async () => {
   const id = randomUUID();
   const email = `${id}@example.test`;
   const before = emails.length;
@@ -74,9 +76,44 @@ test("manager provisioning returns a private setup link without email and uses t
   assert.ok("user" in identity);
   assert.ok(identity.user);
   assert.equal(identity.user.app_metadata.jawnix_role, "manager");
-  const enrolled = await bridge(auth, { action:"enroll", accessToken:login.token as string, password:"password-for-manager-test" });
-  assert.ok("totp" in enrolled && enrolled.totp?.secret);
+  await assert.rejects(bridge(auth, { action:"enroll", accessToken:login.token as string, password:"password-for-manager-test" }));
+  assert.ok("claims" in identity && identity.claims);
+  assert.deepEqual(await bridge(auth, { action:"validate-session", userId:id, sessionId:identity.claims.sessionId, role:"manager" }), { valid:true });
+  await assert.rejects(bridge(auth, { action:"validate-session", userId:id, sessionId:identity.claims.sessionId, role:"admin" }));
+  await bridge(auth, { action:"logout", accessToken:login.token as string });
+  await assert.rejects(bridge(auth, { action:"validate-session", userId:id, sessionId:identity.claims.sessionId, role:"manager" }));
   assert.equal(emails.length, before);
+});
+
+test("public signup validates details, verifies email, and cannot grant an operator role", async () => {
+  const email = `${randomUUID()}@example.test`;
+  const details = { first_name:" New ", last_name:" Customer ", phone:"+1 (615) 555-0100", licensed_states:["TN", "SC", "TN"] };
+  const request = (body: unknown) => auth.handler(new Request("http://localhost:3001/auth/sign-up/email", {
+    method:"POST", headers:{ "Content-Type":"application/json", Origin:"http://localhost:3001" }, body:JSON.stringify(body),
+  }));
+  const base = { email, password:"signup-password-for-test", name:"Ignored", signupProfile:details, jawnixRole:"admin", emailVerified:true, callbackURL:"http://localhost:3001/app/complete-signup" };
+  for (const invalid of [{ ...details, licensed_states:["XX"] }, { ...details, phone:"123" }, { ...details, first_name:" " }, { ...details, customer_id:99 }]) {
+    assert.equal((await request({ ...base, signupProfile:invalid })).status, 400);
+  }
+  const response = await request(base);
+  assert.equal(response.status, 200);
+  const value = await response.json();
+  assert.equal(value.token, null);
+  assert.equal(value.user.jawnixRole, "customer");
+  assert.equal(value.user.emailVerified, false);
+  await assert.rejects(auth.api.signInEmail({ body:{ email, password:base.password } }));
+  const message = verificationEmails.find(item => item.email === email)!;
+  assert.ok(message);
+  const verified = await auth.handler(new Request(message.url));
+  assert.equal(verified.status, 302);
+  const login = await auth.api.signInEmail({ body:{ email, password:base.password } });
+  assert.ok("token" in login && login.token);
+  const identity = await bridge(auth, { action:"identity", accessToken:login.token as string });
+  assert.ok("user" in identity && identity.user);
+  assert.equal(identity.user.email_verified, true);
+  assert.equal(identity.user.app_metadata.jawnix_role, "customer");
+  assert.deepEqual(identity.user.user_metadata.signup_profile, { first_name:"New", last_name:"Customer", phone:"6155550100", licensed_states:["SC", "TN"] });
+  await assert.rejects(bridge(auth, { action:"enroll", accessToken:login.token as string, password:base.password }));
 });
 
 test("provisioning cannot silently turn a customer into a manager", async () => {

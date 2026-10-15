@@ -26,6 +26,8 @@ import {
 } from "../../design-system/primitives/typography";
 
 import "./AdminCustomers.css";
+import { RegistrationReview } from "./RegistrationReview";
+import type { PendingRegistration } from "./RegistrationReview";
 
 export type CustomerAdminTone =
   | "neutral"
@@ -71,6 +73,7 @@ export interface CustomerDirectoryRow {
 interface ManagedAdminInfo { id: string; name: string; email: string }
 
 export interface CustomerDirectoryData {
+  pending_registrations?: PendingRegistration[];
   filters: {
     query: string;
     status: "all" | "active" | "deactivated";
@@ -154,9 +157,11 @@ export async function adminCustomerDirectoryLoader({
     if (value) query.set(key, value);
   }
   const search = query.toString();
-  return api<CustomerDirectoryData>(
-    `/api/admin/customers/directory${search ? `?${search}` : ""}`,
-  );
+  const [directory, registrations] = await Promise.all([
+    api<CustomerDirectoryData>(`/api/admin/customers/directory${search ? `?${search}` : ""}`),
+    api<PendingRegistration[]>("/api/admin/registrations"),
+  ]);
+  return { ...directory, pending_registrations: registrations };
 }
 
 function Standing({
@@ -560,6 +565,7 @@ export function AdminCustomersRoute() {
         </Cluster>
       }
     >
+      <RegistrationReview items={data.pending_registrations ?? []} />
       <Section
         title="Find a Customer"
         description="Search by Customer name, slug, or the email on the current User Account."

@@ -24,6 +24,10 @@ def managed_setup(session, settings, monkeypatch):
     factor_id = uuid.uuid4()
 
     class Provider:
+        async def request(self, action, **payload):
+            assert action == "validate-session" and payload["role"] == "manager"
+            return {"valid": True}
+
         async def list_factors(self, user_id):
             return [SimpleNamespace(verified_totp=True, id=factor_id)]
 
@@ -35,7 +39,7 @@ def managed_setup(session, settings, monkeypatch):
     def client(role="manager", assurance="aal2"):
         user_id = manager_id if role == "manager" else operator_id
         response = Response()
-        principal = issue_session(response, {"id":str(user_id), "email":f"{role}@example.test", "app_metadata":{"jawnix_role":role}},
+        principal = issue_session(response, {"id":str(user_id), "email":f"{role}@example.test", "app_metadata":{"jawnix_role":role}, "_jawnix_auth_claims":{"sessionId":str(uuid.uuid4())}},
                                   settings, assurance=assurance, session_generation=1, factor_id=factor_id)
         value = TestClient(app)
         for header, content in response.raw_headers:
@@ -88,12 +92,12 @@ def test_source_change_is_customer_scoped_and_queues_fulfillment(managed_setup, 
     assert session.scalar(select(Job).where(Job.kind == "fulfill_round_robin")) is not None
 
 
-def test_upload_requires_mfa_and_queues_owned_file_without_reading_rows(managed_setup, session):
+def test_password_only_manager_uploads_owned_file_and_cannot_enroll_mfa(managed_setup, session):
     scope = managed_setup
     content = b"Phone,Name\n+1 (615) 555-0100,Example\n"
     with scope.client(assurance="aal1") as unverified:
-        assert unverified.post("/api/manager/uploads", files={"file":("leads.csv",content)}, data={"state":"TN"}).status_code == 401
-    with scope.client() as client:
+        assert unverified.get("/api/auth/admin-mfa").status_code == 403
+    with scope.client(assurance="aal1") as client:
         response = client.post("/api/manager/uploads", files={"file":("leads.csv",content)}, data={"state":"TN"})
         assert response.status_code == 202
         value = response.json()

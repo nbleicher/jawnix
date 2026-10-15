@@ -70,6 +70,21 @@ function renderDirectory(data: CustomerDirectoryData) {
 describe("administrator Customer directory", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("requires confirmation before restoring a verified registration's history", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail:"Decision captured" }), { status:409 }));
+    vi.stubGlobal("fetch", fetcher);
+    const user = userEvent.setup();
+    renderDirectory(directory({ pending_registrations:[{ id:"new-user", firstName:"River", lastName:"Morgan", email:"new@example.test", phone:"6155550100", states:["TN"], matches:[{ id:19, name:"River Morgan", slug:"river-morgan", email:"old@example.test" }] }] }));
+    await user.click(screen.getByRole("button", { name:"Restore river-morgan (old@example.test)" }));
+    expect(fetcher).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("Grant new@example.test access");
+    await user.click(within(dialog).getByRole("button", { name:"Confirm decision" }));
+    expect(fetcher.mock.calls[0]?.[0]).toBe("/api/admin/registrations/new-user/decision");
+    expect(JSON.parse(fetcher.mock.calls[0]?.[1].body)).toEqual({ decision:"restore", restore_customer_id:19 });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Decision captured");
+  });
+
   it("requires a second operator action to restore matching archived history", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ detail: {
       message: "Confirm archived customer history.",

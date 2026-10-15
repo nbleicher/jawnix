@@ -123,6 +123,7 @@ export async function customerAccessLoader({
     const requested = safeCustomerPath(new URL(request.url).pathname);
     throw redirect(`/sign-in?next=${encodeURIComponent(requested)}`);
   }
+  if (response.status === 409) throw redirect("/registration-status");
   // 404 is an authenticated principal with no Customer profile — the
   // administrator identity intentionally has none. Since cutover the site
   // root lands here, so hand them to their own shell; the admin boundary

@@ -9,7 +9,7 @@ The active product that turns acquired lead data into approved lead batches deli
 _Avoid_: Lead tracker, lead-to-cash platform
 
 **Administrator Assurance**:
-The strength of the identity verification completed for an Administrator Session; administration requires a password plus verification by a currently enrolled Authenticator Factor or an unused Recovery Code.
+The strength of the identity verification completed for the operator's Administrator Session. Operator access requires a password plus verification by a currently enrolled Authenticator Factor or an unused Recovery Code. Customers and Managed Administrators use email and password without MFA.
 _Avoid_: Login status, trusted browser
 
 **Authenticator Factor**:
@@ -150,11 +150,14 @@ An administrator-supplied Niche stamp for inventory that no Source Segment mappi
 _Avoid_: Source Segment mapping, title stamping
 
 **User Account**:
-A replaceable authentication identity used to access Jawnix on behalf of a Customer. Each Customer has exactly one active User Account, enforced in persistence rather than by any screen, and replacing it never creates a new Customer or resets distribution history. Administrators provision it only through a User Account Invitation and never set or view its password.
+A replaceable authentication identity used to access Jawnix on behalf of a Customer. Each Customer has exactly one active User Account, enforced in persistence rather than by any screen, and replacing it never creates a new Customer or resets distribution history. Access starts through an accepted User Account Invitation or verified Customer Registration. Administrators never set or view passwords.
 _Avoid_: Customer, agent
 
 **User Account Invitation**:
 An outstanding offer of access to one durable Customer, addressed to an email the provider owns the credential for. A Customer has at most one outstanding invitation, and the Customer's existing User Account stays active until the invitation is accepted; acceptance is the invited person signing in, which activates the new User Account and deactivates the former one in one step without touching the Customer or its history. Canceling an invitation leaves current access exactly as it was.
+
+**Customer Registration**:
+A public signup with first name, last name, phone number, appointed states, and a verified email address. A registration with no exact archived name match creates a new Customer. An exact archived first-and-last-name match waits for an operator decision to restore one matching Customer, create a separate Customer, or reject access. Registration never grants a privileged role or automatically restores history.
 _Avoid_: Password reset, account replacement, pending user
 
 **Setup Problem**:
