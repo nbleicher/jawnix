@@ -209,7 +209,7 @@ def test_public_verification_creates_customer_and_password_only_manager_stays_re
     try:
         with httpx.Client(base_url=fixture["url"], headers={"Origin":fixture["url"]}) as provider, TestClient(app) as client:
             created = provider.post("/auth/sign-up/email", json={"email":email, "password":fixture["password"], "name":"New Customer", "signupProfile":{
-                "first_name":"New", "last_name":"Customer", "phone":"6155550100", "licensed_states":["TN", "SC"]},
+                "first_name":"New", "last_name":"Customer", "phone":"6155550100"},
                 "callbackURL":fixture["url"] + "/app/complete-signup", "jawnixRole":"admin"})
             assert created.status_code == 200, created.text
             user_id = uuid.UUID(created.json()["user"]["id"])
@@ -217,12 +217,20 @@ def test_public_verification_creates_customer_and_password_only_manager_stays_re
             assert provider.post("/auth/sign-in/email", json={"email":email,"password":fixture["password"]}).status_code == 403
             link = next(row["url"] for row in provider.get("/fixture/verification-links").json() if row["email"] == email)
             assert provider.get(link).status_code == 302
-            login = provider.post("/auth/sign-in/email", json={"email":email, "password":fixture["password"]})
-            assert login.status_code == 200
+            # Email verification signs in automatically with the real provider
+            # cookie used by /app/complete-signup, without another password prompt.
+            verified_session = provider.get("/auth/get-session").json()
+            token = verified_session["session"]["token"]
             for _ in range(2):
-                exchange = client.post("/api/auth/session", json={"access_token":login.json()["token"]})
+                exchange = client.post("/api/auth/session", json={"access_token":token})
                 assert exchange.status_code == 200, exchange.text
-                assert exchange.json()["next"] == "/app/overview"
+                assert exchange.json()["next"] == "/app/appointed-states"
+            assert session.get(UserAccount, user_id) is None
+            assert client.get("/api/me/overview").status_code == 409
+            client.headers["X-CSRF-Token"] = client.cookies.get("jawnix_csrf")
+            selected = client.post("/api/me/registration/states", json={"states":["TN", "SC"]})
+            assert selected.status_code == 200 and selected.json()["next"] == "/app/overview"
+            assert client.post("/api/auth/session", json={"access_token":token}).json()["next"] == "/app/overview"
             profile = session.get(CustomerProfile, user_id)
             assert profile.phone == "6155550100" and profile.licensed_states == ["SC", "TN"]
             assert session.get(Customer, profile.customer_id).active

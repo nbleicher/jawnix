@@ -24,7 +24,7 @@ class SignupProfile(BaseModel):
     first_name: str = Field(min_length=1, max_length=120)
     last_name: str = Field(min_length=1, max_length=120)
     phone: str = Field(min_length=1, max_length=40)
-    licensed_states: list[str] = Field(min_length=1, max_length=51)
+    licensed_states: list[str] = Field(default_factory=list, max_length=51)
 
     @field_validator("first_name", "last_name")
     @classmethod
@@ -45,16 +45,26 @@ class SignupProfile(BaseModel):
     @field_validator("licensed_states")
     @classmethod
     def valid_signup_states(cls, value: list[str]) -> list[str]:
-        normalized = normalize_states(value)
-        if not normalized:
-            raise ValueError("Select at least one appointed state.")
-        return normalized
+        return normalize_states(value)
 
     @model_validator(mode="after")
     def valid_full_name(self):
         if len(f"{self.first_name} {self.last_name}") > 160:
             raise ValueError("Your full name must be 160 characters or fewer.")
         return self
+
+
+class RegistrationStates(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    states: list[str] = Field(min_length=1, max_length=51)
+
+    @field_validator("states")
+    @classmethod
+    def valid_states(cls, value: list[str]) -> list[str]:
+        normalized = normalize_states(value)
+        if not normalized:
+            raise ValueError("Select at least one appointed state.")
+        return normalized
 
 
 class RegistrationDecision(BaseModel):

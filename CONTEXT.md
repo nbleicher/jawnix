@@ -157,7 +157,7 @@ _Avoid_: Customer, agent
 An outstanding offer of access to one durable Customer, addressed to an email the provider owns the credential for. A Customer has at most one outstanding invitation, and the Customer's existing User Account stays active until the invitation is accepted; acceptance is the invited person signing in, which activates the new User Account and deactivates the former one in one step without touching the Customer or its history. Canceling an invitation leaves current access exactly as it was.
 
 **Customer Registration**:
-A public signup with first name, last name, phone number, appointed states, and a verified email address. A registration with no exact archived name match creates a new Customer. An exact archived first-and-last-name match waits for an operator decision to restore one matching Customer, create a separate Customer, or reject access. Registration never grants a privileged role or automatically restores history.
+A public signup with first name, last name, phone number, and a verified email address, followed by appointed state setup. Once states are selected, a registration with no exact archived name match creates a new Customer. An exact archived first-and-last-name match waits for an operator decision to restore one matching Customer, create a separate Customer, or reject access. Registration never grants a privileged role or automatically restores history.
 _Avoid_: Password reset, account replacement, pending user
 
 **Setup Problem**:

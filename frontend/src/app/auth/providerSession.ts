@@ -63,7 +63,7 @@ export interface SignupDetails {
   first_name: string;
   last_name: string;
   phone: string;
-  licensed_states: string[];
+  licensed_states?: string[];
 }
 const signupCallback = () => `${window.location.origin}/app/complete-signup`;
 export async function signUpWithPassword(email: string, password: string, details: SignupDetails): Promise<void> {
