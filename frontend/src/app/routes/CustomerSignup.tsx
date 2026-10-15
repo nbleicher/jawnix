@@ -36,7 +36,6 @@ export function CustomerSignupRoute() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [chosen, setChosen] = useState<string[]>([]);
-  const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
@@ -77,15 +76,13 @@ export function CustomerSignupRoute() {
       <Field label="Password" description="Use at least 8 characters." required><Input name="password" type="password" autoComplete="new-password" minLength={8} value={password} onChange={event => setPassword(event.target.value)} required /></Field>
       <fieldset className="jx-signup-states"><legend>Appointed states (required)</legend>
         <p className="jx-signup-states__count" aria-live="polite">{chosen.length ? chosen.join(", ") : "No states selected"}</p>
-        <Field label="Find a state"><Input type="search" value={search} onChange={event => setSearch(event.target.value)} /></Field>
         <div className="jx-signup-states__options">
-          {states.filter(state => `${state.name} ${state.code}`.toLowerCase().includes(search.toLowerCase())).map(state => <label key={state.code}>
-            <input type="checkbox" name="appointed_states" value={state.code} checked={chosen.includes(state.code)} onChange={event => setChosen(current => event.target.checked ? [...current, state.code].sort() : current.filter(code => code !== state.code))} />
-            {state.name} ({state.code})
+          {states.map(state => <label key={state.code} title={`${state.name} (${state.code})`}>
+            <input type="checkbox" name="appointed_states" value={state.code} aria-label={`${state.name} (${state.code})`} checked={chosen.includes(state.code)} onChange={event => setChosen(current => event.target.checked ? [...current, state.code].sort() : current.filter(code => code !== state.code))} />
+            {state.code}
           </label>)}
         </div>
       </fieldset>
-      <p>If your name matches a previous customer, Noah will review the account before any previous history becomes available.</p>
       <Button type="submit" variant="primary" fullWidth busy={busy} busyLabel="Creating account…">Create account</Button>
     </form>}
   </AuthPanel></AuthRouteFrame>;
