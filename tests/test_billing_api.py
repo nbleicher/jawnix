@@ -148,6 +148,33 @@ def test_positive_billed_batches_have_a_one_cent_floor():
     assert batch_cost_cents(0, 100) == 0
 
 
+def test_database_b_pauses_billing_and_preserves_database_a_terms_and_wallet(session):
+    user_id, customer = _customer(session)
+    _configure(session, customer, enabled=True, rate=1000)
+    _adjust(session, customer, 2500)
+    first = _submit(session, user_id, lead_count=1000, key="database-a-billed-0001")
+    assert first.status_code == 201, first.text
+    billed = session.scalar(select(LeadRequest).where(LeadRequest.agent_id == customer.id))
+    assert billed.is_billed and billed.billing_amount_cents == 1000
+    customer.lead_database = "db2"
+    session.commit()
+    wallet = _as_customer(session, user_id).get("/api/me/billing").json()
+    assert not wallet["billingEnabled"] and wallet["billingConfigured"]
+    assert wallet["balanceCents"] == 2500 and wallet["activeHoldsCents"] == 1000
+    second = _submit(session, user_id, lead_count=1000, key="database-b-free-0001")
+    assert second.status_code == 201, second.text
+    requests = list(session.scalars(select(LeadRequest).where(LeadRequest.agent_id == customer.id).order_by(LeadRequest.created_at)))
+    assert [row.is_billed for row in requests] == [True, False]
+    assert session.scalar(select(func.count(BatchHold.id))) == 1
+    refused = _as_admin(session).put(f"/api/admin/customers/{customer.id}/billing", json={"billing_enabled":True,"lead_rate_cents_per_thousand":500,"reason":"Wrong database"})
+    assert refused.status_code == 422
+    customer.lead_database = "db1"
+    session.commit()
+    resumed = _as_customer(session, user_id).get("/api/me/billing").json()
+    assert resumed["billingEnabled"] and resumed["leadRateCentsPerThousand"] == 1000
+    assert resumed["balanceCents"] == 2500 and resumed["activeHoldsCents"] == 1000
+
+
 def test_billed_submission_is_refused_when_available_balance_cannot_cover_hold(
     session,
 ):

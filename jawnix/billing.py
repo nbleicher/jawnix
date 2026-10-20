@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .activity import record_activity
+from .lead_databases import inventory_database
 from .models import (
     BatchHold,
     CreditLedgerEntry,
@@ -83,6 +84,11 @@ def _purchase_view(purchase: CreditPurchase) -> dict[str, object]:
     }
 
 
+def stripe_billing_enabled(customer: Customer) -> bool:
+    """Saved per-Customer pricing applies only while drawing from DB1."""
+    return customer.billing_enabled and inventory_database(customer) == "db1"
+
+
 def wallet_view(db: Session, customer: Customer) -> dict[str, object]:
     balance, active_holds, available = _wallet_totals(db, customer.id)
     entries = db.scalars(
@@ -103,7 +109,9 @@ def wallet_view(db: Session, customer: Customer) -> dict[str, object]:
     )
     return {
         "customerId": customer.id,
-        "billingEnabled": customer.billing_enabled,
+        "billingEnabled": stripe_billing_enabled(customer),
+        "billingConfigured": customer.billing_enabled,
+        "leadDatabase": inventory_database(customer),
         "leadRateCentsPerThousand": (
             customer.lead_rate_cents_per_thousand
         ),
@@ -142,6 +150,8 @@ def start_credit_purchase(
 ) -> tuple[CreditPurchase, str]:
     """Open a Stripe Checkout session and record a processing Credit Purchase."""
 
+    if not stripe_billing_enabled(customer):
+        raise BillingError("Stripe payments require billing and a Lead Rate for Database A.")
     if amount_dollars < 1:
         raise BillingError(
             "Credit Purchases must be whole dollars with a $1 floor.",
@@ -301,7 +311,7 @@ def prepare_submission(
     )
     if customer is None:
         raise BillingError("Customer was not found.", 404)
-    if not customer.billing_enabled:
+    if not stripe_billing_enabled(customer):
         return SubmissionBilling(is_billed=False)
     rate = customer.lead_rate_cents_per_thousand
     if rate is None:
@@ -469,6 +479,8 @@ def configure_customer_billing(
     normalized_reason = reason.strip()
     if not normalized_reason:
         raise BillingError("A reason is required for a billing change.", 422)
+    if billing_enabled and inventory_database(customer) != "db1":
+        raise BillingError("Stripe billing can be enabled only for Database A.", 422)
     if billing_enabled and lead_rate_cents_per_thousand is None:
         raise BillingError(
             "A Lead Rate is required when billing is enabled.",

@@ -19,7 +19,7 @@ import {
   useBilledWallet,
   useCreditWallet,
 } from "./CreditWalletContext";
-import { formatCents } from "./money";
+import { formatCents, formatLeadRate } from "./money";
 import {
   LEDGER_KIND_LABEL,
   hasProcessingPurchase,
@@ -329,7 +329,7 @@ export function CreditLedgerSection() {
                   <LabelText>Lead Rate</LabelText>
                 </dt>
                 <dd>
-                  {`${formatCents(wallet.leadRateCentsPerThousand)} per 1,000 leads`}
+                  {formatLeadRate(wallet.leadRateCentsPerThousand)}
                 </dd>
               </div>
             ) : null}

@@ -1074,6 +1074,8 @@ def create_credit_purchase(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    if not settings.billing_enabled:
+        raise HTTPException(status_code=503, detail="Stripe payments are temporarily unavailable.")
     profile = _current_customer_profile(db, principal)
     customer = profile.customer
     if customer is None:

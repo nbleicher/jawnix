@@ -258,7 +258,7 @@ A situation where an older Batch Request cannot be fulfilled but a newer request
 _Avoid_: Automatic queue bypass, inventory shortage
 
 **Billed Customer**:
-A Customer whose Batch Requests must be paid from their Credit Wallet, switched per Customer by an administrator with no Agency-level pooling. Each request's billed-or-free status is frozen at submission and never repriced by later toggle changes.
+A Customer whose new Batch Requests from Database A must be paid from their Credit Wallet, switched per Customer by the operator with no Agency-level pooling. Selecting Database B pauses billing for new requests and Stripe purchases while retaining the Customer's saved Database A price and wallet balance. Each request's billed-or-free status is frozen at submission and never repriced by later toggle or database changes.
 _Avoid_: Paid tier, subscriber, agency billing
 
 **Credit Wallet**:

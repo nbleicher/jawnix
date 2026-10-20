@@ -22,3 +22,9 @@ that commits distribution (ADR 0003), so money moves exactly when leads do.
 
 Legacy invoicing and financial reporting remain outside the domain. A request's billed-or-free
 status is frozen at submission, so flipping a Customer's toggle never reprices in-flight work.
+
+Stripe payments apply only to Database A (DB1, the operator's inventory). Database B (DB2,
+Managed Administrator uploads) cannot start Stripe purchases or new billed requests. Switching
+databases retains the saved Database A price and wallet balance. Existing requests retain their
+submitted terms. The operator enters each Customer's price in dollars per lead with sub-cent
+precision; integer cents per 1,000 leads remain the internal accounting unit.

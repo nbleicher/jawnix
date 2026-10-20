@@ -165,6 +165,7 @@ def _billing_settings(fake: FakeStripeClient) -> Settings:
         JAWNIX_COOKIE_SECURE=False,
         JAWNIX_SESSION_SECRET="test-secret-at-least-long-enough",
         JAWNIX_PUBLIC_BASE_URL="https://jawnix.test",
+        JAWNIX_ENABLE_BILLING=True,
         STRIPE_SECRET_KEY=fake.secret_key,
         STRIPE_WEBHOOK_SECRET=fake.webhook_secret,
     )
@@ -529,6 +530,20 @@ def test_purchase_rejects_sub_dollar_amounts(session):
     )
     assert response.status_code == 422
     assert fake.created == []
+
+
+@pytest.mark.parametrize("database,enabled,platform_enabled", [("db2", True, True), ("db1", False, True), ("db1", True, False)])
+def test_stripe_purchase_requires_database_a_and_enabled_billing(session, database, enabled, platform_enabled):
+    fake = FakeStripeClient()
+    settings = _billing_settings(fake)
+    settings.billing_enabled = platform_enabled
+    user_id, customer, _ = _customer(session, billing_enabled=enabled)
+    customer.lead_database = database
+    session.commit()
+    response = _as_customer(session, settings, user_id).post("/api/me/billing/purchases", json={"amount_dollars":10})
+    assert response.status_code == (409 if platform_enabled else 503), response.text
+    assert fake.created == []
+    assert session.scalar(select(func.count(CreditPurchase.id))) == 0
 
 
 def test_stripe_network_failures_are_translated_to_service_errors(monkeypatch):
