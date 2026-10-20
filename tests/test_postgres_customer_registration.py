@@ -28,7 +28,7 @@ def registration_engine():
         engine.dispose()
 
 
-def test_concurrent_verified_callbacks_create_one_customer(registration_engine):
+def test_concurrent_verified_callbacks_create_one_customer(registration_engine, settings):
     user_id = uuid.uuid4()
     details = SignupProfile(first_name="New", last_name=user_id.hex, phone="6155550100", licensed_states=["TN"])
     ready = Barrier(2)
@@ -36,7 +36,7 @@ def test_concurrent_verified_callbacks_create_one_customer(registration_engine):
         with Session(registration_engine) as db:
             ready.wait(timeout=5)
             lock_registration_identity(db, user_id)
-            registration = complete_registration(db, user_id=user_id, email=f"{user_id}@example.test", details=details)
+            registration = complete_registration(db, user_id=user_id, email=f"{user_id}@example.test", details=details, settings=settings)
             customer_id = registration.customer_id
             db.commit()
             return customer_id
@@ -48,7 +48,7 @@ def test_concurrent_verified_callbacks_create_one_customer(registration_engine):
         assert db.scalar(select(func.count()).select_from(CustomerRegistration).where(CustomerRegistration.auth_user_id == user_id)) == 1
 
 
-def test_two_registrations_cannot_restore_the_same_history(registration_engine):
+def test_two_registrations_cannot_restore_the_same_history(registration_engine, settings):
     last_name = uuid.uuid4().hex
     details = SignupProfile(first_name="Archived", last_name=last_name, phone="6155550100", licensed_states=["TN"])
     users = [uuid.uuid4(), uuid.uuid4()]
@@ -58,14 +58,14 @@ def test_two_registrations_cannot_restore_the_same_history(registration_engine):
         customer_id = customer.id
         db.add(CustomerHistoryIdentity(customer_id=customer.id, first_name="Archived", last_name=last_name)); db.commit()
         for user_id in users:
-            complete_registration(db, user_id=user_id, email=f"{user_id}@example.test", details=details)
+            complete_registration(db, user_id=user_id, email=f"{user_id}@example.test", details=details, settings=settings)
         db.commit()
     ready = Barrier(2)
     def approve(user_id):
         with Session(registration_engine) as db:
             ready.wait(timeout=5)
             try:
-                result = decide_registration(db, user_id, RegistrationDecision(decision="restore", restore_customer_id=customer_id), "operator")
+                result = decide_registration(db, user_id, RegistrationDecision(decision="restore", restore_customer_id=customer_id), "operator", settings)
                 db.commit()
                 return result.status
             except UserAccountConflict:
@@ -78,17 +78,17 @@ def test_two_registrations_cannot_restore_the_same_history(registration_engine):
         assert sorted(db.get(CustomerRegistration, user_id).status for user_id in users) == ["active", "awaiting_review"]
 
 
-def test_concurrent_state_setup_activates_one_customer_without_overwriting_states(registration_engine):
+def test_concurrent_state_setup_activates_one_customer_without_overwriting_states(registration_engine, settings):
     user_id = uuid.uuid4()
     with Session(registration_engine) as db:
         complete_registration(db, user_id=user_id, email=f"{user_id}@example.test",
-                              details=SignupProfile(first_name="New", last_name=user_id.hex, phone="6155550100"))
+                              details=SignupProfile(first_name="New", last_name=user_id.hex, phone="6155550100"), settings=settings)
         db.commit()
     ready = Barrier(2)
     def finish(states):
         with Session(registration_engine) as db:
             ready.wait(timeout=5)
-            registration = set_registration_states(db, user_id, states)
+            registration = set_registration_states(db, user_id, states, settings)
             result = registration.customer_id, registration.licensed_states
             db.commit()
             return result

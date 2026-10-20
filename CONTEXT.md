@@ -274,7 +274,7 @@ An arbitrary whole-dollar Credit Wallet top-up through Stripe Checkout, credited
 _Avoid_: Invoice, subscription, redirect-confirmed payment
 
 **Lead Rate**:
-The administrator-set flat per-lead price for one Billed Customer, required when billing is switched on. No global default rate exists, and the rate may carry sub-cent precision.
+The administrator-set flat per-lead price for one Billed Customer, required when billing is switched on. New Database A Customers receive the configured starting rate when platform billing is enabled. The operator can override each Customer's rate, which may carry sub-cent precision. Restoring history retains the saved billing configuration.
 _Avoid_: Global price, tiered pricing, per-batch price
 
 **Batch Hold**:

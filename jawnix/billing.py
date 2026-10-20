@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .activity import record_activity
+from .config import Settings
 from .lead_databases import inventory_database
 from .models import (
     BatchHold,
@@ -22,6 +23,14 @@ from .stripe_client import StripeClient, StripeClientError
 MIN_LEAD_RATE_CENTS_PER_THOUSAND = 100
 MAX_LEAD_RATE_CENTS_PER_THOUSAND = 2_000
 MIN_PURCHASE_CENTS = 100
+
+
+def initialize_customer_billing(customer: Customer, settings: Settings) -> None:
+    """Apply the starting DB1 price once, when a new Customer is created."""
+    rate = settings.db1_default_lead_rate_cents_per_thousand
+    if settings.billing_enabled and rate is not None and inventory_database(customer) == "db1":
+        customer.billing_enabled = True
+        customer.lead_rate_cents_per_thousand = rate
 
 
 class BillingError(Exception):

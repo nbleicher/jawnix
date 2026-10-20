@@ -7,6 +7,8 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from .activity import record_activity
+from .billing import initialize_customer_billing
+from .config import Settings
 from .customer_accounts import activate_registered_user_account, UserAccountConflict
 from .customer_history import archived_customer_matches
 from .models import Customer, CustomerProfile, CustomerRegistration, CustomerTombstone, LeadRequest, UserAccount, utcnow
@@ -18,7 +20,7 @@ def lock_registration_identity(db: Session, user_id: uuid.UUID) -> None:
         db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": user_id.int >> 65})
 
 
-def _activate(db: Session, registration: CustomerRegistration, customer: Customer | None, actor_id: str) -> None:
+def _activate(db: Session, registration: CustomerRegistration, customer: Customer | None, actor_id: str, settings: Settings) -> None:
     if not registration.licensed_states:
         raise UserAccountConflict("Appointed states must be selected before activation.", guard="registration_incomplete")
     restored = customer is not None
@@ -27,6 +29,7 @@ def _activate(db: Session, registration: CustomerRegistration, customer: Custome
         slug = re.sub(r"[^a-z0-9]+", "-", full_name.lower()).strip("-")[:47] or "customer"
         customer = Customer(slug=f"{slug}-{registration.auth_user_id.hex}", name=full_name,
                             licensed_states=registration.licensed_states, active=True)
+        initialize_customer_billing(customer, settings)
         db.add(customer)
         db.flush()
     else:
@@ -55,7 +58,7 @@ def _activate(db: Session, registration: CustomerRegistration, customer: Custome
                              "historyPreserved":True,"operatorApproved":not actor_id.startswith("user_account:")})
 
 
-def complete_registration(db: Session, *, user_id: uuid.UUID, email: str, details: SignupProfile) -> CustomerRegistration:
+def complete_registration(db: Session, *, user_id: uuid.UUID, email: str, details: SignupProfile, settings: Settings) -> CustomerRegistration:
     """Caller has verified the provider token, customer role, and email ownership."""
     registration = db.get(CustomerRegistration, user_id)
     if registration is not None:
@@ -71,22 +74,22 @@ def complete_registration(db: Session, *, user_id: uuid.UUID, email: str, detail
             setattr(profile, key, value)
     db.flush()
     if registration.licensed_states:
-        _finish_state_setup(db, registration)
+        _finish_state_setup(db, registration, settings)
     return registration
 
 
-def _finish_state_setup(db: Session, registration: CustomerRegistration) -> None:
+def _finish_state_setup(db: Session, registration: CustomerRegistration, settings: Settings) -> None:
     user_id = registration.auth_user_id
     matches = archived_customer_matches(db, registration.first_name, registration.last_name)
     if not matches:
-        _activate(db, registration, None, f"user_account:{user_id}")
+        _activate(db, registration, None, f"user_account:{user_id}", settings)
     else:
         record_activity(db, action="customer_registration_review_requested", target_type="user_account", target_id=user_id,
                         actor_id=f"user_account:{user_id}", reason="Verified signup needs an operator history decision.",
                         details={"matchingCustomerIds":[row["id"] for row in matches]})
 
 
-def set_registration_states(db: Session, user_id: uuid.UUID, states: list[str]) -> CustomerRegistration:
+def set_registration_states(db: Session, user_id: uuid.UUID, states: list[str], settings: Settings) -> CustomerRegistration:
     """Complete initial state setup once; later edits use Licensed State review."""
     lock_registration_identity(db, user_id)
     registration = db.scalar(select(CustomerRegistration).where(CustomerRegistration.auth_user_id == user_id).with_for_update().execution_options(populate_existing=True))
@@ -104,14 +107,14 @@ def set_registration_states(db: Session, user_id: uuid.UUID, states: list[str]) 
         raise UserAccountConflict("This User Account is already mapped to a Customer.", guard="account_mapped")
     registration.licensed_states = list(states)
     profile.licensed_states = list(states)
-    _finish_state_setup(db, registration)
+    _finish_state_setup(db, registration, settings)
     record_activity(db, action="customer_registration_states_selected", target_type="user_account", target_id=user_id,
                     actor_id=f"user_account:{user_id}", reason="Customer completed appointed state setup after email verification.",
                     details={"licensedStates":states})
     return registration
 
 
-def decide_registration(db: Session, user_id: uuid.UUID, decision: RegistrationDecision, actor_id: str) -> CustomerRegistration:
+def decide_registration(db: Session, user_id: uuid.UUID, decision: RegistrationDecision, actor_id: str, settings: Settings) -> CustomerRegistration:
     lock_registration_identity(db, user_id)
     registration = db.scalar(select(CustomerRegistration).where(CustomerRegistration.auth_user_id == user_id).with_for_update().execution_options(populate_existing=True))
     if registration is None or registration.status != "awaiting_review":
@@ -132,7 +135,7 @@ def decide_registration(db: Session, user_id: uuid.UUID, decision: RegistrationD
         registration.decided_at = utcnow()
         registration.decided_by = actor_id
     else:
-        _activate(db, registration, customer, actor_id)
+        _activate(db, registration, customer, actor_id, settings)
     record_activity(db, action="customer_registration_decided", target_type="user_account", target_id=user_id,
                     actor_id=actor_id, reason="Operator reviewed a matching-name registration.",
                     details={"decision":decision.decision,"customerId":registration.customer_id,"operatorApproved":True})

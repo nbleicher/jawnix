@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     session_ttl_seconds: int = Field(default=86400, alias="JAWNIX_SESSION_TTL_SECONDS")
     cookie_secure: bool = Field(default=True, alias="JAWNIX_COOKIE_SECURE")
     billing_enabled: bool = Field(default=False, alias="JAWNIX_ENABLE_BILLING")
+    db1_default_lead_rate_cents_per_thousand: int | None = Field(
+        default=None, ge=100, le=2000, alias="JAWNIX_DB1_DEFAULT_LEAD_RATE_CENTS_PER_THOUSAND",
+    )
     frontend_dist_dir: Path = Field(default=Path("./frontend/dist"), alias="JAWNIX_FRONTEND_DIST_DIR")
     public_base_url: str = Field(default="http://localhost:8080", alias="JAWNIX_PUBLIC_BASE_URL")
 
