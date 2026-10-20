@@ -375,6 +375,9 @@ function RequestFlow({
       const submitted = await submitBatchRequest({
           idempotency_key: submissionKey,
           lead_count: Number(quantity.trim()),
+          ...(billing?.leadRateCentsPerThousand != null
+            ? { expected_lead_rate_cents_per_thousand: billing.leadRateCentsPerThousand }
+            : {}),
           ...(oneFile
             ? {}
             : { rows_per_file: Number(rowsPerFile.trim()) }),

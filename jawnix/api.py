@@ -2498,6 +2498,7 @@ def create_request(
             db,
             customer_id=profile.customer_id,
             lead_count=payload.lead_count,
+            expected_lead_rate_cents_per_thousand=payload.expected_lead_rate_cents_per_thousand,
         )
     except BillingError as exc:
         raise HTTPException(

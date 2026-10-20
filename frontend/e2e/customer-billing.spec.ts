@@ -212,7 +212,7 @@ test.describe("Billed request submission", () => {
     await mockCustomerAuth(page, {
       billing: { wallet: BILLED_CUSTOMER_WALLET },
     });
-    await mockBatchRequests(page, { workspace: EMPTY_BATCH_REQUEST_WORKSPACE });
+    const state = await mockBatchRequests(page, { workspace: EMPTY_BATCH_REQUEST_WORKSPACE });
     await page.goto("./requests");
 
     await page.getByRole("spinbutton", { name: /How many leads/ }).fill("750");
@@ -230,6 +230,9 @@ test.describe("Billed request submission", () => {
       page.getByText(/\$3\.75 reserved from your Credit Wallet/),
     ).toBeVisible();
     await expect(page.locator(".request-flow__review")).toContainText("$96.25");
+    await page.getByRole("button", { name:"Submit request", exact:true }).click();
+    await expect(page.getByRole("heading", { name:"Request submitted" })).toBeVisible();
+    expect(state.submissions[0]).toMatchObject({ expected_lead_rate_cents_per_thousand:500 });
   });
 
   test("refuses submit when available balance cannot cover the Batch Hold", async ({

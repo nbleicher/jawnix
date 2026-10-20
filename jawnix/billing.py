@@ -296,6 +296,7 @@ def prepare_submission(
     *,
     customer_id: int,
     lead_count: int,
+    expected_lead_rate_cents_per_thousand: int | None = None,
 ) -> SubmissionBilling:
     """Freeze billing terms and verify that a new hold can be covered.
 
@@ -308,10 +309,15 @@ def prepare_submission(
         select(Customer)
         .where(Customer.id == customer_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if customer is None:
         raise BillingError("Customer was not found.", 404)
-    if not stripe_billing_enabled(customer):
+    billed = stripe_billing_enabled(customer)
+    current_rate = customer.lead_rate_cents_per_thousand if billed else None
+    if current_rate != expected_lead_rate_cents_per_thousand:
+        raise BillingError("Your lead price changed. Refresh the page, review the updated price, and submit again.")
+    if not billed:
         return SubmissionBilling(is_billed=False)
     rate = customer.lead_rate_cents_per_thousand
     if rate is None:

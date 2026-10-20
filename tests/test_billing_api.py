@@ -131,6 +131,9 @@ def _submit(
     lead_count: int,
     key: str,
 ):
+    profile = session.get(CustomerProfile, user_id)
+    customer = profile.customer
+    expected_rate = customer.lead_rate_cents_per_thousand if customer.billing_enabled and customer.lead_database == "db1" else None
     return _as_customer(session, user_id).post(
         "/api/me/batch-requests",
         json={
@@ -138,6 +141,7 @@ def _submit(
             "lead_count": lead_count,
             "state_mode": "selected",
             "states": ["TX"],
+            "expected_lead_rate_cents_per_thousand": expected_rate,
         },
     )
 
@@ -173,6 +177,31 @@ def test_database_b_pauses_billing_and_preserves_database_a_terms_and_wallet(ses
     resumed = _as_customer(session, user_id).get("/api/me/billing").json()
     assert resumed["billingEnabled"] and resumed["leadRateCentsPerThousand"] == 1000
     assert resumed["balanceCents"] == 2500 and resumed["activeHoldsCents"] == 1000
+
+
+@pytest.mark.parametrize("path", ["/api/me/batch-requests", "/api/me/requests"])
+def test_changed_or_unreviewed_price_never_places_a_hold(session, path):
+    user_id, customer = _customer(session)
+    _configure(session, customer, enabled=True, rate=1000)
+    _adjust(session, customer, 2500)
+    client = _as_customer(session, user_id)
+    payload = {"lead_count":1000,"state_mode":"selected","states":["TX"]}
+    if path.endswith("batch-requests"):
+        payload["idempotency_key"] = "price-review-0001"
+    for expected in [None,500]:
+        response = client.post(path,json={**payload,"expected_lead_rate_cents_per_thousand":expected})
+        assert response.status_code == 409 and "price changed" in response.json()["detail"]
+    assert session.scalar(select(func.count(LeadRequest.id))) == 0
+    assert session.scalar(select(func.count(BatchHold.id))) == 0
+    assert client.get("/api/me/billing").json()["availableBalanceCents"] == 2500
+    accepted = client.post(path,json={**payload,"expected_lead_rate_cents_per_thousand":1000})
+    assert accepted.status_code == 201, accepted.text
+    assert session.scalar(select(func.count(BatchHold.id))) == 1
+    if path.endswith("batch-requests"):
+        _configure(session, customer, enabled=True, rate=1500)
+        replay = _as_customer(session, user_id).post(path,json={**payload,"expected_lead_rate_cents_per_thousand":1000})
+        assert replay.status_code == 200, replay.text
+        assert session.scalar(select(func.count(BatchHold.id))) == 1
 
 
 def test_billed_submission_is_refused_when_available_balance_cannot_cover_hold(

@@ -13,6 +13,7 @@ from psycopg import sql
 
 from conftest import make_request
 from jawnix.allocation import allocate_request, inventory_count
+from jawnix.billing import BillingError, prepare_submission
 from jawnix.config import Settings
 from jawnix.database import Base
 from jawnix.db2_setup import db2_url, provision
@@ -57,6 +58,27 @@ def upload(factory, manager_id, path, content):
     with factory.begin() as db:
         item = LeadUpload(manager_id=manager_id, filename=path.name, path=str(path), state="TN", status="queued", bytes=len(content), sha256=hashlib.sha256(content).hexdigest())
         db.add(item); db.flush(); return item.id
+
+
+@pytest.mark.parametrize("old_rate,new_rate,database", [(500,1000,"db1"),(None,1000,"db1"),(500,500,"db2")])
+def test_reviewed_price_rechecks_committed_rate_and_database(stores, old_rate, new_rate, database):
+    _, factory, _ = stores
+    with factory.begin() as db:
+        customer = Customer(slug=str(uuid.uuid4()), name="Pricing fixture", billing_enabled=old_rate is not None,
+                            lead_rate_cents_per_thousand=old_rate)
+        db.add(customer); db.flush(); customer_id=customer.id
+    with factory() as reviewing:
+        stale = reviewing.get(Customer,customer_id)
+        assert stale.lead_rate_cents_per_thousand == old_rate
+        with factory.begin() as editing:
+            current = editing.get(Customer,customer_id)
+            current.billing_enabled = True
+            current.lead_rate_cents_per_thousand = new_rate
+            current.lead_database = database
+        with pytest.raises(BillingError,match="price changed"):
+            prepare_submission(reviewing,customer_id=customer_id,lead_count=1000,
+                               expected_lead_rate_cents_per_thousand=old_rate)
+        assert stale.lead_rate_cents_per_thousand == new_rate and stale.lead_database == database
 
 
 def test_actual_db2_rows_preserve_db1_data_and_shared_delivery_history(stores, tmp_path):

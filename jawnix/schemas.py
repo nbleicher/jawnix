@@ -135,6 +135,7 @@ class RequestCreate(BaseModel):
     lead_count: int = Field(ge=1, le=100_000)
     state_mode: str = Field(default="all_saved", pattern="^(all_saved|selected)$")
     states: list[str] = Field(default_factory=list)
+    expected_lead_rate_cents_per_thousand: int | None = Field(default=None, ge=100, le=2_000)
 
     @field_validator("states")
     @classmethod
@@ -677,6 +678,7 @@ class CustomerRequestCreate(BaseModel):
     rows_per_file: int | None = Field(default=None, ge=1, le=100_000)
     state_mode: Literal["all_saved", "selected"] = "all_saved"
     states: list[str] = Field(default_factory=list)
+    expected_lead_rate_cents_per_thousand: int | None = Field(default=None, ge=100, le=2_000)
 
     @field_validator("states")
     @classmethod
