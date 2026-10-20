@@ -216,3 +216,34 @@ def test_restore_rechecks_matching_customer_and_active_access(signup, session):
 def test_registration_decision_rejects_ambiguous_payloads(payload):
     with pytest.raises(ValueError):
         RegistrationDecision.model_validate(payload)
+
+
+@pytest.mark.parametrize("states_after_signup", [False, True])
+def test_new_customer_receives_starting_price_once(signup, session, settings, states_after_signup):
+    client, identity, user_id = signup
+    settings.billing_enabled = True
+    settings.db1_default_lead_rate_cents_per_thousand = 150
+    if states_after_signup:
+        identity["user_metadata"]["signup_profile"].pop("licensed_states")
+    assert exchange(client).status_code == 200
+    if states_after_signup:
+        assert client.post("/api/me/registration/states", json={"states":["TN"]}).status_code == 200
+    customer = session.get(Customer, session.get(UserAccount, user_id).customer_id)
+    assert customer.billing_enabled and customer.lead_rate_cents_per_thousand == 150
+    # Re-entering signup must preserve a later operator override.
+    customer.billing_enabled = False
+    customer.lead_rate_cents_per_thousand = 300
+    session.commit()
+    assert exchange(client).status_code == 200
+    assert client.post("/api/me/registration/states", json={"states":["SC"]}).status_code == 200
+    session.refresh(customer)
+    assert not customer.billing_enabled and customer.lead_rate_cents_per_thousand == 300
+
+
+def test_starting_rate_does_not_enable_billing_when_platform_disabled(signup, session, settings):
+    client, identity, user_id = signup
+    settings.billing_enabled = False
+    settings.db1_default_lead_rate_cents_per_thousand = 150
+    assert exchange(client).status_code == 200
+    customer = session.get(Customer, session.get(UserAccount, user_id).customer_id)
+    assert not customer.billing_enabled and customer.lead_rate_cents_per_thousand is None

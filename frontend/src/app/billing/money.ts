@@ -32,6 +32,14 @@ export function formatLeadRate(centsPerThousand: number): string {
   })} per lead`;
 }
 
+/** Parse dollars per lead into the existing integer price unit, without rounding. */
+export function parseLeadRate(value: string): number | null {
+  const match = /^(\d*)(?:\.(\d{1,5}))?$/.exec(value.trim());
+  if (!match || !(match[1] || match[2])) return null;
+  const rate = Number(match[1]) * 100_000 + Number((match[2] ?? "").padEnd(5, "0"));
+  return Number.isSafeInteger(rate) ? rate : null;
+}
+
 /**
  * Map a backend Credit Wallet refusal into a Customer-facing sentence that
  * still names the Batch Hold and Available Balance in dollars.

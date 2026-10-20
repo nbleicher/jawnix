@@ -19,7 +19,7 @@ test.describe("Customer billing and allocation controls", () => {
     await billing.getByRole("button", { name: "Configure billing" }).click();
     const configure = page.getByRole("dialog", { name: "Configure billing" });
     await configure.getByLabel("Billing enabled").check();
-    await configure.getByLabel(/Lead Rate/).fill("1000");
+    await configure.getByLabel(/Price per lead/).fill("0.01");
     await configure.getByLabel("Reason (required)").fill("Contract start");
     await configure.getByRole("button", { name: "Save billing" }).click();
     await expect(configure).toBeHidden();
@@ -32,7 +32,7 @@ test.describe("Customer billing and allocation controls", () => {
       },
     ]);
     await expect(billing.getByText("Billing on", { exact: true })).toBeVisible();    await expect(
-      billing.getByText(/1000¢ per 1,000 leads \(\$0\.010\/lead\)/),
+      billing.getByText("$0.010 per lead"),
     ).toBeVisible();
 
     await billing.getByRole("button", { name: "Post adjustment" }).click();

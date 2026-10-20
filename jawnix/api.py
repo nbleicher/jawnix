@@ -35,6 +35,7 @@ from .billing import (
     close_credit_purchase_for_session,
     complete_credit_purchase_for_session,
     configure_customer_billing,
+    initialize_customer_billing,
     place_batch_hold,
     post_admin_adjustment,
     prepare_submission,
@@ -681,7 +682,7 @@ async def create_session(
         except ValueError:
             raise HTTPException(status_code=422, detail="The signup details are invalid.") from None
         db.flush()
-        registration = complete_registration(db, user_id=principal.user_id, email=principal.email, details=details)
+        registration = complete_registration(db, user_id=principal.user_id, email=principal.email, details=details, settings=settings)
     db.commit()
     if principal.role in {"admin", "manager"}:
         next_path = admin_next
@@ -720,11 +721,11 @@ def my_registration(principal: Principal = Depends(require_principal), db: Sessi
 
 
 @app.post("/api/me/registration/states")
-def complete_signup_states(payload: RegistrationStates, principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
+def complete_signup_states(payload: RegistrationStates, principal: Principal = Depends(require_principal), db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
     if principal.role != "customer":
         raise HTTPException(status_code=403, detail="Only customers can complete signup state setup.")
     try:
-        result = set_registration_states(db, principal.user_id, payload.states)
+        result = set_registration_states(db, principal.user_id, payload.states, settings)
     except UserAccountConflict as error:
         db.rollback()
         raise HTTPException(status_code=409, detail=error.message) from None
@@ -740,9 +741,9 @@ def pending_registrations(_: Principal = Depends(require_admin), db: Session = D
 
 
 @app.post("/api/admin/registrations/{user_id}/decision")
-def decide_signup(user_id: uuid.UUID, payload: "RegistrationDecision", principal: Principal = Depends(require_admin), db: Session = Depends(get_db)):
+def decide_signup(user_id: uuid.UUID, payload: "RegistrationDecision", principal: Principal = Depends(require_admin), db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
     try:
-        result = decide_registration(db, user_id, payload, str(principal.user_id))
+        result = decide_registration(db, user_id, payload, str(principal.user_id), settings)
     except UserAccountConflict as error:
         db.rollback()
         raise HTTPException(status_code=409, detail=error.message) from None
@@ -1074,6 +1075,8 @@ def create_credit_purchase(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    if not settings.billing_enabled:
+        raise HTTPException(status_code=503, detail="Stripe payments are temporarily unavailable.")
     profile = _current_customer_profile(db, principal)
     customer = profile.customer
     if customer is None:
@@ -2496,6 +2499,7 @@ def create_request(
             db,
             customer_id=profile.customer_id,
             lead_count=payload.lead_count,
+            expected_lead_rate_cents_per_thousand=payload.expected_lead_rate_cents_per_thousand,
         )
     except BillingError as exc:
         raise HTTPException(
@@ -5082,6 +5086,7 @@ async def create_customer(
 
     if customer is None:
         customer = Customer(slug=slug, name=name, licensed_states=[], agency_id=None, active=True)
+        initialize_customer_billing(customer, settings)
         db.add(customer)
     else:
         customer.active = True

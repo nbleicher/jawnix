@@ -5,6 +5,7 @@ import {
   formatBalanceRefusal,
   formatCents,
   formatLeadRate,
+  parseLeadRate,
 } from "./money";
 
 describe("formatCents", () => {
@@ -32,6 +33,21 @@ describe("formatLeadRate", () => {
     expect(formatLeadRate(100)).toBe("$0.001 per lead");
     expect(formatLeadRate(150)).toBe("$0.0015 per lead");
     expect(formatLeadRate(101)).toBe("$0.00101 per lead");
+  });
+});
+
+describe("parseLeadRate", () => {
+  it("preserves per-lead prices and sub-cent precision without rounding", () => {
+    expect(parseLeadRate("0.01")).toBe(1000);
+    expect(parseLeadRate(".01")).toBe(1000);
+    expect(parseLeadRate("0.0015")).toBe(150);
+    expect(parseLeadRate("0.00101")).toBe(101);
+    expect(parseLeadRate("0.01000")).toBe(1000);
+  });
+  it("rejects prices that would require rounding or ambiguous numeric input", () => {
+    for (const value of ["", "0.001001", "1e-2", "-0.01", "NaN", "Infinity"]) {
+      expect(parseLeadRate(value)).toBeNull();
+    }
   });
 });
 

@@ -123,6 +123,7 @@ export interface BatchRequestReceipt {
 export interface BatchRequestSubmission {
   idempotency_key: string;
   lead_count: number;
+  expected_lead_rate_cents_per_thousand?: number;
   /** Omit for one file; the backend freezes `lead_count` as the part size. */
   rows_per_file?: number | null;
   state_mode: "all_saved" | "selected";

@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 
 import { api } from "../auth/adminMFA";
+import { parseLeadRate } from "../billing/money";
 import { Button } from "../../design-system/primitives/Button";
 import { Dialog } from "../../design-system/primitives/Dialog";
 import { EmptyState } from "../../design-system/primitives/feedback";
@@ -47,6 +48,8 @@ export interface CreditPurchaseView {
 export interface CustomerBillingView {
   customerId: number;
   billingEnabled: boolean;
+  billingConfigured?: boolean;
+  leadDatabase?: "db1" | "db2";
   leadRateCentsPerThousand: number | null;
   balanceCents: number;
   activeHoldsCents: number;
@@ -87,7 +90,7 @@ function formatDollarsPerLead(centsPerThousand: number): string {
 
 export function formatLeadRate(centsPerThousand: number | null): string {
   if (centsPerThousand === null) return "Not set";
-  return `${centsPerThousand}¢ per 1,000 leads ($${formatDollarsPerLead(centsPerThousand)}/lead)`;
+  return `$${formatDollarsPerLead(centsPerThousand)} per lead`;
 }
 
 function ledgerKindLabel(kind: string): string {
@@ -113,13 +116,14 @@ export function CustomerBillingSection({
   customerId,
   onChanged,
 }: ControlProps & { billing: CustomerBillingView }) {
+  const databaseA = (billing.leadDatabase ?? "db1") === "db1";
   const configure = useActionDialog(onChanged);
   const adjust = useActionDialog(onChanged);
   const [enabled, setEnabled] = useState(billing.billingEnabled);
   const [leadRate, setLeadRate] = useState(
     billing.leadRateCentsPerThousand === null
       ? ""
-      : String(billing.leadRateCentsPerThousand),
+      : formatDollarsPerLead(billing.leadRateCentsPerThousand),
   );
   const [configureReason, setConfigureReason] = useState("");
   const [adjustAmount, setAdjustAmount] = useState("");
@@ -130,7 +134,7 @@ export function CustomerBillingSection({
     setLeadRate(
       billing.leadRateCentsPerThousand === null
         ? ""
-        : String(billing.leadRateCentsPerThousand),
+        : formatDollarsPerLead(billing.leadRateCentsPerThousand),
     );
     setConfigureReason("");
     configure.show();
@@ -142,15 +146,16 @@ export function CustomerBillingSection({
     adjust.show();
   }
 
-  const rateValue = Number(leadRate);
+  const rateValue = parseLeadRate(leadRate);
   const rateDescription =
-    Number.isInteger(rateValue) && rateValue > 0
-      ? `Integer from 100 to 2000. ${rateValue} = $${formatDollarsPerLead(rateValue)} per lead.`
-      : "Integer from 100 to 2000. Example: 1000 = $0.010 per lead.";
+    rateValue !== null && rateValue >= 100 && rateValue <= 2_000
+      ? `${formatUsdCents(rateValue)} per 1,000 leads. Applies to future Batch Requests.`
+      : "$0.001 to $0.02 per lead. Use up to five decimal places.";
   const configureReady =
+    databaseA &&
     configureReason.trim().length > 0 &&
     (!enabled ||
-      (Number.isInteger(rateValue) && rateValue >= 100 && rateValue <= 2_000));
+      (rateValue !== null && rateValue >= 100 && rateValue <= 2_000));
 
   const adjustCents = Math.round(Number(adjustAmount) * 100);
   const adjustReady =
@@ -162,7 +167,7 @@ export function CustomerBillingSection({
   return (
     <Section
       title="Billing"
-      description="Prepaid Credit Wallet for this Customer. Switching billing on requires a Lead Rate; the wallet balance remains while billing is off."
+      description="Set this Customer’s price per lead for Database A. Customers add prepaid credits through Stripe; balances remain when billing is off or Database B is selected."
     >
       <Card>
         <Stack gap={4}>
@@ -187,11 +192,12 @@ export function CustomerBillingSection({
             </Fact>
           </dl>
           <Cluster gap={3}>
-            <Button variant="primary" onClick={openConfigure}>
+            <Button variant="primary" onClick={openConfigure} disabled={!databaseA}>
               Configure billing
             </Button>
             <Button onClick={openAdjust}>Post adjustment</Button>
           </Cluster>
+          {!databaseA ? <Text size="sm" tone="muted">Stripe payments are available only for Database A. Select Database A to configure this Customer’s price.</Text> : null}
 
           <Stack gap={2}>
             <Heading level={3} size="sm">
@@ -255,15 +261,16 @@ export function CustomerBillingSection({
             Billing enabled
           </label>
           <Field
-            label="Lead Rate (¢ per 1,000 leads)"
+            label="Price per lead (USD)"
             required={enabled}
             description={rateDescription}
           >
             <Input
               type="number"
-              min={100}
-              max={2000}
-              step={1}
+              min="0.001"
+              max="0.02"
+              step="0.00001"
+              inputMode="decimal"
               value={leadRate}
               onChange={(event) => setLeadRate(event.target.value)}
               disabled={!enabled}

@@ -48,10 +48,10 @@ describe("admin billing and allocation money formatting", () => {
     expect(formatUsdCents(-1050)).toBe("−$10.50");
     expect(formatLeadRate(null)).toBe("Not set");
     expect(formatLeadRate(1000)).toBe(
-      "1000¢ per 1,000 leads ($0.010/lead)",
+      "$0.010 per lead",
     );
     expect(formatLeadRate(150)).toBe(
-      "150¢ per 1,000 leads ($0.0015/lead)",
+      "$0.0015 per lead",
     );
   });
 });
@@ -79,7 +79,7 @@ describe("CustomerBillingSection", () => {
     expect(save).toBeDisabled();
 
     await user.click(within(dialog).getByLabelText("Billing enabled"));
-    await user.type(within(dialog).getByLabelText(/Lead Rate/), "1000");
+    await user.type(within(dialog).getByLabelText(/Price per lead/), "0.01");
     expect(save).toBeDisabled();
     await user.type(
       within(dialog).getByLabelText("Reason (required)"),
@@ -117,33 +117,39 @@ describe("CustomerBillingSection", () => {
     const dialog = screen.getByRole("dialog", { name: "Configure billing" });
     expect(
       within(dialog).getByText(
-        "Integer from 100 to 2000. Example: 1000 = $0.010 per lead.",
+        "$0.001 to $0.02 per lead. Use up to five decimal places.",
       ),
     ).toBeVisible();
 
     await user.click(within(dialog).getByLabelText("Billing enabled"));
-    const rate = within(dialog).getByLabelText(/Lead Rate/);
-    await user.type(rate, "1000");
+    const rate = within(dialog).getByLabelText(/Price per lead/);
+    await user.type(rate, "0.01");
     expect(
       within(dialog).getByText(
-        "Integer from 100 to 2000. 1000 = $0.010 per lead.",
+        "$10.00 per 1,000 leads. Applies to future Batch Requests.",
       ),
     ).toBeVisible();
 
     await user.clear(rate);
-    await user.type(rate, "5000");
+    await user.type(rate, "0.05");
     expect(
       within(dialog).getByText(
-        "Integer from 100 to 2000. 5000 = $0.050 per lead.",
+        "$0.001 to $0.02 per lead. Use up to five decimal places.",
       ),
     ).toBeVisible();
 
     await user.clear(rate);
     expect(
       within(dialog).getByText(
-        "Integer from 100 to 2000. Example: 1000 = $0.010 per lead.",
+        "$0.001 to $0.02 per lead. Use up to five decimal places.",
       ),
     ).toBeVisible();
+  });
+
+  it("cannot enable Stripe for Database B", () => {
+    render(<CustomerBillingSection billing={{ ...BILLING, leadDatabase:"db2" }} customerId={7} onChanged={vi.fn()} />);
+    expect(screen.getByRole("button", { name:"Configure billing" })).toBeDisabled();
+    expect(screen.getByText(/Stripe payments are available only for Database A/)).toBeVisible();
   });
 
   it("posts a Credit Wallet adjustment with a required reason", async () => {

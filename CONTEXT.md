@@ -258,7 +258,7 @@ A situation where an older Batch Request cannot be fulfilled but a newer request
 _Avoid_: Automatic queue bypass, inventory shortage
 
 **Billed Customer**:
-A Customer whose Batch Requests must be paid from their Credit Wallet, switched per Customer by an administrator with no Agency-level pooling. Each request's billed-or-free status is frozen at submission and never repriced by later toggle changes.
+A Customer whose new Batch Requests from Database A must be paid from their Credit Wallet, switched per Customer by the operator with no Agency-level pooling. Selecting Database B pauses billing for new requests and Stripe purchases while retaining the Customer's saved Database A price and wallet balance. Each request's billed-or-free status is frozen at submission and never repriced by later toggle or database changes.
 _Avoid_: Paid tier, subscriber, agency billing
 
 **Credit Wallet**:
@@ -274,7 +274,7 @@ An arbitrary whole-dollar Credit Wallet top-up through Stripe Checkout, credited
 _Avoid_: Invoice, subscription, redirect-confirmed payment
 
 **Lead Rate**:
-The administrator-set flat per-lead price for one Billed Customer, required when billing is switched on. No global default rate exists, and the rate may carry sub-cent precision.
+The administrator-set flat per-lead price for one Billed Customer, required when billing is switched on. New Database A Customers receive the configured starting rate when platform billing is enabled. The operator can override each Customer's rate, which may carry sub-cent precision. Restoring history retains the saved billing configuration.
 _Avoid_: Global price, tiered pricing, per-batch price
 
 **Batch Hold**:
