@@ -544,7 +544,7 @@ function RequestFlow({
               <Stack gap={4}>
                 <Fieldset
                   legend="How should the Batch be split into files?"
-                  description="This choice is frozen when you submit. Delivery is one zip either way."
+                  description="This choice is frozen when you submit. One file downloads as CSV. Multiple files download as a zip."
                 >
                   <Stack gap={2}>
                     <label className="request-flow__choice">
@@ -753,6 +753,7 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
       ? formatArtifactExpiry(artifact.expires_at, now)
       : "Unavailable";
   const parts = artifact?.parts ?? [];
+  const isZip = artifact?.filename.toLowerCase().endsWith(".zip") ?? false;
 
   return (
     <section
@@ -769,8 +770,9 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
               Batch Artifact
             </Heading>
             <Text size="sm" tone="muted">
-              The exact zip created for this Batch Request, with one CSV part
-              per file choice.
+              {isZip
+                ? "The exact zip created for this Batch Request, with one CSV part per file choice."
+                : "The CSV file created for this Batch Request."}
             </Text>
           </Stack>
           <StatusBadge tone={live ? "info" : "warning"}>
@@ -824,7 +826,7 @@ function ArtifactCard({ artifact }: { artifact: BatchArtifact | null }) {
         {live && artifact?.download_href ? (
           <div>
             <ButtonLink href={artifact.download_href} variant="primary">
-              Download zip
+              {isZip ? "Download zip" : "Download CSV"}
             </ButtonLink>
           </div>
         ) : (

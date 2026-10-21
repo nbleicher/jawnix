@@ -32,7 +32,7 @@ from .billing import (
 )
 from .config import get_settings
 from .customer_overview import customer_request_status
-from .fulfillment import artifact_available
+from .fulfillment import artifact_available, artifact_download_filename
 from .jobs import enqueue_job
 from .milestones import build_milestones
 from .models import Customer, CustomerProfile, LeadRequest, RequestStatus, utcnow
@@ -168,7 +168,7 @@ def request_detail(item: LeadRequest) -> CustomerRequestDetail:
     if artifact is not None:
         available = artifact_available(artifact)
         customer_artifact = CustomerBatchArtifact(
-            filename=artifact.filename,
+            filename=artifact_download_filename(artifact),
             row_count=artifact.row_count,
             parts=artifact.parts,
             expires_at=artifact.expires_at,

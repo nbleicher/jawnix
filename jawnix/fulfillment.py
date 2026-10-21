@@ -304,6 +304,13 @@ def _as_utc(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=timezone.utc)
 
 
+def artifact_download_filename(artifact: BatchArtifact) -> str:
+    """A single CSV downloads directly, including from an existing ZIP."""
+    if artifact.filename.lower().endswith(".zip") and len(artifact.parts) == 1:
+        return artifact.parts[0]["filename"]
+    return artifact.filename
+
+
 def artifact_available(
     artifact: BatchArtifact | None, *, now: datetime | None = None
 ) -> bool:
