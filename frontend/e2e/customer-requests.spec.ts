@@ -394,6 +394,31 @@ test.describe("Batch Request detail deep links", () => {
     expect(state.artifactDownloads).toEqual([DELIVERED_REQUEST.id]);
   });
 
+  test("one file downloads directly as CSV", async ({ page }) => {
+    await page.clock.install({ time: new Date("2026-08-01T16:00:00Z") });
+    const filename = "requests-customer_batch_part_001.csv";
+    const state = await openRequestDetail(page, DELIVERED_REQUEST.id, {
+      workspace: {
+        ...BATCH_REQUEST_WORKSPACE,
+        requests: [{
+          ...DELIVERED_REQUEST,
+          artifact: {
+            ...DELIVERED_REQUEST.artifact,
+            filename,
+            parts: [{ filename, row_count: 750 }],
+          },
+        }],
+      },
+    });
+    const card = page.getByRole("region", { name: "Batch Artifact" });
+    await expect(card.getByRole("link", { name: "Download zip" })).toHaveCount(0);
+    const downloadPromise = page.waitForEvent("download");
+    await card.getByRole("link", { name: "Download CSV" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe(filename);
+    expect(state.artifactDownloads).toEqual([DELIVERED_REQUEST.id]);
+  });
+
   test("an expired artifact says to contact Jawnix and cannot download", async ({
     page,
   }) => {

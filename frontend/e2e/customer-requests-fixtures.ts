@@ -302,15 +302,19 @@ export async function mockBatchRequests(
   await page.route(/\/api\/me\/batch-requests\/[^/]+\/artifact$/, (route) => {
     const id = new URL(route.request().url()).pathname.split("/").at(-2) ?? "";
     state.artifactDownloads.push(id);
+    const request = (workspace as { requests: Array<{ id: string; artifact?: { filename: string } }> })
+      .requests.find((item) => item.id === id);
+    const filename = request?.artifact?.filename ?? "requests-customer_batch.zip";
+    const isZip = filename.endsWith(".zip");
     return route.fulfill({
       status: 200,
-      contentType: "application/zip",
+      contentType: isZip ? "application/zip" : "text/csv",
       headers: {
         "Content-Disposition":
-          'attachment; filename="requests-customer_batch.zip"',
+          `attachment; filename="${filename}"`,
       },
       // Minimal zip local-file header so Playwright records a real download.
-      body: Buffer.from("PK\x05\x06" + "\x00".repeat(18), "binary"),
+      body: isZip ? Buffer.from("PK\x05\x06" + "\x00".repeat(18), "binary") : "phone,title\n",
     });
   });
 

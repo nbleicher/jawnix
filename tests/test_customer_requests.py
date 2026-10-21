@@ -527,7 +527,7 @@ def test_delivered_request_projects_only_customer_safe_artifact_metadata(
 
     artifact = body["artifact"]
     assert artifact == {
-        "filename": "customer_batch.zip",
+        "filename": "customer_batch_part_001.csv",
         "row_count": 1,
         "parts": [
             {
@@ -599,7 +599,8 @@ def test_delivered_artifact_exposes_contiguous_csv_parts_with_a_last_remainder(
     ] == [f"214555010{index}" for index in range(1, 6)]
 
 
-def test_default_artifact_still_contains_one_csv_part(session, settings):
+@pytest.mark.parametrize("rows_per_file", [None, 3, 10])
+def test_single_file_artifact_downloads_as_csv(session, settings, rows_per_file):
     user_id, customer, _ = _customer(session, licensed_states=["TX"])
     item = _request(
         session,
@@ -607,6 +608,7 @@ def test_default_artifact_still_contains_one_csv_part(session, settings):
         customer,
         status=RequestStatus.approved.value,
         lead_count=3,
+        rows_per_file=rows_per_file,
     )
     session.add_all(
         [
@@ -632,13 +634,21 @@ def test_default_artifact_still_contains_one_csv_part(session, settings):
     assert artifact["parts"] == [
         {"filename": artifact["parts"][0]["filename"], "row_count": 3}
     ]
-    with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
-        assert archive.namelist() == [artifact["parts"][0]["filename"]]
+    assert download.status_code == 200
+    assert download.headers["content-type"].startswith("text/csv")
+    assert artifact["filename"] == artifact["parts"][0]["filename"]
+    assert artifact["filename"].endswith(".csv")
+    assert artifact["filename"] in download.headers["content-disposition"]
+    assert [row["phone"] for row in csv.DictReader(io.StringIO(download.text))] == [
+        f"214555020{index}" for index in range(1, 4)
+    ]
 
 
-def test_zip_download_and_regeneration_have_one_stable_sha256(
+@pytest.mark.parametrize("rows_per_file", [2, 3])
+def test_download_and_regeneration_preserve_stored_and_downloaded_bytes(
     session,
     settings,
+    rows_per_file,
 ):
     user_id, customer, _ = _customer(session, licensed_states=["TX"])
     item = _request(
@@ -647,7 +657,7 @@ def test_zip_download_and_regeneration_have_one_stable_sha256(
         customer,
         status=RequestStatus.approved.value,
         lead_count=3,
-        rows_per_file=2,
+        rows_per_file=rows_per_file,
     )
     session.add_all(
         [
@@ -674,8 +684,12 @@ def test_zip_download_and_regeneration_have_one_stable_sha256(
         select(BatchArtifact).where(BatchArtifact.request_id == item.id)
     )
     assert artifact is not None
-    assert artifact.sha256 == first_hash
-    with zipfile.ZipFile(io.BytesIO(first.content)) as archive:
+    stored_hash = artifact.sha256
+    with zipfile.ZipFile(artifact.path) as archive:
+        if rows_per_file == 3:
+            assert first.content == archive.read(artifact.parts[0]["filename"])
+        else:
+            assert stored_hash == first_hash
         assert {entry.date_time for entry in archive.infolist()} == {
             (1980, 1, 1, 0, 0, 0)
         }
@@ -698,7 +712,7 @@ def test_zip_download_and_regeneration_have_one_stable_sha256(
     redownload = client.get(f"/api/me/batch-requests/{item.id}/artifact")
 
     assert regenerated.status_code == 200
-    assert regenerated.json()["sha256"] == first_hash
+    assert regenerated.json()["sha256"] == stored_hash
     assert redownload.content == first.content
     assert hashlib.sha256(redownload.content).hexdigest() == first_hash
 
@@ -706,9 +720,11 @@ def test_zip_download_and_regeneration_have_one_stable_sha256(
 # --- Customer Batch Artifact download --------------------------------------
 
 
+@pytest.mark.parametrize("stored_csv", [False, True])
 def test_customer_downloads_their_live_artifact_and_the_download_is_audited(
     session,
     tmp_path,
+    stored_csv,
 ):
     user_id, customer, _ = _customer(session, licensed_states=["TX"])
     item = _request(
@@ -724,14 +740,24 @@ def test_customer_downloads_their_live_artifact_and_the_download_is_audited(
         item,
         expires_at=datetime.now(timezone.utc) + timedelta(days=1),
     )
+    with zipfile.ZipFile(io.BytesIO(contents)) as archive:
+        csv_contents = archive.read("customer_batch_part_001.csv")
+    if stored_csv:
+        csv_path = tmp_path / "customer_batch_part_001.csv"
+        csv_path.write_bytes(csv_contents)
+        artifact.path = str(csv_path)
+        artifact.filename = csv_path.name
+        session.commit()
+        contents = csv_contents
     client = _authenticate(session, user_id)
 
     response = client.get(f"/api/me/batch-requests/{item.id}/artifact")
 
     assert response.status_code == 200
-    assert response.content == contents
-    assert response.headers["content-type"].startswith("application/zip")
-    assert "customer_batch.zip" in response.headers["content-disposition"]
+    assert response.content == csv_contents
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "customer_batch_part_001.csv" in response.headers["content-disposition"]
+    assert Path(artifact.path).read_bytes() == contents
     assert response.headers["cache-control"] == "private, no-store"
     assert response.headers["x-content-type-options"] == "nosniff"
     audit = session.scalar(
@@ -744,7 +770,8 @@ def test_customer_downloads_their_live_artifact_and_the_download_is_audited(
     assert audit.target_id == str(item.id)
     assert audit.actor_user_id == str(user_id)
     assert audit.details["artifactId"] == artifact.id
-    assert audit.details["filename"] == artifact.filename
+    assert audit.details["filename"] == "customer_batch_part_001.csv"
+    assert audit.details["storedFilename"] == artifact.filename
 
 
 def test_customer_cannot_download_another_customers_artifact(session, tmp_path):

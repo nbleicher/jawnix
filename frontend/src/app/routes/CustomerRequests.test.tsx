@@ -734,6 +734,26 @@ describe("a Batch Request detail page", () => {
     );
   });
 
+  it("offers a direct CSV download for one file", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-22T12:00:00Z"));
+    const request = deliveredRequest();
+    renderRoute(workspace({ requests: [{
+      ...request,
+      artifact: {
+        ...request.artifact!,
+        filename: "customer_batch_part_001.csv",
+        parts: [{ filename: "customer_batch_part_001.csv", row_count: 750 }],
+      },
+    }] }), { initialEntry: detailPath });
+
+    const card = screen.getByRole("region", { name: "Batch Artifact" });
+    expect(within(card).getByRole("link", { name: "Download CSV" })).toHaveAttribute(
+      "href", `/api/me/batch-requests/${REQUEST_ID}/artifact`,
+    );
+    expect(within(card).queryByRole("link", { name: "Download zip" })).not.toBeInTheDocument();
+  });
+
   it("replaces the download with the 30-day expired state", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-28T12:00:00Z"));

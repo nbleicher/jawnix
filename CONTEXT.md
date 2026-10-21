@@ -250,7 +250,7 @@ A Batch Request withdrawn before any Distribution Event commits. Cancellation is
 _Avoid_: Voided batch, delivery failure
 
 **Batch Artifact**:
-The exact materialization of a fulfilled Batch Request: one download containing one or more CSV parts sized by the rows-per-file choice frozen at submission. The Customer retrieves the live file self-serve from the portal, while email notifies of delivery rather than carrying it. Its file expires after 30 days while its internal history remains permanent; an administrator may regenerate the identical file through an audited action, starting a new 30-day retention period.
+The exact materialization of a fulfilled Batch Request: one download containing one or more CSV parts sized by the rows-per-file choice frozen at submission. A single part downloads directly as CSV; multiple parts download together as a ZIP. The Customer retrieves the live file self-serve from the portal, while email notifies of delivery rather than carrying it. Its file expires after 30 days while its internal history remains permanent; an administrator may regenerate the identical file through an audited action, starting a new 30-day retention period.
 _Avoid_: Batch request, distribution history, email delivery
 
 **Inventory Conflict**:

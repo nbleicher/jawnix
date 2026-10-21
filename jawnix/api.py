@@ -6,9 +6,10 @@ import json
 import logging
 import re
 import uuid
+import zipfile
 from datetime import date, datetime, timezone
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
@@ -222,6 +223,7 @@ from .fulfillment import (
     OPEN_STATUSES,
     TRANSITION_ACTIONS,
     artifact_available,
+    artifact_download_filename,
     describe_conflict,
     describe_request,
     workspace as fulfillment_workspace,
@@ -1419,6 +1421,8 @@ def download_batch_artifact(
             detail="Batch Artifact has expired. Contact Jawnix to regenerate it.",
         )
 
+    download_filename = artifact_download_filename(artifact)
+    artifact_path = artifact.path
     record_activity(
         db,
         action="batch_artifact_downloaded",
@@ -1429,7 +1433,8 @@ def download_batch_artifact(
         details={
             "artifactId": artifact.id,
             "requestId": str(item.id),
-            "filename": artifact.filename,
+            "filename": download_filename,
+            "storedFilename": artifact.filename,
             "rowCount": artifact.row_count,
             "parts": artifact.parts,
             "expiresAt": (
@@ -1440,19 +1445,35 @@ def download_batch_artifact(
         },
     )
     db.commit()
+    headers = {
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if download_filename != artifact.filename:
+        def csv_chunks():
+            with zipfile.ZipFile(artifact_path) as archive:
+                with archive.open(download_filename) as stream:
+                    while chunk := stream.read(64 * 1024):
+                        yield chunk
+
+        return StreamingResponse(
+            csv_chunks(),
+            media_type="text/csv",
+            headers={
+                **headers,
+                "Content-Disposition": f"attachment; filename*=utf-8''{quote(download_filename)}",
+            },
+        )
     return FileResponse(
-        artifact.path,
+        artifact_path,
         media_type=(
             "application/zip"
             if artifact.filename.lower().endswith(".zip")
             else "text/csv"
         ),
-        filename=artifact.filename,
+        filename=download_filename,
         content_disposition_type="attachment",
-        headers={
-            "Cache-Control": "private, no-store",
-            "X-Content-Type-Options": "nosniff",
-        },
+        headers=headers,
     )
 
 
