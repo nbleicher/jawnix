@@ -251,6 +251,10 @@ export const router = createBrowserRouter(
               lazy: lazyPage("AdminAgencies", "AdminAgenciesRoute", "adminAgencyDirectoryLoader"),
             },
             {
+              path: "lead-uploads",
+              lazy: lazyPage("ManagedAdmin", "AdminLeadUploadsRoute", "adminLeadUploadsLoader"),
+            },
+            {
               path: "agencies/:agencyId",
               lazy: lazyPage("AdminAgencies", "AdminAgencyDetailsRoute", "adminAgencyDetailsLoader"),
             },

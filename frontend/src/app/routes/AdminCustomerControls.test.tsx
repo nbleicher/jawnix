@@ -152,6 +152,24 @@ describe("CustomerBillingSection", () => {
     expect(screen.getByText(/Stripe payments are available only for Database A/)).toBeVisible();
   });
 
+  it("switches the Customer's lead database from the billing section", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api).mockReset().mockResolvedValue({ id: 7, lead_database: "db2" });
+
+    render(<CustomerBillingSection billing={BILLING} customerId={7} onChanged={onChanged} />);
+
+    const database = screen.getByLabelText("Lead database");
+    expect(database).toHaveValue("db1");
+    await user.selectOptions(database, "db2");
+
+    expect(api).toHaveBeenCalledWith("/api/admin/customers/7/scope", {
+      method: "PATCH",
+      body: JSON.stringify({ lead_database: "db2" }),
+    });
+    expect(onChanged).toHaveBeenCalledOnce();
+  });
+
   it("posts a Credit Wallet adjustment with a required reason", async () => {
     const user = userEvent.setup();
     const onChanged = vi.fn().mockResolvedValue(undefined);

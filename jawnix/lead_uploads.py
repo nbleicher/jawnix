@@ -158,7 +158,7 @@ def _publish(upload_id, factory, progress):
         item.duplicate_rows = progress.valid-total
         item.completed_at = utcnow()
         record_activity(session, action="manager_lead_upload_published", target_type="lead_upload", target_id=item.id,
-                        actor_id=item.manager_id, reason="Complete CSV inventory published to DB2",
+                        actor_id=item.uploader_id, reason="Complete CSV inventory published to DB2",
                         details={"state":item.state, "processed":progress.processed, "imported":item.imported_rows,
                                  "updated":updated, "rejected":progress.rejected, "duplicates":item.duplicate_rows,
                                  "sha256":item.sha256})
@@ -189,7 +189,7 @@ def import_lead_upload(upload_id: uuid.UUID, settings, *, session_factory=Sessio
                 progress = Progress(*existing[1:4])
             else:
                 source.execute("INSERT INTO uploads (id,manager_id,state,sha256) VALUES (%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING",
-                               (upload.id, upload.manager_id, upload.state, upload.sha256))
+                               (upload.id, upload.uploader_id, upload.state, upload.sha256))
                 checksum = hashlib.sha256()
                 with Path(upload.path).open("rb") as stored:
                     for block in iter(lambda: stored.read(1024*1024), b""):

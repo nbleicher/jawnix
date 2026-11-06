@@ -116,7 +116,10 @@ export function CustomerBillingSection({
   customerId,
   onChanged,
 }: ControlProps & { billing: CustomerBillingView }) {
-  const databaseA = (billing.leadDatabase ?? "db1") === "db1";
+  const savedDatabase = billing.leadDatabase ?? "db1";
+  const [pendingDatabase, setPendingDatabase] = useState<"db1" | "db2" | null>(null);
+  const [databaseError, setDatabaseError] = useState("");
+  const databaseA = savedDatabase === "db1";
   const configure = useActionDialog(onChanged);
   const adjust = useActionDialog(onChanged);
   const [enabled, setEnabled] = useState(billing.billingEnabled);
@@ -138,6 +141,22 @@ export function CustomerBillingSection({
     );
     setConfigureReason("");
     configure.show();
+  }
+
+  async function chooseDatabase(value: "db1" | "db2") {
+    setPendingDatabase(value);
+    setDatabaseError("");
+    try {
+      await api(`/api/admin/customers/${customerId}/scope`, {
+        method: "PATCH",
+        body: JSON.stringify({ lead_database: value }),
+      });
+      await onChanged();
+    } catch (caught) {
+      setDatabaseError(errorMessage(caught));
+    } finally {
+      setPendingDatabase(null);
+    }
   }
 
   function openAdjust() {
@@ -179,6 +198,19 @@ export function CustomerBillingSection({
               {billing.billingEnabled ? "Billing on" : "Billing off"}
             </StatusBadge>
           </Cluster>
+          <Field label="Lead database" description="Future allocations draw from this inventory.">
+            <Select
+              disabled={pendingDatabase !== null}
+              value={pendingDatabase ?? savedDatabase}
+              onChange={(event) => {
+                void chooseDatabase(event.target.value as "db1" | "db2");
+              }}
+            >
+              <option value="db1">DB1 · Operator leads</option>
+              <option value="db2">DB2 · CSV uploads</option>
+            </Select>
+          </Field>
+          {databaseError ? <Text size="sm" role="alert" tone="danger">{databaseError}</Text> : null}
           <dl className="admin-customer-details__facts">
             <Fact label="Lead Rate">
               {formatLeadRate(billing.leadRateCentsPerThousand)}

@@ -114,3 +114,30 @@ def test_password_only_manager_uploads_owned_file_and_cannot_enroll_mfa(managed_
         session.add(hidden); session.commit()
         assert client.get(f"/api/manager/uploads/{hidden.id}").status_code == 404
         assert client.get(f"/api/manager/uploads/{hidden.id}/rejected").status_code == 404
+
+
+def test_operator_uploads_into_shared_db2_and_sees_every_upload(managed_setup, session):
+    from jawnix.models import AuditEntry
+    scope = managed_setup
+    content = b"Phone,Name\n+1 (615) 555-0101,Operator Lead\n"
+    with scope.client() as manager:
+        alex = manager.post("/api/manager/uploads", files={"file":("alex.csv",content)}, data={"state":"TN"}).json()
+        assert manager.get("/api/admin/lead-uploads").status_code == 403
+        assert manager.post("/api/admin/lead-uploads", files={"file":("x.csv",content)}, data={"state":"TN"}).status_code == 403
+    with scope.client("admin") as operator:
+        response = operator.post("/api/admin/lead-uploads", files={"file":("operator.csv",content)}, data={"state":"KY"})
+        assert response.status_code == 202
+        value = response.json()
+        assert value["status"] == "queued" and value["uploadedBy"] == "Operator"
+        row = session.get(LeadUpload, uuid.UUID(value["id"]))
+        assert row.operator_id == scope.operator_id and row.manager_id is None and row.uploader_id == scope.operator_id
+        assert any(job.payload == {"upload_id":value["id"]} for job in session.scalars(select(Job).where(Job.kind == "import_lead_upload")))
+        audit = session.scalar(select(AuditEntry).where(AuditEntry.action == "operator_lead_upload_submitted"))
+        assert audit is not None and audit.actor_user_id == str(scope.operator_id)
+        listed = operator.get("/api/admin/lead-uploads").json()["uploads"]
+        assert {item["id"]:item["uploadedBy"] for item in listed} == {value["id"]:"Operator", alex["id"]:"Alex"}
+        assert operator.get(f"/api/admin/lead-uploads/{alex['id']}").json()["uploadedBy"] == "Alex"
+        assert operator.post(f"/api/admin/lead-uploads/{value['id']}/retry").status_code == 409
+    with scope.client() as manager:
+        assert [item["id"] for item in manager.get("/api/manager/uploads").json()["uploads"]] == [alex["id"]]
+        assert manager.get(f"/api/manager/uploads/{value['id']}").status_code == 404
