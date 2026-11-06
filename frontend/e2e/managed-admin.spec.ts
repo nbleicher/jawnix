@@ -114,3 +114,32 @@ test("operator changes a user's database and withdraws Alex access without a pag
   expect(changes.at(-1)).toEqual({allowed_manager_id:null,manager_id:null});
   expect(directoryReads).toBe(1);
 });
+
+test("operator uploads a CSV into the shared DB2 and sees who added each file", async ({ page }) => {
+  let submitted = "";
+  const alex = { ...complete, id:"cccccccc-cccc-4ccc-8ccc-cccccccccccc", filename:"alex.csv", uploadedBy:"Alex" };
+  const mine = { ...queued, filename:"operator.csv", uploadedBy:"Operator" };
+  await page.context().addCookies([{ name:"jawnix_csrf", value:"fixture-csrf", domain:"127.0.0.1", path:"/" }]);
+  await page.route("**/api/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth/admin-mfa/access") { await route.fulfill({json:{ok:true}}); return; }
+    if (path === "/api/admin/lead-uploads" && route.request().method() === "POST") {
+      submitted = route.request().postDataBuffer()?.toString() ?? "";
+      await route.fulfill({status:202, json:mine}); return;
+    }
+    if (path === "/api/admin/lead-uploads") {
+      await route.fulfill({json:{ uploads:[alex], states:[{code:"TN",name:"Tennessee"}], inventory:{ total:999999, states:{TN:999999}, asOf:null } }}); return;
+    }
+    if (path === `/api/admin/lead-uploads/${UPLOAD}`) { await route.fulfill({json:mine}); return; }
+    await route.fulfill({status:404,json:{detail:"Not found"}});
+  });
+  await page.goto("./admin/lead-uploads");
+  await expect(page.getByRole("heading",{level:1,name:"DB2 uploads"})).toBeVisible();
+  await expect(page.getByText("Alex · TN · 1,000,001 records processed",{exact:true})).toBeVisible();
+  await expect(page.getByRole("link",{name:"Download rejected rows"})).toHaveAttribute("href",`/api/admin/lead-uploads/${alex.id}/rejected`);
+  await page.getByLabel(/^CSV file/).setInputFiles({ name:"operator.csv", mimeType:"text/csv", buffer:Buffer.from("Phone,Name\n6155550199,Operator fixture\n") });
+  await page.getByLabel(/^State/).selectOption("TN");
+  await page.getByRole("button",{name:"Upload CSV",exact:true}).click();
+  await expect(page.getByText("Operator · TN · 0 records processed",{exact:true})).toBeVisible();
+  expect(submitted).toContain("Operator fixture");
+});

@@ -205,7 +205,7 @@ function CustomerScopeControls({ row, managers }: { row: CustomerDirectoryRow; m
   return <Stack gap={3}>
     <Field label={`Lead database for ${row.name}`}>
       <Select disabled={busy} value={scope.lead_database ?? "db1"} onChange={event => { void save({ lead_database:event.target.value as "db1" | "db2" }); }}>
-        <option value="db1">DB1 · Operator leads</option><option value="db2">DB2 · Alex uploads</option>
+        <option value="db1">DB1 · Operator leads</option><option value="db2">DB2 · CSV uploads</option>
       </Select>
     </Field>
     {manager ? <Field label={`${manager.name} management for ${row.name}`}>
@@ -559,6 +559,7 @@ export function AdminCustomersRoute() {
       actions={
         <Cluster gap={3}>
           <ActionLink href="/app/admin/agencies">View Agencies</ActionLink>
+          <ActionLink href="/app/admin/lead-uploads">Upload DB2 leads</ActionLink>
           <Button variant="primary" onClick={() => setCreateOpen(true)}>
             Create Customer
           </Button>

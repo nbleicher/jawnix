@@ -1268,8 +1268,13 @@ class BatchArtifact(Base):
 
 class LeadUpload(Base):
     __tablename__ = "lead_uploads"
+    __table_args__ = (
+        # The operator and managed administrators publish into the same DB2.
+        CheckConstraint("(manager_id IS NULL) <> (operator_id IS NULL)", name="ck_lead_upload_one_uploader"),
+    )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    manager_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("managed_admins.auth_user_id", ondelete="RESTRICT"), index=True)
+    manager_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("managed_admins.auth_user_id", ondelete="RESTRICT"), index=True)
+    operator_id: Mapped[uuid.UUID | None] = mapped_column()
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     state: Mapped[str] = mapped_column(String(2), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="uploading", nullable=False)
@@ -1285,6 +1290,10 @@ class LeadUpload(Base):
     error: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @property
+    def uploader_id(self) -> uuid.UUID:
+        return self.manager_id or self.operator_id
 
 
 class LeadDatabaseMembership(Base):

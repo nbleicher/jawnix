@@ -26,15 +26,17 @@ export interface LeadUploadStatus {
   updatedRows: number;
   duplicateRows: number;
   error: string;
+  /** Present on the operator view, which lists every DB2 upload. */
+  uploadedBy?: string;
   createdAt: string;
   completedAt: string | null;
 }
 
-export function submitLeadUpload(file: File, state: string, onProgress: (percent: number) => void) {
+export function submitLeadUpload(file: File, state: string, onProgress: (percent: number) => void, endpoint = "/api/manager/uploads") {
   clearReadPrefetch();
   return new Promise<LeadUploadStatus>((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open("POST", "/api/manager/uploads");
+    request.open("POST", endpoint);
     const cookie = document.cookie.split(";").map(value => value.trim()).find(value => value.startsWith("jawnix_csrf="));
     request.setRequestHeader("X-CSRF-Token", decodeURIComponent(cookie?.split("=", 2)[1] ?? ""));
     request.upload.onprogress = (event) => {

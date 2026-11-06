@@ -16,7 +16,10 @@ interface UploadWorkspace {
   states: { code: string; name: string }[];
   inventory: { total: number; states: Record<string, number>; asOf: string | null };
 }
-export const managedUploadsLoader = () => api<UploadWorkspace>("/api/manager/uploads");
+const MANAGER_UPLOADS = "/api/manager/uploads";
+const OPERATOR_UPLOADS = "/api/admin/lead-uploads";
+export const managedUploadsLoader = () => api<UploadWorkspace>(MANAGER_UPLOADS);
+export const adminLeadUploadsLoader = () => api<UploadWorkspace>(OPERATOR_UPLOADS);
 
 interface ManagedCustomer {
   id: number;
@@ -33,6 +36,14 @@ const STATUS = { uploading:"Uploading", queued:"Queued", processing:"Importing",
 function active(item: LeadUploadStatus) { return item.status === "queued" || item.status === "processing"; }
 
 export function ManagedUploadsRoute() {
+  return <LeadUploadsWorkspace endpoint={MANAGER_UPLOADS} title="Upload leads" description="Add your CSV leads to DB2. Choose the state for the entire file, then upload." />;
+}
+
+export function AdminLeadUploadsRoute() {
+  return <LeadUploadsWorkspace endpoint={OPERATOR_UPLOADS} title="DB2 uploads" description="Add CSV leads to DB2. Your uploads and managed administrator uploads share one inventory. Choose the state for the entire file, then upload." />;
+}
+
+function LeadUploadsWorkspace({ endpoint, title, description }: { endpoint: string; title: string; description: string }) {
   const initial = useLoaderData<UploadWorkspace>();
   const revalidator = useRevalidator();
   const revalidate = revalidator.revalidate;
@@ -45,7 +56,7 @@ export function ManagedUploadsRoute() {
   const [dragging, setDragging] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   const revisions = useRef<Record<string, number>>({});
-  useDocumentTitle("Upload leads");
+  useDocumentTitle(title);
   useEffect(() => {
     setUploads(current => {
       const known = new Set(initial.uploads.map(item => item.id));
@@ -64,7 +75,7 @@ export function ManagedUploadsRoute() {
       inFlight = true;
       const versions = ids.map(id => revisions.current[id] ?? 0);
       try {
-        const changed = await Promise.all(ids.map(id => api<LeadUploadStatus>(`/api/manager/uploads/${id}`)));
+        const changed = await Promise.all(ids.map(id => api<LeadUploadStatus>(`${endpoint}/${id}`)));
         if (!mounted) return;
         setUploads(current => current.map(item => {
           const index = changed.findIndex(row => row.id === item.id);
@@ -78,7 +89,7 @@ export function ManagedUploadsRoute() {
     }
     const interval = setInterval(() => { void refresh(); }, 5000);
     return () => { mounted = false; clearInterval(interval); };
-  }, [scope, revalidate]);
+  }, [scope, revalidate, endpoint]);
 
   function choose(selected: File | null) {
     if (busy) return;
@@ -99,7 +110,7 @@ export function ManagedUploadsRoute() {
     if (!file || !state || busy) return;
     setBusy(true); setProgress(0); setError("");
     try {
-      const item = await submitLeadUpload(file, state, setProgress);
+      const item = await submitLeadUpload(file, state, setProgress, endpoint);
       setUploads(current => [item, ...current]);
       setFile(null);
       if (picker.current) picker.current.value = "";
@@ -112,12 +123,12 @@ export function ManagedUploadsRoute() {
     setError("");
     revisions.current[id] = (revisions.current[id] ?? 0)+1;
     try {
-      const item = await api<LeadUploadStatus>(`/api/manager/uploads/${id}/retry`, { method:"POST" });
+      const item = await api<LeadUploadStatus>(`${endpoint}/${id}/retry`, { method:"POST" });
       setUploads(current => current.map(row => row.id === id ? item : row));
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Retry was not accepted."); }
   }
 
-  return <Page title="Upload leads" description="Add your CSV leads to DB2. Choose the state for the entire file, then upload.">
+  return <Page title={title} description={description}>
     <Section title="New upload">
       <Card><form onSubmit={submit}><Stack gap={5}>
         <div className="managed-upload__drop" data-dragging={dragging || undefined}
@@ -147,12 +158,12 @@ export function ManagedUploadsRoute() {
     <Section title="Recent uploads"><Stack gap={4}>
       {uploads.length ? uploads.map(item => <Card key={item.id} as="article" aria-label={item.filename}><Stack gap={3}>
         <Cluster justify="space-between"><Heading level={3}>{item.filename}</Heading><StatusBadge tone={item.status === "failed" ? "danger" : item.status === "complete" ? "success" : "info"}>{STATUS[item.status]}</StatusBadge></Cluster>
-        <Text size="sm">{item.state} · {item.processedRows.toLocaleString()} records processed</Text>
+        <Text size="sm">{item.uploadedBy ? `${item.uploadedBy} · ` : ""}{item.state} · {item.processedRows.toLocaleString()} records processed</Text>
         {item.status === "complete" ? <Text size="sm">{item.importedRows.toLocaleString()} added · {item.updatedRows.toLocaleString()} updated · {item.duplicateRows.toLocaleString()} duplicates · {item.rejectedRows.toLocaleString()} rejected</Text> : null}
         {item.error ? <Text role="alert" tone="danger">{item.error}</Text> : null}
         <Cluster>
           {item.status === "failed" ? <Button onClick={() => { void retry(item.id); }}>Retry import</Button> : null}
-          {item.rejectedRows > 0 && ["complete","failed"].includes(item.status) ? <ActionLink href={`/api/manager/uploads/${item.id}/rejected`} download>Download rejected rows</ActionLink> : null}
+          {item.rejectedRows > 0 && ["complete","failed"].includes(item.status) ? <ActionLink href={`${endpoint}/${item.id}/rejected`} download>Download rejected rows</ActionLink> : null}
         </Cluster>
       </Stack></Card>) : <EmptyState title="No uploads yet" description="Upload a CSV to start building your DB2 inventory." />}
     </Stack></Section>

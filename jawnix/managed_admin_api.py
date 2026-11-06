@@ -129,49 +129,29 @@ async def managed_admin_access_link(manager_id: uuid.UUID, principal: Principal 
     return result
 
 
-@router.get("/api/manager/uploads")
-def managed_uploads(principal: Principal = Depends(require_manager), db: Session = Depends(get_db)):
-    rows = db.scalars(select(LeadUpload).where(LeadUpload.manager_id == principal.user_id).order_by(LeadUpload.created_at.desc()).limit(50))
+def _upload_workspace(db, records: list[dict]) -> dict:
     summary = db.get(LeadDatabaseSummary, "db2")
-    return {"uploads":[upload_record(row) for row in rows], "states":[{"code":code, "name":name} for code,name in US_STATE_OPTIONS],
+    return {"uploads":records, "states":[{"code":code, "name":name} for code,name in US_STATE_OPTIONS],
             "inventory":{"total":summary.total if summary else 0, "states":summary.states if summary else {}, "asOf":summary.updated_at if summary else None}}
 
 
-def _owned_upload(db, upload_id, manager_id):
-    item = db.scalar(select(LeadUpload).where(LeadUpload.id == upload_id, LeadUpload.manager_id == manager_id))
-    if item is None:
-        raise HTTPException(status_code=404, detail="Upload was not found.")
-    return item
-
-
-@router.get("/api/manager/uploads/{upload_id}")
-def managed_upload_status(upload_id: uuid.UUID, principal: Principal = Depends(require_manager), db: Session = Depends(get_db)):
-    return upload_record(_owned_upload(db, upload_id, principal.user_id))
-
-
-@router.get("/api/manager/uploads/{upload_id}/rejected")
-def rejected_upload_rows(upload_id: uuid.UUID, principal: Principal = Depends(require_manager), db: Session = Depends(get_db)):
-    item = _owned_upload(db, upload_id, principal.user_id)
+def _rejected_rows(item: LeadUpload) -> FileResponse:
     path = Path(item.path).with_suffix(".errors.csv")
     if item.status not in {"complete", "failed"} or not path.is_file():
         raise HTTPException(status_code=404, detail="Rejected-row report is unavailable.")
     return FileResponse(path, media_type="text/csv", filename="rejected-leads.csv", headers={"Cache-Control":"private, no-store"})
 
 
-@router.post("/api/manager/uploads/{upload_id}/retry")
-def retry_managed_upload(upload_id: uuid.UUID, principal: Principal = Depends(require_manager), db: Session = Depends(get_db)):
-    item = _owned_upload(db, upload_id, principal.user_id)
+def _retry_upload(db, item: LeadUpload) -> None:
     db.refresh(item, with_for_update=True)
     if item.status != "failed":
         raise HTTPException(status_code=409, detail="Only failed uploads can be retried.")
     item.status, item.error = "queued", ""
     enqueue_job(db, IMPORT_JOB, payload={"upload_id":str(item.id)})
     db.commit()
-    return upload_record(item)
 
 
-@router.post("/api/manager/uploads", status_code=202)
-async def submit_managed_upload(request: Request, principal: Principal = Depends(require_manager), db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
+async def _receive_upload(request: Request, db: Session, settings: Settings, *, verify_access, owner: dict, action: str) -> LeadUpload:
     # Authenticate before parsing multipart data. UploadFile spools large files
     # to disk; neither the API nor the importer loads the full CSV into memory.
     length = request.headers.get("Content-Length")
@@ -209,20 +189,17 @@ async def submit_managed_upload(request: Request, principal: Principal = Depends
             if size == 0:
                 raise HTTPException(status_code=422, detail="The CSV is empty.")
             # Recheck live access after a potentially long file transfer.
-            await require_manager(principal, settings, db)
-            manager = db.get(ManagedAdmin, principal.user_id, populate_existing=True)
-            if manager is None or not manager.active:
-                raise HTTPException(status_code=403, detail="Managed administration is unavailable.")
+            await verify_access()
             os.replace(partial, path)
-            item = LeadUpload(id=upload_id, manager_id=principal.user_id, filename=Path(file.filename).name[:255],
+            item = LeadUpload(id=upload_id, **owner, filename=Path(file.filename).name[:255],
                               state=state, status="queued", path=str(path), sha256=checksum.hexdigest(), bytes=size)
             db.add(item)
-            record_activity(db, action="manager_lead_upload_submitted", target_type="lead_upload", target_id=upload_id,
-                            actor_id=principal.user_id, reason="CSV submitted for DB2 ingestion",
+            record_activity(db, action=action, target_type="lead_upload", target_id=upload_id,
+                            actor_id=item.uploader_id, reason="CSV submitted for DB2 ingestion",
                             details={"state":state, "bytes":size, "sha256":item.sha256})
             enqueue_job(db, IMPORT_JOB, payload={"upload_id":str(upload_id)})
             db.commit()
-            return upload_record(item)
+            return item
         except BaseException:
             partial.unlink(missing_ok=True)
             db.rollback()
@@ -235,3 +212,90 @@ async def submit_managed_upload(request: Request, principal: Principal = Depends
             if recorded is None:
                 path.unlink(missing_ok=True)
             raise
+
+
+@router.get("/api/manager/uploads")
+def managed_uploads(principal: Principal = Depends(require_manager), db: Session = Depends(get_db)):
+    rows = db.scalars(select(LeadUpload).where(LeadUpload.manager_id == principal.user_id).order_by(LeadUpload.created_at.desc()).limit(50))
+    return _upload_workspace(db, [upload_record(row) for row in rows])
+
+
+def _owned_upload(db, upload_id, manager_id):
+    item = db.scalar(select(LeadUpload).where(LeadUpload.id == upload_id, LeadUpload.manager_id == manager_id))
+    if item is None:
+        raise HTTPException(status_code=404, detail="Upload was not found.")
+    return item
+
+
+@router.get("/api/manager/uploads/{upload_id}")
+def managed_upload_status(upload_id: uuid.UUID, principal: Principal = Depends(require_manager), db: Session = Depends(get_db)):
+    return upload_record(_owned_upload(db, upload_id, principal.user_id))
+
+
+@router.get("/api/manager/uploads/{upload_id}/rejected")
+def rejected_upload_rows(upload_id: uuid.UUID, principal: Principal = Depends(require_manager), db: Session = Depends(get_db)):
+    return _rejected_rows(_owned_upload(db, upload_id, principal.user_id))
+
+
+@router.post("/api/manager/uploads/{upload_id}/retry")
+def retry_managed_upload(upload_id: uuid.UUID, principal: Principal = Depends(require_manager), db: Session = Depends(get_db)):
+    item = _owned_upload(db, upload_id, principal.user_id)
+    _retry_upload(db, item)
+    return upload_record(item)
+
+
+@router.post("/api/manager/uploads", status_code=202)
+async def submit_managed_upload(request: Request, principal: Principal = Depends(require_manager), db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
+    async def verify_access():
+        await require_manager(principal, settings, db)
+        manager = db.get(ManagedAdmin, principal.user_id, populate_existing=True)
+        if manager is None or not manager.active:
+            raise HTTPException(status_code=403, detail="Managed administration is unavailable.")
+    item = await _receive_upload(request, db, settings, verify_access=verify_access,
+                                 owner={"manager_id":principal.user_id}, action="manager_lead_upload_submitted")
+    return upload_record(item)
+
+
+# The operator adds to the same DB2 inventory and sees every upload.
+def _operator_record(db, item: LeadUpload) -> dict:
+    manager = db.get(ManagedAdmin, item.manager_id) if item.manager_id else None
+    return {**upload_record(item), "uploadedBy":manager.name if manager else "Operator"}
+
+
+def _any_upload(db, upload_id):
+    item = db.get(LeadUpload, upload_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Upload was not found.")
+    return item
+
+
+@router.get("/api/admin/lead-uploads")
+def operator_uploads(principal: Principal = Depends(require_admin), db: Session = Depends(get_db)):
+    rows = db.scalars(select(LeadUpload).order_by(LeadUpload.created_at.desc()).limit(50))
+    return _upload_workspace(db, [_operator_record(db, row) for row in rows])
+
+
+@router.get("/api/admin/lead-uploads/{upload_id}")
+def operator_upload_status(upload_id: uuid.UUID, principal: Principal = Depends(require_admin), db: Session = Depends(get_db)):
+    return _operator_record(db, _any_upload(db, upload_id))
+
+
+@router.get("/api/admin/lead-uploads/{upload_id}/rejected")
+def operator_rejected_rows(upload_id: uuid.UUID, principal: Principal = Depends(require_admin), db: Session = Depends(get_db)):
+    return _rejected_rows(_any_upload(db, upload_id))
+
+
+@router.post("/api/admin/lead-uploads/{upload_id}/retry")
+def retry_operator_upload(upload_id: uuid.UUID, principal: Principal = Depends(require_admin), db: Session = Depends(get_db)):
+    item = _any_upload(db, upload_id)
+    _retry_upload(db, item)
+    return _operator_record(db, item)
+
+
+@router.post("/api/admin/lead-uploads", status_code=202)
+async def submit_operator_upload(request: Request, principal: Principal = Depends(require_admin), db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
+    async def verify_access():
+        await require_admin(principal, settings, db)
+    item = await _receive_upload(request, db, settings, verify_access=verify_access,
+                                 owner={"operator_id":principal.user_id}, action="operator_lead_upload_submitted")
+    return _operator_record(db, item)

@@ -149,3 +149,24 @@ def test_invalid_csv_never_publishes_a_prefix(stores, tmp_path):
     assert result["status"] == "failed"
     with factory() as db:
         assert db.scalar(select(func.count()).select_from(LeadDatabaseMembership).where(LeadDatabaseMembership.upload_id == upload_id)) == 0
+
+
+def test_operator_upload_publishes_into_the_shared_db2(stores, tmp_path):
+    settings, factory, manager_id = stores
+    operator_id = uuid.uuid4()
+    phone = f"865{uuid.uuid4().int % 10**7:07d}"
+    content = f"Phone,Name\n{phone},Operator row\n".encode()
+    path = tmp_path / "operator.csv"
+    path.write_bytes(content)
+    with factory.begin() as db:
+        item = LeadUpload(operator_id=operator_id, filename=path.name, path=str(path), state="TN", status="queued",
+                          bytes=len(content), sha256=hashlib.sha256(content).hexdigest())
+        db.add(item); db.flush(); upload_id = item.id
+    assert import_lead_upload(upload_id, settings, session_factory=factory)["status"] == "complete"
+    with psycopg.connect(postgres_dsn(db2_url(settings)), autocommit=True) as source:
+        assert source.execute("SELECT owner_id FROM published_inventory WHERE upload_id=%s", (upload_id,)).fetchone() == (operator_id,)
+    with factory() as db:
+        assert db.scalar(select(LeadDatabaseMembership.upload_id).join(Lead, Lead.id == LeadDatabaseMembership.lead_id).where(Lead.phone == phone)) == upload_id
+        with pytest.raises(Exception, match="ck_lead_upload_one_uploader"):
+            db.add(LeadUpload(manager_id=manager_id, operator_id=operator_id, filename="both.csv", path="both", state="TN"))
+            db.flush()
