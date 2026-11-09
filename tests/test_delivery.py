@@ -63,8 +63,7 @@ def test_delivery_retry_reuses_artifact_and_resend_idempotency(session, settings
     assert captured["json"]["text"].endswith("— Noah\nJAWNIX · noah@jawnix.com\n")
     assert "attachments" not in captured["json"]
     assert (
-        "http://localhost:8080/app/requests?request="
-        f"{request.id}"
+        f"http://localhost:8080/app/batches/{request.number}"
         in captured["json"]["text"]
     )
     assert request.status == RequestStatus.delivered.value

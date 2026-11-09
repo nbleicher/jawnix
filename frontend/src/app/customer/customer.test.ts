@@ -17,7 +17,7 @@ import {
   localMonthStart,
   overviewRedirectLoader,
 } from "./home";
-import { customerDestinations, showsBatches } from "./navigation";
+import { customerDestinations } from "./navigation";
 
 const ID = "7c3d19ab-1111-4111-8111-111111111111";
 const NOW = new Date(2026, 10, 9, 9, 41);
@@ -86,12 +86,12 @@ describe("the Home read", () => {
   }
 
   it("is read again on arrival at Home and nowhere else", () => {
-    expect(revalidates("/app/requests", "/app/home")).toBe(true);
-    expect(revalidates("/requests", "/home")).toBe(true);
+    expect(revalidates("/app/batches", "/app/home")).toBe(true);
+    expect(revalidates("/batches", "/home")).toBe(true);
     expect(revalidates("/app/home", "/app/account")).toBe(false);
-    expect(revalidates("/app/requests", "/app/account")).toBe(false);
+    expect(revalidates("/app/batches", "/app/account")).toBe(false);
     expect(revalidates("/app/home", "/app/home")).toBe(false);
-    expect(revalidates("/app/account", "/app/requests", true)).toBe(true);
+    expect(revalidates("/app/account", "/app/batches", true)).toBe(true);
   });
 
   it("sends old Overview links to Home with their query", () => {
@@ -105,31 +105,14 @@ describe("the Home read", () => {
 });
 
 describe("customer navigation", () => {
-  function current(location: { pathname: string; search?: string; hash?: string }) {
-    const full = { search: "", hash: "", ...location };
-    return customerDestinations(full)
-      .filter((destination) =>
-        destination.match
-          ? destination.match(full.pathname)
-          : full.pathname.startsWith(destination.to),
-      )
-      .map((destination) => destination.label);
-  }
-
-  it("names the four destinations in order", () => {
-    expect(
-      customerDestinations({ search: "", hash: "" }).map((item) => item.label),
-    ).toEqual(["Home", "New request", "Batches", "Account"]);
-  });
-
-  it("tells New request and Batches apart while both live on /requests", () => {
-    expect(current({ pathname: "/home" })).toEqual(["Home"]);
-    expect(current({ pathname: "/requests" })).toEqual(["New request"]);
-    expect(current({ pathname: "/requests", hash: "#batch-history" })).toEqual(["Batches"]);
-    expect(current({ pathname: "/requests", search: `?request=${ID}` })).toEqual(["Batches"]);
-    expect(current({ pathname: "/requests", search: "?page=2" })).toEqual(["Batches"]);
-    expect(current({ pathname: "/requests", search: "?quantity=750" })).toEqual(["New request"]);
-    expect(current({ pathname: "/feedback" })).toEqual([]);
-    expect(showsBatches({ search: "", hash: "" })).toBe(false);
+  it("names the four destinations in order, each with a page of its own", () => {
+    expect(customerDestinations().map((item) => [item.label, item.to])).toEqual([
+      ["Home", "/home"],
+      ["New request", "/new-request"],
+      ["Batches", "/batches"],
+      ["Account", "/account"],
+    ]);
+    // A batch page belongs to Batches by its path, so no custom matching.
+    expect(customerDestinations().every((item) => item.match === undefined)).toBe(true);
   });
 });

@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from .batch_copies import pending_copy_ids
 from .billing import _wallet_totals, batch_cost_cents, stripe_billing_enabled
 from .customer_history import request_history_scope
 from .fulfillment import artifact_available
@@ -145,6 +146,9 @@ class CustomerHomeBatch(BaseModel):
     file_available: bool
     file_expires_at: datetime | None
     download_href: str | None
+    # The file expired: a new copy can be asked for, or one is on the way.
+    can_request_copy: bool = False
+    copy_pending: bool = False
 
 
 class CustomerHomeStep(BaseModel):
@@ -267,10 +271,16 @@ def _batch_number(item: LeadRequest) -> int | None:
     return item.number
 
 
-def home_batch(item: LeadRequest, *, now: datetime) -> CustomerHomeBatch:
+def home_batch(
+    item: LeadRequest,
+    *,
+    now: datetime,
+    copy_pending: bool = False,
+) -> CustomerHomeBatch:
     delivered = item.status == RequestStatus.delivered.value
     artifact = item.artifact if delivered else None
     available = artifact_available(artifact, now=now)
+    expired = artifact is not None and not available
     return CustomerHomeBatch(
         id=item.id,
         number=_batch_number(item),
@@ -279,12 +289,14 @@ def home_batch(item: LeadRequest, *, now: datetime) -> CustomerHomeBatch:
         submitted_at=item.created_at,
         delivered_at=item.delivered_at,
         cost_cents=item.billing_amount_cents if item.is_billed else None,
-        href=f"/app/requests?request={item.id}",
+        href=f"/app/batches/{item.number}",
         file_available=available,
         file_expires_at=artifact.expires_at if artifact is not None else None,
         download_href=(
             f"/api/me/batch-requests/{item.id}/artifact" if available else None
         ),
+        can_request_copy=expired and not copy_pending,
+        copy_pending=expired and copy_pending,
     )
 
 
@@ -525,6 +537,7 @@ def build_customer_home(
         )
     ).one()
     billing = _billing(db, profile, month_start=starts_at)
+    copies = pending_copy_ids(db, [item.id for item in recent])
 
     alerts = [
         CustomerHomeAlert(kind="file_expiring", batch=home_batch(item, now=moment))
@@ -561,6 +574,9 @@ def build_customer_home(
         ),
         alerts=alerts,
         in_progress=[_in_progress(item, now=moment) for item in in_progress],
-        recent_batches=[home_batch(item, now=moment) for item in recent],
+        recent_batches=[
+            home_batch(item, now=moment, copy_pending=item.id in copies)
+            for item in recent
+        ],
         batch_count=batch_count,
     )

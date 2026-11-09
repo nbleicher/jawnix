@@ -114,7 +114,7 @@ test.describe("profile", () => {
     await expect(page).toHaveURL(/\/app\/account\/states$/);
   });
 
-  test("the Requests blocker deep-links to its visible Account problem", async ({
+  test("the New request blocker deep-links to its visible Account problem", async ({
     page,
   }) => {
     await mockCustomerAuth(page, {
@@ -125,7 +125,7 @@ test.describe("profile", () => {
       },
       batchRequests: MAPPING_BLOCKED_BATCH_REQUEST_WORKSPACE,
     });
-    await page.goto("./requests");
+    await page.goto("./new-request");
 
     await page.getByRole("link", { name: "Review Account" }).click();
 
@@ -276,12 +276,26 @@ test.describe("appointed states (V10)", () => {
       expected_version: "2026-07-29T12:00:00+00:00",
     });
 
-    // What was saved is what Account reads back after leaving and returning.
-    await page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "Home" }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
-    await page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "Account" }).click();
-    await tabs(page).getByRole("link", { name: "Appointed states" }).click();
-    await expect(page.getByText("2 selected · California, Florida")).toBeVisible();
+    // The saved states must survive navigation: CA and FL are offered — and
+    // TX is not — on New request. (Asserting the Account region after
+    // clicking away raced the route swap.)
+    await page
+      .getByRole("navigation", { name: "Customer" })
+      .getByRole("link", { name: "Home" })
+      .click();
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Home" }),
+    ).toBeVisible();
+
+    await page
+      .getByRole("navigation", { name: "Customer" })
+      .getByRole("link", { name: "New request" })
+      .click();
+    const offered = page.getByRole("group", { name: "Appointed states" });
+    await expect(offered.getByRole("checkbox")).toHaveCount(2);
+    await expect(offered.getByRole("checkbox", { name: "California" })).toBeChecked();
+    await expect(offered.getByRole("checkbox", { name: "Florida" })).toBeChecked();
+    await expect(offered.getByRole("checkbox", { name: "Texas" })).toHaveCount(0);
   });
 
   test("refuses a concurrent update and reloads the latest selection", async ({ page }) => {

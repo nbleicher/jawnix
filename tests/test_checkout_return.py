@@ -23,6 +23,18 @@ REQUEST_ID = "11111111-1111-4111-8111-111111111111"
         (f"/app/feedback?request={REQUEST_ID}", f"/app/feedback?request={REQUEST_ID}"),
         ("/app/home", "/app/home"),
         ("/app/overview", "/app/overview"),
+        # New request keeps the unfinished form; Batches keeps its page.
+        (
+            "/app/new-request?quantity=100000&states=TX,FL&rows_per_file=10000",
+            "/app/new-request?quantity=100000&states=FL,TX&rows_per_file=10000",
+        ),
+        ("/app/new-request?quantity=0&page=2", "/app/new-request"),
+        ("/app/batches?page=2", "/app/batches?page=2"),
+        ("/app/batches?quantity=750", "/app/batches"),
+        # A batch page, by number or by the UUID older links carry.
+        ("/app/batches/1042", "/app/batches/1042"),
+        ("/app/batches/1042?quantity=750", "/app/batches/1042"),
+        (f"/app/batches/{REQUEST_ID}", f"/app/batches/{REQUEST_ID}"),
         ("/app/account", "/app/account"),
         # Account's tabs, Billing above all; unknown tabs fall back to Account.
         ("/app/account/billing", "/app/account/billing"),
@@ -63,6 +75,11 @@ def test_return_path_is_rebuilt_from_the_allow_list(value, expected):
         "/app/manager/uploads",
         "/app/requests/../admin/overview",
         "/app/requests/",
+        "/app/batches/",
+        "/app/batches/1042/",
+        "/app/batches/not-a-batch",
+        "/app/batches/1042/../../admin/overview",
+        "/app/batches/12345678901",
         "/api/me/billing",
         "/app/requests\r\nLocation: https://evil.test",
         "/app/requests?quantity=" + "1" * 600,

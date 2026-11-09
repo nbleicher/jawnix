@@ -50,10 +50,12 @@ export function homeAt(now: Date) {
       submitted_at: localDay(-deliveredDaysAgo - 1, 14, 20),
       delivered_at: deliveredAt,
       cost_cents: costCents,
-      href: `/app/requests?request=${id}`,
+      href: `/app/batches/${number}`,
       file_available: live,
       file_expires_at: expiresAt,
       download_href: live ? `/api/me/batch-requests/${id}/artifact` : null,
+      can_request_copy: !live,
+      copy_pending: false,
     };
   }
 
@@ -70,7 +72,7 @@ export function homeAt(now: Date) {
       submitted_at: localDay(0, 9, 41),
       delivered_at: null,
       cost_cents: 12_500,
-      href: `/app/requests?request=${IN_PROGRESS_BATCH_ID}`,
+      href: "/app/batches/1042",
       file_available: false,
       file_expires_at: null,
       download_href: null,

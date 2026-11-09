@@ -385,6 +385,7 @@ def test_workspace_publishes_the_bounds_the_stages_validate_against(session):
         "minimum_lead_count": 1,
         "maximum_lead_count": 100_000,
         "licensed_states": ["FL", "TX"],
+        "state_names": {"FL": "Florida", "TX": "Texas"},
     }
     assert body["blocker"] is None
     assert body["requests"] == []
@@ -452,16 +453,26 @@ def test_request_detail_resolves_beyond_the_first_history_page(session):
 
     first_page = client.get("/api/me/batch-requests").json()["requests"]
     detail = client.get(f"/api/me/batch-requests/{oldest.id}")
+    by_number = client.get(f"/api/me/batch-requests/{oldest.number}")
     hidden = client.get(f"/api/me/batch-requests/{foreign.id}")
+    hidden_number = client.get(f"/api/me/batch-requests/{foreign.number}")
 
     assert str(oldest.id) not in {item["id"] for item in first_page}
     assert detail.status_code == 200
     assert detail.json()["id"] == str(oldest.id)
-    assert detail.json()["receipt_href"] == f"/app/requests?request={oldest.id}"
+    assert detail.json()["href"] == f"/app/batches/{oldest.number}"
+    assert detail.json()["receipt_href"] == f"/app/batches/{oldest.number}"
+    assert by_number.status_code == 200
+    assert by_number.json()["id"] == str(oldest.id)
     assert hidden.status_code == 404
+    assert hidden_number.status_code == 404
+    for reference in ("not-a-batch", "1234567890", "-1"):
+        assert client.get(f"/api/me/batch-requests/{reference}").status_code == 404
 
 
-def test_a_delivered_request_links_feedback_scoped_to_its_batch(session):
+def test_a_delivered_request_needs_no_next_action_now_feedback_is_gone(session):
+    """Reporting a bad lead lives on the batch page itself."""
+
     user_id, customer, _ = _customer(session, licensed_states=["TX"])
     item = _request(
         session,
@@ -472,10 +483,10 @@ def test_a_delivered_request_links_feedback_scoped_to_its_batch(session):
     )
     client = _authenticate(session, user_id)
 
-    action = client.get(f"/api/me/batch-requests/{item.id}").json()["next_action"]
+    body = client.get(f"/api/me/batch-requests/{item.id}").json()
 
-    assert action["kind"] == "submit_feedback"
-    assert action["href"] == f"/app/feedback?request={item.id}"
+    assert body["next_action"] is None
+    assert "/app/feedback" not in str(body)
 
 
 @pytest.mark.parametrize(
@@ -556,7 +567,7 @@ def test_cancellation_is_offered_only_while_the_domain_allows_it(
 @pytest.mark.parametrize(
     ("status", "action_kind"),
     [
-        (RequestStatus.delivered.value, "submit_feedback"),
+        (RequestStatus.delivered.value, None),
         (RequestStatus.rejected.value, "request_batch"),
         (RequestStatus.canceled.value, "request_batch"),
         (RequestStatus.failed.value, "contact_support"),
@@ -625,6 +636,7 @@ def test_delivered_request_projects_only_customer_safe_artifact_metadata(
                 "row_count": 1,
             }
         ],
+        "columns": ["phone", "title", "state"],
         "expires_at": artifact["expires_at"],
         "available": True,
         "download_href": f"/api/me/batch-requests/{item.id}/artifact",
@@ -1123,7 +1135,7 @@ def test_a_reviewed_request_lands_on_a_receipt_linked_to_the_batch_request(
     assert body["request"]["lead_count"] == 500
     assert body["request"]["states"] == ["TX"]
     assert body["request"]["receipt_href"] == (
-        f"/app/requests?request={body['request']['id']}"
+        f"/app/batches/{body['request']['number']}"
     )
     assert body["request"]["milestones"]["current_key"] == "submitted"
     assert body["request"]["can_cancel"] is True

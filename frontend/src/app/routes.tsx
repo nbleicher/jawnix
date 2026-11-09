@@ -13,7 +13,13 @@ import { scraperKeywordsLoader } from "./routes/scraperKeywordApi";
 import { scraperCampaignHistoryLoader, scraperRuntimeLoader } from "./routes/scraperRuntimeApi";
 import { scraperDatabaseLoader, scraperDatabaseStateLoader } from "./routes/scraperDatabaseData";
 import { stateCoverageDetailLoader, stateCoverageLoader } from "./routes/scraperCoverageData";
-import { batchRequestsLoader } from "./routes/batchRequests";
+import {
+  batchesLoader,
+  batchLoader,
+  feedbackRedirectLoader,
+  newRequestLoader,
+  requestsRedirectLoader,
+} from "./routes/batchRequests";
 import { customerAccountLoader } from "./routes/licensedStates";
 import { customerShouldRevalidate, overviewRedirectLoader } from "./customer/home";
 
@@ -74,8 +80,7 @@ export const router = createBrowserRouter(
         // Overview became Home; old links (emails, bookmarks) still land.
         { path: "overview", loader: overviewRedirectLoader },
 
-        // Customer portal — Home, New request, Batches, Account. Until the
-        // New request and Batches pages exist, both live on /requests.
+        // Customer portal — Home, New request, Batches, Account.
         {
           id: "customer",
           element: <CustomerShell />,
@@ -88,18 +93,28 @@ export const router = createBrowserRouter(
               lazy: lazyPage("CustomerHome", "CustomerHomeRoute"),
             },
             {
-              path: "requests",
-              loader: batchRequestsLoader,
-              lazy: lazyPage("CustomerRequests", "CustomerRequestsRoute"),
+              path: "new-request",
+              loader: newRequestLoader,
+              lazy: lazyPage("CustomerNewRequest", "CustomerNewRequestRoute"),
             },
-            // #53 replaced the placeholder with the guided flow. The loader
-            // reads the Lead Disposition catalog, whose consequence copy is
-            // derived from the rule that materializes the controls. It left
-            // the navigation in C2; batch pages and old links still open it.
             {
-              path: "feedback",
-              lazy: lazyPage("CustomerFeedback", "CustomerFeedbackRoute", "feedbackLoader"),
+              path: "batches",
+              loader: batchesLoader,
+              lazy: lazyPage("CustomerBatches", "CustomerBatchesRoute"),
             },
+            // A batch is named by its number ("/batches/1042"); the page also
+            // accepts the UUID older emails carry.
+            {
+              path: "batches/:batchId",
+              loader: batchLoader,
+              lazy: lazyPage("CustomerBatches", "CustomerBatchRoute"),
+            },
+            // /requests held the request form and the history until C3 gave
+            // them pages of their own. Emailed request links still land.
+            { path: "requests", loader: requestsRedirectLoader },
+            // Feedback left the portal: "Report a bad lead" lives on each
+            // batch page.
+            { path: "feedback", loader: feedbackRedirectLoader },
             {
               // Account's tabs live in the URL: /account is Profile, and
               // /account/states, /billing, /exclusion-lists, /password.

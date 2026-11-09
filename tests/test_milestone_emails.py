@@ -80,9 +80,8 @@ def test_milestone_email_content_links_to_the_authenticated_timeline(
     assert len(calls) == 2
     first, repeated = calls
     payload = first["json"]
-    timeline = (
-        f"https://app.jawnix.example/app/requests?request={request.id}"
-    )
+    session.flush()
+    timeline = f"https://app.jawnix.example/app/batches/{request.number}"
     assert subject_phrase in payload["subject"]
     assert body_phrase in payload["text"]
     assert f"Batch Request: {request.id}" in payload["text"]

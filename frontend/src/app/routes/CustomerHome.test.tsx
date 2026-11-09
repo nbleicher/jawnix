@@ -28,7 +28,7 @@ function batch(overrides: Partial<CustomerHomeBatch> = {}): CustomerHomeBatch {
     submitted_at: daysFromNow(-2),
     delivered_at: daysFromNow(-2),
     cost_cents: 25_000,
-    href: `/app/requests?request=${id}`,
+    href: "/app/batches/1038",
     file_available: true,
     file_expires_at: daysFromNow(28),
     download_href: `/api/me/batch-requests/${id}/artifact`,
@@ -48,7 +48,7 @@ function inProgress(overrides: Partial<CustomerHomeInProgress> = {}): CustomerHo
       submitted_at: daysFromNow(0, 9, 41),
       delivered_at: null,
       cost_cents: 12_500,
-      href: `/app/requests?request=${IN_PROGRESS_ID}`,
+      href: "/app/batches/1042",
       file_available: false,
       file_expires_at: null,
       download_href: null,
@@ -101,7 +101,8 @@ function home(overrides: Partial<CustomerHomeData> = {}): CustomerHomeData {
         file_available: false,
         file_expires_at: daysFromNow(-8),
         download_href: null,
-        href: "/app/requests?request=17171717-1717-4717-8717-171717171717",
+        href: "/app/batches/1017",
+        can_request_copy: true,
       }),
     ],
     batch_count: 24,
@@ -145,7 +146,7 @@ describe("CustomerHomeRoute", () => {
     expect(screen.getByText("Northstar Insurance")).toBeVisible();
     expect(screen.getAllByRole("link", { name: "New request" })[0]).toHaveAttribute(
       "href",
-      "/app/requests",
+      "/app/new-request",
     );
   });
 
@@ -232,7 +233,7 @@ describe("CustomerHomeRoute", () => {
     const [live, , expired] = rows;
     expect(within(live!).getByRole("link", { name: "#1038" })).toHaveAttribute(
       "href",
-      "/app/requests?request=38383838-3838-4838-8838-383838383838",
+      "/app/batches/1038",
     );
     expect(live).toHaveTextContent("50,000");
     expect(live).toHaveTextContent("$250.00");
@@ -240,15 +241,44 @@ describe("CustomerHomeRoute", () => {
       "href",
       "/api/me/batch-requests/38383838-3838-4838-8838-383838383838/artifact",
     );
-    // Until "Get a new copy" exists, an expired file links to its batch.
-    expect(within(expired!).getByRole("link", { name: "View Batch #1017, file expired" })).toHaveAttribute(
-      "href",
-      "/app/requests?request=17171717-1717-4717-8717-171717171717",
-    );
+    // An expired file can be copied again right here.
+    expect(
+      within(expired!).getByRole("button", { name: "Get a new copy of Batch #1017" }),
+    ).toBeVisible();
     expect(screen.getByRole("link", { name: "All batches (24)" })).toHaveAttribute(
       "href",
-      "/app/requests#batch-history",
+      "/app/batches",
     );
+  });
+
+  it("asks for a new copy of an expired file, then reads Home again", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({}), { status: 202 })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let asked = false;
+    renderHome(() => {
+      const data = home();
+      if (!asked) return data;
+      return {
+        ...data,
+        recent_batches: data.recent_batches.map((item) =>
+          item.number === 1017 ? { ...item, can_request_copy: false, copy_pending: true } : item,
+        ),
+      };
+    });
+
+    asked = true;
+    await userEvent.click(screen.getByRole("button", { name: "Get a new copy of Batch #1017" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/me/batch-requests/17171717-1717-4717-8717-171717171717/new-copy",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "A new copy of Batch #1017 is on the way.",
+    );
+    expect(await screen.findByText("New copy on the way")).toBeVisible();
   });
 
   it("shows the batch in progress step by step", () => {
@@ -307,7 +337,7 @@ describe("CustomerHomeRoute", () => {
     expect(screen.getByRole("heading", { level: 2, name: "No batches yet" })).toBeVisible();
     expect(screen.getByRole("link", { name: "Request your first batch" })).toHaveAttribute(
       "href",
-      "/app/requests",
+      "/app/new-request",
     );
     expect(screen.queryByRole("table")).toBeNull();
   });

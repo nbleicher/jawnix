@@ -2,13 +2,13 @@ import { expect, test } from "@playwright/test";
 
 import { mockAcquisition } from "./acquisition-fixtures";
 import { mockActivity } from "./activity-fixtures";
-import { mockFeedback } from "./customer-feedback-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockFulfillment } from "./fulfillment-fixtures";
 import { mockInventory } from "./inventory-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 import { mockCustomerAuth } from "./customer-auth-fixtures";
 import { mockOperatorDesk } from "./today-fixtures";
+import { mockBatchRequests } from "./customer-requests-fixtures";
 
 /**
  * Shell journeys against the compiled application.
@@ -27,8 +27,6 @@ test.beforeEach(async ({ page }) => {
   await mockAdminCustomers(page);
   await mockFulfillment(page);
   await mockInventory(page);
-  // Feedback reads a real contract since #53.
-  await mockFeedback(page);
   await mockCustomerAuth(page);
 });
 
@@ -70,8 +68,8 @@ test.describe("Customer shell", () => {
 
     const nav = page.getByRole("navigation", { name: "Customer" });
     const destinations: Array<[string, string]> = [
-      ["New request", "Requests"],
-      ["Batches", "Requests"],
+      ["New request", "New request"],
+      ["Batches", "Batches"],
       ["Account", "Account"],
       ["Home", "Home"],
     ];
@@ -83,12 +81,16 @@ test.describe("Customer shell", () => {
     }
   });
 
-  test("Batches opens the request history until it has its own page", async ({ page }) => {
-    await page.goto("./home");
+  test("a batch page belongs to Batches", async ({ page }) => {
+    await mockBatchRequests(page);
+    await page.goto("./batches");
 
-    await page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "Batches" }).click();
-    await expect(page).toHaveURL(/\/app\/requests#batch-history$/);
-    await expect(page.getByRole("region", { name: "Your Batch Requests" })).toBeInViewport();
+    await page.getByRole("link", { name: "Batch #1017", exact: true }).click();
+    await expect(page).toHaveURL(/\/app\/batches\/1017$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Batch #1017" })).toBeVisible();
+    const nav = page.getByRole("navigation", { name: "Customer" });
+    await expect(nav.getByRole("link", { name: "Batches" })).toHaveAttribute("aria-current", "page");
+    await expect(nav.locator("[aria-current=page]")).toHaveCount(1);
   });
 
   test("exposes every destination at both form factors without scrolling", async ({ page }) => {
@@ -101,10 +103,10 @@ test.describe("Customer shell", () => {
     for (const destination of ["Home", "New request", "Batches", "Account"]) {
       await expect(nav.getByRole("link", { name: destination })).toBeInViewport({ ratio: 1 });
     }
-    // Feedback left the navigation; its page still opens.
+    // Feedback left the app; its old address opens Batches.
     await expect(nav.getByRole("link", { name: "Feedback" })).toHaveCount(0);
     await page.goto("./feedback");
-    await expect(page.getByRole("heading", { level: 1, name: "Feedback" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Batches" })).toBeVisible();
   });
 
   test("hides the tape strip on phones only", async ({ page, isMobile }) => {
@@ -120,7 +122,7 @@ test.describe("Customer shell", () => {
     await expect(page).toHaveTitle("Home · JAWNIX");
 
     await page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "New request" }).click();
-    await expect(page).toHaveTitle("Requests · JAWNIX");
+    await expect(page).toHaveTitle("New request · JAWNIX");
   });
 });
 
@@ -291,7 +293,7 @@ test.describe("Administration shell", () => {
 
 test.describe("Direct navigation", () => {
   // A hard load of a deep link must work, not just client-side routing.
-  for (const path of ["./home", "./requests", "./account", "./admin/inventory", "./design-system"]) {
+  for (const path of ["./home", "./new-request", "./batches", "./account", "./admin/inventory", "./design-system"]) {
     test(`serves the shell for a hard load of ${path}`, async ({ page }) => {
       const response = await page.goto(path);
       expect(response?.status()).toBe(200);

@@ -2,6 +2,7 @@ import type { MouseEvent, ReactNode } from "react";
 
 import "./table.css";
 import { cx } from "./cx";
+import { VisuallyHidden } from "./typography";
 
 export interface DataColumn<Row> {
   key: string;
@@ -14,6 +15,9 @@ export interface DataColumn<Row> {
   /** Phones stack each row; a column can opt out of the stacked line when
    *  another cell already says the same thing. */
   hideWhenStacked?: boolean;
+  /** The header is read by assistive technology but not shown, e.g. a
+   *  button column whose buttons already say what they do. */
+  hideHeader?: boolean;
 }
 
 export interface DataTableProps<Row> {
@@ -74,7 +78,7 @@ export function DataTable<Row>({
                 scope="col"
                 className={column.numeric ? "jx-table__numeric" : undefined}
               >
-                {column.header}
+                {column.hideHeader ? <VisuallyHidden>{column.header}</VisuallyHidden> : column.header}
               </th>
             ))}
           </tr>

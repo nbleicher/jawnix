@@ -74,8 +74,15 @@ from .customer_requests import (
     RequestSubmissionError,
     build_request_workspace,
     cancel_request as withdraw_request,
-    request_detail,
+    customer_batch,
+    find_customer_batch,
     submit_request,
+)
+from .batch_copies import (
+    ArtifactRebuildError,
+    NewCopyRefused,
+    rebuild_expired_artifact,
+    request_new_copy,
 )
 from .database import get_db
 from .eligibility import (
@@ -1442,17 +1449,60 @@ def customer_batch_request_events(
     return StreamingResponse(request_events(request, scope, authorize), media_type="text/event-stream", headers={"Cache-Control":"private, no-store", "X-Accel-Buffering":"no"})
 
 
-@app.get("/api/me/batch-requests/{request_id}", response_model=CustomerRequestDetail)
+@app.get("/api/me/batch-requests/{reference}", response_model=CustomerRequestDetail)
 def customer_batch_request_detail(
-    request_id: uuid.UUID,
+    reference: str,
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
+    """One batch by number ("1042") or by the UUID older links carry."""
+
     profile = _current_customer_profile(db, principal)
-    item = db.scalar(select(LeadRequest).where(LeadRequest.id == request_id, request_history_scope(profile, principal.user_id)))
+    item = find_customer_batch(
+        db, reference, request_history_scope(profile, principal.user_id)
+    )
     if item is None:
         raise HTTPException(status_code=404, detail="Request was not found.")
-    return request_detail(item)
+    return customer_batch(db, item, with_states=True)
+
+
+@app.post(
+    "/api/me/batch-requests/{request_id}/new-copy",
+    response_model=CustomerRequestDetail,
+    status_code=202,
+)
+def request_batch_new_copy(
+    request_id: uuid.UUID,
+    response: Response,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    """Ask for a new copy of an expired batch file.
+
+    The same leads, rebuilt byte for byte by the worker and emailed when
+    ready. Asking again while a copy is on the way answers 200 with it.
+    """
+
+    if principal.role != "customer" or principal.audience != "customer":
+        raise HTTPException(status_code=403, detail="Customer access required.")
+    profile = _current_customer_profile(db, principal)
+    item = find_customer_batch(
+        db,
+        str(request_id),
+        request_history_scope(profile, principal.user_id),
+        for_update=True,
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Request was not found.")
+    try:
+        _, created = request_new_copy(db, item=item, actor_id=principal.user_id)
+    except NewCopyRefused as exc:
+        db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+    db.commit()
+    if not created:
+        response.status_code = 200
+    return customer_batch(db, item, with_states=True)
 
 
 @app.post(
@@ -1490,7 +1540,7 @@ def submit_batch_request(
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     if not created:
         response.status_code = 200
-    return CustomerRequestReceipt(created=created, request=request_detail(item))
+    return CustomerRequestReceipt(created=created, request=customer_batch(db, item))
 
 
 @app.post(
@@ -1515,7 +1565,7 @@ def cancel_batch_request(
         )
     except RequestSubmissionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
-    return request_detail(item)
+    return customer_batch(db, item)
 
 
 @app.get("/api/me/batch-requests/{request_id}/artifact")
@@ -1544,7 +1594,7 @@ def download_batch_artifact(
     if not artifact_available(artifact):
         raise HTTPException(
             status_code=410,
-            detail="Batch Artifact has expired. Contact Jawnix to regenerate it.",
+            detail="This file has expired. Get a new copy from the batch page.",
         )
 
     download_filename = artifact_download_filename(artifact)
@@ -1700,6 +1750,11 @@ def lookup_feedback(
         .where(
             DistributionEvent.agent_id == profile.customer_id,
             DistributionEvent.phone == phone,
+            *(
+                [DistributionEvent.request_id == payload.request_id]
+                if payload.request_id is not None
+                else []
+            ),
         )
         .order_by(
             DistributionEvent.delivered_at.desc(),
@@ -5512,10 +5567,6 @@ def regenerate_batch_artifact(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    from pathlib import Path
-
-    from .allocation import generate_artifact
-
     item = db.scalar(
         select(LeadRequest)
         .where(LeadRequest.id == request_id)
@@ -5523,41 +5574,10 @@ def regenerate_batch_artifact(
     )
     if item is None:
         raise HTTPException(status_code=404, detail="Request was not found.")
-    events = list(
-        db.scalars(
-            select(DistributionEvent)
-            .where(DistributionEvent.request_id == item.id)
-            .order_by(DistributionEvent.id)
-        )
-    )
-    if len(events) != item.lead_count:
-        raise HTTPException(
-            status_code=409,
-            detail="Committed Distribution Events are incomplete.",
-        )
-    artifact = item.artifact
-    now = utcnow()
-    # Shares the offer surface's predicate: if these two ever disagreed the
-    # workspace would offer a regeneration this endpoint then refuses.
-    if artifact_available(artifact, now=now):
-        raise HTTPException(
-            status_code=409,
-            detail="Batch Artifact has not expired.",
-        )
-    previous_artifact = (
-        {
-            "artifactId": artifact.id,
-            "available": False,
-            "expiresAt": (
-                artifact.expires_at.isoformat()
-                if artifact.expires_at is not None
-                else None
-            ),
-        }
-        if artifact is not None
-        else None
-    )
-    artifact = generate_artifact(db, item, events, settings)
+    try:
+        artifact, previous_artifact = rebuild_expired_artifact(db, item, settings)
+    except ArtifactRebuildError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
     record_activity(
         db,
         action="batch_artifact_regenerated",

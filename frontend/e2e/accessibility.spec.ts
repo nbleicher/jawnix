@@ -15,14 +15,8 @@ import {
   mockLicensedStates,
 } from "./customer-account-fixtures";
 import { BILLED_CUSTOMER_WALLET } from "./customer-billing-fixtures";
-import { mockFeedback } from "./customer-feedback-fixtures";
 import { mockCustomerAuth } from "./customer-auth-fixtures";
-import {
-  BATCH_REQUEST_WORKSPACE,
-  DELIVERED_REQUEST,
-  WAITING_REQUEST,
-  mockBatchRequests,
-} from "./customer-requests-fixtures";
+import { mockBatchRequests } from "./customer-requests-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import {
   CONFLICT_ID,
@@ -50,12 +44,13 @@ const ROUTES = [
   "./reset-password",
   "./reset-password?token=fixture-one-time-password-token",
   "./home",
-  "./requests",
-  `./requests?request=${WAITING_REQUEST.id}`,
-  `./requests?request=${DELIVERED_REQUEST.id}`,
-  "./requests?quantity=750&states=FL&rows_per_file=300&purchase=success",
-  "./feedback",
-  `./feedback?request=${DELIVERED_REQUEST.id}`,
+  "./new-request",
+  "./new-request?quantity=100000&states=FL&rows_per_file=10000&purchase=success",
+  "./batches",
+  "./batches/1042",
+  "./batches/1038",
+  "./batches/1017",
+  "./batches/9999",
   "./account",
   "./account/states",
   "./account/billing",
@@ -118,14 +113,8 @@ const ROUTES = [
 test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
   await mockAcquisition(page);
-  await mockFeedback(page);
   await mockCustomerAuth(page);
-  await mockBatchRequests(page, {
-    workspace: {
-      ...BATCH_REQUEST_WORKSPACE,
-      requests: [...BATCH_REQUEST_WORKSPACE.requests, DELIVERED_REQUEST],
-    },
-  });
+  await mockBatchRequests(page);
   await mockAdminCustomers(page, { pendingInvitation: true });
   await mockFulfillment(page);
   await mockLeadReports(page);
@@ -275,6 +264,40 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
     expect(results.violations).toEqual([]);
   });
 
+  test("New request short on credits has no accessibility violations", async ({
+    page,
+  }) => {
+    await mockCustomerAuth(page, {
+      billing: { wallet: BILLED_CUSTOMER_WALLET },
+    });
+    await mockBatchRequests(page);
+    await page.goto("./new-request");
+    await page.getByRole("textbox", { name: "How many leads?" }).fill("100000");
+    await page.getByText(/^Options/).click();
+    await expect(page.getByText("Short by")).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_AA_TAGS)
+      .analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("the batch page's report form with an error has no accessibility violations", async ({
+    page,
+  }) => {
+    await page.goto("./batches/1017");
+    const form = page.getByRole("region", { name: "Report a bad lead" });
+    await form.getByRole("button", { name: "Send report" }).click();
+    await expect(form.getByText("Enter the lead's 10-digit phone number.")).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_AA_TAGS)
+      .analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
   test("Buy credits dialog has no accessibility violations", async ({
     page,
   }) => {
@@ -328,7 +351,7 @@ test.describe("Keyboard operation", () => {
     await expect(requests).toBeFocused();
     await page.keyboard.press("Enter");
 
-    await expect(page.getByRole("heading", { level: 1, name: "Requests" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "New request" })).toBeVisible();
   });
 
   test("focus is visible on interactive controls", async ({ page }) => {

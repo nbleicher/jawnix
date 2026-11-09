@@ -48,13 +48,15 @@ def customer_home_url(settings: Settings) -> str:
     return f"{settings.public_base_url.rstrip('/')}/app/home"
 
 
-def customer_request_url(settings: Settings, request_id: object) -> str:
-    """Deep link to one Batch Request in the Customer portal."""
+def customer_request_url(settings: Settings, request: LeadRequest) -> str:
+    """Deep link to one batch's page in the Customer portal.
 
-    return (
-        f"{settings.public_base_url.rstrip('/')}"
-        f"/app/requests?request={request_id}"
-    )
+    Emails sent before batch pages existed link to ``/app/requests?request=``;
+    the portal redirects those here.
+    """
+
+    reference = request.number if request.number is not None else request.id
+    return f"{settings.public_base_url.rstrip('/')}/app/batches/{reference}"
 
 
 def _request_summary(request: LeadRequest) -> str:
@@ -73,7 +75,9 @@ def build_milestone_message(
 ) -> MilestoneMessage:
     """Customer-safe copy for one allow-listed milestone."""
 
-    request_url = customer_request_url(settings, request.id)
+    request_url = customer_request_url(settings, request)
+    if milestone == "new_copy":
+        return _new_copy_message(request, request_url)
     summary = _request_summary(request)
     if milestone == "approval":
         subject = f"Batch Request approved — {request.id}"
@@ -131,6 +135,27 @@ def build_milestone_message(
     )
 
 
+def _new_copy_message(request: LeadRequest, request_url: str) -> MilestoneMessage:
+    """The Customer asked for a new copy of an expired file, and it is ready."""
+
+    states = ", ".join(sorted(request.states_snapshot))
+    return MilestoneMessage(
+        subject=f"Your new copy of Batch #{request.number} is ready",
+        text=(
+            f"The new copy of Batch #{request.number} is ready to download. "
+            f"It has the same {request.lead_count:,} leads as the file we "
+            "delivered, and it stays available for 30 days.\n\n"
+            f"Batch: #{request.number}\n"
+            f"Leads: {request.lead_count:,}\n"
+            f"States: {states}\n\n"
+            "Download it after signing in:\n"
+            f"{request_url}\n\n"
+            "— Noah\n"
+            "JAWNIX · noah@jawnix.com\n"
+        ),
+    )
+
+
 def enqueue_milestone_email(
     session: Session,
     request: LeadRequest,
@@ -167,8 +192,14 @@ def send_milestone_email(
     request: LeadRequest,
     milestone: str,
     settings: Settings,
+    *,
+    idempotency_key: str | None = None,
 ) -> str:
-    """Send one milestone through the existing Resend provider."""
+    """Send one milestone through the existing Resend provider.
+
+    Status milestones happen once per batch, so the batch and milestone name
+    the message. A milestone that can repeat (a new copy) passes its own key.
+    """
 
     if not settings.resend_api_key:
         raise RuntimeError("RESEND_API_KEY is not configured.")
@@ -179,7 +210,7 @@ def send_milestone_email(
             "Authorization": f"Bearer {settings.resend_api_key}",
             "Content-Type": "application/json",
             "Idempotency-Key": (
-                f"jawnix-request/{request.id}/{milestone}"
+                idempotency_key or f"jawnix-request/{request.id}/{milestone}"
             ),
         },
         json={
