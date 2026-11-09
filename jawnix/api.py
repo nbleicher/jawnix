@@ -21,7 +21,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from svix.webhooks import Webhook, WebhookVerificationError
 
-from .activity import ACTIVITY_PAGE_SIZE, query_activity, record_activity
+from .activity import (
+    ACTIVITY_PAGE_SIZE,
+    activity_filters,
+    query_activity,
+    record_activity,
+)
 from .agency_management import (
     AgencyAssignmentConflict,
     agency_details,
@@ -157,6 +162,8 @@ from .batches import describe_batch, find_batch, list_batches
 from .operations_overview import OperationsOverview, operations_overview
 from .search import search as operator_search
 from .today import today as operator_today
+from .insights import operator_insights
+from .operator_setup import operator_setup
 from .mfa_provider import MFAProviderError, get_mfa_provider
 from .schemas import (
     RegistrationDecision,
@@ -206,6 +213,7 @@ from .schemas import (
 )
 from .scraper_proxy import (
     accept_scraper_handoff,
+    clear_scraper_grant,
     clear_scraper_session,
     forward_scraper_request,
     native_router as native_scraper_router,
@@ -309,6 +317,26 @@ def admin_today(
     return operator_today(db, delivered_since=delivered_since)
 
 
+@app.get("/api/admin/insights")
+def admin_insights(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """The Insights page in one read: money, deliveries, reports, trends,
+    Source Performance, and the Nightly Review history."""
+    return operator_insights(db)
+
+
+@app.get("/api/admin/setup")
+def admin_setup(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """The Setup index: each occasional tool's state and last change."""
+    return operator_setup(db, settings)
+
+
 @app.get("/api/admin/search")
 def admin_search(
     q: str = Query(default="", max_length=200),
@@ -364,6 +392,8 @@ def admin_activity(
     entity_id: str | None = Query(default=None, alias="entityId"),
     date_from: date | None = Query(default=None, alias="dateFrom"),
     date_to: date | None = Query(default=None, alias="dateTo"),
+    who: str | None = Query(default=None, max_length=160),
+    refused: bool = False,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(
         default=ACTIVITY_PAGE_SIZE,
@@ -374,19 +404,28 @@ def admin_activity(
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Global administrator Activity, filtered and paginated on the server."""
-    return query_activity(
-        db,
-        actor=actor,
-        action=action,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        date_from=date_from,
-        date_to=date_to,
-        page=page,
-        page_size=page_size,
-        query=q,
-    )
+    """Global administrator Activity, filtered and paginated on the server.
+
+    ``filters`` carries the choices the page offers: every recorded record
+    type and everyone who has acted.
+    """
+    return {
+        **query_activity(
+            db,
+            actor=actor,
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            date_from=date_from,
+            date_to=date_to,
+            page=page,
+            page_size=page_size,
+            query=q,
+            who=who,
+            refused=refused,
+        ),
+        "filters": activity_filters(db),
+    }
 
 
 @app.get("/api/admin/activity/{entity_type}/{entity_id}")
@@ -832,6 +871,8 @@ def logout(
     settings: Settings = Depends(get_settings),
 ):
     clear_session(response, settings)
+    # The Scraper Privileged Session belongs to this sign-in and ends with it.
+    clear_scraper_grant(response, settings)
     return {"ok": True}
 
 

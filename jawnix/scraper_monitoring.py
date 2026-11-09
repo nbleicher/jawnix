@@ -287,7 +287,6 @@ class MonitoringSnapshot(BaseModel):
 
     service_state: Literal["connected", "unavailable"]
     last_successful_at: datetime | None = None
-    idle_expires_in: int
     regions: list[MonitoringRegion]
 
 

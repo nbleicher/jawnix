@@ -1,50 +1,44 @@
-import { useState } from "react";
-import {
-  Form,
-  Link,
-  useLoaderData,
-  useNavigate,
-  useRevalidator,
-  useSearchParams,
-} from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLoaderData, useNavigate, useNavigation, useRevalidator, useSearchParams } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
 import { api } from "../auth/adminMFA";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
-import { ActionLink, Button } from "../../design-system/primitives/Button";
+import { Button } from "../../design-system/primitives/Button";
 import { ConfirmDialog, Dialog } from "../../design-system/primitives/Dialog";
-import { EmptyState } from "../../design-system/primitives/feedback";
+import { FactList } from "../../design-system/primitives/facts";
 import { Field, Input, Select } from "../../design-system/primitives/form";
-import {
-  Card,
-  Cluster,
-  Grid,
-  Page,
-  Section,
-  Stack,
-} from "../../design-system/primitives/layout";
+import { Kpi, KpiRow } from "../../design-system/primitives/kpi";
+import { Cluster, Page, Section, Stack } from "../../design-system/primitives/layout";
+import { Panel, RecordColumns } from "../../design-system/primitives/panel";
 import { StatusBadge } from "../../design-system/primitives/status";
-import {
-  Heading,
-  LabelText,
-  Text,
-} from "../../design-system/primitives/typography";
-import type { CustomerAdminStatus } from "./AdminCustomers";
-import { errorMessage, formatAdminDate } from "./AdminCustomers";
-import {
-  ActivityTimeline,
-  loadEntityActivity,
-} from "./AdminActivity";
+import { DataTable } from "../../design-system/primitives/table";
+import type { DataColumn } from "../../design-system/primitives/table";
+import { Text } from "../../design-system/primitives/typography";
+import { errorMessage } from "../operator/actions";
+import { formatCount, formatDay, formatStates } from "../operator/format";
+import { ActivityTable, loadEntityActivity, recordActivityHref } from "./AdminActivity";
 import type { ActivityPage } from "./AdminActivity";
-import { CustomerFloatingCard, Fact } from "./AdminCustomerActions";
-import type { CustomerDetailsData } from "./AdminCustomerDetails";
 
 import "./AdminAgencies.css";
+
+/**
+ * Agencies (Setup): groups of Customers that share permanent no-repeat
+ * history. One table with each Agency's members, recent deliveries, and open
+ * Batches; each Agency's page links its members and keeps the membership
+ * history and Activity that make its shared history explainable.
+ */
 
 interface SharedHistory {
   customers: number;
   agencies: number;
   distributedLeads: number;
+}
+
+interface AgencyStatus {
+  label: string;
+  description: string;
+  tone: string;
 }
 
 export interface AgencyMemberRow {
@@ -53,17 +47,22 @@ export interface AgencyMemberRow {
   name: string;
   active: boolean;
   licensedStates: string[];
+  /** Leads delivered in the last 30 days. */
+  delivered30d: number;
+  openBatches: number;
   href: string;
 }
 
-interface AgencyDirectoryRow {
+export interface AgencyDirectoryRow {
   id: number;
   slug: string;
   name: string;
   active: boolean;
-  status: CustomerAdminStatus;
+  status: AgencyStatus;
   members: AgencyMemberRow[];
   currentMembers: number;
+  delivered30d: number;
+  openBatches: number;
   sharedHistory: SharedHistory;
   lastActivityAt: string | null;
   href: string;
@@ -78,7 +77,6 @@ export interface AgencyDirectoryData {
   matched: number;
   agencies: AgencyDirectoryRow[];
   independent: AgencyMemberRow[];
-  openCustomer: CustomerDetailsData | null;
 }
 
 export interface AgencyDetailsData {
@@ -88,33 +86,20 @@ export interface AgencyDetailsData {
     slug: string;
     name: string;
     active: boolean;
-    status: CustomerAdminStatus;
+    status: AgencyStatus;
   };
-  members: {
-    id: number;
-    slug: string;
-    name: string;
-    active: boolean;
-    licensedStates: string[];
-    href: string;
-  }[];
+  members: AgencyMemberRow[];
   sharedHistory: SharedHistory;
   membershipHistory: {
     id: number;
     customerId: number;
     customer: string;
+    customerHref?: string | null;
     startedAt: string;
     endedAt: string | null;
     assignedBy: string;
+    assignedByName?: string;
     reason: string;
-  }[];
-  activity: {
-    id: string;
-    action: string;
-    label: string;
-    actor: string;
-    reason: string;
-    createdAt: string;
   }[];
   deletion: {
     dependencies: Record<string, number>;
@@ -137,129 +122,45 @@ export async function adminAgencyDirectoryLoader({
     if (value) query.set(key, value);
   }
   const search = query.toString();
-  const customerId = requested.get("customer");
-  const [directory, openCustomer] = await Promise.all([
-    api<Omit<AgencyDirectoryData, "openCustomer">>(
-      `/api/admin/agencies/directory${search ? `?${search}` : ""}`,
-    ),
-    customerId
-      ? api<CustomerDetailsData>(
-          `/api/admin/customers/${encodeURIComponent(customerId)}/details`,
-        ).catch((caught: unknown) => {
-          // Removed or forbidden Customers get the in-page "unavailable"
-          // dialog; anything else is a real failure for the error boundary.
-          const status = (caught as { status?: number }).status;
-          if (status === 403 || status === 404) return null;
-          throw caught;
-        })
-      : Promise.resolve(null),
-  ]);
-  return { ...directory, openCustomer };
+  return api<AgencyDirectoryData>(`/api/admin/agencies/directory${search ? `?${search}` : ""}`);
 }
 
 export async function adminAgencyDetailsLoader({
   params,
 }: LoaderFunctionArgs): Promise<AgencyDetailsData> {
   const [details, activityTimeline] = await Promise.all([
-    api<Omit<AgencyDetailsData, "activityTimeline">>(
-      `/api/admin/agencies/${params.agencyId}/details`,
-    ),
+    api<Omit<AgencyDetailsData, "activityTimeline">>(`/api/admin/agencies/${params.agencyId}/details`),
     loadEntityActivity("agency", params.agencyId),
   ]);
   return { ...details, activityTimeline };
 }
 
-function AgencyCard({ row }: { row: AgencyDirectoryRow }) {
-  return (
-    <Card as="article" aria-label={row.name}>
-      <Stack gap={4}>
-        <Cluster justify="space-between" align="flex-start">
-          <Stack gap={1}>
-            <Heading level={3}>
-              <Link className="admin-agencies__name" to={routePath(row.href)}>
-                {row.name}
-              </Link>
-            </Heading>
-            <Text size="sm" tone="muted">
-              {row.slug}
-            </Text>
-          </Stack>
-          <StatusBadge tone={row.status.tone}>
-            {row.status.label}
-          </StatusBadge>
-        </Cluster>
-        <dl className="admin-agencies__facts">
-          <Fact label="Current members">
-            {row.currentMembers.toLocaleString()}
-          </Fact>
-          <Fact label="Permanent Customers">
-            {row.sharedHistory.customers.toLocaleString()}
-          </Fact>
-          <Fact label="Shared-history Leads">
-            {row.sharedHistory.distributedLeads.toLocaleString()}
-          </Fact>
-          <Fact label="Last activity">
-            {formatAdminDate(row.lastActivityAt)}
-          </Fact>
-        </dl>
-        <MemberList members={row.members} agencyActive={row.active} />
-      </Stack>
-    </Card>
-  );
+/** Black is active; grey is deactivated (V4). */
+function agencyBadge(active: boolean) {
+  return <StatusBadge tone={active ? "success" : "neutral"}>{active ? "Active" : "Deactivated"}</StatusBadge>;
 }
 
-function MemberList({
-  members,
-  agencyActive,
-  emptyMessage = "No Customers in this Agency.",
-}: {
-  members: AgencyMemberRow[];
-  agencyActive: boolean;
-  emptyMessage?: string;
-}) {
-  const [searchParams] = useSearchParams();
-  if (!members.length) {
-    return <Text tone="muted">{emptyMessage}</Text>;
-  }
-  return (
-    <Stack as="ul" gap={2} className="admin-agencies__list">
-      {members.map((member) => {
-        const customerParams = new URLSearchParams(searchParams);
-        customerParams.set("customer", String(member.id));
-        const active = member.active && agencyActive;
-        return (
-          <li key={member.id}>
-            <Link
-              className="admin-agencies__member"
-              to={`?${customerParams.toString()}`}
-            >
-              <Stack gap={1}>
-                <Text weight="semibold">{member.name}</Text>
-                <Text size="sm" tone="muted">
-                  {member.slug}
-                  {member.licensedStates.length
-                    ? ` · ${member.licensedStates.join(", ")}`
-                    : ""}
-                </Text>
-              </Stack>
-              <StatusBadge tone={active ? "success" : "warning"}>
-                {active ? "Active" : "Inactive"}
-              </StatusBadge>
-            </Link>
-          </li>
-        );
-      })}
-    </Stack>
-  );
+/** A member works only while both it and its Agency are active. */
+function memberColumns(agencyActive: boolean): DataColumn<AgencyMemberRow>[] {
+  return [
+    {
+      key: "customer",
+      header: "Customer",
+      cell: (member) => <Link to={routePath(member.href)}>{member.name}</Link>,
+    },
+    { key: "states", header: "States", cell: (member) => formatStates(member.licensedStates) },
+    {
+      key: "delivered",
+      header: "Delivered · 30 days",
+      numeric: true,
+      cell: (member) => formatCount(member.delivered30d),
+    },
+    { key: "open", header: "Open batches", numeric: true, cell: (member) => formatCount(member.openBatches) },
+    { key: "status", header: "Status", cell: (member) => agencyBadge(member.active && agencyActive) },
+  ];
 }
 
-function CreateAgencyDialog({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+function CreateAgencyDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState("");
@@ -317,112 +218,157 @@ function CreateAgencyDialog({
   );
 }
 
+function SearchFilter({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const changed = useRef(onChange);
+  changed.current = onChange;
+  useEffect(() => setDraft(value), [value]);
+  useEffect(() => {
+    if (draft === value) return;
+    const timer = window.setTimeout(() => changed.current(draft), 300);
+    return () => window.clearTimeout(timer);
+  }, [draft, value]);
+  return (
+    <Field label="Search">
+      <Input
+        type="search"
+        placeholder="Agency or member"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+      />
+    </Field>
+  );
+}
+
+const AGENCY_COLUMNS: DataColumn<AgencyDirectoryRow>[] = [
+  { key: "agency", header: "Agency", cell: (row) => <Link to={routePath(row.href)}>{row.name}</Link> },
+  { key: "members", header: "Members", numeric: true, cell: (row) => formatCount(row.currentMembers) },
+  {
+    key: "delivered",
+    header: "Delivered · 30 days",
+    numeric: true,
+    cell: (row) => formatCount(row.delivered30d),
+  },
+  { key: "open", header: "Open batches", numeric: true, cell: (row) => formatCount(row.openBatches) },
+  {
+    key: "history",
+    header: "Shared-history leads",
+    numeric: true,
+    cell: (row) => formatCount(row.sharedHistory.distributedLeads),
+  },
+  { key: "status", header: "Status", cell: (row) => agencyBadge(row.active) },
+  { key: "activity", header: "Last change", cell: (row) => formatDay(row.lastActivityAt) },
+];
+
+type AgencyMember = AgencyMemberRow & { agency: AgencyDirectoryRow };
+
+const AGENCY_MEMBER_COLUMNS: DataColumn<AgencyMember>[] = [
+  {
+    key: "customer",
+    header: "Customer",
+    cell: (member) => <Link to={routePath(member.href)}>{member.name}</Link>,
+  },
+  {
+    key: "agency",
+    header: "Agency",
+    cell: (member) => <Link to={routePath(member.agency.href)}>{member.agency.name}</Link>,
+  },
+  { key: "states", header: "States", cell: (member) => formatStates(member.licensedStates) },
+  {
+    key: "delivered",
+    header: "Delivered · 30 days",
+    numeric: true,
+    cell: (member) => formatCount(member.delivered30d),
+  },
+  { key: "open", header: "Open batches", numeric: true, cell: (member) => formatCount(member.openBatches) },
+  { key: "status", header: "Status", cell: (member) => agencyBadge(member.active && member.agency.active) },
+];
+
 export function AdminAgenciesRoute() {
   const data = useLoaderData<AgencyDirectoryData>();
-  const revalidator = useRevalidator();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const [createOpen, setCreateOpen] = useState(false);
-  const openId = searchParams.get("customer");
-  const closeCustomer = () => {
-    const next = new URLSearchParams(searchParams);
-    next.delete("customer");
-    setSearchParams(next);
-  };
   useDocumentTitle("Agencies");
+
+  const navigation = useNavigation();
+  const shown =
+    navigation.location?.pathname === "/admin/agencies"
+      ? new URLSearchParams(navigation.location.search)
+      : params;
+
+  function setFilter(key: string, value: string | null) {
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true, preventScrollReset: true },
+    );
+  }
+
+  const members: AgencyMember[] = data.agencies.flatMap((agency) =>
+    agency.members.map((member) => ({ ...member, agency })),
+  );
+
   return (
     <Page
       title="Agencies"
-      description="Internal servicing groups whose no-repeat histories merge permanently with assigned Customers. Agencies never sign in and never receive a cross-Customer dashboard."
+      width="data"
+      density="data"
+      description="Customers grouped to share permanent no-repeat history. Agencies never sign in."
       actions={
-        <Cluster gap={3}>
-          <ActionLink href="/app/admin/customers">View Customers</ActionLink>
-          <Button variant="primary" onClick={() => setCreateOpen(true)}>
-            Create Agency
-          </Button>
-        </Cluster>
+        <Button variant="primary" onClick={() => setCreateOpen(true)}>
+          Create Agency
+        </Button>
       }
     >
-      <Section
-        title="Find an Agency"
-        description="Search by Agency name or slug, including deactivated groups whose history is retained."
-      >
-        <Card>
-          <Form method="get" role="search">
-            <Grid minColumnWidth="14rem" gap={4}>
-              <Field label="Search">
-                <Input
-                  name="q"
-                  type="search"
-                  defaultValue={data.filters.query}
-                />
-              </Field>
-              <Field label="Status">
-                <Select name="status" defaultValue={data.filters.status}>
-                  <option value="all">All</option>
-                  <option value="active">Active</option>
-                  <option value="deactivated">Deactivated</option>
-                </Select>
-              </Field>
-              <Stack style={{ justifyContent: "flex-end" }}>
-                <Button type="submit" variant="primary">
-                  Search
-                </Button>
-              </Stack>
-            </Grid>
-          </Form>
-        </Card>
-      </Section>
-      <Section
-        title="Agency directory"
-        description="Shared-history counts include every Customer and Agency permanently joined by an assignment."
-      >
-        <Stack gap={4}>
-          <Text size="sm" tone="muted">
-            Showing {data.matched.toLocaleString()} of{" "}
-            {data.total.toLocaleString()} Agencies.
-          </Text>
-          {data.agencies.length ? (
-            <Stack gap={4}>
-              {data.agencies.map((agency) => (
-                <AgencyCard key={agency.id} row={agency} />
-              ))}
-            </Stack>
-          ) : (
-            <EmptyState
-              title="No Agencies match this search"
-              description="Widen the search, or create a new internal Agency."
-            />
-          )}
-          <Card as="article" aria-label="Independent Customers">
-            <Stack gap={4}>
-              <Heading level={3}>Independent Customers</Heading>
-              <MemberList
-                members={data.independent}
-                agencyActive
-                emptyMessage="No Independent Customers."
-              />
-            </Stack>
-          </Card>
-        </Stack>
-      </Section>
-      <CreateAgencyDialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-      />
-      {openId && data.openCustomer ? (
-        <CustomerFloatingCard
-          details={data.openCustomer}
-          onClose={closeCustomer}
-          onChanged={() => revalidator.revalidate()}
+      <div className="jx-agency-filters">
+        <SearchFilter value={params.get("q") ?? ""} onChange={(value) => setFilter("q", value.trim() || null)} />
+        <Field label="Status">
+          <Select value={shown.get("status") ?? "all"} onChange={(event) => setFilter("status", event.target.value === "all" ? null : event.target.value)}>
+            <option value="all">All</option>
+            <option value="active">Active</option>
+            <option value="deactivated">Deactivated</option>
+          </Select>
+        </Field>
+      </div>
+
+      <Section title="Agencies">
+        <DataTable
+          label="Agencies"
+          columns={AGENCY_COLUMNS}
+          rows={data.agencies}
+          rowKey={(row) => String(row.id)}
+          empty="No Agency matches this search. Widen it, or create a new Agency."
         />
-      ) : openId ? (
-        <Dialog
-          open
-          onClose={closeCustomer}
-          title="Customer unavailable"
-          description="This Customer could not be loaded. It may have been removed or you may no longer have access."
+        <Text size="sm" tone="muted" role="status">
+          Showing {formatCount(data.matched)} of {formatCount(data.total)} agencies.
+        </Text>
+      </Section>
+
+      <Section title="Members">
+        <DataTable
+          label="Agency members"
+          columns={AGENCY_MEMBER_COLUMNS}
+          rows={members}
+          rowKey={(member) => String(member.id)}
+          empty="No Customer belongs to these agencies."
         />
-      ) : null}
+      </Section>
+
+      <Section title="Independent customers">
+        <DataTable
+          label="Independent customers"
+          columns={memberColumns(true)}
+          rows={data.independent}
+          rowKey={(member) => String(member.id)}
+          empty="No independent customers."
+        />
+      </Section>
+
+      <CreateAgencyDialog open={createOpen} onClose={() => setCreateOpen(false)} />
     </Page>
   );
 }
@@ -430,10 +376,39 @@ export function AdminAgenciesRoute() {
 type DetailsDialog = "edit" | "lifecycle" | "delete";
 
 const DEPENDENCY_LABELS: Record<string, string> = {
-  customers: "Current Customers",
-  distributions: "Distribution Events",
+  customers: "Current customers",
+  distributions: "Distribution events",
   membershipHistory: "Membership history",
 };
+
+type Membership = AgencyDetailsData["membershipHistory"][number];
+
+function membershipColumns(now: Date): DataColumn<Membership>[] {
+  return [
+    {
+      key: "customer",
+      header: "Customer",
+      cell: (membership) =>
+        membership.customerHref ? (
+          <Link to={routePath(membership.customerHref)}>{membership.customer}</Link>
+        ) : (
+          membership.customer
+        ),
+    },
+    { key: "started", header: "Joined", cell: (membership) => formatDay(membership.startedAt, now) },
+    {
+      key: "ended",
+      header: "Left",
+      cell: (membership) => (membership.endedAt ? formatDay(membership.endedAt, now) : "Current"),
+    },
+    {
+      key: "by",
+      header: "Assigned by",
+      cell: (membership) => membership.assignedByName ?? membership.assignedBy,
+    },
+    { key: "reason", header: "Reason", cell: (membership) => membership.reason },
+  ];
+}
 
 export function AdminAgencyDetailsRoute() {
   const data = useLoaderData<AgencyDetailsData>();
@@ -445,6 +420,7 @@ export function AdminAgencyDetailsRoute() {
   const [reason, setReason] = useState("");
   const [confirmSlug, setConfirmSlug] = useState("");
   const [hardDelete, setHardDelete] = useState(false);
+  const now = new Date();
   useDocumentTitle(data.agency.name);
 
   function open(name: DetailsDialog) {
@@ -502,185 +478,123 @@ export function AdminAgencyDetailsRoute() {
     }
   }
 
-  const dependencies = Object.entries(data.deletion.dependencies).filter(
-    ([, count]) => count > 0,
-  );
+  const dependencies = Object.entries(data.deletion.dependencies).filter(([, count]) => count > 0);
+  const delivered = data.members.reduce((sum, member) => sum + member.delivered30d, 0);
+  const openBatches = data.members.reduce((sum, member) => sum + member.openBatches, 0);
 
   return (
     <Page
       title={data.agency.name}
-      description="An internal grouping for allocation history. This record has no login and exposes no cross-Customer dashboard."
+      width="data"
+      density="data"
+      description="An Agency: its members share permanent no-repeat history. It has no login."
       actions={
-        <ActionLink href="/app/admin/agencies">Back to Agencies</ActionLink>
+        <Cluster gap={2}>
+          <Button onClick={() => open("edit")}>Edit name</Button>
+          <Button onClick={() => open("lifecycle")}>
+            {data.agency.active ? "Deactivate Agency" : "Reactivate Agency"}
+          </Button>
+        </Cluster>
       }
     >
-      <Section title="Agency" description={data.agency.status.description}>
-        <Card>
-          <Stack gap={4}>
-            <Cluster justify="space-between" align="flex-start">
-              <Stack gap={1}>
-                <Heading level={3}>{data.agency.slug}</Heading>
-                <Text size="sm" tone="muted">
-                  Internal grouping · no User Account
-                </Text>
-              </Stack>
-              <StatusBadge tone={data.agency.status.tone}>
-                {data.agency.status.label}
-              </StatusBadge>
-            </Cluster>
-            <Cluster gap={3}>
-              <Button onClick={() => open("edit")}>Edit name</Button>
-              <Button onClick={() => open("lifecycle")}>
-                {data.agency.active ? "Deactivate Agency" : "Reactivate Agency"}
-              </Button>
-            </Cluster>
-          </Stack>
-        </Card>
-      </Section>
-
-      <Section
-        title="Shared-history impact"
-        description="These counts never shrink when a Customer moves away. Future allocation respects the whole merged history in both directions."
-      >
-        <Grid minColumnWidth="12rem">
-          <Card>
-            <Stack gap={1}>
-              <LabelText>Permanent Customers</LabelText>
-              <Text size="lg" weight="bold">
-                {data.sharedHistory.customers.toLocaleString()}
-              </Text>
-            </Stack>
-          </Card>
-          <Card>
-            <Stack gap={1}>
-              <LabelText>Merged Agencies</LabelText>
-              <Text size="lg" weight="bold">
-                {data.sharedHistory.agencies.toLocaleString()}
-              </Text>
-            </Stack>
-          </Card>
-          <Card>
-            <Stack gap={1}>
-              <LabelText>Blocked historical Leads</LabelText>
-              <Text size="lg" weight="bold">
-                {data.sharedHistory.distributedLeads.toLocaleString()}
-              </Text>
-            </Stack>
-          </Card>
-        </Grid>
-      </Section>
-
-      <Section
-        title="Current members"
-        description="Only current membership changes. Every prior no-repeat relationship remains permanent."
-      >
-        {data.members.length ? (
-          <Grid minColumnWidth="18rem">
-            {data.members.map((member) => (
-              <Card as="article" aria-label={member.name} key={member.id}>
-                <Stack gap={2}>
-                  <Heading level={3} size="sm">
-                    <Link to={routePath(member.href)}>{member.name}</Link>
-                  </Heading>
-                  <Text size="sm" tone="muted">
-                    {member.licensedStates.length
-                      ? member.licensedStates.join(", ")
-                      : "No Licensed States"}
-                  </Text>
-                  <StatusBadge tone={member.active ? "success" : "warning"}>
-                    {member.active ? "Active" : "Deactivated"}
-                  </StatusBadge>
-                </Stack>
-              </Card>
-            ))}
-          </Grid>
-        ) : (
-          <EmptyState
-            title="No current members"
-            description="Customers may still share permanent history with this Agency after moving away."
-          />
-        )}
-      </Section>
-
-      <Section
-        title="Membership history"
-        description="The assignment periods retained for audit and deletion safety."
-      >
-        {data.membershipHistory.length ? (
-          <Stack as="ul" gap={3} className="admin-agencies__list">
-            {data.membershipHistory.map((membership) => (
-              <li key={membership.id}>
-                <Card>
-                  <Stack gap={2}>
-                    <Cluster justify="space-between" align="flex-start">
-                      <Text weight="semibold">{membership.customer}</Text>
-                      <Text size="sm" tone="muted">
-                        {membership.endedAt
-                          ? `Ended ${formatAdminDate(membership.endedAt)}`
-                          : "Current"}
-                      </Text>
-                    </Cluster>
-                    <Text size="sm">
-                      Started {formatAdminDate(membership.startedAt)} ·{" "}
-                      {membership.assignedBy}
-                    </Text>
-                    <Text size="sm" tone="muted">
-                      {membership.reason}
-                    </Text>
-                  </Stack>
-                </Card>
-              </li>
-            ))}
-          </Stack>
-        ) : (
-          <EmptyState
-            title="No assignments recorded"
-            description="This Agency has not received a Customer assignment yet."
-          />
-        )}
-      </Section>
-
-      <Section title="Activity" description="Consequential Agency changes and assignments.">
-        <ActivityTimeline
-          activity={data.activityTimeline}
-          emptyDescription="No administrator has changed this Agency yet."
+      <KpiRow label="Agency numbers" columns={6}>
+        <Kpi label="Members" value={formatCount(data.members.length)} />
+        <Kpi label="Delivered · 30 days" value={formatCount(delivered)} />
+        <Kpi label="Open batches" value={formatCount(openBatches)} />
+        <Kpi
+          label="Permanent customers"
+          value={formatCount(data.sharedHistory.customers)}
+          meta="Ever in this shared history"
         />
-      </Section>
+        <Kpi label="Merged agencies" value={formatCount(data.sharedHistory.agencies)} />
+        <Kpi
+          label="Shared-history leads"
+          value={formatCount(data.sharedHistory.distributedLeads)}
+          meta="Never delivered again to members"
+        />
+      </KpiRow>
 
-      <Section
-        title="Lifecycle"
-        description="Deactivation blocks assignments. Deletion keeps existing dependency and tombstone rules."
-      >
-        <Card>
-          <Stack gap={3} align="flex-start">
-            {data.deletion.requiresDeactivation ? (
-              <Text tone="warning" size="sm">
-                Deactivate this Agency before deletion.
-              </Text>
-            ) : dependencies.length ? (
-              <Stack gap={2}>
-                <Text tone="warning" size="sm">
-                  Permanent deletion is blocked by retained history.
-                </Text>
-                <ul className="admin-agencies__dependencies">
-                  {dependencies.map(([key, count]) => (
-                    <li key={key}>
-                      {DEPENDENCY_LABELS[key] ?? key}: {count.toLocaleString()}
-                    </li>
-                  ))}
-                </ul>
-              </Stack>
-            ) : null}
-            <Button
-              variant="danger"
-              disabled={data.deletion.requiresDeactivation}
-              onClick={() => open("delete")}
+      <RecordColumns
+        main={
+          <>
+            <Section title="Members">
+              <DataTable
+                label="Members"
+                columns={memberColumns(data.agency.active)}
+                rows={data.members}
+                rowKey={(member) => String(member.id)}
+                empty="No current members. Customers who moved away still share this history."
+              />
+            </Section>
+            <Section
+              title="Membership history"
+              description="Every assignment period, kept for audit. Shared history never splits."
             >
-              Delete Agency
-            </Button>
-          </Stack>
-        </Card>
-      </Section>
+              <DataTable
+                label="Membership history"
+                columns={membershipColumns(now)}
+                rows={data.membershipHistory}
+                rowKey={(membership) => String(membership.id)}
+                empty="This Agency has not received a Customer assignment yet."
+              />
+            </Section>
+            <Section title="Activity">
+              <ActivityTable
+                activity={data.activityTimeline}
+                label="Agency activity"
+                showRecord={false}
+                moreHref={recordActivityHref("agency", data.agency.id)}
+                empty="No administrator has changed this Agency yet."
+              />
+            </Section>
+          </>
+        }
+        aside={
+          <>
+            <Panel title="Agency">
+              <FactList
+                label="Agency"
+                items={[
+                  { term: "Status", description: agencyBadge(data.agency.active) },
+                  { term: "Slug", description: data.agency.slug },
+                ]}
+              />
+              <Text size="sm" tone="muted">
+                {data.agency.status.description}
+              </Text>
+            </Panel>
+            <Panel title="Lifecycle">
+              {data.deletion.requiresDeactivation ? (
+                <Text size="sm" tone="muted">
+                  Deactivate this Agency before deleting it.
+                </Text>
+              ) : dependencies.length ? (
+                <>
+                  <Text size="sm" tone="muted">
+                    Permanent deletion is blocked by retained history:
+                  </Text>
+                  <FactList
+                    label="Retained history"
+                    items={dependencies.map(([key, count]) => ({
+                      term: DEPENDENCY_LABELS[key] ?? key,
+                      description: formatCount(count),
+                    }))}
+                  />
+                </>
+              ) : null}
+              <div>
+                <Button
+                  variant="danger"
+                  disabled={data.deletion.requiresDeactivation}
+                  onClick={() => open("delete")}
+                >
+                  Delete Agency
+                </Button>
+              </div>
+            </Panel>
+          </>
+        }
+      />
 
       <Dialog
         open={dialog === "edit"}
@@ -714,9 +628,7 @@ export function AdminAgencyDetailsRoute() {
       <ConfirmDialog
         open={dialog === "lifecycle"}
         onClose={() => setDialog(null)}
-        onConfirm={() =>
-          void update(data.agency.name, !data.agency.active, reason)
-        }
+        onConfirm={() => void update(data.agency.name, !data.agency.active, reason)}
         title={data.agency.active ? "Deactivate Agency" : "Reactivate Agency"}
         consequence={
           data.agency.active
@@ -734,10 +646,7 @@ export function AdminAgencyDetailsRoute() {
             </Text>
           ) : null}
           <Field label="Reason" required>
-            <Input
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
+            <Input value={reason} onChange={(event) => setReason(event.target.value)} />
           </Field>
         </Stack>
       </ConfirmDialog>
@@ -773,19 +682,14 @@ export function AdminAgencyDetailsRoute() {
             </label>
           ) : null}
           <Field label={`Type ${data.agency.slug} to confirm`} required>
-            <Input
-              value={confirmSlug}
-              onChange={(event) => setConfirmSlug(event.target.value)}
-            />
+            <Input value={confirmSlug} onChange={(event) => setConfirmSlug(event.target.value)} />
           </Field>
           <Field label="Reason" required>
-            <Input
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
+            <Input value={reason} onChange={(event) => setReason(event.target.value)} />
           </Field>
         </Stack>
       </ConfirmDialog>
     </Page>
   );
 }
+

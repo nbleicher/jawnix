@@ -42,7 +42,6 @@ export interface KeywordWorkspace {
   winners: KeywordWinner[];
   performance?: KeywordOutcomePerformance[];
   prescriptive_mode?: "dormant_worked_leads";
-  idle_expires_in: number;
 }
 
 export interface KeywordDiff {

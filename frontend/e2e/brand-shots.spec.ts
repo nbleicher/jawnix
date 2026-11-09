@@ -28,6 +28,7 @@ import { mockLeadReports } from "./lead-report-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockAcquisition } from "./acquisition-fixtures";
 import { mockActivity } from "./activity-fixtures";
+import { mockSetup } from "./setup-fixtures";
 
 /** Delivered request whose artifact retention has already lapsed. */
 const EXPIRED_ARTIFACT_REQUEST = {
@@ -401,13 +402,14 @@ for (const scheme of SCHEMES) {
       await shoot(page, testInfo, `admin-activity-${scheme}`);
     });
 
-    test(`admin acquisition (${scheme})`, async ({ page }, testInfo) => {
+    test(`admin setup (${scheme})`, async ({ page }, testInfo) => {
       await mockAcquisition(page);
-      await page.goto("./admin/acquisition");
+      await mockSetup(page);
+      await page.goto("./admin/setup");
       await page
-        .getByRole("region", { name: "Acquisition workspace" })
+        .getByRole("table", { name: "Setup areas" })
         .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `admin-acquisition-${scheme}`);
+      await shoot(page, testInfo, `admin-setup-${scheme}`);
     });
   });
 }

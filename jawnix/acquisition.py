@@ -133,7 +133,7 @@ def niche_dict(item: SourceNicheMapping) -> dict[str, object]:
     }
 
 
-def _review_dict(review: NightlyReview) -> dict[str, object]:
+def review_dict(review: NightlyReview) -> dict[str, object]:
     return {
         "id": str(review.id),
         "scraperRunId": review.scraper_run_id,
@@ -210,7 +210,7 @@ def nightly_reviews_needing_attention(
             or review.telegram_delivery_state == "unknown"
             or (isinstance(failures, list) and failures)
         ):
-            attention.append(_review_dict(review))
+            attention.append(review_dict(review))
     return attention
 
 
@@ -260,7 +260,7 @@ def workspace(db: Session) -> dict[str, object]:
             )
         ],
         "nightlyReviews": [
-            _review_dict(review)
+            review_dict(review)
             for review in db.scalars(
                 select(NightlyReview)
                 .order_by(NightlyReview.created_at.desc())

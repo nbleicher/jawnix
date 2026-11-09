@@ -258,19 +258,21 @@ export async function mockAdminMFA(
     const method = route.request().method();
     if (path.endsWith("/entry")) {
       return json(route, {
+        granted: false,
         factors: state.factors.map(({ id, name, type }) => ({
           id,
           name,
           type,
         })),
-        idleExpiresIn: 900,
       });
+    }
+    if (path.endsWith("/grant")) {
+      return json(route, { granted: false });
     }
     if (path.endsWith("/workspace")) {
       return json(route, {
         serviceState: "connected",
         lastSuccessfulAt: "2026-07-28T12:00:00Z",
-        idleExpiresIn: 900,
       });
     }
     if (path.endsWith("/coverage")) {
@@ -357,7 +359,6 @@ export async function mockAdminMFA(
     if (path.endsWith("/step-up")) {
       return json(route, {
         ok: true,
-        idleExpiresIn: 900,
         session: {
           accessToken: "provider-aal2-access-token-long-enough",
           refreshToken: "provider-refresh-token-long-enough",

@@ -44,7 +44,6 @@ class CampaignHistory(BaseModel):
 
     service_state: Literal["connected", "unavailable"]
     last_successful_at: str | None = None
-    idle_expires_in: int
     search: str = ""
     state: str = ""
     sort: HistorySort = "last_enqueued"
@@ -258,7 +257,6 @@ class RuntimeWorkspace(BaseModel):
 
     service_state: Literal["connected", "unavailable"]
     last_successful_at: str | None = None
-    idle_expires_in: int
     current: RuntimeConfiguration
     version: str
     all_states: list[str]

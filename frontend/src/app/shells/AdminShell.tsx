@@ -16,24 +16,24 @@ function within(pathname: string, path: string): boolean {
  * Operator navigation, split by how often each tool is used: Today for the
  * daily work, records next, occasional tools last (V1, V8).
  *
- * Inventory, Insights, and Setup point at the existing DB2 uploads, Source
- * Performance, and Acquisition pages until their own pages exist. Fulfillment
- * stays reachable at its address but is no longer a destination.
+ * Inventory points at the existing DB2 uploads page until its own page
+ * exists. Fulfillment stays reachable at its address but is no longer a
+ * destination.
  */
 const DESTINATIONS: NavigationDestination[] = [
   { to: "/admin/today", label: "Today", icon: "◆" },
   { to: "/admin/customers", label: "Customers", icon: "◑" },
   { to: "/admin/lead-uploads", label: "Inventory", icon: "▦" },
-  { to: "/admin/acquisition/performance", label: "Insights", icon: "▲" },
+  { to: "/admin/insights", label: "Insights", icon: "▲" },
   {
-    to: "/admin/acquisition",
+    to: "/admin/setup",
     label: "Setup",
     icon: "▚",
-    // Setup owns Acquisition and the occasional tools, but not the Source
-    // Performance page that Insights points at.
+    // Setup owns the occasional tools, wherever their pages live: the
+    // Scraper workspace and acquisition records, Agencies, and security.
     match: (pathname) =>
-      (within(pathname, "/admin/acquisition") &&
-        !within(pathname, "/admin/acquisition/performance")) ||
+      within(pathname, "/admin/setup") ||
+      within(pathname, "/admin/acquisition") ||
       within(pathname, "/admin/agencies") ||
       within(pathname, "/admin/security"),
   },

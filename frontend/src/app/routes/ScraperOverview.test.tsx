@@ -169,7 +169,6 @@ function snapshot(overrides: Partial<MonitoringSnapshot> = {}): MonitoringSnapsh
   return {
     service_state: "connected",
     last_successful_at: "2026-07-28T12:00:00Z",
-    idle_expires_in: 900,
     regions: (Object.keys(CADENCE) as RegionKey[]).map((key) => region(key)),
     ...overrides,
   };

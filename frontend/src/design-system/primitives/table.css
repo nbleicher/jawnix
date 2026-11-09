@@ -82,6 +82,13 @@
   border-bottom: 0;
 }
 
+/* A row's opened detail, read as part of the row above it. */
+.jx-table__expansion > td {
+  height: auto;
+  padding: var(--jx-space-3);
+  background: var(--jx-accent-soft);
+}
+
 .jx-table__empty td {
   height: auto;
   padding: var(--jx-space-5) var(--jx-space-4);
@@ -152,6 +159,24 @@
 
   .jx-table td.jx-table__cell--unstacked {
     display: none;
+  }
+
+  /* A stacked row's links keep a 24px target (WCAG 2.5.8) wherever the row
+     scrolls, including beside the fixed bottom navigation. */
+  .jx-table a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.5rem;
+  }
+
+  .jx-table tr.jx-table__expansion {
+    display: block;
+    padding: var(--jx-space-3);
+    background: var(--jx-accent-soft);
+  }
+
+  .jx-table tr.jx-table__expansion > td {
+    padding: 0;
   }
 
   .jx-table tfoot tr {

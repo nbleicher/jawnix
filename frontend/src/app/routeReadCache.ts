@@ -2,6 +2,7 @@ const PATHS = new Set([
   "/api/admin/operations-overview", "/api/admin/fulfillment",
   "/api/admin/pool-breakdown", "/api/admin/acquisition",
   "/api/admin/customers/directory", "/api/admin/activity",
+  "/api/admin/insights", "/api/admin/setup",
   "/api/me/batch-requests",
 ]);
 const pending = new Map<string, { expires: number; response: Promise<Response> }>();

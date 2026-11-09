@@ -34,8 +34,8 @@ A single-use credential stored separately from the Authenticator Factor that res
 _Avoid_: Backup authenticator, reusable recovery password
 
 **Scraper Privileged Session**:
-A short-lived grant to Scraper Operations established by fresh Authenticator Factor or Recovery Code verification on every entry, independent of an existing Administrator Session's assurance.
-_Avoid_: Administrator session, trusted Scraper access, persistent elevation
+A grant to Scraper Operations established by a fresh Authenticator Factor or Recovery Code verification, independent of the Administrator Session's own assurance. It is verified once per sign-in: re-entering the workspace reuses the live grant, which lasts until sign-out or Administrator Session expiry and never carries over to a later sign-in.
+_Avoid_: Administrator session, trusted Scraper access, idle timeout
 
 **Break-glass Recovery**:
 A two-person, explicitly authorized operator procedure that revokes Administrator Sessions and restores access only to Authenticator Factor enrollment after the authenticator and all Recovery Codes are lost.

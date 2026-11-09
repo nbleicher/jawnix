@@ -1,7 +1,6 @@
 export const CAMPAIGN_HISTORY = {
   service_state: "connected",
   last_successful_at: "2026-07-29T12:00:00Z",
-  idle_expires_in: 900,
   search: "",
   state: "",
   sort: "last_enqueued",
@@ -30,7 +29,6 @@ export const CAMPAIGN_HISTORY = {
 export const RUNTIME_WORKSPACE = {
   service_state: "connected",
   last_successful_at: "2026-07-29T12:00:00Z",
-  idle_expires_in: 900,
   version: "a".repeat(64),
   all_states: ["AZ", "KY", "MO", "OH", "PA", "TX"],
   current: {

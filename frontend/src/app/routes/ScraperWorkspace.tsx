@@ -31,20 +31,19 @@ interface ScraperFactor {
 }
 
 interface ScraperEntryData {
+  /** True when this sign-in already holds a live grant. */
+  granted: boolean;
   factors: ScraperFactor[];
-  idleExpiresIn: number;
 }
 
 interface ScraperWorkspaceData {
   available: boolean;
   serviceState?: "connected";
   lastSuccessfulAt: string | null;
-  idleExpiresIn?: number;
 }
 
 interface ScraperStepUpResult {
   ok: true;
-  idleExpiresIn: number;
   session: {
     accessToken: string;
     refreshToken: string;
@@ -66,10 +65,14 @@ function csrf(): string {
   return decodeURIComponent(item?.split("=", 2)[1] ?? "");
 }
 
+/** One verification per sign-in: a live grant goes straight to the
+ *  workspace, and only a sign-in without one is asked for a code. */
 export async function scraperEntryLoader(): Promise<ScraperEntryData> {
-  return api<ScraperEntryData>("/api/admin/scraper/entry", {
+  const entry = await api<ScraperEntryData>("/api/admin/scraper/entry", {
     method: "POST",
   });
+  if (entry.granted) throw redirect("/admin/acquisition/scraper/workspace");
+  return entry;
 }
 
 export async function scraperWorkspaceLoader(): Promise<ScraperWorkspaceData> {
@@ -81,7 +84,6 @@ export async function scraperWorkspaceLoader(): Promise<ScraperWorkspaceData> {
     detail?: string;
     serviceState?: "connected";
     lastSuccessfulAt?: string | null;
-    idleExpiresIn?: number;
   };
   if (response.status === 401) {
     throw redirect("/admin/acquisition/scraper");
@@ -99,7 +101,6 @@ export async function scraperWorkspaceLoader(): Promise<ScraperWorkspaceData> {
     available: true,
     serviceState: "connected",
     lastSuccessfulAt: body.lastSuccessfulAt ?? null,
-    idleExpiresIn: body.idleExpiresIn ?? 900,
   };
 }
 
@@ -149,14 +150,14 @@ export function ScraperStepUpRoute() {
   return (
     <Page
       title="Verify access to Scraper Operations"
-      description="GMS/OPS requires a new authenticator-app challenge every time you enter, even from a verified administrator session."
+      description="One authenticator-app challenge per sign-in opens the workspace."
     >
       <TerminalWorkspace status="LOCKED / STEP-UP REQUIRED">
         <form id="scraper-access" onSubmit={(event) => void submit(event)}>
           <Stack gap={5}>
             <Text>
-              A successful challenge opens a privileged session. It closes after
-              15 minutes without Scraper activity.
+              A successful challenge opens a privileged session that lasts until
+              you sign out or your administrator session expires.
             </Text>
             <Text size="sm" tone="muted">
               This challenge is independent of your current administrator
@@ -215,8 +216,8 @@ export function ScraperStepUpRoute() {
               >
                 Verify and open workspace
               </Button>
-              <ActionLink href="/app/admin/acquisition">
-                Back to Acquisition
+              <ActionLink href="/app/admin/setup">
+                Back to Setup
               </ActionLink>
             </Cluster>
           </Stack>
@@ -263,9 +264,10 @@ export function ScraperWorkspaceRoute() {
                   <Text size="sm" tone="muted">
                     Privileged session
                   </Text>
-                  <Text weight="bold">Fresh challenge verified</Text>
+                  <Text weight="bold">Challenge verified</Text>
                   <Text size="sm">
-                    Expires after 15 minutes without Scraper activity.
+                    Lasts until you sign out or your administrator session
+                    expires.
                   </Text>
                 </Stack>
               </Card>
@@ -282,8 +284,8 @@ export function ScraperWorkspaceRoute() {
                 onRetry={() => void revalidator.revalidate()}
               />
               <div>
-                <ActionLink href="/app/admin/acquisition">
-                  Back to Acquisition
+                <ActionLink href="/app/admin/setup">
+                  Back to Setup
                 </ActionLink>
               </div>
             </Stack>

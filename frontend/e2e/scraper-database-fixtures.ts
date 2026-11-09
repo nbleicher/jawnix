@@ -1,7 +1,6 @@
 interface DatabaseWorkspace {
   service_state: "connected" | "unavailable";
   last_successful_at: string | null;
-  idle_expires_in: number;
   totals: { businesses: number; unique_phones: number } | null;
   states: Array<{
     state: string;
@@ -33,7 +32,6 @@ interface DatabaseWorkspace {
 interface DatabaseStateDetail {
   service_state: "connected" | "unavailable";
   last_successful_at: string | null;
-  idle_expires_in: number;
   state: string;
   totals: {
     state: string;
@@ -52,7 +50,6 @@ interface DatabaseStateDetail {
 export const DATABASE_WORKSPACE: DatabaseWorkspace = {
   service_state: "connected",
   last_successful_at: "2026-07-29T12:00:00Z",
-  idle_expires_in: 900,
   totals: {
     businesses: 9_244_326,
     unique_phones: 2_305_025,
@@ -108,7 +105,6 @@ export const DATABASE_WORKSPACE: DatabaseWorkspace = {
 export const DATABASE_STATE: DatabaseStateDetail = {
   service_state: "connected",
   last_successful_at: "2026-07-29T12:00:00Z",
-  idle_expires_in: 900,
   state: "OH",
   totals: {
     state: "OH",

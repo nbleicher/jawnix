@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -162,6 +163,7 @@ def enter_and_verify(client: TestClient, csrf: str) -> None:
         headers={"X-CSRF-Token": csrf},
     )
     assert entry.status_code == 200
+    assert entry.json()["granted"] is False
     assert [item["id"] for item in entry.json()["factors"]] == [
         str(PRIMARY_ID),
         str(BACKUP_ID),
@@ -176,7 +178,7 @@ def enter_and_verify(client: TestClient, csrf: str) -> None:
         },
     )
     assert verified.status_code == 200
-    assert verified.json()["idleExpiresIn"] == 900
+    assert "idleExpiresIn" not in verified.json()
 
 
 def test_general_aal2_is_not_a_scraper_privileged_session(workspace_client):
@@ -214,8 +216,9 @@ def test_step_up_validation_never_echoes_credentials(workspace_client):
     assert code not in response.text
 
 
-def test_every_entry_invalidates_an_existing_scraper_grant(workspace_client):
+def test_entry_reuses_the_live_grant_of_the_same_sign_in(workspace_client):
     client, csrf, provider, _ = workspace_client
+    assert client.get("/api/admin/scraper/grant").json() == {"granted": False}
     enter_and_verify(client, csrf)
     assert client.get("/api/admin/scraper/workspace").status_code == 200
 
@@ -225,25 +228,111 @@ def test_every_entry_invalidates_an_existing_scraper_grant(workspace_client):
     )
 
     assert reentry.status_code == 200
-    assert client.get("/api/admin/scraper/workspace").status_code == 401
+    assert reentry.json() == {"granted": True, "factors": []}
+    assert client.get("/api/admin/scraper/workspace").status_code == 200
+    assert client.get("/api/admin/scraper/grant").json() == {"granted": True}
     assert provider.verify_calls == 1
 
 
-def test_scraper_grant_expires_after_fifteen_idle_minutes_and_rolls_on_activity(
+def test_scraper_grant_has_no_idle_limit_and_ends_with_the_sign_in(
     workspace_client,
+    workspace_settings,
+    monkeypatch,
 ):
     client, csrf, _, now = workspace_client
+    clock = [time.time()]
+
+    class FrozenTime:
+        @staticmethod
+        def time() -> float:
+            return clock[0]
+
+    monkeypatch.setattr("itsdangerous.timed.time", FrozenTime)
     enter_and_verify(client, csrf)
 
-    now[0] += timedelta(seconds=899)
+    # Hours without Scraper activity no longer close the grant.
+    clock[0] += 6 * 3600
+    now[0] += timedelta(hours=6)
     assert client.get("/api/admin/scraper/workspace").status_code == 200
-    now[0] += timedelta(seconds=899)
-    assert client.get("/api/admin/scraper/workspace").status_code == 200
-    now[0] += timedelta(seconds=901)
+
+    # A new sign-in is a new Administrator Session: its grant is not reused.
+    grant = client.cookies.get("jawnix_scraper_grant")
+    other_csrf = "a-later-sign-in-csrf"
+    later = _serializer(workspace_settings).dumps(
+        {
+            "sub": str(ADMIN_ID),
+            "email": "admin@example.com",
+            "role": "admin",
+            "aud": "admin",
+            "aal": "aal2",
+            "generation": 1,
+            "factor_id": str(PRIMARY_ID),
+            "csrf": other_csrf,
+        }
+    )
+    client.cookies.set(SESSION_COOKIE, later)
+    client.cookies.set(CSRF_COOKIE, other_csrf)
+    client.cookies.set("jawnix_scraper_grant", grant, path="/api/admin/scraper")
+    refused = client.get("/api/admin/scraper/workspace")
+    assert refused.status_code == 401
+    assert refused.json()["detail"] == (
+        "A fresh Scraper authenticator challenge is required."
+    )
+
+
+def test_scraper_grant_expires_with_the_administrator_session(
+    workspace_client,
+    workspace_settings,
+    monkeypatch,
+):
+    client, csrf, _, _ = workspace_client
+    clock = [time.time()]
+
+    class FrozenTime:
+        @staticmethod
+        def time() -> float:
+            return clock[0]
+
+    monkeypatch.setattr("itsdangerous.timed.time", FrozenTime)
+    enter_and_verify(client, csrf)
+    grant = client.cookies.get("jawnix_scraper_grant")
+
+    clock[0] += workspace_settings.session_ttl_seconds + 1
+    # Keep a still-valid Administrator Session so only the grant has aged.
+    renewed = _serializer(workspace_settings).dumps(
+        {
+            "sub": str(ADMIN_ID),
+            "email": "admin@example.com",
+            "role": "admin",
+            "aud": "admin",
+            "aal": "aal2",
+            "generation": 1,
+            "factor_id": str(PRIMARY_ID),
+            "csrf": csrf,
+        }
+    )
+    client.cookies.set(SESSION_COOKIE, renewed)
+    client.cookies.set("jawnix_scraper_grant", grant, path="/api/admin/scraper")
 
     expired = client.get("/api/admin/scraper/workspace")
     assert expired.status_code == 401
     assert expired.json()["detail"] == "Scraper privileged session expired."
+
+
+def test_signing_out_ends_the_scraper_grant(workspace_client):
+    client, csrf, _, _ = workspace_client
+    enter_and_verify(client, csrf)
+
+    signed_out = client.post("/api/auth/logout", headers={"X-CSRF-Token": csrf})
+
+    assert signed_out.status_code == 200
+    cleared = [
+        header
+        for header in signed_out.headers.get_list("set-cookie")
+        if header.startswith("jawnix_scraper_grant=")
+    ]
+    assert cleared and "Max-Age=0" in cleared[0]
+    assert "Path=/api/admin/scraper" in cleared[0]
 
 
 def test_typed_adapter_injects_bearer_normalizes_and_audits_operation(

@@ -34,7 +34,7 @@ const DESTINATIONS: TerminalDestination[] = [
   { label: "Database", href: `${WORKSPACE_ROOT}/database` },
   { label: "Campaign history", href: `${WORKSPACE_ROOT}/history` },
   { label: "Runtime configuration", href: `${WORKSPACE_ROOT}/runtime` },
-  { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
+  { label: "Exit to Setup", href: "/app/admin/setup" },
 ];
 
 /**

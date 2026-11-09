@@ -29,7 +29,7 @@ const SCRAPER_DESTINATIONS: TerminalDestination[] = [
     href: "/app/admin/acquisition/scraper",
     current: true,
   },
-  { label: "Exit to Acquisition", href: "/app/admin/acquisition" },
+  { label: "Exit to Setup", href: "/app/admin/setup" },
 ];
 
 /**

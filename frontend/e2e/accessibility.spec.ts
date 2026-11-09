@@ -5,10 +5,13 @@ import type { Page } from "@playwright/test";
 import {
   ANOMALY_ID,
   CONFIGURATION_ID,
+  RECOMMENDATION_ID,
   SCRAPE_RUN_ID,
   mockAcquisition,
 } from "./acquisition-fixtures";
 import { mockActivity } from "./activity-fixtures";
+import { mockInsights } from "./insights-fixtures";
+import { mockAgencies, mockSetup } from "./setup-fixtures";
 import {
   CUSTOMER_ACCOUNT_IDENTITY,
   LICENSED_STATE_ACCOUNT,
@@ -68,7 +71,14 @@ const ROUTES = [
   `./admin/fulfillment/requests/${PENDING_REQUEST_ID}`,
   `./admin/fulfillment/conflicts/${CONFLICT_ID}`,
   `./admin/fulfillment/reports/${OPEN_REPORT_ID}`,
-  "./admin/acquisition",
+  "./admin/insights",
+  "./admin/insights/sources",
+  "./admin/setup",
+  "./admin/setup?area=billing",
+  "./admin/setup/configurations",
+  `./admin/setup/configurations?recommendation=${RECOMMENDATION_ID}`,
+  "./admin/setup/niche-mappings",
+  "./admin/setup/niche-mappings?segment=TX%3A%3Aroofing%20contractor",
   `./admin/acquisition/configurations/${CONFIGURATION_ID}`,
   `./admin/acquisition/runs/${SCRAPE_RUN_ID}`,
   "./admin/acquisition/scraper",
@@ -108,6 +118,9 @@ test.beforeEach(async ({ page }) => {
   await mockLeadReports(page);
   await mockActivity(page);
   await mockOperatorDesk(page);
+  await mockInsights(page);
+  await mockSetup(page);
+  await mockAgencies(page);
 });
 
 test.describe("Automated WCAG 2.2 AA sweep", () => {
@@ -185,6 +198,20 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
     await expect(page.getByRole("complementary", { name: "#1042 · Northstar Insurance" })).toBeVisible();
     await page.getByRole("button", { name: "Switch to dark desk" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "dark");
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("Activity with an opened entry has no accessibility violations", async ({ page }) => {
+    await page.goto("./admin/activity");
+    await page.getByRole("button", { name: /Lead database changed: show what changed/ }).click();
+    await expect(page.getByText("lead_database: db2")).toBeVisible();
+    // Opening scrolls the row to the viewport edge, where the phone's fixed
+    // bottom navigation overlaps whichever link happens to sit there; check
+    // from the same resting position as the page sweep.
+    await page.evaluate(() => window.scrollTo(0, 0));
 
     const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
 

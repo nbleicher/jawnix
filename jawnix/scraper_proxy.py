@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import html
 import hmac
 import logging
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -133,7 +134,9 @@ MOUNT_PREFIX = "/admin/scraper"
 SCRAPER_SESSION_COOKIE = "jawnix_scraper_session"
 HANDOFF_MAX_AGE_SECONDS = 60
 SCRAPER_GRANT_COOKIE = "jawnix_scraper_grant"
-SCRAPER_IDLE_SECONDS = 15 * 60
+#: How long a reviewed keyword or runtime preview may wait before its save.
+#: It bounds how stale the reviewed numbers can be, not the Scraper session.
+REVIEW_MAX_AGE_SECONDS = 15 * 60
 KEYWORD_WRITE_LOCK = asyncio.Lock()
 RUNTIME_CONFIGURATION_WRITE_LOCK = asyncio.Lock()
 FORWARDED_REQUEST_HEADERS = {
@@ -259,9 +262,25 @@ def _clear_grant(response: Response, settings: Settings) -> None:
     )
 
 
+def clear_scraper_grant(response: Response, settings: Settings) -> None:
+    """End the Scraper Privileged Session with the sign-in it belongs to."""
+    _clear_grant(response, settings)
+
+
+def _session_binding(principal: Principal) -> str:
+    """Names the Administrator Session a grant belongs to.
+
+    Each sign-in issues a fresh CSRF token, so its digest identifies that
+    session without putting the token itself in a second cookie. A grant from
+    an earlier sign-in therefore never opens the workspace for a later one.
+    """
+    return hashlib.sha256(
+        f"jawnix-scraper-grant:{principal.csrf}".encode()
+    ).hexdigest()
+
+
 def _issue_grant(
     response: Response,
-    request: Request,
     principal: Principal,
     settings: Settings,
 ) -> None:
@@ -269,7 +288,7 @@ def _issue_grant(
         {
             "sub": str(principal.user_id),
             "generation": principal.session_generation,
-            "last_activity": _workspace_now(request).timestamp(),
+            "session": _session_binding(principal),
         }
     )
     response.set_cookie(
@@ -279,8 +298,52 @@ def _issue_grant(
         httponly=True,
         samesite="strict",
         path="/api/admin/scraper",
-        max_age=SCRAPER_IDLE_SECONDS,
+        # Never outlives the Administrator Session it was verified in.
+        max_age=settings.session_ttl_seconds,
     )
+
+
+class _GrantRefused(Exception):
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+_FRESH_CHALLENGE = "A fresh Scraper authenticator challenge is required."
+
+
+def _check_grant(
+    request: Request,
+    principal: Principal,
+    settings: Settings,
+) -> None:
+    """Raise ``_GrantRefused`` unless this sign-in holds a live grant.
+
+    A grant lasts until sign-out or Administrator Session expiry: it must name
+    this administrator, this session generation (revoked by "Sign out
+    everywhere" and factor changes), and this exact sign-in.
+    """
+    token = request.cookies.get(SCRAPER_GRANT_COOKIE, "")
+    if not token:
+        raise _GrantRefused(_FRESH_CHALLENGE)
+    try:
+        payload = _grant_serializer(settings).loads(
+            token,
+            max_age=settings.session_ttl_seconds,
+        )
+        issued_to = uuid.UUID(str(payload["sub"]))
+        generation = int(payload["generation"])
+        session = str(payload["session"])
+    except SignatureExpired:
+        raise _GrantRefused("Scraper privileged session expired.") from None
+    except (BadSignature, KeyError, TypeError, ValueError, OverflowError):
+        raise _GrantRefused(_FRESH_CHALLENGE) from None
+    if (
+        issued_to != principal.user_id
+        or generation != principal.session_generation
+        or not hmac.compare_digest(session, _session_binding(principal))
+    ):
+        raise _GrantRefused(_FRESH_CHALLENGE)
 
 
 def _require_scraper_grant(
@@ -289,45 +352,19 @@ def _require_scraper_grant(
     principal: Principal,
     settings: Settings,
 ) -> None:
-    token = request.cookies.get(SCRAPER_GRANT_COOKIE, "")
-    if not token:
-        raise HTTPException(
-            status_code=401,
-            detail="A fresh Scraper authenticator challenge is required.",
-        )
     try:
-        payload = _grant_serializer(settings).loads(token)
-        issued_to = uuid.UUID(str(payload["sub"]))
-        generation = int(payload["generation"])
-        last_activity = datetime.fromtimestamp(
-            float(payload["last_activity"]),
-            tz=timezone.utc,
-        )
-    except (BadSignature, KeyError, TypeError, ValueError, OverflowError):
+        _check_grant(request, principal, settings)
+    except _GrantRefused as refused:
         _clear_grant(response, settings)
-        raise HTTPException(
-            status_code=401,
-            detail="A fresh Scraper authenticator challenge is required.",
-        ) from None
-    if (
-        issued_to != principal.user_id
-        or generation != principal.session_generation
-    ):
-        _clear_grant(response, settings)
-        raise HTTPException(
-            status_code=401,
-            detail="A fresh Scraper authenticator challenge is required.",
-        )
-    if (
-        _workspace_now(request) - last_activity
-        > timedelta(seconds=SCRAPER_IDLE_SECONDS)
-    ):
-        _clear_grant(response, settings)
-        raise HTTPException(
-            status_code=401,
-            detail="Scraper privileged session expired.",
-        )
-    _issue_grant(response, request, principal, settings)
+        raise HTTPException(status_code=401, detail=refused.detail) from None
+
+
+def _has_grant(request: Request, principal: Principal, settings: Settings) -> bool:
+    try:
+        _check_grant(request, principal, settings)
+    except _GrantRefused:
+        return False
+    return True
 
 
 def _safe_last_success(state: ScraperProxyState) -> str | None:
@@ -353,12 +390,19 @@ async def begin_scraper_entry(
     principal: Principal = Depends(require_admin),
     settings: Settings = Depends(get_settings),
 ):
-    """Invalidate any prior grant before presenting a new factor challenge."""
+    """Reuse this sign-in's live grant, or present the factor challenge.
 
+    One verification per sign-in: entering again while the grant is live goes
+    straight to the workspace instead of asking for another code.
+    """
+
+    if _has_grant(request, principal, settings):
+        return {"granted": True, "factors": []}
     _clear_grant(response, settings)
     provider = get_mfa_provider(settings)
     factors = _verified(await _factors(provider, principal))
     return {
+        "granted": False,
         "factors": [
             {
                 "id": str(factor.id),
@@ -367,8 +411,17 @@ async def begin_scraper_entry(
             }
             for factor in factors
         ],
-        "idleExpiresIn": SCRAPER_IDLE_SECONDS,
     }
+
+
+@native_router.get("/grant")
+async def scraper_grant_status(
+    request: Request,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Whether this sign-in already holds a live Scraper grant (for Setup)."""
+    return {"granted": _has_grant(request, principal, settings)}
 
 
 @native_router.post("/step-up")
@@ -460,14 +513,13 @@ async def complete_scraper_step_up(
         target_id=principal.user_id,
         actor_id=principal.user_id,
         reason="Fresh authenticator challenge completed for Scraper Operations",
-        details={"idleExpiresIn": SCRAPER_IDLE_SECONDS},
+        details={"lasts": "until sign-out or administrator session expiry"},
         known_secrets=(payload.access_token, payload.code),
     )
     db.commit()
-    _issue_grant(response, request, principal, settings)
+    _issue_grant(response, principal, settings)
     return {
         "ok": True,
-        "idleExpiresIn": SCRAPER_IDLE_SECONDS,
         "session": _session_json(provider_session),
     }
 
@@ -494,7 +546,6 @@ async def scraper_workspace(
     return {
         "serviceState": "connected",
         "lastSuccessfulAt": _safe_last_success(state),
-        "idleExpiresIn": SCRAPER_IDLE_SECONDS,
     }
 
 
@@ -513,7 +564,6 @@ def _database_unavailable(
     return DatabaseWorkspace(
         service_state="unavailable",
         last_successful_at=_safe_last_success(state),
-        idle_expires_in=SCRAPER_IDLE_SECONDS,
     )
 
 
@@ -552,7 +602,6 @@ async def scraper_database_workspace(
     return DatabaseWorkspace(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
-        idle_expires_in=SCRAPER_IDLE_SECONDS,
         totals=workspace.totals,
         states=workspace.states,
         browse=workspace.browse,
@@ -585,14 +634,12 @@ async def scraper_database_state_detail(
         return DatabaseStateDetail(
             service_state="unavailable",
             last_successful_at=_safe_last_success(proxy_state),
-            idle_expires_in=SCRAPER_IDLE_SECONDS,
             state=normalized_state,
         )
     proxy_state.last_success = _workspace_now(request)
     return DatabaseStateDetail(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
-        idle_expires_in=SCRAPER_IDLE_SECONDS,
         state=normalized_state,
         totals=detail.totals,
         niches=detail.niches,
@@ -690,7 +737,6 @@ async def download_scraper_state_export(
             export=export,
             filename_pattern=GENERATED_EXPORT_NAME,
         )
-    _issue_grant(result, request, principal, settings)
     return result
 
 
@@ -731,7 +777,6 @@ async def download_scraper_multi_state_export(
             export=export,
             filename_pattern=GENERATED_EXPORT_NAME,
         )
-    _issue_grant(result, request, principal, settings)
     return result
 
 
@@ -766,7 +811,6 @@ async def download_stored_scraper_export(
             filename_pattern=STORED_EXPORT_NAME,
             exact_filename=filename,
         )
-    _issue_grant(result, request, principal, settings)
     return result
 
 
@@ -861,7 +905,6 @@ async def scraper_state_coverage(
             "connected" if cards is not None else "unavailable"
         ),
         last_successful_at=state.last_success,
-        idle_expires_in=SCRAPER_IDLE_SECONDS,
         states=_coverage_feed(
             cards,
             refresh_seconds=STATE_CARDS_REFRESH_SECONDS,
@@ -914,7 +957,6 @@ async def scraper_state_coverage_detail(
         state=state,
         service_state=service_state,
         last_successful_at=proxy_state.last_success,
-        idle_expires_in=SCRAPER_IDLE_SECONDS,
         keywords=_coverage_feed(
             keywords,
             refresh_seconds=STATE_KEYWORDS_REFRESH_SECONDS,
@@ -1035,7 +1077,6 @@ async def scraper_monitoring(
         return MonitoringSnapshot(
             service_state="connected" if connected else "unavailable",
             last_successful_at=state.last_success,
-            idle_expires_in=SCRAPER_IDLE_SECONDS,
             regions=[
                 ready.get(region) or MonitoringRegion(
                     region=region, state="loading" if connected else "unavailable",
@@ -1053,14 +1094,12 @@ async def scraper_monitoring(
         return MonitoringSnapshot(
             service_state="unavailable",
             last_successful_at=state.last_success,
-            idle_expires_in=SCRAPER_IDLE_SECONDS,
             regions=[_unavailable_region(region) for region in REGIONS],
         )
     _mark_operations_success(request, settings)
     return MonitoringSnapshot(
         service_state="connected",
         last_successful_at=state.last_success,
-        idle_expires_in=SCRAPER_IDLE_SECONDS,
         regions=snapshot_regions(
             payload.model_dump(mode="json", exclude_none=True),
             fetched_at=_workspace_now(request),
@@ -1266,7 +1305,6 @@ def _keyword_workspace_unavailable(
             percent_complete=0,
         ),
         winners=[],
-        idle_expires_in=SCRAPER_IDLE_SECONDS,
     )
 
 
@@ -1317,7 +1355,6 @@ async def scraper_keyword_workspace(
         winners=winners,
         performance=keyword_outcome_analytics(db, keywords=workspace.current),
         prescriptive_mode="dormant_worked_leads",
-        idle_expires_in=SCRAPER_IDLE_SECONDS,
     )
 
 
@@ -1381,7 +1418,7 @@ async def save_scraper_keywords(
     try:
         review = _keyword_review_serializer(settings).loads(
             payload.review_token,
-            max_age=SCRAPER_IDLE_SECONDS,
+            max_age=REVIEW_MAX_AGE_SECONDS,
         )
         reviewed_by = uuid.UUID(str(review["sub"]))
         reviewed_current = str(review["expected_version"])
@@ -1867,7 +1904,6 @@ def _campaign_history_unavailable(
     return CampaignHistory(
         service_state="unavailable",
         last_successful_at=_safe_last_success(proxy_state),
-        idle_expires_in=SCRAPER_IDLE_SECONDS,
         search=search,
         state=state,
         sort=sort,
@@ -1924,7 +1960,6 @@ async def scraper_campaign_history(
     return CampaignHistory(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
-        idle_expires_in=SCRAPER_IDLE_SECONDS,
         search=search.strip(),
         state=normalized_state,
         sort=sort,
@@ -1957,7 +1992,6 @@ def _runtime_workspace_unavailable(
     return RuntimeWorkspace(
         service_state="unavailable",
         last_successful_at=_safe_last_success(proxy_state),
-        idle_expires_in=SCRAPER_IDLE_SECONDS,
         current=current,
         version=runtime_version(current),
         all_states=[],
@@ -1983,7 +2017,6 @@ async def scraper_runtime_configuration(
     return RuntimeWorkspace(
         service_state="connected",
         last_successful_at=_safe_last_success(proxy_state),
-        idle_expires_in=SCRAPER_IDLE_SECONDS,
         current=parsed.current,
         version=parsed.version,
         all_states=parsed.all_states,
@@ -2048,7 +2081,7 @@ async def save_scraper_runtime_configuration(
     try:
         review = _runtime_review_serializer(settings).loads(
             payload.review_token,
-            max_age=SCRAPER_IDLE_SECONDS,
+            max_age=REVIEW_MAX_AGE_SECONDS,
         )
         reviewed_by = uuid.UUID(str(review["sub"]))
         reviewed_current = str(review["expected_version"])
