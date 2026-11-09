@@ -57,6 +57,11 @@ _RETURN_PAGES: dict[str, dict[str, Callable[[str], str | None]]] = {
     # Purchases started before Home replaced Overview; the page redirects.
     "/app/overview": {},
     "/app/account": {},
+    # Account's tabs; Billing is where Buy credits on Account starts.
+    **{
+        f"/app/account/{tab}": {}
+        for tab in ("states", "billing", "exclusion-lists", "password")
+    },
     "/app/feedback": {"request": _request_id},
     "/app/requests": {
         "request": _request_id,

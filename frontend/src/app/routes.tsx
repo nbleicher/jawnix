@@ -101,7 +101,9 @@ export const router = createBrowserRouter(
               lazy: lazyPage("CustomerFeedback", "CustomerFeedbackRoute", "feedbackLoader"),
             },
             {
-              path: "account",
+              // Account's tabs live in the URL: /account is Profile, and
+              // /account/states, /billing, /exclusion-lists, /password.
+              path: "account/:tab?",
               loader: customerAccountLoader,
               lazy: lazyPage("CustomerAccount", "CustomerAccountRoute"),
             },

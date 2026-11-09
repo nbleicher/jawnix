@@ -1,159 +1,135 @@
-.licensed-state-page__message {
+/* A message at the top of a tab: what was saved, or why it was refused. */
+.account-tab__message {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jx-space-3);
+  margin: 0;
   padding: var(--jx-space-3) var(--jx-space-4);
-  border-inline-start: var(--jx-rule-heavy) solid;
-  font-weight: var(--jx-weight-medium);
+  border: var(--jx-rule) solid var(--jx-ink);
+  background: var(--jx-accent-soft);
+  font-size: var(--jx-text-sm);
 }
 
-.licensed-state-page__message--error {
+.account-tab__message--error {
   border-color: var(--jx-danger);
   background: var(--jx-danger-soft);
   color: var(--jx-danger-ink);
 }
 
-.licensed-state-page__message--success {
-  border-color: var(--jx-success);
-  background: var(--jx-success-soft);
-  color: var(--jx-success-ink);
-}
-
-.setup-problem__details {
-  display: grid;
-  gap: var(--jx-space-4);
-  grid-template-columns: repeat(
-    auto-fit,
-    minmax(min(12rem, 100%), 1fr)
-  );
-}
-
-.setup-problem__details > div {
+.account-form {
   display: flex;
   flex-direction: column;
-  gap: var(--jx-space-1);
-  min-width: 0;
+  gap: var(--jx-space-4);
 }
 
-.setup-problem__details dd {
-  color: var(--jx-ink);
-  overflow-wrap: anywhere;
-}
-
-.setup-problem-list {
-  list-style: none;
-}
-
-.setup-problem {
-  border-inline-start: var(--jx-rule-heavy) solid var(--jx-warning);
-  background: var(--jx-warning-soft);
-}
-
-.setup-problem__details {
-  grid-template-columns: minmax(0, 1fr) minmax(7rem, 0.25fr);
-}
-
-.setup-problem__details > div:last-child dd {
-  font-weight: var(--jx-weight-semibold);
-}
-
-.setup-status--ready {
-  border-inline-start: var(--jx-rule-heavy) solid var(--jx-success);
-  background: var(--jx-success-soft);
-}
-
-.licensed-state-selector {
+.account-form__fields {
   display: grid;
-  gap: var(--jx-space-2);
-  grid-template-columns: repeat(
-    auto-fit,
-    minmax(min(14rem, 100%), 1fr)
-  );
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--jx-space-4);
 }
 
-.licensed-state-selector__choice {
+/* Setup problems: what stands between the Customer and a first batch. */
+.account-setup {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--jx-rule) solid var(--jx-line-strong);
+}
+
+.account-setup__problem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-2);
+  padding: var(--jx-space-3) var(--jx-space-4);
+  border-inline-start: var(--jx-rule-heavy) solid var(--jx-danger);
+}
+
+.account-setup__problem + .account-setup__problem {
+  border-top: var(--jx-rule) solid var(--jx-line);
+}
+
+.account-setup__problem a,
+.account-contact a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.account-states {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-5);
+}
+
+.account-states__save {
   display: flex;
   align-items: center;
   gap: var(--jx-space-3);
-  min-height: var(--jx-touch-target);
-  padding: var(--jx-space-2) var(--jx-space-3);
-  border: var(--jx-rule) solid var(--jx-line-control);
-  background: var(--jx-plate);
-  cursor: pointer;
 }
 
-.licensed-state-selector__choice:has(input:checked) {
-  border-color: var(--jx-accent);
-  background: var(--jx-accent-soft);
+.account-states__save .jx-text {
+  max-width: 32rem;
 }
 
-.licensed-state-selector__choice:has(input:focus-visible) {
-  outline: var(--jx-focus-width) solid var(--jx-focus);
-  outline-offset: var(--jx-focus-offset);
-}
-
-.licensed-state-selector__choice > span {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--jx-space-3);
-  width: 100%;
-}
-
-.licensed-state-selector__code {
-  color: var(--jx-ink-muted);
-  font-family: var(--jx-font-mono);
-  font-size: var(--jx-text-sm);
-  font-weight: var(--jx-weight-semibold);
-}
-
-.licensed-state-page__future-note {
-  border-color: var(--jx-accent);
-  background: var(--jx-accent-soft);
-}
-
-.licensed-state-review__summary,
-.licensed-state-review__scope {
+/* The review before a change narrows or cancels a batch in progress. */
+.account-review__summary {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
   gap: var(--jx-space-3);
-  grid-template-columns: repeat(
-    auto-fit,
-    minmax(min(10rem, 100%), 1fr)
-  );
+  margin: 0;
 }
 
-.licensed-state-review__summary > div,
-.licensed-state-review__scope > div {
+.account-review__summary > div {
   display: flex;
   flex-direction: column;
   gap: var(--jx-space-1);
 }
 
-.licensed-state-review__summary dd,
-.licensed-state-review__scope dd {
-  color: var(--jx-ink);
+.account-review__summary dt {
+  color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
+}
+
+.account-review__summary dd {
+  margin: 0;
   font-weight: var(--jx-weight-semibold);
+}
+
+.account-review__impacts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--jx-rule) solid var(--jx-line-strong);
+}
+
+.account-review__impact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+  padding: var(--jx-space-3) var(--jx-space-4);
   font-feature-settings: var(--jx-font-features-numeral);
 }
 
-.licensed-state-review__impacts {
-  list-style: none;
+.account-review__impact + .account-review__impact {
+  border-top: var(--jx-rule) solid var(--jx-line);
 }
 
-.licensed-state-review__impact {
-  border-inline-start: var(--jx-rule-heavy) solid var(--jx-warning);
+.account-password {
+  max-width: 28rem;
 }
 
-/* The founder contact card's ink joint renders at every width (ch1 colophon). */
-.account-contact {
-  border-top: var(--jx-rule-heavy) solid var(--jx-ink);
-}
-
-@media (max-width: 32rem) {
-  .licensed-state-selector {
-    grid-template-columns: 1fr;
-  }
-
-  .setup-problem__details {
-    grid-template-columns: 1fr;
-  }
+.account-password__reset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+  max-width: 36rem;
 }
 
 /* Support and Sign out: in the header on wider screens, here on phones (V8). */
@@ -171,5 +147,24 @@
 
   .account-session .jx-button {
     padding-inline: 0;
+  }
+
+  .account-form__fields {
+    grid-template-columns: 1fr;
+  }
+
+  .account-states__save {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  /* A stacked history row: the date, then the entry on its own line (it
+     speaks for itself without a "What" label), then amount and balance. */
+  .billing-history td:nth-child(2) {
+    flex-basis: 100%;
+  }
+
+  .billing-history td:nth-child(2)::before {
+    content: none;
   }
 }

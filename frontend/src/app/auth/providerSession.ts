@@ -107,6 +107,33 @@ export async function updateProviderPassword(password: string): Promise<void> {
   });
   if (error) throw new Error("The password link is invalid or expired.");
 }
+export type PasswordChangeFailure = "wrong_password" | "session" | "too_short" | "unavailable";
+export class PasswordChangeError extends Error {
+  constructor(readonly reason: PasswordChangeFailure, message: string) {
+    super(message);
+  }
+}
+/** Change the signed-in Customer's password at the provider. Other provider
+ *  sessions are signed out; this one continues on the token it returns. */
+export async function changeProviderPassword(currentPassword: string, newPassword: string): Promise<void> {
+  const token = sessionStorage.getItem(ACCESS_TOKEN_KEY);
+  const { data, error } = await auth().changePassword({
+    currentPassword,
+    newPassword,
+    revokeOtherSessions: true,
+    fetchOptions: token ? { headers: { Authorization: `Bearer ${token}` } } : {},
+  });
+  if (error) {
+    if (error.code === "INVALID_PASSWORD")
+      throw new PasswordChangeError("wrong_password", "Your current password is not correct.");
+    if (error.code === "PASSWORD_TOO_SHORT")
+      throw new PasswordChangeError("too_short", "Use at least 8 characters for the new password.");
+    if (error.status === 401)
+      throw new PasswordChangeError("session", "Your sign-in has expired for password changes.");
+    throw new PasswordChangeError("unavailable", "Your password could not be changed. Please try again.");
+  }
+  if (data?.token) remember(data.token);
+}
 export async function signOutProvider(): Promise<void> {
   const token = sessionStorage.getItem(ACCESS_TOKEN_KEY);
   try {

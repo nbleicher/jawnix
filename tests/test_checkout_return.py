@@ -24,6 +24,11 @@ REQUEST_ID = "11111111-1111-4111-8111-111111111111"
         ("/app/home", "/app/home"),
         ("/app/overview", "/app/overview"),
         ("/app/account", "/app/account"),
+        # Account's tabs, Billing above all; unknown tabs fall back to Account.
+        ("/app/account/billing", "/app/account/billing"),
+        ("/app/account/states", "/app/account/states"),
+        ("/app/account/billing?quantity=750", "/app/account/billing"),
+        ("/app/account/nowhere", "/app/account"),
         # Keys a page does not read, and invalid values, are dropped.
         ("/app/requests?quantity=750&next=https://evil.test", "/app/requests?quantity=750"),
         ("/app/requests?quantity=0&states=TX", "/app/requests?states=TX"),

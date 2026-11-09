@@ -13,7 +13,7 @@ from .models import Job, JobStatus
 METRICS_JOB_KINDS = frozenset({"emit_lead_assigned"})
 IMPORT_JOB_KINDS = frozenset({"import_lead_upload"})
 FULFILLMENT_JOB_KINDS = frozenset({"allocate_request", "fulfill_round_robin", "telegram_action", "telegram_inventory_conflict_action"})
-NOTIFICATION_JOB_KINDS = frozenset({"notify_request", "update_notification", "licensed_states_changed", "deliver_request", "send_request_milestone_email", "notify_nightly_review", "update_nightly_review_notification", "notify_telegram_action_failure"})
+NOTIFICATION_JOB_KINDS = frozenset({"notify_request", "update_notification", "licensed_states_changed", "deliver_request", "send_request_milestone_email", "send_registration_decision_email", "notify_nightly_review", "update_nightly_review_notification", "notify_telegram_action_failure"})
 WORKER_LANE_DEFAULT = "default"
 WORKER_LANE_METRICS = "metrics"
 WORKER_LANE_FULFILLMENT = "fulfillment"

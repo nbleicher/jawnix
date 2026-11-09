@@ -284,12 +284,12 @@ for (const scheme of SCHEMES) {
       await mockCustomerAuth(page, {
         billing: { wallet: BILLED_CUSTOMER_WALLET },
       });
-      await page.goto("./account");
+      await page.goto("./account/billing");
       await page
         .getByRole("heading", { level: 1, name: "Account" })
         .waitFor({ state: "visible" });
       await page
-        .getByRole("heading", { level: 2, name: "Credit Wallet" })
+        .getByRole("table", { name: "Billing history" })
         .waitFor({ state: "visible" });
       await shoot(page, testInfo, `account-billed-${scheme}`);
     });

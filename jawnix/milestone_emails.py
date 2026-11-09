@@ -62,7 +62,7 @@ def _request_summary(request: LeadRequest) -> str:
     return (
         f"Batch Request: {request.id}\n"
         f"Quantity: {request.lead_count:,} Leads\n"
-        f"Licensed States: {states}"
+        f"Appointed states: {states}"
     )
 
 
@@ -107,7 +107,7 @@ def build_milestone_message(
         subject = f"Batch Request canceled — {request.id}"
         update = (
             "This Batch Request was canceled because none of its requested "
-            "states remain in your Licensed States. No Leads were reserved."
+            "states remain in your appointed states. No Leads were reserved."
         )
     else:
         raise ValueError(f"Unknown Batch Request email milestone: {milestone}")

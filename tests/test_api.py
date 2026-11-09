@@ -416,8 +416,8 @@ def test_general_profile_patch_refuses_to_bypass_licensed_state_impact_review(se
         assert response.status_code == 409
         assert response.json() == {
             "detail": (
-                "Licensed State changes require an impact review. "
-                "Use Account to review and confirm them."
+                "Appointed state changes need a review. "
+                "Change them on Account."
             )
         }
 

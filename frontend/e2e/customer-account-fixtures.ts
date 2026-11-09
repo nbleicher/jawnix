@@ -1,5 +1,6 @@
 import type { Page, Route } from "@playwright/test";
 
+import type { MockBillingSummary } from "./customer-billing-fixtures";
 import { CUSTOMER_HOME } from "./customer-home-fixtures";
 import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
 
@@ -23,16 +24,30 @@ interface MockLicensedStateAccount {
   options: Array<{ code: string; name: string }>;
 }
 
+/** Every state the backend offers, in its order (DC between DE and FL). */
+export const STATE_OPTIONS = [
+  ["AL", "Alabama"], ["AK", "Alaska"], ["AZ", "Arizona"], ["AR", "Arkansas"],
+  ["CA", "California"], ["CO", "Colorado"], ["CT", "Connecticut"],
+  ["DE", "Delaware"], ["DC", "District of Columbia"], ["FL", "Florida"],
+  ["GA", "Georgia"], ["HI", "Hawaii"], ["ID", "Idaho"], ["IL", "Illinois"],
+  ["IN", "Indiana"], ["IA", "Iowa"], ["KS", "Kansas"], ["KY", "Kentucky"],
+  ["LA", "Louisiana"], ["ME", "Maine"], ["MD", "Maryland"],
+  ["MA", "Massachusetts"], ["MI", "Michigan"], ["MN", "Minnesota"],
+  ["MS", "Mississippi"], ["MO", "Missouri"], ["MT", "Montana"],
+  ["NE", "Nebraska"], ["NV", "Nevada"], ["NH", "New Hampshire"],
+  ["NJ", "New Jersey"], ["NM", "New Mexico"], ["NY", "New York"],
+  ["NC", "North Carolina"], ["ND", "North Dakota"], ["OH", "Ohio"],
+  ["OK", "Oklahoma"], ["OR", "Oregon"], ["PA", "Pennsylvania"],
+  ["RI", "Rhode Island"], ["SC", "South Carolina"], ["SD", "South Dakota"],
+  ["TN", "Tennessee"], ["TX", "Texas"], ["UT", "Utah"], ["VT", "Vermont"],
+  ["VA", "Virginia"], ["WA", "Washington"], ["WV", "West Virginia"],
+  ["WI", "Wisconsin"], ["WY", "Wyoming"],
+].map(([code, name]) => ({ code: code!, name: name! }));
+
 export const LICENSED_STATE_ACCOUNT = {
   states: ["FL", "TX"],
   version: "2026-07-29T12:00:00+00:00",
-  options: [
-    { code: "CA", name: "California" },
-    { code: "FL", name: "Florida" },
-    { code: "NC", name: "North Carolina" },
-    { code: "SC", name: "South Carolina" },
-    { code: "TX", name: "Texas" },
-  ],
+  options: STATE_OPTIONS,
 };
 
 export const CUSTOMER_ACCOUNT_IDENTITY = {
@@ -48,6 +63,7 @@ export const CUSTOMER_ACCOUNT_IDENTITY = {
 const IMPACTS = [
   {
     request_id: "11111111-1111-4111-8111-111111111111",
+    number: 1042,
     lead_count: 750,
     status: "Preparing Batch",
     current_states: ["FL", "TX"],
@@ -56,6 +72,7 @@ const IMPACTS = [
   },
   {
     request_id: "22222222-2222-4222-8222-222222222222",
+    number: 1043,
     lead_count: 300,
     status: "Approved",
     current_states: ["TX"],
@@ -140,7 +157,7 @@ export async function mockLicensedStates(
         route,
         {
           detail:
-            "Licensed States changed in another session. Review the latest impact before saving.",
+            "Your appointed states changed in another session. Review the latest changes before saving.",
         },
         409,
       );
@@ -171,4 +188,34 @@ export async function mockLicensedStates(
   });
 
   return state;
+}
+
+/**
+ * Account's Billing tab as the approved render has it (V9): $412.50
+ * available, $125.00 held for #1042, $1,000.00 spent on 3 batches in 30 days.
+ * Times are local to `now`'s day, like Home's fixtures.
+ */
+export function northstarBillingAt(now: Date): MockBillingSummary {
+  const at = (daysAgo: number, hours: number, minutes: number) =>
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo, hours, minutes).toISOString();
+  const batch = (id: string, number: number) => ({ id, number, href: `/app/batches/${id}` });
+  const held = batch("42424242-4242-4242-8242-424242424242", 1042);
+  return {
+    available_balance_cents: 41_250,
+    held_cents: 12_500,
+    held_for: [held],
+    lead_rate_cents_per_thousand: 500,
+    spent_since: at(30, 9, 41),
+    spent_cents: 100_000,
+    spent_batches: 3,
+    history: [
+      { id: "hold-1042", kind: "hold", occurred_at: at(0, 9, 41), amount_cents: -12_500, balance_after_cents: 41_250, batch: held, note: null },
+      { id: "purchase-2", kind: "purchase", occurred_at: at(0, 9, 30), amount_cents: 50_000, balance_after_cents: 53_750, batch: null, note: null },
+      { id: "charge-1038", kind: "charge", occurred_at: at(2, 8, 12), amount_cents: -25_000, balance_after_cents: 3_750, batch: batch("38383838-3838-4838-8838-383838383838", 1038), note: null },
+      { id: "charge-1031", kind: "charge", occurred_at: at(8, 7, 55), amount_cents: -50_000, balance_after_cents: 28_750, batch: batch("31313131-3131-4131-8131-313131313131", 1031), note: null },
+      { id: "purchase-1", kind: "purchase", occurred_at: at(10, 16, 2), amount_cents: 75_000, balance_after_cents: 78_750, batch: null, note: null },
+      { id: "charge-1024", kind: "charge", occurred_at: at(27, 9, 10), amount_cents: -25_000, balance_after_cents: 3_750, batch: batch("24242424-2424-4242-8242-242424242424", 1024), note: null },
+    ],
+    history_complete: true,
+  };
 }

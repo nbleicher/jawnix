@@ -15,6 +15,8 @@ import type { CustomerBillingMockOptions } from "./customer-billing-fixtures";
 export interface CustomerAuthMockOptions {
   signInAccepted?: boolean;
   passwordUpdateAccepted?: boolean;
+  /** Account's Password tab: what the provider says to a change. */
+  passwordChange?: "accepted" | "wrong_password" | "expired";
   sessionExchangeStatus?: number;
   overviewStatus?: number;
   overview?: unknown | (() => unknown);
@@ -90,6 +92,7 @@ export async function mockCustomerAuth(
   const settings = {
     signInAccepted: true,
     passwordUpdateAccepted: true,
+    passwordChange: "accepted",
     sessionExchangeStatus: 200,
     overviewStatus: 200,
     overview: CUSTOMER_HOME,
@@ -141,6 +144,15 @@ export async function mockCustomerAuth(
         );
       }
       return json(route, { status: true });
+    }
+    if (url.pathname.endsWith("/change-password")) {
+      if (settings.passwordChange === "wrong_password") {
+        return json(route, { code: "INVALID_PASSWORD", message: "Invalid password" }, 400);
+      }
+      if (settings.passwordChange === "expired") {
+        return json(route, { code: "UNAUTHORIZED", message: "Unauthorized" }, 401);
+      }
+      return json(route, { token: "customer-provider-rotated-token", user: USER });
     }
     if (url.pathname.endsWith("/request-password-reset")) {
       return json(route, { status: true });
