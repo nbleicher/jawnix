@@ -1,19 +1,28 @@
-.admin-customer-details__facts {
-  display: grid;
-  gap: var(--jx-space-4);
-  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+/* Facts that read as a short list rather than spanning the column. */
+.admin-customer-details__facts-narrow {
+  width: min(100%, 32rem);
 }
 
-.admin-customer-details__facts > div {
+.admin-customer-details__full {
+  width: 100%;
+}
+
+/* What the Customer needs, in the red reserved for problems (V3). */
+.admin-customer-details__needs {
   display: flex;
   flex-direction: column;
-  gap: var(--jx-space-1);
-  min-width: 0;
+  gap: var(--jx-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--jx-text-sm);
 }
 
-.admin-customer-details__facts dd {
-  color: var(--jx-color-text-strong);
-  font-weight: var(--jx-weight-semibold);
+.admin-customer-details__needs a {
+  color: var(--jx-danger);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
 }
 
 /* The pending invitation is set apart deliberately: a replacement that has not
@@ -23,12 +32,13 @@
   background: var(--jx-color-accent-soft);
 }
 
-.admin-customer-details__assignment-preview {
-  border-color: var(--jx-color-warning);
+.admin-customer-details__account,
+.admin-customer-details__pending {
+  max-width: 40rem;
 }
 
-.admin-customer-details__list {
-  list-style: none;
+.admin-customer-details__assignment-preview {
+  border-color: var(--jx-line-strong);
 }
 
 .admin-customer-details__dependencies {
@@ -47,26 +57,36 @@
   color: var(--jx-color-text-strong);
 }
 
-.admin-customer-details__ledger {
+/* The floating Customer card (opened from Agencies) keeps its stacked facts. */
+.admin-customer-details__facts {
+  display: grid;
+  gap: var(--jx-space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+}
+
+.admin-customer-details__facts > div {
   display: flex;
   flex-direction: column;
-  gap: var(--jx-space-2);
-  width: 100%;
-  overflow-x: auto;
+  gap: var(--jx-space-1);
+  min-width: 0;
 }
 
-.admin-customer-details__ledger-row {
-  display: grid;
-  gap: var(--jx-space-3);
-  grid-template-columns: minmax(7rem, 1.1fr) minmax(7rem, 1fr) minmax(5rem, 0.7fr) minmax(10rem, 2fr);
-  align-items: start;
-  padding-block: var(--jx-space-2);
-  border-bottom: 1px solid var(--jx-color-border);
-  font-size: var(--jx-font-size-sm);
-}
-
-.admin-customer-details__ledger-row--head {
-  color: var(--jx-color-text-muted);
+.admin-customer-details__facts dd {
+  color: var(--jx-color-text-strong);
   font-weight: var(--jx-weight-semibold);
-  border-bottom-width: 2px;
+}
+
+.admin-customer-details__recent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-customer-details__recent li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
 }

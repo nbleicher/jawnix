@@ -652,6 +652,8 @@ export async function mockOperatorDesk(
 
   await page.route(/\/api\/admin\/batches(\?.*)?$/, (route) => {
     const url = new URL(route.request().url());
+    // One Customer's batches belong to the Customers fixtures.
+    if (url.searchParams.has("customer")) return route.fallback();
     const needs = url.searchParams.get("needsDecision") === "true";
     const status = url.searchParams.get("status") ?? "open";
     const items = BATCH_LIST.items.filter(

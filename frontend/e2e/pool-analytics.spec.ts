@@ -44,17 +44,16 @@ test.describe("Pool analytics surfaces", () => {
     const state = await mockAdminCustomers(page);
     await page.goto("./admin/customers/7");
 
-    const availability = page.getByRole("region", { name: "Pool availability" });
-    await expect(availability.getByText("412", { exact: true })).toBeVisible();
-    await expect(
-      availability.getByRole("list", { name: "Cooldown forecast" }),
-    ).toBeVisible();
-    await expect(availability.getByText("2026-08-04: 18")).toBeVisible();
+    const availability = page.getByRole("region", { name: "Availability", exact: true });
+    await expect(availability.getByText("412,880", { exact: true }).first()).toBeVisible();
+    const forecast = availability.getByRole("table", { name: "Cooldown forecast" });
+    await expect(forecast).toBeVisible();
+    await expect(forecast.getByRole("row", { name: /Aug 4/ })).toContainText("18");
 
     await availability
       .getByRole("button", { name: "Refresh availability" })
       .click();
-    await expect(availability.getByText("420", { exact: true })).toBeVisible();
+    await expect(availability.getByText("420,000", { exact: true }).first()).toBeVisible();
     expect(state.availabilityRefreshRequests).toBe(1);
   });
 });

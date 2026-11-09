@@ -385,7 +385,8 @@ for (const scheme of SCHEMES) {
         .getByRole("heading", { level: 1, name: "Customers" })
         .waitFor({ state: "visible" });
       await page
-        .getByRole("article", { name: "Harbor Insurance" })
+        .getByRole("table", { name: "Customers" })
+        .getByRole("link", { name: "Harbor Insurance" })
         .waitFor({ state: "visible" });
       await shoot(page, testInfo, `admin-customers-${scheme}`);
     });

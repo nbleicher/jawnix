@@ -198,15 +198,18 @@ test.describe("Administration shell", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Today" })).toBeVisible();
   });
 
-  test("Customers separates durable identity from account access at both form factors", async ({ page }) => {
+  test("Customers lists every customer with what it needs at both form factors", async ({ page }) => {
     await page.goto("./admin/customers");
 
     await expect(page.getByRole("heading", { level: 1, name: "Customers" })).toBeVisible();
     await expect(page.getByText("Not built yet")).toHaveCount(0);
 
-    const harbor = page.getByRole("article", { name: "Harbor Insurance" });
-    await expect(harbor.getByText("Customer", { exact: true })).toBeVisible();
-    await expect(harbor.getByText("User Account", { exact: true })).toBeVisible();
+    const table = page.getByRole("table", { name: "Customers" });
+    await expect(table.getByRole("link", { name: "Harbor Insurance" })).toBeVisible();
+    await expect(table.getByText("Conflict with Lakeside Brokers")).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
 
     const nav = page.getByRole("navigation", { name: "Administration" });
     await nav.getByRole("link", { name: "Today" }).click();

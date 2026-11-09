@@ -214,6 +214,18 @@ def _pending_conflict_ids(db: Session, items: list[LeadRequest]) -> set:
     return involved
 
 
+def row_cost(item: LeadRequest) -> dict[str, object]:
+    """What a Batch costs, as a table cell reads it: billed, amount, hold."""
+    if not item.is_billed:
+        return {"billed": False}
+    hold = item.billing_hold
+    return {
+        "billed": True,
+        "amountCents": item.billing_amount_cents,
+        "hold": hold.status if hold is not None else None,
+    }
+
+
 def _needs_decision(stage_name: str, in_conflict: bool) -> bool:
     return in_conflict or stage_name in {
         "awaiting_approval",
@@ -266,6 +278,7 @@ def batch_rows(
                 "createdAt": item.created_at,
                 "deliveredAt": item.delivered_at,
                 "closedAt": item.closed_at,
+                "cost": row_cost(item),
             }
         )
     return rows
@@ -275,6 +288,7 @@ def _row_options():
     return (
         selectinload(LeadRequest.artifact),
         selectinload(LeadRequest.agent),
+        selectinload(LeadRequest.billing_hold),
     )
 
 
@@ -331,14 +345,23 @@ def list_batches(
     status: str = "open",
     database: str = "",
     needs_decision: bool = False,
+    customer_id: int | None = None,
     page: int = 1,
     page_size: int = PAGE_SIZE,
     now: datetime | None = None,
 ) -> dict[str, object]:
-    """All batches, open first and oldest open first: the order they wait in."""
+    """All batches, open first and oldest open first: the order they wait in.
+
+    One Customer's batches (``customer_id``) read as that Customer's history
+    instead: newest first, and the footer counts are that Customer's.
+    """
     moment = now or datetime.now(timezone.utc)
     page_size = max(1, min(page_size, MAX_PAGE_SIZE))
     statement = select(LeadRequest).join(Customer, Customer.id == LeadRequest.agent_id)
+    scope = []
+    if customer_id is not None:
+        scope.append(LeadRequest.agent_id == customer_id)
+        statement = statement.where(*scope)
     statuses = STATUS_FILTERS.get(status, OPEN_STATUSES)
     if statuses is not None:
         statement = statement.where(LeadRequest.status.in_(statuses))
@@ -383,13 +406,18 @@ def list_batches(
     pages = max(1, -(-total // page_size))
     page = max(1, min(page, pages))
     is_open = LeadRequest.status.in_(OPEN_STATUSES)
-    ordered = (
-        statement.order_by(
+    order = (
+        (LeadRequest.created_at.desc(), LeadRequest.number.desc())
+        if customer_id is not None
+        else (
             case((is_open, 0), else_=1),
             case((is_open, LeadRequest.created_at)).asc(),
             LeadRequest.created_at.desc(),
             LeadRequest.number.desc(),
         )
+    )
+    ordered = (
+        statement.order_by(*order)
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
@@ -404,7 +432,8 @@ def list_batches(
             "delivered": int(
                 db.scalar(
                     select(func.count(LeadRequest.id)).where(
-                        LeadRequest.status == RequestStatus.delivered.value
+                        LeadRequest.status == RequestStatus.delivered.value,
+                        *scope,
                     )
                 )
                 or 0
@@ -416,6 +445,7 @@ def list_batches(
                     .where(
                         LeadRequest.status == RequestStatus.delivered.value,
                         BatchArtifact.expires_at <= moment,
+                        *scope,
                     )
                 )
                 or 0

@@ -2,11 +2,13 @@ import { useState } from "react";
 
 import { api } from "../auth/adminMFA";
 import { Button } from "../../design-system/primitives/Button";
-import { EmptyState } from "../../design-system/primitives/feedback";
-import { Card, Section, Stack } from "../../design-system/primitives/layout";
-import { Heading, Text } from "../../design-system/primitives/typography";
-import { errorMessage, formatAdminDate } from "./AdminCustomers";
-import { Fact } from "./AdminCustomerActions";
+import { FactList } from "../../design-system/primitives/facts";
+import { Panel } from "../../design-system/primitives/panel";
+import { DataTable } from "../../design-system/primitives/table";
+import { Text } from "../../design-system/primitives/typography";
+import { formatCount, formatDay } from "../operator/format";
+import { errorMessage } from "./AdminCustomers";
+import { formatAsOf } from "./OperatorNumbers";
 
 import "./AdminCustomerDetails.css";
 
@@ -22,13 +24,29 @@ export interface CustomerAvailabilityView {
   forecast: AvailabilityForecastDay[] | null;
 }
 
-export function CustomerAvailabilitySection({
+/** "2026-08-04" is a calendar day, not an instant: read it as local noon so
+ *  no time zone moves it to the day before. */
+function forecastDay(date: string, offset: number): string {
+  if (offset === 0) return "Today";
+  return formatDay(`${date}T12:00:00`);
+}
+
+/**
+ * What this Customer could receive right now, and when more becomes
+ * eligible as other customers' cooldown windows lapse.
+ *
+ * The count is a stored snapshot with its as-of time; opening the page never
+ * recounts it. Refreshing is the operator's explicit choice.
+ */
+export function CustomerAvailabilityPanel({
   availability,
   customerId,
+  database,
   onChanged,
 }: {
   availability: CustomerAvailabilityView;
   customerId: number;
+  database: string;
   onChanged: () => Promise<void> | void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -50,65 +68,61 @@ export function CustomerAvailabilitySection({
     }
   }
 
-  const forecast = availability.forecast ?? [];
+  const now = new Date();
+  const days = (availability.forecast ?? []).filter(
+    (day) => day.offset === 0 || day.count > 0,
+  );
 
   return (
-    <Section
-      title="Pool availability"
-      description="Leads deliverable right now for this Customer, honoring Licensed States, Niche Policy, no-repeat history, Cooldown Window, and exclusions. Counts are refreshed on demand and stamped with an as-of time — never computed just by opening this page."
-    >
-      <Card>
-        <Stack gap={4} align="flex-start">
-          {failure ? (
-            <Text role="alert" tone="danger" size="sm">
-              {failure}
-            </Text>
-          ) : null}
-          <dl className="admin-customer-details__facts">
-            <Fact label="Available now">
-              {availability.available === null
-                ? "Not computed yet"
-                : availability.available.toLocaleString()}
-            </Fact>
-            <Fact label="As of">
-              {availability.asOf ? formatAdminDate(availability.asOf) : "—"}
-            </Fact>
-          </dl>
-          {forecast.length ? (
-            <Stack gap={2} align="flex-start">
-              <Heading level={3} size="sm">
-                Cooldown forecast (14 days)
-              </Heading>
-              <Text size="sm" tone="muted">
-                Day 0 is eligible today. Later days count Leads whose Cooldown
-                Window lapses that day.
-              </Text>
-              <ul
-                className="admin-customer-details__list"
-                aria-label="Cooldown forecast"
-              >
-                {forecast.map((day) => (
-                  <li key={day.offset}>
-                    <Text>
-                      {day.date}
-                      {day.offset === 0 ? " (today)" : ""}:{" "}
-                      {day.count.toLocaleString()}
-                    </Text>
-                  </li>
-                ))}
-              </ul>
-            </Stack>
-          ) : (
-            <EmptyState
-              title="No forecast yet"
-              description="Refresh availability to compute today's eligible count and the next 14 days of Cooldown Window lapses."
-            />
-          )}
-          <Button variant="primary" busy={busy} onClick={() => void refresh()}>
-            Refresh availability
-          </Button>
-        </Stack>
-      </Card>
-    </Section>
+    <Panel title="Availability">
+      {failure ? (
+        <Text role="alert" tone="danger" size="sm">
+          {failure}
+        </Text>
+      ) : null}
+      <FactList
+        label="Availability"
+        items={[
+          {
+            term: "Available now",
+            description:
+              availability.available === null
+                ? "Not counted yet"
+                : formatCount(availability.available),
+          },
+          { term: "Database", description: database === "db2" ? "DB2" : "DB1" },
+          {
+            term: "As of",
+            description: availability.asOf ? formatAsOf(availability.asOf, now) : "—",
+          },
+        ]}
+      />
+      {days.length ? (
+        <DataTable
+          label="Cooldown forecast"
+          columns={[
+            { key: "day", header: "Day", cell: (day) => forecastDay(day.date, day.offset) },
+            {
+              key: "count",
+              header: "Becomes eligible",
+              numeric: true,
+              cell: (day) => formatCount(day.count),
+            },
+          ]}
+          rows={days}
+          rowKey={(day) => String(day.offset)}
+        />
+      ) : null}
+      <Text size="xs" tone="muted">
+        {days.length
+          ? "Today is what is eligible now; later days count leads whose cooldown window lapses that day. Days with nothing lapsing are left out."
+          : "Counts this customer's states, niche policy, no-repeat history, cooldown window, and exclusions. Refresh to count it and forecast the next 14 days."}
+      </Text>
+      <div>
+        <Button busy={busy} busyLabel="Counting…" onClick={() => void refresh()}>
+          Refresh availability
+        </Button>
+      </div>
+    </Panel>
   );
 }

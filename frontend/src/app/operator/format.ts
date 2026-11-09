@@ -151,6 +151,8 @@ export interface BatchRow {
   deliveredAt: string | null;
   closedAt: string | null;
   fileAt?: string | null;
+  /** What it costs: billed, the amount, and whether it is still held. */
+  cost?: { billed: boolean; amountCents?: number | null; hold?: string | null };
 }
 
 export function batchName(number: number): string {

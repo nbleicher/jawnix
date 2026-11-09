@@ -335,6 +335,21 @@ class CustomerDirectoryAgency(BaseModel):
     active: bool
 
 
+class CustomerNeedOut(BaseModel):
+    """One thing a Customer needs from the operator, worst first."""
+
+    kind: str
+    label: str
+    href: str
+
+
+class CustomerOpenBatchOut(BaseModel):
+    number: int
+    leadCount: int
+    stage: str
+    href: str
+
+
 class CustomerDirectoryRow(BaseModel):
     id: int
     slug: str
@@ -353,6 +368,24 @@ class CustomerDirectoryRow(BaseModel):
     lead_database: Literal["db1", "db2"] = "db1"
     allowed_manager_id: uuid.UUID | None = None
     manager_id: uuid.UUID | None = None
+    #: What the Customer needs from the operator, worst first. Empty when
+    #: nothing is waiting.
+    needs: list[CustomerNeedOut] = Field(default_factory=list)
+    #: Billing on and drawing from DB1. Unbilled Customers show no balance.
+    billed: bool = False
+    #: Available balance: the Credit Ledger less active Batch Holds.
+    balance_cents: int = 0
+    held_cents: int = 0
+    held_for: list[int] = Field(default_factory=list)
+    lead_rate_cents_per_thousand: int | None = None
+    open_batches: int = 0
+    open_batch: CustomerOpenBatchOut | None = None
+    delivered_30d: int = 0
+    delivered_30d_batches: int = 0
+    last_delivery_at: datetime | None = None
+    #: The Customer's last availability snapshot, never counted on read.
+    available: int | None = None
+    available_as_of: datetime | None = None
 
 
 class ManagedAdminRecord(BaseModel):
@@ -367,6 +400,14 @@ class CustomerDirectoryFilters(BaseModel):
     agency_id: int | None
     state: str
     problems_only: bool
+    database: Literal["", "db1", "db2"] = ""
+    billing: Literal["", "billed", "not_billed"] = ""
+    needs_only: bool = False
+
+
+class CustomerDirectoryCounts(BaseModel):
+    active: int = 0
+    deactivated: int = 0
 
 
 class CustomerDirectoryOut(BaseModel):
@@ -378,6 +419,7 @@ class CustomerDirectoryOut(BaseModel):
     total: int
     matched: int
     customers: list[CustomerDirectoryRow]
+    counts: CustomerDirectoryCounts = Field(default_factory=CustomerDirectoryCounts)
     managed_admins: list[ManagedAdminRecord] = Field(default_factory=list)
 
 
@@ -835,6 +877,15 @@ class ScraperConfigurationCreate(BaseModel):
 class ActionReason(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class CustomerLeadDatabaseChange(BaseModel):
+    """Which database a Customer's future allocations draw from."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lead_database: Literal["db1", "db2"]
     reason: str = Field(min_length=1, max_length=2000)
 
 
