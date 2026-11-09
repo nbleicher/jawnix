@@ -323,6 +323,9 @@ export async function mockFulfillment(page: Page): Promise<RecordedCall[]> {
 
   await page.route(/\/api\/admin\/pool-breakdown(?:\/refresh)?$/, (route) => {
     if (route.request().method() === "POST") {
+      // The server only queues the background recount and answers with the
+      // current snapshot. The next read stands in for the finished recount.
+      const current = poolBreakdown;
       poolBreakdown = {
         asOf: "2026-08-03T15:00:00Z",
         cells: [
@@ -331,7 +334,7 @@ export async function mockFulfillment(page: Page): Promise<RecordedCall[]> {
           { state: "TX", niche: "unmapped", count: 18 },
         ],
       };
-      return json(route, poolBreakdown);
+      return json(route, { ...current, refreshQueued: true, jobId: 41 });
     }
     return json(route, poolBreakdown);
   });

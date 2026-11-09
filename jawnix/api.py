@@ -3104,11 +3104,43 @@ def refresh_pool_breakdown_endpoint(
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    from .pool_analytics import refresh_pool_breakdown
+    """Queue the background recount; the response is the current snapshot.
 
-    payload = refresh_pool_breakdown(db)
+    The breakdown spans all of DB1, so it is never counted in a request.
+    """
+    from .inventory_snapshots import enqueue_inventory_refresh
+    from .pool_analytics import read_pool_breakdown
+
+    job = enqueue_inventory_refresh(db, reason="manual")
     db.commit()
-    return payload
+    return {**read_pool_breakdown(db), "refreshQueued": True, "jobId": job.id}
+
+
+@app.get("/api/admin/inventory-snapshots")
+def get_inventory_snapshots(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Latest usable DB1 and DB2 totals with their as-of times."""
+    from .inventory_snapshots import read_inventory_snapshots
+
+    return read_inventory_snapshots(db)
+
+
+@app.post("/api/admin/inventory-snapshots/refresh", status_code=202)
+def refresh_inventory_snapshots_endpoint(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Queue one background recount, reusing a refresh not yet started."""
+    from .inventory_snapshots import (
+        enqueue_inventory_refresh,
+        read_inventory_snapshots,
+    )
+
+    enqueue_inventory_refresh(db, reason="manual")
+    db.commit()
+    return read_inventory_snapshots(db)
 
 
 @app.get("/api/admin/customers/{customer_id}/availability")
@@ -3226,27 +3258,14 @@ def niche_assignment_status(
 @app.get("/api/admin/customers/{customer_id}/billing")
 def admin_customer_billing(
     customer_id: int,
-    principal: Principal = Depends(require_admin),
+    _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     customer = db.get(Customer, customer_id)
     if customer is None or customer.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Customer was not found.")
-    result = wallet_view(db, customer)
-    record_activity(
-        db,
-        action="credit_wallet_viewed",
-        target_type="customer",
-        target_id=customer.id,
-        actor_id=principal.user_id,
-        reason="Administrator viewed the Credit Wallet and Credit Ledger.",
-        details={
-            "balanceCents": result["balanceCents"],
-            "ledgerEntries": len(result["ledger"]),
-        },
-    )
-    db.commit()
-    return result
+    # Reads are not Activity: only consequential actions are audited.
+    return wallet_view(db, customer)
 
 
 @app.put("/api/admin/customers/{customer_id}/billing")

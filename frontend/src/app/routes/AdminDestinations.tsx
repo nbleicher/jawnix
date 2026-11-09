@@ -15,6 +15,8 @@ import type { StatusTone } from "../../design-system/primitives/status";
 import { Heading, Text } from "../../design-system/primitives/typography";
 import { api } from "../auth/adminMFA";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
+import { OperatorNumbers } from "./OperatorNumbers";
+import type { OperatorNumbersData } from "./OperatorNumbers";
 import "./AdminDestinations.css";
 
 interface OperationAction {
@@ -59,6 +61,8 @@ export interface OperationsOverviewData {
   generatedAt: string;
   availableCount: number;
   degraded: boolean;
+  /** Null when the numbers could not be read; the queues stay usable. */
+  numbers?: OperatorNumbersData | null;
   sources: OperationSource[];
 }
 
@@ -209,6 +213,15 @@ export function AdminDestinationRoute() {
       }
     >
       <Stack gap={6}>
+        {data.numbers ? (
+          <OperatorNumbers numbers={data.numbers} />
+        ) : (
+          <Text size="sm" tone="muted" role="status">
+            The numbers are temporarily unavailable. The queues below are
+            current.
+          </Text>
+        )}
+
         <Card padding={4}>
           <Cluster gap={3} justify="space-between">
             <Text role="status" aria-live="polite" weight="semibold">

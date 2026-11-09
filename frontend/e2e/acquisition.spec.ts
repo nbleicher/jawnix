@@ -243,6 +243,19 @@ test.describe("Nightly Reviews", () => {
       section.getByText(/needs reconciling before this review can be updated/),
     ).toBeVisible();
   });
+
+  test("the inventory line shows the recorded usable DB1 count (B3)", async ({
+    page,
+  }) => {
+    await page.goto("./admin/acquisition");
+
+    const section = page.getByRole("region", { name: "Nightly Reviews" });
+    await section.locator("summary").click();
+    await expect(
+      section.getByText("Inventory 9,241,870 total · 9,183,402 usable"),
+    ).toBeVisible();
+    await expect(section.getByText(/0 eligible/)).toHaveCount(0);
+  });
 });
 
 test.describe("Compact review queues", () => {

@@ -2168,11 +2168,48 @@ class SharedHistoryLeadCount(Base):
     )
 
 
+class InventorySnapshot(Base):
+    """Usable inventory totals for one Lead Database (DB1 or DB2).
+
+    Usable means not suppressed, no active Eligibility Hold, and not globally
+    excluded. The breakdown buckets are exclusive, in that order of
+    precedence, so ``usable + suppressed + held + excluded == all_rows``.
+    Written only by the ``refresh_inventory_snapshots`` background job; request
+    handlers read the latest row and show its as-of time.
+    """
+
+    __tablename__ = "inventory_snapshots"
+    database: Mapped[str] = mapped_column(String(4), primary_key=True)
+    all_rows: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    suppressed: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    held: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    excluded: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    usable: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    usable_by_state: Mapped[dict] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "database IN ('db1', 'db2')",
+            name="ck_inventory_snapshot_database",
+        ),
+    )
+
+
 class PoolBreakdownSnapshot(Base):
     """Cached eligible-inventory composition by state × Niche for Fulfillment.
 
-    A single row (id=1) holds the latest cells. Administrators refresh on
-    demand; page loads only read this snapshot and its as-of timestamp.
+    A single row (id=1) holds the latest cells. The same background job that
+    writes ``InventorySnapshot`` rewrites it; page loads only read this
+    snapshot and its as-of timestamp.
     """
 
     __tablename__ = "pool_breakdown_snapshots"

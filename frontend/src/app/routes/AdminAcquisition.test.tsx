@@ -144,6 +144,56 @@ describe("the Acquisition workspace keeps the Operations identity", () => {
   });
 });
 
+describe("Nightly Review inventory line", () => {
+  function review(summary: Record<string, unknown>, id: string) {
+    return {
+      id,
+      scraperRunId: null,
+      reviewDate: `2026-11-0${id}`,
+      status: "complete",
+      summary,
+      telegramDeliveryState: "sent",
+      telegramMessageId: "1",
+      telegramDeliveryError: "",
+      createdAt: "2026-11-09T09:00:00Z",
+      reconcilable: false,
+    };
+  }
+
+  it("shows the recorded usable DB1 count, and never a false zero", () => {
+    renderRoute(
+      acquisition({
+        nightlyReviews: [
+          review(
+            {
+              inventory: {
+                total: 9241000,
+                byState: {},
+                eligible: 9183402,
+                eligibleAsOf: "2026-11-09T06:00:00Z",
+              },
+            },
+            "9",
+          ),
+          review({ inventory: { total: 9100000, byState: {} } }, "8"),
+        ],
+      }),
+    );
+
+    expect(
+      screen.getByText(
+        `Inventory ${(9241000).toLocaleString()} total · ${(9183402).toLocaleString()} usable`,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `Inventory ${(9100000).toLocaleString()} total · usable not recorded`,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/0 eligible/)).not.toBeInTheDocument();
+  });
+});
+
 describe("Scrape Anomaly decisions", () => {
   it("shows the evidence the decision rests on", () => {
     renderRoute(acquisition());

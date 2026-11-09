@@ -23,6 +23,7 @@ from .acquisition import (
     workspace as acquisition_workspace,
 )
 from .fulfillment import OPEN_STATUSES, workspace as fulfillment_workspace
+from .operator_numbers import OperatorNumbers, operator_numbers
 from .models import (
     EligibilityHold,
     Job,
@@ -90,6 +91,9 @@ class OperationsOverview(ContractModel):
     generated_at: datetime = Field(alias="generatedAt")
     available_count: int = Field(alias="availableCount")
     degraded: bool
+    #: The headline numbers row. ``None`` only when reading them failed; the
+    #: queues below stay usable either way.
+    numbers: OperatorNumbers | None = None
     sources: list[OperationSource]
 
 
@@ -831,8 +835,15 @@ def operations_overview(db: Session) -> OperationsOverview:
                 workspace=workspace,
             )
         sources.append(source)
+    try:
+        with db.begin_nested():
+            numbers = operator_numbers(db)
+    except Exception:
+        log.exception("Operations overview numbers failed")
+        numbers = None
     return OperationsOverview(
         generated_at=datetime.now(timezone.utc),
+        numbers=numbers,
         available_count=sum(
             source.count or 0
             for source in sources

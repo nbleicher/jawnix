@@ -14,6 +14,10 @@ from .delivery import deliver_request, mark_delivery_failed
 from .billing import release_batch_hold
 from .jobs import FULFILLMENT_JOB_KINDS, claim_next_job, enqueue_job
 from .job_wakeup import JobWakeup
+from .inventory_snapshots import (
+    REFRESH_INVENTORY_JOB,
+    refresh_inventory_snapshots,
+)
 from .lead_uploads import IMPORT_JOB, ImportInterrupted, import_lead_upload
 from .models import LeadUpload
 from .metrics_emit import (
@@ -462,6 +466,8 @@ def process_job(job_id: int) -> None:
                     settings,
                     int(job.payload["dataset_version"]),
                 )
+            elif job.kind == REFRESH_INVENTORY_JOB:
+                refresh_inventory_snapshots(session)
             elif job.kind == "ingest_exclusion_list":
                 from .exclusions import ingest_exclusion_list
 

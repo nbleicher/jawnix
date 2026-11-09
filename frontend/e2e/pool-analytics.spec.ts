@@ -11,7 +11,7 @@ import { mockAdminMFA } from "./mfa-fixtures";
  */
 
 test.describe("Pool analytics surfaces", () => {
-  test("Fulfillment shows the cached pool breakdown and refreshes on demand", async ({
+  test("Fulfillment shows the cached pool breakdown and queues a recount on demand", async ({
     page,
   }) => {
     await mockAdminMFA(page, { assurance: "aal2" });
@@ -32,6 +32,9 @@ test.describe("Pool analytics surfaces", () => {
     await expect(section.getByText(/As of:/)).toBeVisible();
 
     await section.getByRole("button", { name: "Refresh pool breakdown" }).click();
+    await expect(
+      section.getByText(/Refresh queued/),
+    ).toBeVisible();
     await expect(dental).toContainText("341 eligible");
   });
 

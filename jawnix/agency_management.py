@@ -414,6 +414,22 @@ def agency_directory(
     }
 
 
+def _membership_customers(
+    db: Session,
+    memberships: list[AgencyMembershipHistory],
+) -> dict[int, Customer]:
+    """Load every Customer named by ``memberships`` in one query."""
+    customer_ids = {membership.customer_id for membership in memberships}
+    if not customer_ids:
+        return {}
+    return {
+        customer.id: customer
+        for customer in db.scalars(
+            select(Customer).where(Customer.id.in_(customer_ids))
+        )
+    }
+
+
 def _agency_activity(
     db: Session,
     *,
@@ -453,21 +469,9 @@ def _agency_activity(
             .limit(limit)
         )
     )
-    customers_by_id = {
-        customer.id: customer
-        for customer in db.scalars(
-            select(Customer).where(
-                Customer.id.in_(
-                    {
-                        membership.customer_id
-                        for membership in memberships
-                    }
-                )
-            )
-        )
-    }
+    customers_by_id = _membership_customers(db, memberships)
     for membership in memberships:
-        customer = db.get(Customer, membership.customer_id)
+        customer = customers_by_id.get(membership.customer_id)
         activity.append(
             {
                 "id": f"membership-{membership.id}",
@@ -511,6 +515,7 @@ def agency_details(
             )
         )
     )
+    customers_by_id = _membership_customers(db, memberships)
     distribution_count = int(
         db.scalar(
             select(func.count(DistributionEvent.id)).where(

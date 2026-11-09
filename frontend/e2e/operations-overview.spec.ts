@@ -82,6 +82,60 @@ test.describe("Actionable Operations overview", () => {
     }
   });
 
+  test("starts with the eight headline numbers", async ({ page }) => {
+    await mockOperationsOverview(page);
+    await page.goto("./admin/overview");
+
+    const numbers = page.getByLabel("Key numbers");
+    await expect(numbers).toBeVisible();
+    await expect(numbers.getByRole("term")).toHaveText([
+      "DB1 usable",
+      "DB2 usable",
+      "Open batches",
+      "Delivered · 30 days",
+      "Active customers",
+      "Credit balance",
+      "Credits used · 30 days",
+      "Decisions waiting",
+    ]);
+    for (const text of [
+      "9,183,402",
+      "Operator leads · as of 06:00",
+      "1,071,288",
+      "CSV uploads · as of 06:00",
+      "1 awaiting approval · 1 short",
+      "2,069,666",
+      "33 batches to 13 customers",
+      "1 with setup problems",
+      "$8,412.50",
+      "11 billed customers",
+      "$10,348.33",
+      "Up 12% on the prior 30 days",
+      "Oldest 2d",
+    ]) {
+      await expect(numbers.getByText(text, { exact: true })).toBeVisible();
+    }
+    // The numbers sit above the queues they summarize.
+    const numbersBox = await numbers.boundingBox();
+    const queueBox = await page
+      .getByRole("region", { name: "Pending Batch Requests" })
+      .boundingBox();
+    expect(numbersBox!.y).toBeLessThan(queueBox!.y);
+  });
+
+  test("the queues stay usable when the numbers cannot be read", async ({
+    page,
+  }) => {
+    await mockOperationsOverview(page, { numbersUnavailable: true });
+    await page.goto("./admin/overview");
+
+    await expect(
+      page.getByText(/numbers are temporarily unavailable/),
+    ).toBeVisible();
+    await expect(page.getByLabel("Key numbers")).toHaveCount(0);
+    await expect(page.getByText("8 pending operations identified")).toBeVisible();
+  });
+
   test("one failed source leaves every other source actionable", async ({
     page,
   }) => {

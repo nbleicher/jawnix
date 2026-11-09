@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from jawnix.config import Settings, get_settings
 from jawnix.database import SessionLocal
+from jawnix.inventory_snapshots import enqueue_inventory_refresh
 from jawnix.maintenance import expire_batch_files, purge_retained_records
 from jawnix.models import NightlyReview
 
@@ -33,9 +34,30 @@ def run_nightly_scraper(settings: Settings) -> NightlyReview:
         return run_nightly_attempt(session, settings)
 
 
+def enqueue_nightly_inventory_refresh(
+    settings: Settings,
+    *,
+    now: datetime,
+    last_enqueued: date | None,
+) -> date | None:
+    """Queue the nightly usable-inventory refresh once per UTC day.
+
+    Holds, suppressions, and Global Exclusions change usable inventory between
+    syncs, so the snapshot is recounted every night even without a new
+    dataset. Returns the date it last queued for.
+    """
+    if now.hour < settings.nightly_review_hour_utc or last_enqueued == now.date():
+        return last_enqueued
+    with SessionLocal.begin() as session:
+        enqueue_inventory_refresh(session, reason="nightly")
+    log.info("Queued the nightly usable-inventory refresh")
+    return now.date()
+
+
 def run() -> None:
     settings = get_settings()
     cleaned_date = None
+    inventory_refresh_date = None
     while True:
         try:
             now = datetime.now(timezone.utc)
@@ -67,6 +89,14 @@ def run() -> None:
                 )
         except Exception:
             log.exception("Nightly review attempt failed")
+        try:
+            inventory_refresh_date = enqueue_nightly_inventory_refresh(
+                settings,
+                now=datetime.now(timezone.utc),
+                last_enqueued=inventory_refresh_date,
+            )
+        except Exception:
+            log.exception("Nightly usable-inventory refresh was not queued")
         if cleaned_date != datetime.now(timezone.utc).date():
             try:
                 with SessionLocal.begin() as session:

@@ -188,10 +188,14 @@ function summaryLines(summary: Record<string, unknown>): string[] {
   }
   const inventory = read("inventory");
   if (inventory["total"] !== undefined) {
+    // `eligible` is the stored usable DB1 count; reviews written before the
+    // background recount existed carry none, which must not read as zero.
+    const usable =
+      typeof inventory["eligible"] === "number"
+        ? `${inventory["eligible"].toLocaleString()} usable`
+        : "usable not recorded";
     lines.push(
-      `Inventory ${Number(inventory["total"]).toLocaleString()} total · ${Number(
-        inventory["eligible"] ?? 0,
-      ).toLocaleString()} eligible`,
+      `Inventory ${Number(inventory["total"]).toLocaleString()} total · ${usable}`,
     );
   }
   return lines;

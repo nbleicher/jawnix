@@ -50,12 +50,72 @@ interface OverviewSource {
   errorDescription: string | null;
 }
 
+interface UsableInventory {
+  usable: number;
+  asOf: string;
+}
+
+interface OperatorNumbersPayload {
+  generatedAt: string;
+  windowDays: number;
+  inventory: { db1: UsableInventory | null; db2: UsableInventory | null };
+  openBatches: { total: number; awaitingApproval: number; shortOfInventory: number };
+  delivered: { leads: number; batches: number; customers: number };
+  customers: { active: number; withSetupProblems: number };
+  creditBalance: { availableCents: number; billedCustomers: number };
+  creditsUsed: { cents: number; priorCents: number };
+  decisions: {
+    waiting: number;
+    oldestAt: string | null;
+    kinds: { kind: string; label: string; count: number; oldestAt: string | null }[];
+  };
+}
+
 interface OperationsOverviewPayload {
   generatedAt: string;
   availableCount: number;
   degraded: boolean;
+  numbers: OperatorNumbersPayload | null;
   sources: OverviewSource[];
 }
+
+/** 06:00 today in the browser's own time zone, so the tile reads "as of 06:00". */
+function todayAt(hours: number): string {
+  const moment = new Date();
+  moment.setHours(hours, 0, 0, 0);
+  return moment.toISOString();
+}
+
+const TWO_DAYS_AGO = new Date(Date.now() - 2 * 86_400_000).toISOString();
+
+export const OPERATOR_NUMBERS: OperatorNumbersPayload = {
+  generatedAt: new Date().toISOString(),
+  windowDays: 30,
+  inventory: {
+    db1: { usable: 9_183_402, asOf: todayAt(6) },
+    db2: { usable: 1_071_288, asOf: todayAt(6) },
+  },
+  openBatches: { total: 4, awaitingApproval: 1, shortOfInventory: 1 },
+  delivered: { leads: 2_069_666, batches: 33, customers: 13 },
+  customers: { active: 14, withSetupProblems: 1 },
+  creditBalance: { availableCents: 841_250, billedCustomers: 11 },
+  creditsUsed: { cents: 1_034_833, priorCents: 923_958 },
+  decisions: {
+    waiting: 7,
+    oldestAt: TWO_DAYS_AGO,
+    kinds: [
+      { kind: "approval", label: "Approvals", count: 1, oldestAt: TWO_DAYS_AGO },
+      { kind: "failedBatch", label: "Failed batches", count: 1, oldestAt: TWO_DAYS_AGO },
+      { kind: "inventoryConflict", label: "Inventory conflicts", count: 1, oldestAt: TWO_DAYS_AGO },
+      { kind: "leadReport", label: "Lead reports", count: 1, oldestAt: TWO_DAYS_AGO },
+      { kind: "failedJob", label: "Failed jobs", count: 1, oldestAt: TWO_DAYS_AGO },
+      { kind: "scrapeAnomaly", label: "Scrape anomalies", count: 1, oldestAt: TWO_DAYS_AGO },
+      { kind: "nicheMapping", label: "Niche mappings", count: 0, oldestAt: null },
+      { kind: "exclusionList", label: "Exclusion lists", count: 1, oldestAt: TWO_DAYS_AGO },
+      { kind: "registration", label: "Registrations", count: 0, oldestAt: null },
+    ],
+  },
+};
 
 function item(
   id: string,
@@ -99,6 +159,7 @@ export const OPERATIONS_OVERVIEW: OperationsOverviewPayload = {
   generatedAt: "2026-07-29T10:05:00Z",
   availableCount: 8,
   degraded: false,
+  numbers: OPERATOR_NUMBERS,
   sources: [
     {
       key: "fulfillment",
@@ -278,9 +339,13 @@ export async function mockOperationsOverview(
   options: {
     unavailable?: SourceKey;
     empty?: boolean;
+    numbersUnavailable?: boolean;
   } = {},
 ) {
   const payload = structuredClone(OPERATIONS_OVERVIEW);
+  if (options.numbersUnavailable) {
+    payload.numbers = null;
+  }
   if (options.empty) {
     payload.availableCount = 0;
     for (const source of payload.sources) {

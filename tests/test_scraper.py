@@ -9,6 +9,10 @@ from pathlib import Path
 import pytest
 
 from jawnix.config import Settings
+from jawnix.inventory_snapshots import (
+    REFRESH_INVENTORY_JOB,
+    refresh_inventory_snapshots,
+)
 from jawnix.models import (
     DatasetPublication,
     InventorySyncAttempt,
@@ -993,6 +997,18 @@ def test_nightly_attempt_activates_scheduled_configuration_and_writes_review(
     assert session.query(Job).filter_by(
         kind="update_nightly_review_notification"
     ).count() == 1
+    # The committed sync queues the usable-inventory recount, which then
+    # gives this run's review the post-sync usable DB1 count (B3, B4).
+    refresh = session.query(Job).filter_by(
+        kind=REFRESH_INVENTORY_JOB
+    ).one()
+    assert refresh.status == "queued"
+    assert refresh.payload == {"reason": "inventory_sync"}
+    refresh_inventory_snapshots(session)
+    session.commit()
+    session.refresh(review)
+    assert review.summary["inventory"]["eligible"] == 1
+    assert review.summary["inventory"]["eligibleAsOf"].endswith("Z")
 
 
 def test_restore_rejects_older_validates_equal_and_replays_newer_dataset(

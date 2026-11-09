@@ -490,7 +490,9 @@ def test_billed_or_free_status_is_frozen_across_customer_toggle_flips(
     ) is None
 
 
-def test_admin_adjustment_and_billing_reads_are_audited(session):
+def test_admin_adjustment_is_audited_and_billing_reads_write_no_activity(
+    session,
+):
     user_id, customer = _customer(session)
 
     missing_rate = _as_admin(session).put(
@@ -509,13 +511,24 @@ def test_admin_adjustment_and_billing_reads_are_audited(session):
     assert adjusted["ledger"][0]["kind"] == "admin_adjustment"
     assert adjusted["ledger"][0]["reason"] == "Reconciled by finance."
 
+    audit_count_before_reads = session.scalar(
+        select(func.count()).select_from(AuditEntry)
+    )
     admin_read = _as_admin(session).get(
+        f"/api/admin/customers/{customer.id}/billing"
+    )
+    second_admin_read = _as_admin(session).get(
         f"/api/admin/customers/{customer.id}/billing"
     )
     customer_read = _as_customer(session, user_id).get("/api/me/billing")
     assert admin_read.status_code == customer_read.status_code == 200
+    assert second_admin_read.status_code == 200
     assert admin_read.json()["balanceCents"] == 2_500
     assert customer_read.json()["ledger"] == admin_read.json()["ledger"]
+    session.expire_all()
+    assert session.scalar(
+        select(func.count()).select_from(AuditEntry)
+    ) == audit_count_before_reads
 
     entries = list(
         session.scalars(
@@ -527,7 +540,6 @@ def test_admin_adjustment_and_billing_reads_are_audited(session):
     assert [entry.action for entry in entries] == [
         "customer_billing_updated",
         "credit_wallet_adjusted",
-        "credit_wallet_viewed",
     ]
     adjustment = entries[1]
     assert adjustment.reason == "Reconciled by finance."

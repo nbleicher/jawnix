@@ -97,6 +97,10 @@ _Avoid_: Automatic scraper optimization, source ranking
 Jawnix's authoritative set of validated, deduplicated leads available for allocation.
 _Avoid_: Scraper dataset, leads database
 
+**Usable Inventory**:
+The Leads in one Lead Database (DB1 or DB2) that are not suppressed, have no active Eligibility Hold, and are not globally excluded; the same rule for both databases. It is a background snapshot with an as-of time, recounted after every Inventory Sync, DB2 upload publication, nightly, and on request. Per-Customer rules (Licensed States, Niche Policy, no-repeat, Cooldown Window) narrow it further on the Customer page.
+_Avoid_: Eligible inventory, available now, raw row count
+
 **Legacy Inventory**:
 Previously acquired Leads, including existing NPPES-derived Leads, that remain eligible with provenance preserved even though their acquisition source is no longer active. Their outcomes remain visible overall but do not affect Google Maps Source Segment rankings or recommendations.
 _Avoid_: Suppressed leads, active source

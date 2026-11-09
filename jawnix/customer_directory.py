@@ -416,6 +416,30 @@ def _account_status(
     return _FIRST_INVITE_PENDING if invitation else _NO_ACCOUNT
 
 
+def active_customer_readiness(db: Session) -> tuple[int, int]:
+    """Active Customers, and how many of them have a Setup Problem."""
+    customers = list(
+        db.scalars(
+            select(Customer).where(
+                Customer.active.is_(True),
+                Customer.deleted_at.is_(None),
+            )
+        )
+    )
+    accounts = _accounts_by_customer(db)
+    invitations = _pending_invitations_by_customer(db)
+    with_problems = sum(
+        1
+        for customer in customers
+        if _setup_problems(
+            customer,
+            accounts.get(customer.id),
+            invitations.get(customer.id),
+        )
+    )
+    return len(customers), with_problems
+
+
 def _setup_problems(
     customer: Customer,
     account: UserAccount | None,

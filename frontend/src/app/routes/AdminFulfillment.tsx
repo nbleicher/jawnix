@@ -791,6 +791,103 @@ function conflictEndpoint(id: string) {
     `/api/admin/inventory-conflicts/${id}/${action.name}`;
 }
 
+const RENOTIFY_CONSEQUENCE =
+  "Queues a Telegram post for this Batch Request, or an edit of its existing message. The Batch Request itself does not change.";
+
+/**
+ * Re-posts or refreshes a Batch Request's Telegram message (B5).
+ *
+ * Deliberately outside the server's `actions` array: it repairs the Telegram
+ * surface and never moves the Batch Request's status, so it cannot be a
+ * transition the domain table offers or refuses.
+ */
+export function RenotifyAction({
+  requestId,
+  onQueued,
+}: {
+  requestId: string;
+  onQueued?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [queued, setQueued] = useState(false);
+
+  function show() {
+    setOpen(true);
+    setReason("");
+    setError("");
+  }
+
+  function close() {
+    setOpen(false);
+    setReason("");
+  }
+
+  async function confirm() {
+    if (!reason.trim()) {
+      setError("A reason is required.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/api/admin/requests/${requestId}/notify`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      close();
+      setQueued(true);
+      onQueued?.();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Stack gap={2} align="flex-start">
+      <Button variant="secondary" onClick={show}>
+        Re-notify in Telegram
+      </Button>
+      <Text size="sm" tone="muted" role="status">
+        {queued ? "Telegram re-notification queued." : ""}
+      </Text>
+      <ConfirmDialog
+        open={open}
+        onClose={close}
+        onConfirm={() => void confirm()}
+        title="Re-notify in Telegram"
+        consequence={RENOTIFY_CONSEQUENCE}
+        confirmLabel="Re-notify"
+        destructive={false}
+        busy={busy}
+      >
+        <Stack gap={4}>
+          <Field
+            label="Reason"
+            description="Recorded in Activity so this decision can be explained later."
+            required
+          >
+            <Textarea
+              name="reason"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </Field>
+          {error ? (
+            <Text size="sm" tone="danger" role="alert">
+              {error}
+            </Text>
+          ) : null}
+        </Stack>
+      </ConfirmDialog>
+    </Stack>
+  );
+}
+
 function RequestCard({ item, onConfirmed, refresh }: { item: RequestSummary; onConfirmed?: (result: Partial<RequestDetail>) => void; refresh?: () => void }) {
   return (
     <Card as="article">
@@ -935,6 +1032,7 @@ function PoolBreakdownSection({
   const revalidator = useRevalidator();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [queued, setQueued] = useState(false);
   const data = breakdown ?? { asOf: null, cells: [] };
 
   async function refresh() {
@@ -945,6 +1043,7 @@ function PoolBreakdownSection({
         method: "POST",
         body: "{}",
       });
+      setQueued(true);
       revalidator.revalidate();
     } catch (caught) {
       setError(errorMessage(caught));
@@ -956,7 +1055,7 @@ function PoolBreakdownSection({
   return (
     <DisclosureSection
       title="Pool analytics"
-      description="Inventory composition for Fulfillment. Unmapped Leads are their own Niche bucket. Counts come from a cached snapshot with a visible as-of time."
+      description="Inventory composition for Fulfillment. Unmapped Leads are their own Niche bucket. A background job recounts it after each Inventory Sync, DB2 upload, and every night."
       summary={data.cells.length
         ? `${data.cells.reduce((total, cell) => total + cell.count, 0).toLocaleString()} eligible`
         : "Not computed"}
@@ -971,6 +1070,11 @@ function PoolBreakdownSection({
           ) : null}
           <Text size="sm" tone="muted">
             As of: {data.asOf ? formatDate(data.asOf) : "Not computed yet"}
+          </Text>
+          <Text size="sm" tone="muted" role="status">
+            {queued
+              ? "Refresh queued. Counts update when the background recount finishes."
+              : ""}
           </Text>
           {data.cells.length ? (
             <Grid minColumnWidth="12rem" gap={3} aria-label="Pool breakdown">
@@ -987,7 +1091,7 @@ function PoolBreakdownSection({
           ) : (
             <EmptyState
               title="No pool snapshot yet"
-              description="Refresh to compute eligible inventory by state and Niche. Opening this page never runs the count."
+              description="The background recount fills this in. Opening this page never runs the count."
             />
           )}
           <Button variant="primary" busy={busy} onClick={() => void refresh()}>
@@ -1180,6 +1284,7 @@ export function AdminFulfillmentRoute() {
                       resolve={postReason(requestEndpoint(item.id))}
                       settled="No recovery action is valid in this state."
                     />
+                    <RenotifyAction requestId={item.id} />
                   </Stack>
                 </Card>
               ))}
@@ -1214,6 +1319,16 @@ export function AdminFulfillmentRoute() {
     </Page>
   );
 }
+
+/** Open Batch Requests, the ones whose Telegram message can still matter. */
+const RENOTIFY_STATUSES = new Set([
+  "pending",
+  "approved",
+  "waiting_inventory",
+  "processing",
+  "generated",
+  "failed",
+]);
 
 export function AdminFulfillmentRequestRoute() {
   const initial = useLoaderData<RequestDetail>();
@@ -1357,6 +1472,18 @@ export function AdminFulfillmentRequestRoute() {
               onConfirmed={confirmed}
               refresh={() => { void refresh().catch(() => undefined); }}
             />
+            {RENOTIFY_STATUSES.has(item.status) ? (
+              <Stack gap={2}>
+                <Text size="sm" tone="muted">
+                  If Telegram never received this Batch Request, or its message
+                  is out of date, re-notify. The request itself is unchanged.
+                </Text>
+                <RenotifyAction
+                  requestId={item.id}
+                  onQueued={() => { void refresh().catch(() => undefined); }}
+                />
+              </Stack>
+            ) : null}
           </Stack>
         </Section>
 

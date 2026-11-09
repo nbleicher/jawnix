@@ -149,6 +149,51 @@ describe("administrator Operations overview", () => {
     ).toHaveAttribute("href", "/app/admin/acquisition");
   });
 
+  it("starts with the numbers row above the queues", () => {
+    renderOverview(
+      overview({
+        numbers: {
+          generatedAt: "2026-11-09T09:41:00Z",
+          windowDays: 30,
+          inventory: {
+            db1: { usable: 9183402, asOf: "2026-11-09T06:00:00Z" },
+            db2: null,
+          },
+          openBatches: { total: 4, awaitingApproval: 1, shortOfInventory: 1 },
+          delivered: { leads: 2069666, batches: 33, customers: 13 },
+          customers: { active: 14, withSetupProblems: 1 },
+          creditBalance: { availableCents: 841250, billedCustomers: 11 },
+          creditsUsed: { cents: 1034833, priorCents: 923958 },
+          decisions: { waiting: 7, oldestAt: "2026-11-07T09:41:00Z", kinds: [] },
+        },
+      }),
+    );
+
+    const numbers = screen.getByLabelText("Key numbers");
+    expect(within(numbers).getAllByRole("term")).toHaveLength(8);
+    expect(
+      within(numbers).getByText((9183402).toLocaleString()),
+    ).toBeVisible();
+    expect(within(numbers).getByText("$8,412.50")).toBeVisible();
+    expect(
+      numbers.compareDocumentPosition(
+        screen.getByRole("region", { name: "Pending Batch Requests" }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("keeps the queues when the numbers could not be read", () => {
+    renderOverview(overview({ numbers: null }));
+
+    expect(screen.queryByLabelText("Key numbers")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/numbers are temporarily unavailable/),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("region", { name: "Pending Batch Requests" }),
+    ).toBeVisible();
+  });
+
   it("makes an empty queue explain what will appear next", () => {
     const empty = source();
     const queue = empty.queues[0]!;

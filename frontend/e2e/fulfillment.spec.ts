@@ -213,6 +213,71 @@ test.describe("Consequential actions are confirmed with a reason", () => {
   });
 });
 
+test.describe("Telegram re-notification is reachable (B5)", () => {
+  test("a delivery failure re-notifies Telegram with a reason", async ({
+    page,
+  }) => {
+    await page.goto("./admin/fulfillment");
+    const failures = page.getByRole("region", { name: "Delivery failures" });
+    await failures.locator("summary").click();
+
+    await failures
+      .getByRole("button", { name: "Re-notify in Telegram" })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toHaveAccessibleName("Re-notify in Telegram");
+    await expect(dialog).toHaveAccessibleDescription(
+      /The Batch Request itself does not change/,
+    );
+    await dialog
+      .getByLabel("Reason (required)")
+      .fill("Telegram never showed this batch.");
+    await dialog.getByRole("button", { name: "Re-notify" }).click();
+
+    await expect
+      .poll(() => calls.map((call) => call.url))
+      .toContain(`/api/admin/requests/${FAILED_WITH_ARTIFACT_ID}/notify`);
+    expect(calls.at(-1)?.reason).toBe("Telegram never showed this batch.");
+    await expect(
+      failures.getByText("Telegram re-notification queued."),
+    ).toBeVisible();
+  });
+
+  test("an open Batch Request re-notifies from its own page", async ({
+    page,
+  }) => {
+    await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
+
+    await page
+      .getByRole("region", { name: "Actions" })
+      .getByRole("button", { name: "Re-notify in Telegram" })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Re-notify" }).click();
+    await expect(dialog.getByText("A reason is required.")).toBeVisible();
+    expect(calls).toHaveLength(0);
+
+    await dialog.getByLabel("Reason (required)").fill("Message was deleted.");
+    await dialog.getByRole("button", { name: "Re-notify" }).click();
+
+    await expect
+      .poll(() => calls.map((call) => call.url))
+      .toContain(`/api/admin/requests/${PENDING_REQUEST_ID}/notify`);
+    expect(calls.at(-1)?.reason).toBe("Message was deleted.");
+  });
+
+  test("a delivered Batch Request does not offer it", async ({ page }) => {
+    await page.goto(`./admin/fulfillment/requests/${DELIVERED_REQUEST_ID}`);
+
+    await expect(
+      page.getByRole("heading", { level: 1, name: /Harbor Point/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Re-notify in Telegram" }),
+    ).toHaveCount(0);
+  });
+});
+
 test.describe("Artifact regeneration is reachable", () => {
   test("an expired Batch Artifact is offered from the workspace", async ({
     page,

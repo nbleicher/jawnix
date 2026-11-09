@@ -451,6 +451,108 @@ describe("confirming a consequential action", () => {
   });
 });
 
+describe("re-notifying Telegram", () => {
+  function failure() {
+    return {
+      ...summary({
+        id: "22222222-2222-4222-8222-222222222222",
+        customerIdentity: "Gulfshore Advisors",
+        status: "failed",
+        actions: [
+          action({
+            name: "retry_delivery",
+            label: "Retry notification",
+            consequence: "Emails another portal notification.",
+          }),
+        ],
+      }),
+      lastError: "Provider returned HTTP 503",
+      deliveryAttempts: 2,
+      deliveryStatus: "failed",
+    };
+  }
+
+  it("is offered on a delivery failure and posts its reason to the notify endpoint", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ requestId: "22222222-2222-4222-8222-222222222222", jobId: 9, jobKind: "update_notification" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    renderRoute(
+      <AdminFulfillmentRoute />,
+      workspace({ batchRequests: [], deliveryFailures: [failure()] }),
+    );
+
+    const section = screen.getByRole("region", { name: "Delivery failures" });
+    await user.click(
+      within(section).getByRole("button", { name: "Re-notify in Telegram" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveAccessibleDescription(
+      /The Batch Request itself does not change/,
+    );
+    await user.type(
+      within(dialog).getByLabelText("Reason (required)"),
+      "Telegram message was deleted.",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Re-notify" }));
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "/api/admin/requests/22222222-2222-4222-8222-222222222222/notify",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ reason: "Telegram message was deleted." }),
+        }),
+      );
+    });
+    expect(
+      await within(section).findByText("Telegram re-notification queued."),
+    ).toBeVisible();
+    // Email recovery stays its own, separately named action.
+    expect(
+      within(section).getByRole("button", { name: "Retry notification" }),
+    ).toBeVisible();
+  });
+
+  it("refuses to re-notify without a reason", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    renderRoute(
+      <AdminFulfillmentRoute />,
+      workspace({ batchRequests: [], deliveryFailures: [failure()] }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Re-notify in Telegram" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Re-notify" }));
+
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "A reason is required.",
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("is offered on an open Batch Request's detail page", () => {
+    renderRoute(<AdminFulfillmentRequestRoute />, detail());
+    expect(
+      screen.getByRole("button", { name: "Re-notify in Telegram" }),
+    ).toBeVisible();
+  });
+
+  it("is not offered once a Batch Request is delivered", () => {
+    renderRoute(
+      <AdminFulfillmentRequestRoute />,
+      detail({ status: "delivered", actions: [] }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Re-notify in Telegram" }),
+    ).toBeNull();
+  });
+});
+
 describe("the Batch Request detail", () => {
   it("shows the context an administrator decides on", () => {
     renderRoute(<AdminFulfillmentRequestRoute />, detail());

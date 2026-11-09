@@ -18,6 +18,7 @@ from .activity import record_activity
 from .database import SessionLocal
 from .db2_setup import db2_url
 from .job_wakeup import postgres_dsn
+from .inventory_snapshots import enqueue_inventory_refresh
 from .jobs import enqueue_job
 from .lead_databases import db2_inventory
 from .models import Customer, CustomerAvailabilitySnapshot, Job, LeadDatabaseMembership, LeadDatabaseSummary, LeadUpload, utcnow
@@ -163,6 +164,8 @@ def _publish(upload_id, factory, progress):
                                  "updated":updated, "rejected":progress.rejected, "duplicates":item.duplicate_rows,
                                  "sha256":item.sha256})
         enqueue_job(session, "fulfill_round_robin")
+        # Visible to a worker only once this publication commits.
+        enqueue_inventory_refresh(session, reason="db2_upload")
         session.flush()
         return upload_record(item)
 

@@ -501,6 +501,55 @@ def test_agency_directory_details_creation_and_lifecycle_contracts(
         app.dependency_overrides.clear()
 
 
+def test_agency_details_lists_membership_history_after_assignment(
+    session,
+    settings,
+):
+    """Regression: details raised NameError once any membership existed."""
+    agency = Agency(slug="harbor", name="Harbor Agency")
+    customer = Customer(
+        slug="harbor-customer",
+        name="Harbor Customer",
+        licensed_states=["FL"],
+    )
+    session.add_all([agency, customer])
+    session.commit()
+    client = _admin_client(session, settings)
+    try:
+        assigned = client.post(
+            f"/api/admin/customers/{customer.id}/agency-assignment",
+            json={
+                "agency_id": agency.id,
+                "reason": "Joining the Harbor servicing team.",
+                "confirmed": True,
+            },
+        )
+        assert assigned.status_code == 200
+        assert session.scalar(
+            select(AgencyMembershipHistory.id).where(
+                AgencyMembershipHistory.agency_id == agency.id
+            )
+        ) is not None
+
+        details = client.get(f"/api/admin/agencies/{agency.id}/details")
+        assert details.status_code == 200
+        history = details.json()["membershipHistory"]
+        assert len(history) == 1
+        assert history[0]["customerId"] == customer.id
+        assert history[0]["customer"] == "Harbor Customer"
+        assert history[0]["reason"] == "Joining the Harbor servicing team."
+        assert history[0]["endedAt"] is None
+        assert details.json()["deletion"]["dependencies"][
+            "membershipHistory"
+        ] == 1
+        assert any(
+            item["label"] == "Harbor Customer assigned"
+            for item in details.json()["activity"]
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_history_lead_counts_persist_and_refresh_only_at_scale(
     session,
     monkeypatch,
