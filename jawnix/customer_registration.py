@@ -12,6 +12,7 @@ from .config import Settings
 from .customer_accounts import activate_registered_user_account, UserAccountConflict
 from .customer_history import archived_customer_matches
 from .models import Customer, CustomerProfile, CustomerRegistration, CustomerTombstone, LeadRequest, UserAccount, utcnow
+from .registration_emails import enqueue_registration_email
 from .schemas import RegistrationDecision, SignupProfile
 
 #: Where an active Customer lands. /app/overview still redirects here.
@@ -142,6 +143,8 @@ def decide_registration(db: Session, user_id: uuid.UUID, decision: RegistrationD
     record_activity(db, action="customer_registration_decided", target_type="user_account", target_id=user_id,
                     actor_id=actor_id, reason="Operator reviewed a matching-name registration.",
                     details={"decision":decision.decision,"customerId":registration.customer_id,"operatorApproved":True})
+    # The person is waiting on "Account awaiting review"; tell them either way.
+    enqueue_registration_email(db, registration, restored=decision.decision == "restore")
     return registration
 
 

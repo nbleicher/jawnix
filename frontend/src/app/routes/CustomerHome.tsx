@@ -13,6 +13,7 @@ import { PurchaseDialog } from "../billing/CreditWalletWidget";
 import { formatCents } from "../billing/money";
 import { batchLabel, batchName } from "../customer/batchLabel";
 import { SUPPORT_HREF } from "../customer/CustomerSessionActions";
+import { APPOINTED_STATES_HREF } from "../customer/account";
 import {
   formatClock,
   formatCount,
@@ -43,7 +44,6 @@ import "./CustomerHome.css";
 /** Until New request and Batches have pages of their own (C3). */
 const NEW_REQUEST_HREF = "/app/requests";
 const ALL_BATCHES_HREF = `/app/requests${BATCH_HISTORY_HASH}`;
-const ACCOUNT_HREF = "/app/account";
 
 /** More appointed states than this read as a count in the tile. */
 const STATE_CODES_IN_TILE = 4;
@@ -119,7 +119,7 @@ function SetupAlert({ problem }: { problem: NonNullable<CustomerHomeAlert["probl
           <strong>Setup incomplete.</strong> Add your appointed states before you
           request a batch.
         </p>
-        <ButtonLink href={ACCOUNT_HREF} variant="secondary">
+        <ButtonLink href={APPOINTED_STATES_HREF} variant="secondary">
           Add appointed states
         </ButtonLink>
       </>
@@ -187,7 +187,7 @@ function HomeNumbers({ home }: { home: CustomerHomeData }) {
   const editVerb = states.length ? "Edit" : "Add";
   const edit = (
     <ApplicationLink
-      href={ACCOUNT_HREF}
+      href={APPOINTED_STATES_HREF}
       className="customer-home__edit"
       aria-label={`${editVerb} appointed states`}
     >

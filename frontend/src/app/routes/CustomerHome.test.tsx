@@ -160,7 +160,7 @@ describe("CustomerHomeRoute", () => {
     expect(within(numbers).getByText("FL, TX")).toBeVisible();
     expect(within(numbers).getByRole("link", { name: "Edit appointed states" })).toHaveAttribute(
       "href",
-      "/app/account",
+      "/app/account/states",
     );
     expect(within(numbers).getByText("150,000")).toBeVisible();
     expect(within(numbers).getByText("2 batches")).toBeVisible();
@@ -218,7 +218,7 @@ describe("CustomerHomeRoute", () => {
     expect(alerts).toHaveTextContent("Setup incomplete. Add your appointed states before you request a batch.");
     expect(within(alerts).getByRole("link", { name: "Add appointed states" })).toHaveAttribute(
       "href",
-      "/app/account",
+      "/app/account/states",
     );
     expect(screen.getByText("None")).toBeVisible();
   });

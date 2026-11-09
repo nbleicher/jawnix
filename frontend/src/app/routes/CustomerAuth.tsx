@@ -31,18 +31,22 @@ const INVITATION_ERROR =
 const RESET_LINK_ERROR =
   "Password links work once and expire after an hour. Ask for a new one from sign-in.";
 
-export function AuthRouteFrame({ children }: { children: ReactNode }) {
+/** `wide` drops the brand plate for a step that needs the whole width, like
+ *  sign-up's appointed-states grid. */
+export function AuthRouteFrame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
-    <div className="jx-auth-route">
+    <div className={wide ? "jx-auth-route jx-auth-route--wide" : "jx-auth-route"}>
       <a className="jx-auth-route__skip-link" href="#jx-auth-main">
         Skip to main content
       </a>
       <header className="jx-auth-route__banner">
         <BrandLockup />
       </header>
-      <div className="jx-auth-route__plate" aria-hidden="true">
-        <RoutingPlate />
-      </div>
+      {wide ? null : (
+        <div className="jx-auth-route__plate" aria-hidden="true">
+          <RoutingPlate />
+        </div>
+      )}
       <main className="jx-auth-route__main" id="jx-auth-main" tabIndex={-1}>
         {children}
       </main>

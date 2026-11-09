@@ -200,6 +200,7 @@ def test_preview_names_every_affected_request_without_mutating(session, settings
         assert review["impacts"] == [
             {
                 "request_id": str(narrowed.id),
+                "number": narrowed.number,
                 "lead_count": 100,
                 "status": "Approved",
                 "current_states": ["FL", "TX"],
@@ -208,6 +209,7 @@ def test_preview_names_every_affected_request_without_mutating(session, settings
             },
             {
                 "request_id": str(canceled.id),
+                "number": canceled.number,
                 "lead_count": 50,
                 "status": "Preparing Batch",
                 "current_states": ["TX"],
@@ -384,7 +386,7 @@ def test_concurrent_request_update_invalidates_the_exact_impact(session, setting
             json={"review_token": review["review_token"]},
         )
         assert response.status_code == 409
-        assert "Batch Request changed" in response.json()["detail"]
+        assert "batch in progress changed" in response.json()["detail"]
 
         session.refresh(profile)
         session.refresh(narrowed)

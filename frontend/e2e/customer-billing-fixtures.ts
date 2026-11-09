@@ -112,8 +112,84 @@ export const UNDERFUNDED_WALLET: MockCreditWallet = {
   ],
 };
 
+/** Account's Billing tab (`/api/me/billing/summary`). */
+export interface MockBillingSummary {
+  available_balance_cents: number;
+  held_cents: number;
+  held_for: Array<{ id: string; number: number; href: string }>;
+  lead_rate_cents_per_thousand: number | null;
+  spent_since: string;
+  spent_cents: number;
+  spent_batches: number;
+  history: Array<{
+    id: string;
+    kind: "purchase" | "charge" | "hold" | "adjustment";
+    occurred_at: string;
+    amount_cents: number;
+    balance_after_cents: number;
+    batch: { id: string; number: number; href: string } | null;
+    note: string | null;
+  }>;
+  history_complete: boolean;
+}
+
+/** Batch numbers for the ledger's batch ids, so derived histories name them. */
+const FIXTURE_BATCH_NUMBERS: Record<string, number> = {
+  "11111111-1111-4111-8111-111111111111": 1038,
+};
+
+function fixtureBatch(id: string) {
+  return { id, number: FIXTURE_BATCH_NUMBERS[id] ?? 1001, href: `/app/batches/${id}` };
+}
+
+/** The Billing tab that agrees with a header wallet: its ledger, newest
+ *  first, with any active hold on top as "Held for batch #1042". */
+export function billingSummaryFor(wallet: MockCreditWallet): MockBillingSummary {
+  const held = wallet.activeHoldsCents
+    ? [{ id: "42424242-4242-4242-8242-424242424242", number: 1042, href: "/app/batches/42424242-4242-4242-8242-424242424242" }]
+    : [];
+  const rows: Array<Omit<MockBillingSummary["history"][number], "balance_after_cents">> = [
+    ...held.map((batch) => ({
+      id: `hold:${batch.id}`,
+      kind: "hold" as const,
+      occurred_at: "2026-08-03T15:30:00Z",
+      amount_cents: -wallet.activeHoldsCents,
+      batch,
+      note: null,
+    })),
+    ...wallet.ledger.map((entry) => ({
+      id: entry.id,
+      kind: ({ purchase: "purchase", batch_charge: "charge", admin_adjustment: "adjustment" } as const)[entry.kind],
+      occurred_at: entry.createdAt,
+      amount_cents: entry.amountCents,
+      batch: entry.batchRequestId ? fixtureBatch(entry.batchRequestId) : null,
+      note: entry.kind === "admin_adjustment" ? entry.reason : null,
+    })),
+  ];
+  let balance = wallet.availableBalanceCents;
+  const history = rows.map((row) => {
+    const withBalance = { ...row, balance_after_cents: balance };
+    balance -= row.amount_cents;
+    return withBalance;
+  });
+  const charges = wallet.ledger.filter((entry) => entry.kind === "batch_charge");
+  return {
+    available_balance_cents: wallet.availableBalanceCents,
+    held_cents: wallet.activeHoldsCents,
+    held_for: held,
+    lead_rate_cents_per_thousand: wallet.leadRateCentsPerThousand,
+    spent_since: "2026-07-04T00:00:00Z",
+    spent_cents: -charges.reduce((sum, entry) => sum + entry.amountCents, 0),
+    spent_batches: charges.length,
+    history,
+    history_complete: true,
+  };
+}
+
 export interface CustomerBillingMockOptions {
   wallet?: MockCreditWallet | (() => MockCreditWallet);
+  /** The Billing tab's read; derived from the wallet when absent. */
+  summary?: MockBillingSummary | (() => MockBillingSummary);
   walletStatus?: number;
   purchaseCheckoutUrl?: string;
   purchaseStatus?: number;
@@ -163,6 +239,16 @@ export async function mockCustomerBilling(
     const wallet = currentWallet();
     state.wallet = structuredClone(wallet);
     return json(route, wallet);
+  });
+
+  await page.route(/\/api\/me\/billing\/summary$/, (route) => {
+    const wallet = currentWallet();
+    if (!wallet.billingEnabled) {
+      return json(route, { detail: "Billing is not set up for this account." }, 404);
+    }
+    const summary =
+      typeof options.summary === "function" ? options.summary() : options.summary;
+    return json(route, summary ?? billingSummaryFor(wallet));
   });
 
   await page.route(/\/api\/me\/billing\/purchases$/, async (route) => {

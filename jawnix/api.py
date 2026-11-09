@@ -59,6 +59,7 @@ from .customer_directory import (
     build_customer_directory,
     customer_dependency_counts,
 )
+from .customer_billing import CustomerBilling, build_customer_billing
 from .customer_history import archived_customer_matches, remember_customer_name, request_history_scope
 from .customer_registration import CUSTOMER_HOME_PATH, complete_registration, decide_registration, lock_registration_identity, registration_next, registration_status, set_registration_states
 from .customer_overview import CustomerHome, build_customer_home, parse_month_start
@@ -1133,6 +1134,26 @@ def get_my_billing(
     return wallet_view(db, profile.customer)
 
 
+@app.get("/api/me/billing/summary", response_model=CustomerBilling)
+def get_my_billing_summary(
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    """Account's Billing tab: balance, held, rate, spending, and history."""
+    profile = _current_customer_profile(db, principal)
+    summary = (
+        build_customer_billing(db, profile.customer)
+        if profile.customer is not None
+        else None
+    )
+    if summary is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Billing is not set up for this account.",
+        )
+    return summary
+
+
 @app.post("/api/me/billing/purchases", status_code=201)
 def create_credit_purchase(
     payload: CreditPurchaseCreate,
@@ -1572,8 +1593,8 @@ def update_profile(
         raise HTTPException(
             status_code=409,
             detail=(
-                "Licensed State changes require an impact review. "
-                "Use Account to review and confirm them."
+                "Appointed state changes need a review. "
+                "Change them on Account."
             ),
         )
 

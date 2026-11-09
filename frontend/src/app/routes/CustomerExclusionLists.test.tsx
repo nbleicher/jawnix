@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -72,6 +72,10 @@ describe("Customer Exclusion Lists", () => {
       screen.getByText("The CSV holds more than 50,000 rows."),
     ).toBeVisible();
     expect(screen.getAllByText("1,150", { exact: false })[0]).toBeVisible();
+    // One table row per list, with what the list could not use.
+    const table = screen.getByRole("table", { name: "Your exclusion lists" });
+    expect(within(table).getAllByRole("row")).toHaveLength(4);
+    expect(within(table).getAllByText("30 invalid, 20 duplicates")).toHaveLength(2);
   });
 
   it("uploads a typed CSV and prepends the new list", async () => {
@@ -82,7 +86,7 @@ describe("Customer Exclusion Lists", () => {
     );
 
     render(<CustomerExclusionListsSection />);
-    expect(await screen.findByText("No Exclusion Lists yet")).toBeVisible();
+    expect(await screen.findByText(/No lists yet/)).toBeVisible();
 
     await user.selectOptions(screen.getByLabelText(/Type/), "landline");
     const file = new File(["phone\n2155550000\n"], "landlines.csv", {
@@ -102,7 +106,7 @@ describe("Customer Exclusion Lists", () => {
     vi.mocked(listMyExclusionLists).mockResolvedValue([]);
 
     render(<CustomerExclusionListsSection />);
-    await screen.findByText("No Exclusion Lists yet");
+    await screen.findByText(/No lists yet/);
 
     expect(screen.getByLabelText(/Type/)).toHaveValue("mixed");
   });
@@ -112,7 +116,7 @@ describe("Customer Exclusion Lists", () => {
     vi.mocked(listMyExclusionLists).mockResolvedValue([]);
 
     render(<CustomerExclusionListsSection />);
-    await screen.findByText("No Exclusion Lists yet");
+    await screen.findByText(/No lists yet/);
     await user.click(screen.getByRole("button", { name: "Upload list" }));
 
     expect(
@@ -129,7 +133,7 @@ describe("Customer Exclusion Lists", () => {
     );
 
     render(<CustomerExclusionListsSection />);
-    await screen.findByText("No Exclusion Lists yet");
+    await screen.findByText(/No lists yet/);
     await user.upload(
       screen.getByLabelText(/CSV file/),
       new File(["x"], "phones.csv", { type: "text/csv" }),
@@ -150,7 +154,7 @@ describe("Customer Exclusion Lists", () => {
     render(<CustomerExclusionListsSection />);
     expect(
       await screen.findByText(
-        "Your Exclusion Lists could not be loaded right now.",
+        "Your exclusion lists could not be loaded right now.",
       ),
     ).toBeVisible();
 

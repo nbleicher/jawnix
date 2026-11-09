@@ -1,27 +1,35 @@
-import { useEffect, useMemo, useState } from "react";
-import { useLoaderData, useRevalidator } from "react-router";
+import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
+import {
+  Link,
+  Navigate,
+  useLoaderData,
+  useParams,
+  useRevalidator,
+  useRouteLoaderData,
+} from "react-router";
 
 import { Button } from "../../design-system/primitives/Button";
 import { ConfirmDialog } from "../../design-system/primitives/Dialog";
-import { Field, Fieldset, Input } from "../../design-system/primitives/form";
-import {
-  Card,
-  Cluster,
-  Grid,
-  Page,
-  Section,
-  Stack,
-} from "../../design-system/primitives/layout";
+import { Field, Input } from "../../design-system/primitives/form";
+import { Cluster, Page, Section, Stack } from "../../design-system/primitives/layout";
+import { Panel, RecordColumns } from "../../design-system/primitives/panel";
 import { StatusBadge } from "../../design-system/primitives/status";
-import {
-  Heading,
-  LabelText,
-  Mono,
-  Text,
-} from "../../design-system/primitives/typography";
+import { Tabs } from "../../design-system/primitives/tabs";
+import { Mono, Text } from "../../design-system/primitives/typography";
+import { useBilledWallet } from "../billing/CreditWalletContext";
+import { ACCOUNT_TABS, accountTabPath } from "../customer/account";
+import type { AccountTab } from "../customer/account";
+import { AppointedStatesPicker, stateNames } from "../customer/AppointedStatesPicker";
+import type { StateOption } from "../customer/AppointedStatesPicker";
+import { batchLabel } from "../customer/batchLabel";
+import { CustomerSessionActions, SUPPORT_HREF } from "../customer/CustomerSessionActions";
+import { formatStates, plural } from "../customer/format";
+import type { CustomerHomeData } from "../customer/home";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
-import { CreditLedgerSection } from "../billing/CreditLedgerSection";
-import { CustomerSessionActions } from "../customer/CustomerSessionActions";
+import { CustomerAccountBilling } from "./CustomerAccountBilling";
+import { CustomerAccountPassword } from "./CustomerAccountPassword";
+import { CustomerExclusionListsSection } from "./CustomerExclusionLists";
 import {
   LicensedStateRequestError,
   applyLicensedStateReview,
@@ -33,86 +41,99 @@ import type {
   CustomerAccountWorkspace,
   LicensedStateImpact,
   LicensedStateReview,
+  LicensedStateWorkspace,
 } from "./licensedStates";
 
 import "./CustomerAccount.css";
 
-function formatStates(states: string[]): string {
-  return states.length ? states.join(", ") : "None";
+// --- Tabs ---------------------------------------------------------------------
+
+function accountTab(slug: string | undefined): AccountTab | null {
+  if (slug === undefined) return "profile";
+  const match = ACCOUNT_TABS.find((tab) => tab.key === slug && tab.key !== "profile");
+  return match ? match.key : null;
 }
 
-function sameStates(left: string[], right: string[]): boolean {
-  return left.join(",") === right.join(",");
+/** "River Morgan · Northstar Insurance". */
+function accountOwner(identity: CustomerAccountIdentity, customerName: string | undefined): string {
+  const person = `${identity.first_name} ${identity.last_name}`.trim();
+  if (!person) return customerName || identity.email;
+  const company = customerName?.trim();
+  if (company && company.toLocaleLowerCase() !== person.toLocaleLowerCase()) {
+    return `${person} · ${company}`;
+  }
+  return `${person} · ${identity.email}`;
 }
+
+function Message({ tone, children }: { tone: "error" | "success"; children: ReactNode }) {
+  return (
+    <div
+      className={`account-tab__message account-tab__message--${tone}`}
+      role={tone === "error" ? "alert" : "status"}
+    >
+      {children}
+    </div>
+  );
+}
+
+// --- Profile ------------------------------------------------------------------
 
 interface SetupProblem {
-  key: "mapping_unconfirmed" | "no_licensed_states";
+  key: "mapping_unconfirmed" | "no_appointed_states";
   name: string;
-  next: string;
-  actor: "Jawnix" | "You";
+  next: ReactNode;
 }
 
-function setupProblems(
-  identity: CustomerAccountIdentity,
-  licensedStates: string[],
-): SetupProblem[] {
+function setupProblems(identity: CustomerAccountIdentity, states: string[]): SetupProblem[] {
   const problems: SetupProblem[] = [];
   if (identity.customer_id === null || identity.mapping_confirmed_at === null) {
     problems.push({
       key: "mapping_unconfirmed",
-      name: "Customer mapping needs confirmation",
-      next:
-        "Jawnix will confirm which Customer record this User Account belongs to. Batch Requests unlock automatically after confirmation.",
-      actor: "Jawnix",
+      name: "Your account is being set up",
+      next: "Noah is connecting this sign-in to your account. You can request batches as soon as that is done; there is nothing you need to do.",
     });
   }
-  if (!licensedStates.length) {
+  if (!states.length) {
     problems.push({
-      key: "no_licensed_states",
-      name: "No Licensed States",
-      next:
-        "Add at least one Licensed State below, then review and save the change. Batch Requests unlock after it is saved.",
-      actor: "You",
+      key: "no_appointed_states",
+      name: "No appointed states",
+      next: (
+        <>
+          Add at least one on <Link to={accountTabPath("states")}>Appointed states</Link>.
+          You can request batches once it is saved.
+        </>
+      ),
     });
   }
   return problems;
 }
 
-/**
- * The colophon from the brand book (ch1/ch10): the money page names the one
- * accountable person. Replies reach him — the address is a mailto, not a
- * queue.
- */
-function FounderContact() {
+function SetupStatus({ problems }: { problems: SetupProblem[] }) {
+  if (!problems.length) return null;
   return (
-    <Section
-      title="Your contact"
-      description="One named person is accountable for this account."
-    >
-      <Card className="account-contact">
-        <Stack gap={2}>
-          <Text size="sm">
-            JAWNIX is run by <strong>Noah Bleicher</strong>. Questions,
-            disputes, and Lead Reports are reviewed by me.
-          </Text>
-          <Text size="sm">
-            <Mono>
-              <a href="mailto:noah@jawnix.com">noah@jawnix.com</a>
-            </Mono>
-          </Text>
-        </Stack>
-      </Card>
+    <Section title="Before you can request batches">
+      <ul className="account-setup">
+        {problems.map((problem) => (
+          <li key={problem.key} className="account-setup__problem">
+            <Cluster justify="space-between" align="baseline">
+              <strong>{problem.name}</strong>
+              <StatusBadge tone="danger">Needs setup</StatusBadge>
+            </Cluster>
+            <Text size="sm">{problem.next}</Text>
+          </li>
+        ))}
+      </ul>
     </Section>
   );
 }
 
-function Identity({
+function YourDetails({
   identity,
-  licensedStates,
+  states,
   onSaved,
 }: {
   identity: CustomerAccountIdentity;
-  licensedStates: string[];
+  states: string[];
   onSaved: (next: CustomerAccountIdentity) => void;
 }) {
   const [firstName, setFirstName] = useState(identity.first_name);
@@ -133,6 +154,14 @@ function Identity({
     || lastName.trim() !== identity.last_name
     || phone.trim() !== identity.phone;
 
+  function edit(set: (value: string) => void) {
+    return (value: string) => {
+      setSaved("");
+      setFailure("");
+      set(value);
+    };
+  }
+
   async function save() {
     if (!changed || busy) return;
     setBusy(true);
@@ -143,7 +172,7 @@ function Identity({
         first_name: firstName,
         last_name: lastName,
         phone,
-        licensed_states: licensedStates,
+        licensed_states: states,
       });
       onSaved({
         ...identity,
@@ -154,9 +183,7 @@ function Identity({
       setSaved("Profile saved.");
     } catch (caught) {
       setFailure(
-        caught instanceof Error
-          ? caught.message
-          : "Profile could not be updated. Please try again.",
+        caught instanceof Error ? caught.message : "Profile could not be saved. Please try again.",
       );
     } finally {
       setBusy(false);
@@ -164,446 +191,316 @@ function Identity({
   }
 
   return (
-    <Section
-      title="Identity"
-      description="The person currently signed in to this Customer account."
-    >
-      <Card>
-        <Stack gap={5}>
-          <Fieldset legend="Your details">
-            <Grid minColumnWidth="14rem" gap={4}>
-              <Field label="First name">
-                <Input
-                  value={firstName}
-                  onChange={(event) => {
-                    setSaved("");
-                    setFailure("");
-                    setFirstName(event.currentTarget.value);
-                  }}
-                  autoComplete="given-name"
-                />
-              </Field>
-              <Field label="Last name">
-                <Input
-                  value={lastName}
-                  onChange={(event) => {
-                    setSaved("");
-                    setFailure("");
-                    setLastName(event.currentTarget.value);
-                  }}
-                  autoComplete="family-name"
-                />
-              </Field>
-              <Field
-                label="Email"
-                description="Sign-in email cannot be changed here."
-              >
-                <Input value={identity.email} disabled readOnly />
-              </Field>
-              <Field label="Phone">
-                <Input
-                  type="tel"
-                  value={phone}
-                  onChange={(event) => {
-                    setSaved("");
-                    setFailure("");
-                    setPhone(event.currentTarget.value);
-                  }}
-                  autoComplete="tel"
-                />
-              </Field>
-            </Grid>
-          </Fieldset>
-          {failure ? (
-            <Text tone="danger" role="alert">{failure}</Text>
-          ) : null}
-          {saved ? (
-            <Text tone="success" role="status">{saved}</Text>
-          ) : null}
-          <Cluster justify="flex-end">
-            <Button
-              variant="primary"
-              disabled={!changed}
-              busy={busy}
-              busyLabel="Saving…"
-              onClick={() => void save()}
-            >
-              Save profile
-            </Button>
-          </Cluster>
-        </Stack>
-      </Card>
+    <Section title="Your details" description="The person who signs in to this account.">
+      <form
+        className="account-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <div className="account-form__fields">
+          <Field label="First name">
+            <Input
+              value={firstName}
+              autoComplete="given-name"
+              onChange={(event) => edit(setFirstName)(event.currentTarget.value)}
+            />
+          </Field>
+          <Field label="Last name">
+            <Input
+              value={lastName}
+              autoComplete="family-name"
+              onChange={(event) => edit(setLastName)(event.currentTarget.value)}
+            />
+          </Field>
+          <Field label="Phone">
+            <Input
+              type="tel"
+              value={phone}
+              autoComplete="tel"
+              onChange={(event) => edit(setPhone)(event.currentTarget.value)}
+            />
+          </Field>
+          <Field label="Sign-in email">
+            <Input value={identity.email} disabled readOnly />
+          </Field>
+        </div>
+        <Text size="sm" tone="muted">
+          To change your sign-in email, email noah@jawnix.com.
+        </Text>
+        {failure ? <Message tone="error">{failure}</Message> : null}
+        {saved ? <Message tone="success">{saved}</Message> : null}
+        <div>
+          <Button type="submit" variant="primary" disabled={!changed} busy={busy} busyLabel="Saving…">
+            Save profile
+          </Button>
+        </div>
+      </form>
     </Section>
   );
 }
 
-function SetupStatus({ problems }: { problems: SetupProblem[] }) {
+/**
+ * The colophon from the brand book (ch1/ch10): the account names the one
+ * accountable person, and replies reach him.
+ */
+function YourContact() {
   return (
-    <Section
-      title="Setup status"
-      description="Anything that currently prevents you from requesting a Batch appears here with a clear owner and next step."
-    >
-      {problems.length ? (
-        <Grid as="ul" minColumnWidth="20rem" className="setup-problem-list">
-          {problems.map((problem) => (
-            <Card
-              as="li"
-              padding={4}
-              className="setup-problem"
-              key={problem.key}
-            >
-              <Stack gap={4}>
-                <Cluster justify="space-between" align="flex-start">
-                  <Heading level={3} size="sm">{problem.name}</Heading>
-                  <StatusBadge tone="warning">Needs attention</StatusBadge>
-                </Cluster>
-                <dl className="setup-problem__details">
-                  <div>
-                    <dt><LabelText>What happens next</LabelText></dt>
-                    <dd>{problem.next}</dd>
-                  </div>
-                  <div>
-                    <dt><LabelText>Who acts</LabelText></dt>
-                    <dd>{problem.actor}</dd>
-                  </div>
-                </dl>
-              </Stack>
-            </Card>
-          ))}
-        </Grid>
-      ) : (
-        <Card padding={4} className="setup-status--ready">
-          <Stack gap={3}>
-            <Cluster justify="space-between" align="flex-start">
-              <Heading level={3} size="sm">Setup complete</Heading>
-              <StatusBadge tone="success">Ready</StatusBadge>
-            </Cluster>
-            <Text>
-              Your identity is connected and at least one Licensed State is
-              saved. You can request Batches.
-            </Text>
-          </Stack>
-        </Card>
-      )}
-    </Section>
+    <Panel title="Your contact" className="account-contact">
+      <Text size="sm">
+        JAWNIX is run by <strong>Noah Bleicher</strong>. Questions, billing,
+        and bad leads come to me.
+      </Text>
+      <Text size="sm">
+        <Mono>
+          <a href={SUPPORT_HREF}>noah@jawnix.com</a>
+        </Mono>
+      </Text>
+    </Panel>
   );
+}
+
+function ProfileTab({
+  identity,
+  states,
+  onSaved,
+}: {
+  identity: CustomerAccountIdentity;
+  states: string[];
+  onSaved: (next: CustomerAccountIdentity) => void;
+}) {
+  return (
+    <RecordColumns
+      main={
+        <Stack gap={6}>
+          <SetupStatus problems={setupProblems(identity, states)} />
+          <YourDetails identity={identity} states={states} onSaved={onSaved} />
+        </Stack>
+      }
+      aside={<YourContact />}
+    />
+  );
+}
+
+// --- Appointed states ---------------------------------------------------------
+
+function sameStates(left: string[], right: string[]): boolean {
+  return [...left].sort().join(",") === [...right].sort().join(",");
+}
+
+function namesOrNone(options: StateOption[], codes: string[]): string {
+  const names = stateNames(options, codes);
+  return names.length ? names.join(", ") : "None";
 }
 
 function Impact({ impact }: { impact: LicensedStateImpact }) {
+  const canceled = impact.action === "canceled";
   return (
-    <Card as="li" padding={4} className="licensed-state-review__impact">
-      <Stack gap={3}>
-        <Cluster justify="space-between" align="flex-start">
-          <Heading level={3} size="sm">
-            {`${impact.lead_count.toLocaleString()}-lead Batch Request`}
-          </Heading>
-          <StatusBadge tone={impact.action === "canceled" ? "danger" : "warning"}>
-            {impact.action === "canceled" ? "Will be canceled" : "Will be narrowed"}
-          </StatusBadge>
-        </Cluster>
-        <Text size="sm" tone="muted">
-          {impact.status}
-        </Text>
-        <dl className="licensed-state-review__scope">
-          <div>
-            <dt>
-              <LabelText>Current scope</LabelText>
-            </dt>
-            <dd>{formatStates(impact.current_states)}</dd>
-          </div>
-          <div>
-            <dt>
-              <LabelText>After saving</LabelText>
-            </dt>
-            <dd>{formatStates(impact.resulting_states)}</dd>
-          </div>
-        </dl>
-        {impact.action === "canceled" ? (
-          <Text tone="danger" weight="semibold">
-            Removing its final requested state will cancel this Batch Request.
-          </Text>
-        ) : null}
-      </Stack>
-    </Card>
+    <li className="account-review__impact">
+      <Cluster justify="space-between" align="baseline">
+        <strong>Batch {batchLabel({ id: impact.request_id, number: impact.number ?? null })}</strong>
+        <StatusBadge tone={canceled ? "danger" : "info"}>
+          {canceled ? "Will be canceled" : "Will be narrowed"}
+        </StatusBadge>
+      </Cluster>
+      <Text size="sm">
+        {`${plural(impact.lead_count, "lead")} · ${impact.status} · ${formatStates(impact.current_states)}`}
+        {canceled ? "" : ` → ${formatStates(impact.resulting_states)}`}
+      </Text>
+      {canceled ? (
+        <Text size="sm">None of its states would remain, so it would be canceled.</Text>
+      ) : null}
+    </li>
   );
 }
 
-function ReviewContents({ review }: { review: LicensedStateReview }) {
+function ReviewContents({ review, options }: { review: LicensedStateReview; options: StateOption[] }) {
   return (
     <Stack gap={4}>
-      <dl className="licensed-state-review__summary">
+      <dl className="account-review__summary">
         <div>
-          <dt>
-            <LabelText>Added</LabelText>
-          </dt>
-          <dd>{formatStates(review.added_states)}</dd>
+          <dt>Adding</dt>
+          <dd>{namesOrNone(options, review.added_states)}</dd>
         </div>
         <div>
-          <dt>
-            <LabelText>Removed</LabelText>
-          </dt>
-          <dd>{formatStates(review.removed_states)}</dd>
+          <dt>Removing</dt>
+          <dd>{namesOrNone(options, review.removed_states)}</dd>
         </div>
       </dl>
-
       {review.added_states.length ? (
-        <Text>
-          Added states apply only to future Batch Requests. Existing requests
-          will not be expanded.
-        </Text>
+        <Text size="sm">New states apply to new requests; batches already requested keep their states.</Text>
       ) : null}
-
-      {review.impacts.length ? (
-        <Stack gap={3}>
-          <Heading level={3}>
-            {`${review.impacts.length} affected Batch ${
-              review.impacts.length === 1 ? "Request" : "Requests"
-            }`}
-          </Heading>
-          <Stack as="ul" gap={3} className="licensed-state-review__impacts">
-            {review.impacts.map((impact) => (
-              <Impact key={impact.request_id} impact={impact} />
-            ))}
-          </Stack>
-        </Stack>
-      ) : (
-        <Card padding={4}>
-          <Text>
-            No unallocated Batch Requests will be narrowed or canceled.
-          </Text>
-        </Card>
-      )}
+      <Stack gap={2}>
+        <Text weight="semibold">
+          {review.impacts.length === 1
+            ? "This batch in progress changes:"
+            : `These ${review.impacts.length} batches in progress change:`}
+        </Text>
+        <ul className="account-review__impacts">
+          {review.impacts.map((impact) => (
+            <Impact key={impact.request_id} impact={impact} />
+          ))}
+        </ul>
+      </Stack>
     </Stack>
   );
 }
 
+function StatesTab({ account }: { account: LicensedStateWorkspace }) {
+  const revalidator = useRevalidator();
+  const [saved, setSaved] = useState(account);
+  const [selected, setSelected] = useState(account.states);
+  const [review, setReview] = useState<LicensedStateReview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState("");
+  const [notice, setNotice] = useState("");
+
+  // New loader data (after saving, or after another session changed them)
+  // resets the selection to what is saved. Only a new read does this; the
+  // save's own answer must not be undone while that read is on its way.
+  const [loadedVersion, setLoadedVersion] = useState(account.version);
+  if (account.version !== loadedVersion) {
+    setLoadedVersion(account.version);
+    setSaved(account);
+    setSelected(account.states);
+  }
+
+  const changed = !sameStates(selected, saved.states);
+
+  function refused(caught: unknown, fallback: string) {
+    setFailure(caught instanceof Error ? caught.message : fallback);
+    if (caught instanceof LicensedStateRequestError && caught.status === 409) {
+      void revalidator.revalidate();
+    }
+  }
+
+  async function apply(token: string) {
+    const result = await applyLicensedStateReview(token);
+    setSaved(result.account);
+    setSelected(result.account.states);
+    setReview(null);
+    setNotice("Appointed states saved. New requests use them from now on.");
+    void revalidator.revalidate();
+  }
+
+  async function save() {
+    if (!changed || busy) return;
+    setBusy(true);
+    setFailure("");
+    setNotice("");
+    try {
+      const prepared = await previewLicensedStates(selected, saved.version);
+      // Nothing in progress changes (adding a state never does): save now.
+      if (!prepared.impacts.length) await apply(prepared.review_token);
+      else setReview(prepared);
+    } catch (caught) {
+      refused(caught, "Appointed states could not be saved. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirm() {
+    if (!review || busy) return;
+    setBusy(true);
+    setFailure("");
+    try {
+      await apply(review.review_token);
+    } catch (caught) {
+      setReview(null);
+      refused(caught, "Appointed states could not be saved. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      {failure ? <Message tone="error">{failure}</Message> : null}
+      {notice ? <Message tone="success">{notice}</Message> : null}
+      <form
+        className="account-states"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <AppointedStatesPicker
+          options={saved.options}
+          selected={selected}
+          onChange={(next) => {
+            setNotice("");
+            setFailure("");
+            setSelected(next);
+          }}
+        />
+        <div className="account-states__save">
+          <Button type="submit" variant="primary" disabled={!changed} busy={busy && !review} busyLabel="Saving…">
+            Save
+          </Button>
+          <Text size="xs" tone="muted">
+            New states apply to new requests. Removing a state asks you to
+            confirm if it affects a request in progress.
+          </Text>
+        </div>
+      </form>
+      <ConfirmDialog
+        open={review !== null}
+        onClose={() => {
+          if (!busy) setReview(null);
+        }}
+        onConfirm={() => void confirm()}
+        title="Confirm appointed states"
+        consequence="Nothing changes until you confirm. Saving updates your appointed states and these batches together."
+        confirmLabel="Confirm and save"
+        cancelLabel="Keep editing"
+        destructive={Boolean(review?.impacts.some((impact) => impact.action === "canceled"))}
+        busy={busy}
+      >
+        {review ? <ReviewContents review={review} options={saved.options} /> : null}
+      </ConfirmDialog>
+    </>
+  );
+}
+
+// --- The page -----------------------------------------------------------------
+
 export function CustomerAccountRoute() {
   const loaded = useLoaderData<CustomerAccountWorkspace>();
-  const revalidator = useRevalidator();
+  const home = useRouteLoaderData<CustomerHomeData>("customer");
+  const params = useParams();
+  const billed = useBilledWallet() !== null;
   const [identity, setIdentity] = useState(loaded.identity);
-  const [account, setAccount] = useState(loaded.licensed_states);
-  const [selected, setSelected] = useState(loaded.licensed_states.states);
-  const [query, setQuery] = useState("");
-  const [review, setReview] = useState<LicensedStateReview | null>(null);
-  const [previewBusy, setPreviewBusy] = useState(false);
-  const [applyBusy, setApplyBusy] = useState(false);
-  const [failure, setFailure] = useState("");
-  const [saved, setSaved] = useState("");
-  useDocumentTitle("Account");
+  const tab = accountTab(params.tab);
+  const label = ACCOUNT_TABS.find((item) => item.key === tab)?.label ?? "Profile";
+  useDocumentTitle(tab === "profile" || tab === null ? "Account" : `${label} · Account`);
 
   useEffect(() => {
     setIdentity(loaded.identity);
   }, [loaded.identity]);
 
-  useEffect(() => {
-    if (loaded.licensed_states.version === account.version) return;
-    setAccount(loaded.licensed_states);
-    setSelected(loaded.licensed_states.states);
-  }, [account.version, loaded.licensed_states]);
+  if (tab === null) return <Navigate to="/account" replace />;
 
-  const filteredOptions = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
-    if (!needle) return account.options;
-    return account.options.filter(
-      (option) =>
-        option.code.toLocaleLowerCase().includes(needle)
-        || option.name.toLocaleLowerCase().includes(needle),
-    );
-  }, [account.options, query]);
-
-  const changed = !sameStates(selected, account.states);
-  const problems = setupProblems(identity, account.states);
-
-  function toggleState(code: string) {
-    setSaved("");
-    setFailure("");
-    setSelected((current) =>
-      current.includes(code)
-        ? current.filter((state) => state !== code)
-        : [...current, code].sort(),
-    );
-  }
-
-  async function beginReview() {
-    if (!changed || previewBusy) return;
-    setPreviewBusy(true);
-    setFailure("");
-    setSaved("");
-    try {
-      setReview(
-        await previewLicensedStates(selected, account.version),
-      );
-    } catch (caught) {
-      setFailure(
-        caught instanceof Error
-          ? caught.message
-          : "The impact review could not be prepared. Please try again.",
-      );
-      if (
-        caught instanceof LicensedStateRequestError
-        && caught.status === 409
-      ) {
-        void revalidator.revalidate();
-      }
-    } finally {
-      setPreviewBusy(false);
-    }
-  }
-
-  async function confirmReview() {
-    if (!review || applyBusy) return;
-    setApplyBusy(true);
-    setFailure("");
-    try {
-      const result = await applyLicensedStateReview(review.review_token);
-      setAccount(result.account);
-      setSelected(result.account.states);
-      setReview(null);
-      setSaved(
-        "Licensed States saved. Home and Batch Requests are up to date.",
-      );
-      void revalidator.revalidate();
-    } catch (caught) {
-      setReview(null);
-      setFailure(
-        caught instanceof Error
-          ? caught.message
-          : "Licensed States could not be updated. Please try again.",
-      );
-      if (
-        caught instanceof LicensedStateRequestError
-        && caught.status === 409
-      ) {
-        void revalidator.revalidate();
-      }
-    } finally {
-      setApplyBusy(false);
-    }
-  }
+  // Billing appears for billed Customers, and for anyone who opens its address.
+  const items = ACCOUNT_TABS.filter((item) => item.key !== "billing" || billed || tab === "billing").map(
+    (item) => ({ to: accountTabPath(item.key), label: item.label, current: item.key === tab }),
+  );
 
   return (
-    <Page
-      title="Account"
-      description="Review your identity and setup status, and keep the states where you are licensed accurate."
-    >
+    <Page title="Account" width="data" description={accountOwner(identity, home?.customer_name)}>
       {/* Phones keep Support and Sign out here; the header has no room (V8). */}
       <div className="account-session">
         <CustomerSessionActions />
       </div>
-      {failure ? (
-        <div className="licensed-state-page__message licensed-state-page__message--error" role="alert">
-          {failure}
-        </div>
+      <Tabs label="Account" items={items} />
+      {tab === "profile" ? (
+        <ProfileTab identity={identity} states={loaded.licensed_states.states} onSaved={setIdentity} />
       ) : null}
-      {saved ? (
-        <div className="licensed-state-page__message licensed-state-page__message--success" role="status">
-          {saved}
-        </div>
-      ) : null}
-
-      <FounderContact />
-      <Identity
-        identity={identity}
-        licensedStates={account.states}
-        onSaved={setIdentity}
-      />
-      <SetupStatus problems={problems} />
-      <CreditLedgerSection />
-
-      <Section
-        title="Licensed States"
-        description="Search by state name or code, then select every state where you are currently licensed."
-      >
-        <Card>
-          <Stack gap={5}>
-            <Field
-              label="Search states"
-              description="Examples: Texas, TX, or Carolina."
-            >
-              <Input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.currentTarget.value)}
-                placeholder="Search by name or code"
-              />
-            </Field>
-
-            <Fieldset
-              legend="States where you are licensed"
-              description={`${selected.length} selected. Removing a state may narrow or cancel unallocated Batch Requests.`}
-            >
-              {filteredOptions.length ? (
-                <div className="licensed-state-selector">
-                  {filteredOptions.map((option) => (
-                    <label key={option.code} className="licensed-state-selector__choice">
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(option.code)}
-                        onChange={() => toggleState(option.code)}
-                      />
-                      <span>
-                        <strong>{option.name}</strong>
-                        <span className="licensed-state-selector__code">
-                          {option.code}
-                        </span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              ) : (
-                <Text role="status">
-                  No states match “{query}”.
-                </Text>
-              )}
-            </Fieldset>
-
-            <Card padding={4} className="licensed-state-page__future-note">
-              <Stack gap={2}>
-                <Heading level={3} size="sm">
-                  Additions affect future requests only
-                </Heading>
-                <Text size="sm">
-                  Adding a state will make it available for future Batch
-                  Requests. It will not expand any request you already submitted.
-                </Text>
-              </Stack>
-            </Card>
-
-            <Cluster justify="space-between">
-              <Text size="sm" tone="muted">
-                {changed
-                  ? `Proposed: ${formatStates(selected)}`
-                  : `Saved: ${formatStates(account.states)}`}
-              </Text>
-              <Button
-                variant="primary"
-                disabled={!changed}
-                busy={previewBusy}
-                busyLabel="Preparing review…"
-                onClick={() => void beginReview()}
-              >
-                Review changes
-              </Button>
-            </Cluster>
-          </Stack>
-        </Card>
-      </Section>
-
-      <ConfirmDialog
-        open={review !== null}
-        onClose={() => {
-          if (!applyBusy) setReview(null);
-        }}
-        onConfirm={() => void confirmReview()}
-        title="Review Licensed State changes"
-        consequence="Nothing changes until you confirm. Saving applies the Licensed States and every request update below together."
-        confirmLabel="Confirm and save"
-        cancelLabel="Keep editing"
-        destructive={Boolean(review?.removed_states.length)}
-        busy={applyBusy}
-      >
-        {review ? <ReviewContents review={review} /> : null}
-      </ConfirmDialog>
+      {tab === "states" ? <StatesTab account={loaded.licensed_states} /> : null}
+      {tab === "billing" ? <CustomerAccountBilling /> : null}
+      {tab === "exclusion-lists" ? <CustomerExclusionListsSection /> : null}
+      {tab === "password" ? <CustomerAccountPassword email={identity.email} /> : null}
     </Page>
   );
 }

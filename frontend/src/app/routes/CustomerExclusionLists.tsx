@@ -2,18 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import { Button } from "../../design-system/primitives/Button";
-import { EmptyState } from "../../design-system/primitives/feedback";
 import { Field, Input, Select } from "../../design-system/primitives/form";
-import {
-  Card,
-  Cluster,
-  Grid,
-  Section,
-  Stack,
-} from "../../design-system/primitives/layout";
+import { Cluster, Section } from "../../design-system/primitives/layout";
 import { StatusBadge } from "../../design-system/primitives/status";
 import type { StatusTone } from "../../design-system/primitives/status";
-import { Heading, Numeral, Text } from "../../design-system/primitives/typography";
+import { DataTable } from "../../design-system/primitives/table";
+import type { DataColumn } from "../../design-system/primitives/table";
+import { Text } from "../../design-system/primitives/typography";
+import { formatCount, formatDay } from "../customer/format";
 import {
   EXCLUSION_TYPES,
   INGESTING_STATUSES,
@@ -22,6 +18,8 @@ import {
   uploadMyExclusionList,
 } from "./exclusionLists";
 import type { ExclusionListStatus } from "./exclusionLists";
+
+import "./CustomerExclusionLists.css";
 
 function statusPresentation(item: ExclusionListStatus): {
   label: string;
@@ -32,22 +30,14 @@ function statusPresentation(item: ExclusionListStatus): {
   // pending_confirmation, confirmed, and denied all read as protection here.
   switch (item.status) {
     case "queued":
-      return { label: "Queued", tone: "neutral" };
+      return { label: "Queued", tone: "info" };
     case "ingesting":
-      return { label: "Processing", tone: "neutral" };
+      return { label: "Processing", tone: "info" };
     case "failed":
       return { label: "Failed", tone: "danger" };
     default:
       return { label: "Protecting your batches", tone: "success" };
   }
-}
-
-function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
 }
 
 function failureMessage(error: unknown): string {
@@ -56,46 +46,46 @@ function failureMessage(error: unknown): string {
     : "The request could not be completed.";
 }
 
-function ExclusionListCard({ item }: { item: ExclusionListStatus }) {
-  const status = statusPresentation(item);
-  return (
-    <Card as="article">
-      <Stack gap={3}>
-        <Cluster gap={2} justify="space-between" align="start">
-          <Heading level={3} size="sm">
-            {item.filename}
-          </Heading>
-          <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
-        </Cluster>
-        <Text size="sm">{exclusionTypeLabel(item.type)}</Text>
-        {item.status === "failed" ? (
-          <Text size="sm" tone="danger">
-            {item.error || "The file could not be processed."}
-          </Text>
-        ) : item.ingestedAt ? (
-          <Grid minColumnWidth="9rem" gap={2}>
-            <Text size="sm">
-              <strong>
-                <Numeral>{item.acceptedRows.toLocaleString()}</Numeral>
-              </strong>{" "}
-              phones
-            </Text>
-            <Text size="sm" tone="muted">
-              <Numeral>{item.invalidRows.toLocaleString()}</Numeral> invalid
-            </Text>
-            <Text size="sm" tone="muted">
-              <Numeral>{item.duplicateRows.toLocaleString()}</Numeral>{" "}
-              duplicates
-            </Text>
-          </Grid>
-        ) : null}
-        <Text size="xs" tone="muted">
-          Uploaded {formatDate(item.createdAt)}
-        </Text>
-      </Stack>
-    </Card>
-  );
+function processed(item: ExclusionListStatus): boolean {
+  return item.status !== "failed" && item.ingestedAt !== null;
 }
+
+/** "30 invalid, 20 duplicates": rows the list could not use. */
+function skipped(item: ExclusionListStatus): string {
+  if (!processed(item)) return "—";
+  if (!item.invalidRows && !item.duplicateRows) return "None";
+  return `${formatCount(item.invalidRows)} invalid, ${formatCount(item.duplicateRows)} duplicates`;
+}
+
+const COLUMNS: DataColumn<ExclusionListStatus>[] = [
+  { key: "file", header: "File", cell: (item) => item.filename },
+  { key: "type", header: "Type", cell: (item) => exclusionTypeLabel(item.type) },
+  {
+    key: "status",
+    header: "Status",
+    cell: (item) => {
+      const status = statusPresentation(item);
+      return (
+        <>
+          <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+          {item.status === "failed" ? (
+            <span className="exclusion-lists__error">
+              {item.error || "The file could not be processed."}
+            </span>
+          ) : null}
+        </>
+      );
+    },
+  },
+  {
+    key: "phones",
+    header: "Phones",
+    numeric: true,
+    cell: (item) => (processed(item) ? formatCount(item.acceptedRows) : "—"),
+  },
+  { key: "skipped", header: "Skipped", cell: skipped },
+  { key: "uploaded", header: "Uploaded", cell: (item) => formatDay(item.createdAt) },
+];
 
 export function CustomerExclusionListsSection() {
   const [items, setItems] = useState<ExclusionListStatus[] | null>(null);
@@ -159,81 +149,69 @@ export function CustomerExclusionListsSection() {
   }
 
   return (
-    <Section
-      title="Exclusion Lists"
-      description="Upload phones you know are landlines, DNC-registered, or TCPA litigators. Once a list is processed, those phones never appear in your batches — permanently."
-    >
-      <Stack gap={5}>
-        <Card>
-          <form onSubmit={(event) => void submit(event)} noValidate>
-            <Stack gap={4}>
-              <Text size="sm" tone="muted">
-                A CSV with a phone column, between 1,000 and 50,000 rows.
-              </Text>
-              <Cluster gap={3} align="end">
-                <Field label="Type" id="exclusion-type" required>
-                  <Select
-                    id="exclusion-type"
-                    value={type}
-                    onChange={(event) => setType(event.currentTarget.value)}
-                  >
-                    {EXCLUSION_TYPES.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="CSV file" id="exclusion-file" required>
-                  <Input
-                    id="exclusion-file"
-                    ref={fileInput}
-                    type="file"
-                    accept=".csv,text/csv"
-                    onChange={(event) =>
-                      setFile(event.currentTarget.files?.[0] ?? null)
-                    }
-                  />
-                </Field>
-                <Button type="submit" busy={busy} busyLabel="Uploading…">
-                  Upload list
-                </Button>
-              </Cluster>
-              {uploadFailure ? (
-                <Text size="sm" tone="danger" role="alert">
-                  {uploadFailure}
-                </Text>
-              ) : null}
-            </Stack>
-          </form>
-        </Card>
-        {loadFailure ? (
-          <Card>
-            <Cluster gap={3} justify="space-between" align="center">
-              <Text size="sm" role="alert">
-                Your Exclusion Lists could not be loaded right now.
-              </Text>
-              <Button
-                variant="secondary"
-                onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+    <>
+      <Section
+        title="Upload a list"
+        description="Phones you know are landlines, on the Do Not Call registry, or TCPA litigators. Once a list is processed, those phones never appear in your batches."
+      >
+        <form className="exclusion-lists__upload" onSubmit={(event) => void submit(event)} noValidate>
+          <Cluster gap={3} align="end">
+            <Field label="Type" id="exclusion-type" required>
+              <Select
+                id="exclusion-type"
+                value={type}
+                onChange={(event) => setType(event.currentTarget.value)}
               >
-                Retry
-              </Button>
-            </Cluster>
-          </Card>
-        ) : items === null ? null : items.length ? (
-          <Grid minColumnWidth="18rem">
-            {items.map((item) => (
-              <ExclusionListCard item={item} key={item.id} />
-            ))}
-          </Grid>
-        ) : (
-          <EmptyState
-            title="No Exclusion Lists yet"
-            description="Uploads appear here with their processing status and accepted phone counts."
+                {EXCLUSION_TYPES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="CSV file" id="exclusion-file" required>
+              <Input
+                id="exclusion-file"
+                ref={fileInput}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(event) => setFile(event.currentTarget.files?.[0] ?? null)}
+              />
+            </Field>
+            <Button type="submit" busy={busy} busyLabel="Uploading…">
+              Upload list
+            </Button>
+          </Cluster>
+          <Text size="sm" tone="muted">
+            A CSV with a phone column, between 1,000 and 50,000 rows.
+          </Text>
+          {uploadFailure ? (
+            <Text size="sm" tone="danger" role="alert">
+              {uploadFailure}
+            </Text>
+          ) : null}
+        </form>
+      </Section>
+      <Section title="Your lists">
+        {loadFailure ? (
+          <Cluster gap={3} justify="space-between" align="center" className="exclusion-lists__retry">
+            <Text size="sm" role="alert">
+              Your exclusion lists could not be loaded right now.
+            </Text>
+            <Button variant="secondary" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
+              Retry
+            </Button>
+          </Cluster>
+        ) : items === null ? null : (
+          <DataTable
+            label="Your exclusion lists"
+            columns={COLUMNS}
+            rows={items}
+            rowKey={(item) => item.id}
+            empty="No lists yet. Uploads appear here with their status and how many phones they protect."
           />
         )}
-      </Stack>
-    </Section>
+      </Section>
+    </>
   );
 }

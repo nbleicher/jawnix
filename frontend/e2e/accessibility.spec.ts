@@ -12,6 +12,7 @@ import { mockActivity } from "./activity-fixtures";
 import {
   CUSTOMER_ACCOUNT_IDENTITY,
   LICENSED_STATE_ACCOUNT,
+  mockLicensedStates,
 } from "./customer-account-fixtures";
 import { BILLED_CUSTOMER_WALLET } from "./customer-billing-fixtures";
 import { mockFeedback } from "./customer-feedback-fixtures";
@@ -55,6 +56,10 @@ const ROUTES = [
   "./feedback",
   `./feedback?request=${DELIVERED_REQUEST.id}`,
   "./account",
+  "./account/states",
+  "./account/billing",
+  "./account/exclusion-lists",
+  "./account/password",
   "./admin/today",
   `./admin/today?decision=approval%3A${BATCH_IDS[1042]}`,
   `./admin/today?decision=inventoryConflict%3A${CONFLICT_ID}`,
@@ -204,9 +209,7 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
     });
     await page.goto("./account");
     await expect(
-      page.getByRole("heading", {
-        name: "Customer mapping needs confirmation",
-      }),
+      page.getByRole("heading", { name: "Before you can request batches" }),
     ).toBeVisible();
 
     const results = await new AxeBuilder({ page })
@@ -216,17 +219,35 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
     expect(results.violations).toEqual([]);
   });
 
-  test("Billed Customer Account with Credit Wallet has no accessibility violations", async ({
+  test("Billed Customer Account Billing has no accessibility violations", async ({
     page,
   }) => {
     await mockCustomerAuth(page, {
       billing: { wallet: BILLED_CUSTOMER_WALLET },
     });
-    await page.goto("./account");
+    await page.goto("./account/billing");
     await expect(
-      page.getByRole("heading", { level: 2, name: "Credit Ledger" }),
+      page.getByRole("table", { name: "Billing history" }),
     ).toBeVisible();
     await expect(page.getByLabel("Credit Wallet summary")).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_AA_TAGS)
+      .analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("the appointed-states review dialog has no accessibility violations", async ({
+    page,
+  }) => {
+    await mockLicensedStates(page);
+    await page.goto("./account/states");
+    await page.getByRole("checkbox", { name: "Texas" }).uncheck();
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Confirm appointed states" }),
+    ).toBeVisible();
 
     const results = await new AxeBuilder({ page })
       .withTags(WCAG_AA_TAGS)

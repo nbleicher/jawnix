@@ -133,3 +133,14 @@
     grid-row: 2;
   }
 }
+
+/* A full-width step (sign-up's appointed states): no plate, one column. */
+.jx-auth-route--wide {
+  display: flex;
+}
+
+.jx-auth-route--wide .jx-auth-route__main {
+  display: block;
+  max-width: 60rem;
+  margin-inline: auto;
+}

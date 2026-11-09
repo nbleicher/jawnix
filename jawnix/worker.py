@@ -32,7 +32,12 @@ from .milestone_emails import (
     enqueue_milestone_email,
     send_milestone_email,
 )
+from .registration_emails import (
+    REGISTRATION_EMAIL_JOB,
+    send_registration_email,
+)
 from .models import (
+    CustomerRegistration,
     ExclusionList,
     Job,
     JobStatus,
@@ -671,6 +676,24 @@ def process_job(job_id: int) -> None:
                     request,
                     milestone,
                     settings,
+                )
+                job.payload = {
+                    **job.payload,
+                    "message_id": message_id,
+                }
+            elif job.kind == REGISTRATION_EMAIL_JOB:
+                if job.status == JobStatus.complete.value:
+                    return
+                registration = session.get(
+                    CustomerRegistration,
+                    uuid.UUID(str(job.payload["user_id"])),
+                )
+                if registration is None:
+                    raise LookupError("Registration was not found.")
+                message_id = send_registration_email(
+                    registration,
+                    settings,
+                    restored=bool(job.payload.get("restored")),
                 )
                 job.payload = {
                     **job.payload,

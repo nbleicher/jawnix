@@ -87,7 +87,7 @@ def test_milestone_email_content_links_to_the_authenticated_timeline(
     assert body_phrase in payload["text"]
     assert f"Batch Request: {request.id}" in payload["text"]
     assert "Quantity: 1,250 Leads" in payload["text"]
-    assert "Licensed States: FL, TX" in payload["text"]
+    assert "Appointed states: FL, TX" in payload["text"]
     assert timeline in payload["text"]
     assert "customer@example.com" not in timeline
     assert payload["text"].endswith("— Noah\nJAWNIX · noah@jawnix.com\n")

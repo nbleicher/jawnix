@@ -32,6 +32,8 @@ export interface CustomerAccountWorkspace {
 
 export interface LicensedStateImpact {
   request_id: string;
+  /** "Batch #1042". */
+  number?: number | null;
   lead_count: number;
   status: string;
   current_states: string[];
@@ -107,7 +109,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     throw new LicensedStateRequestError(
       refusal(
         parsed,
-        "Licensed States could not be updated. Please try again.",
+        "Appointed states could not be saved. Please try again.",
       ),
       response.status,
     );
@@ -115,7 +117,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return parsed as T;
 }
 
-/** Update Customer identity fields. Licensed States stay on the review path. */
+/** Update Customer identity fields. Appointed states stay on the review path. */
 export async function updateCustomerProfile(input: {
   first_name: string;
   last_name: string;

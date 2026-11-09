@@ -47,7 +47,7 @@ test.describe("Customer Home", () => {
     await expect(numbers).toContainText("$750.00");
     await expect(numbers).toContainText("$125.00 held for #1042");
     await expect(numbers.getByRole("link", { name: "Edit appointed states" }))
-      .toHaveAttribute("href", "/app/account");
+      .toHaveAttribute("href", "/app/account/states");
 
     const table = page.getByRole("table", { name: "Recent batches" });
     await expect(table.getByRole("row")).toHaveCount(5);

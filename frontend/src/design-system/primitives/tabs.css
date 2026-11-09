@@ -1,0 +1,41 @@
+/* Sub-section tabs (V7): links on a hairline, the current one underlined in
+   ink. One line at every width; phones scroll it sideways (V10). */
+.jx-tabs {
+  display: flex;
+  gap: var(--jx-space-5);
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: var(--jx-rule) solid var(--jx-line-strong);
+}
+
+.jx-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.jx-tabs__tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--jx-touch-target);
+  margin-bottom: calc(var(--jx-rule) * -1);
+  border-bottom: var(--jx-rule-heavy) solid transparent;
+  color: var(--jx-ink-muted);
+  font-size: var(--jx-text-md);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.jx-tabs__tab:hover {
+  color: var(--jx-ink);
+}
+
+.jx-tabs__tab[aria-current="page"] {
+  color: var(--jx-ink);
+  border-bottom-color: var(--jx-ink);
+}
+
+/* The focus ring sits inside the row so the scroll container never clips it. */
+.jx-tabs__tab:focus-visible {
+  outline: var(--jx-focus-width) solid var(--jx-focus);
+  outline-offset: calc(var(--jx-focus-width) * -1);
+}
