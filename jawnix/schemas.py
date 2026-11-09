@@ -599,9 +599,69 @@ class CustomerBatchArtifact(BaseModel):
     filename: str
     row_count: int
     parts: list[CustomerBatchArtifactPart]
+    #: The CSV columns, in order ("phone", "title", "state").
+    columns: list[str] = Field(default_factory=list)
     expires_at: datetime | None
     available: bool
     download_href: str | None
+
+
+#: Where a batch is, in the Customer's words. ``expiring`` is a live file the
+#: Customer has not downloaded that expires within a week; ``file_expired``
+#: can be copied again, and ``copy_on_the_way`` is that copy being made.
+CustomerBatchStage = Literal[
+    "waiting_approval",
+    "preparing",
+    "ready",
+    "expiring",
+    "file_expired",
+    "copy_on_the_way",
+    "delivered",
+    "not_approved",
+    "canceled",
+    "needs_attention",
+]
+
+
+class CustomerBatchCost(BaseModel):
+    """What a billed batch costs the Customer, and where the money is.
+
+    ``state`` is ``held`` from submission until delivery, ``charged`` once
+    delivered, and ``released`` when the batch closed without delivery; ``at``
+    is when it got there.
+    """
+
+    rate_cents_per_thousand: int | None
+    amount_cents: int | None
+    state: Literal["held", "charged", "released"] | None
+    at: datetime | None
+
+
+class CustomerBatchEvent(BaseModel):
+    """One line of a batch's history: what happened, or what is still to come."""
+
+    key: Literal[
+        "submitted",
+        "approved",
+        "delivered",
+        "file_expired",
+        "copy_ready",
+        "copy_on_the_way",
+        "not_approved",
+        "canceled",
+        "needs_attention",
+    ]
+    label: str
+    at: datetime | None
+    done: bool
+
+
+class CustomerBatchStateCount(BaseModel):
+    """How many of a delivered batch's leads are in one state."""
+
+    state: str
+    name: str
+    lead_count: int
 
 
 class CustomerRequestDetail(BaseModel):
@@ -619,16 +679,28 @@ class CustomerRequestDetail(BaseModel):
     milestones: CustomerRequestMilestones
     can_cancel: bool
     next_action: CustomerRequestAction | None
+    #: The batch page ("/app/batches/1042"). ``receipt_href`` is the same page.
+    href: str
     receipt_href: str
     artifact: CustomerBatchArtifact | None
+    stage: CustomerBatchStage
+    #: The file expired and no copy is on the way, so one can be asked for.
+    can_request_copy: bool
+    #: Absent for batches that are not billed.
+    cost: CustomerBatchCost | None
+    history: list[CustomerBatchEvent]
+    #: Leads per state once delivered; read only for one batch's page.
+    leads_by_state: list[CustomerBatchStateCount] | None = None
 
 
 class CustomerRequestLimits(BaseModel):
-    """The domain bounds the guided stages validate against."""
+    """The domain bounds the request form validates against."""
 
     minimum_lead_count: int
     maximum_lead_count: int
     licensed_states: list[str]
+    #: Full names for the appointed states ("FL" -> "Florida").
+    state_names: dict[str, str] = Field(default_factory=dict)
 
 
 class CustomerRequestBlocker(BaseModel):
@@ -696,6 +768,9 @@ class FeedbackLookup(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     phone: str
+    # Finds the Lead within one of the Customer's own batches ("Report a bad
+    # lead" on the batch page) rather than their latest delivery of it.
+    request_id: uuid.UUID | None = None
 
 
 class FeedbackSearch(BaseModel):

@@ -8,6 +8,7 @@ interface MockRequestWorkspace {
     minimum_lead_count: number;
     maximum_lead_count: number;
     licensed_states: string[];
+    state_names?: Record<string, string>;
   };
   blocker: unknown;
   requests: Array<{
@@ -156,6 +157,12 @@ export async function mockLicensedStates(
       limits: {
         ...state.requestWorkspace.limits,
         licensed_states: reviewedStates,
+        state_names: Object.fromEntries(
+          reviewedStates.map((code) => [
+            code,
+            state.account.options.find((option) => option.code === code)?.name ?? code,
+          ]),
+        ),
       },
       requests: state.requestWorkspace.requests.map((request) =>
         request.id === IMPACTS[0].request_id

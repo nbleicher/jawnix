@@ -23,6 +23,9 @@ export interface CustomerHomeBatch extends BatchIdentity {
   file_available: boolean;
   file_expires_at: string | null;
   download_href: string | null;
+  /** The file expired: a new copy can be asked for, or one is on the way. */
+  can_request_copy?: boolean;
+  copy_pending?: boolean;
 }
 
 export interface CustomerHomeStep {

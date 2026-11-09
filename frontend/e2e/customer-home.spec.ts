@@ -26,7 +26,7 @@ test.describe("Customer Home", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
     await expect(page.getByText("Northstar Insurance")).toBeVisible();
     await expect(page.locator("main").getByRole("link", { name: "New request" }).first())
-      .toHaveAttribute("href", "/app/requests");
+      .toHaveAttribute("href", "/app/new-request");
 
     // The header balance and Home agree.
     const header = page.getByRole("banner");
@@ -53,10 +53,12 @@ test.describe("Customer Home", () => {
     await expect(table.getByRole("row")).toHaveCount(5);
     await expect(table.getByRole("link", { name: "Download Batch #1038" }))
       .toHaveAttribute("href", `/api/me/batch-requests/${READY_BATCH_ID}/artifact`);
-    await expect(table.getByRole("link", { name: "View Batch #1017, file expired" }))
-      .toHaveAttribute("href", `/app/requests?request=${EXPIRED_BATCH_ID}`);
+    await expect(table.getByRole("link", { name: "#1017" }))
+      .toHaveAttribute("href", "/app/batches/1017");
+    await expect(table.getByRole("button", { name: "Get a new copy of Batch #1017" }))
+      .toBeVisible();
     await expect(page.getByRole("link", { name: "All batches (24)" }))
-      .toHaveAttribute("href", "/app/requests#batch-history");
+      .toHaveAttribute("href", "/app/batches");
 
     const panel = page.getByRole("region", { name: "In progress · #1042" });
     await expect(panel).toContainText("25,000 leads · FL · submitted today 09:41");
@@ -85,6 +87,37 @@ test.describe("Customer Home", () => {
       .click();
     await downloadPromise;
     expect(requests.artifactDownloads).toEqual([READY_BATCH_ID]);
+  });
+
+  test("asks for a new copy of an expired file from its row", async ({ page }) => {
+    let asked = false;
+    await mockCustomerAuth(page, {
+      overview: () =>
+        asked
+          ? {
+              ...CUSTOMER_HOME,
+              recent_batches: CUSTOMER_HOME.recent_batches.map((batch) =>
+                batch.id === EXPIRED_BATCH_ID
+                  ? { ...batch, can_request_copy: false, copy_pending: true }
+                  : batch,
+              ),
+            }
+          : CUSTOMER_HOME,
+    });
+    const requests = await mockBatchRequests(page);
+    await page.route(/\/api\/me\/batch-requests\/[^/]+\/new-copy$/, async (route) => {
+      asked = true;
+      await route.fallback();
+    });
+    await page.goto("./home");
+
+    const table = page.getByRole("table", { name: "Recent batches" });
+    await table.getByRole("button", { name: "Get a new copy of Batch #1017" }).click();
+
+    await expect(page.getByRole("status").filter({ hasText: "A new copy of Batch #1017 is on the way." }))
+      .toBeVisible();
+    await expect(table.getByText("New copy on the way")).toBeVisible();
+    expect(requests.copies).toEqual([EXPIRED_BATCH_ID]);
   });
 
   test("cancels the batch in progress after confirming", async ({ page }) => {
@@ -135,7 +168,7 @@ test.describe("Customer Home", () => {
 
     await expect(page.getByRole("heading", { level: 2, name: "No batches yet" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Request your first batch" }))
-      .toHaveAttribute("href", "/app/requests");
+      .toHaveAttribute("href", "/app/new-request");
     await expect(page.getByRole("table")).toHaveCount(0);
 
     const alerts = page.getByRole("list", { name: "Needs your attention" });

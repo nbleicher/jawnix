@@ -1,5 +1,3 @@
-import { useLocation } from "react-router";
-
 import { AppShell } from "../shell/AppShell";
 import { CreditWalletProvider } from "../billing/CreditWalletContext";
 import { CreditWalletWidget } from "../billing/CreditWalletWidget";
@@ -11,8 +9,6 @@ import { customerDestinations } from "../customer/navigation";
 import "./CustomerShell.css";
 
 export function CustomerShell() {
-  const location = useLocation();
-
   return (
     <CreditWalletProvider>
       <PurchaseReturnProvider>
@@ -20,7 +16,7 @@ export function CustomerShell() {
         <div className="customer-shell">
           <AppShell
             audience="Customer"
-            destinations={customerDestinations(location)}
+            destinations={customerDestinations()}
             notice={<PurchaseReturnNotice />}
             headerActions={
               <>

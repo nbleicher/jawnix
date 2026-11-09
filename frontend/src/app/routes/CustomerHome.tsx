@@ -33,16 +33,15 @@ import type {
   CustomerHomeInProgress,
   CustomerHomeStep,
 } from "../customer/home";
-import { BATCH_HISTORY_HASH } from "../customer/navigation";
+import { NewCopyButton } from "../customer/BatchActions";
+import type { BatchActionResult } from "../customer/BatchActions";
+import { BATCHES_HREF, NEW_REQUEST_HREF } from "../customer/navigation";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { cancelBatchRequest } from "./batchRequests";
 import { useLiveRequests } from "./useLiveRequests";
 
 import "./CustomerHome.css";
 
-/** Until New request and Batches have pages of their own (C3). */
-const NEW_REQUEST_HREF = "/app/requests";
-const ALL_BATCHES_HREF = `/app/requests${BATCH_HISTORY_HASH}`;
 const ACCOUNT_HREF = "/app/account";
 
 /** More appointed states than this read as a count in the tile. */
@@ -255,7 +254,13 @@ function HomeNumbers({ home }: { home: CustomerHomeData }) {
 
 // --- Recent batches -------------------------------------------------------------
 
-function BatchAction({ batch }: { batch: CustomerHomeBatch }) {
+function BatchAction({
+  batch,
+  onResult,
+}: {
+  batch: CustomerHomeBatch;
+  onResult: (result: BatchActionResult) => void;
+}) {
   if (batch.download_href) {
     return (
       <ButtonLink
@@ -267,12 +272,21 @@ function BatchAction({ batch }: { batch: CustomerHomeBatch }) {
       </ButtonLink>
     );
   }
-  // C3 replaces this with "Get a new copy".
+  if (batch.can_request_copy) {
+    return <NewCopyButton batch={batch} onResult={onResult} />;
+  }
+  if (batch.copy_pending) {
+    return (
+      <Text as="span" size="sm" tone="muted">
+        New copy on the way
+      </Text>
+    );
+  }
   return (
     <ButtonLink
       href={batch.href}
       variant="secondary"
-      aria-label={`View ${batchName(batch)}, file expired`}
+      aria-label={`View ${batchName(batch)}`}
     >
       View batch
     </ButtonLink>
@@ -284,14 +298,26 @@ function RecentBatches({
   total,
   showCost,
   now,
+  onCopied,
 }: {
   batches: CustomerHomeBatch[];
   total: number;
   showCost: boolean;
   now: Date;
+  onCopied: () => Promise<void>;
 }) {
+  const [result, setResult] = useState<BatchActionResult | null>(null);
+  function onResult(next: BatchActionResult) {
+    setResult(next);
+    if (!next.failed) void onCopied();
+  }
   return (
     <Section title="Recent batches">
+      {result ? (
+        <Text size="sm" tone={result.failed ? "danger" : "default"} role={result.failed ? "alert" : "status"}>
+          {result.message}
+        </Text>
+      ) : null}
       {batches.length ? (
         <div className="customer-batches">
           <table className="customer-batches__table" aria-label="Recent batches">
@@ -351,7 +377,7 @@ function RecentBatches({
                       </td>
                     ) : null}
                     <td className="customer-batches__action">
-                      <BatchAction batch={batch} />
+                      <BatchAction batch={batch} onResult={onResult} />
                     </td>
                   </tr>
                 );
@@ -366,7 +392,7 @@ function RecentBatches({
         </Text>
       )}
       <div>
-        <ActionLink href={ALL_BATCHES_HREF}>All batches ({formatCount(total)})</ActionLink>
+        <ActionLink href={BATCHES_HREF}>All batches ({formatCount(total)})</ActionLink>
       </div>
     </Section>
   );
@@ -524,9 +550,13 @@ function HomePage({ home }: { home: CustomerHomeData }) {
   }, [walletBalance]);
 
   // Batches in progress move on their own: approval, preparation, delivery.
+  // So does a new copy of an expired file.
   useLiveRequests(
     "/api/me/batch-requests/events",
-    home.in_progress.map((item) => item.batch.id),
+    [
+      ...home.in_progress.map((item) => item.batch.id),
+      ...home.recent_batches.filter((batch) => batch.copy_pending).map((batch) => batch.id),
+    ],
     () => revalidator.revalidate(),
     () => void revalidator.revalidate(),
   );
@@ -583,6 +613,9 @@ function HomePage({ home }: { home: CustomerHomeData }) {
               total={home.batch_count}
               showCost={showCost}
               now={now}
+              onCopied={async () => {
+                await revalidator.revalidate();
+              }}
             />
             {home.in_progress.length ? (
               <div className="customer-home__aside">

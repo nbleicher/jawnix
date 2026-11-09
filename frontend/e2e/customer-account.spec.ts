@@ -78,7 +78,7 @@ test.describe("identity and setup status", () => {
     await expect(status.getByText("You", { exact: true })).toBeVisible();
   });
 
-  test("the Requests blocker deep-links to its visible Account problem", async ({
+  test("the New request blocker deep-links to its visible Account problem", async ({
     page,
   }) => {
     await mockCustomerAuth(page, {
@@ -89,7 +89,7 @@ test.describe("identity and setup status", () => {
       },
       batchRequests: MAPPING_BLOCKED_BATCH_REQUEST_WORKSPACE,
     });
-    await page.goto("./requests");
+    await page.goto("./new-request");
 
     await page.getByRole("link", { name: "Review Account" }).click();
 
@@ -189,8 +189,8 @@ test.describe("safe Licensed State management", () => {
     });
 
     // The saved states must survive navigation: CA and FL are offered — and
-    // TX is not — once the flow reaches the Requests workspace. (Asserting
-    // the Account region after clicking away raced the route swap.)
+    // TX is not — on New request. (Asserting the Account region after
+    // clicking away raced the route swap.)
     await page
       .getByRole("navigation", { name: "Customer" })
       .getByRole("link", { name: "Home" })
@@ -203,13 +203,11 @@ test.describe("safe Licensed State management", () => {
       .getByRole("navigation", { name: "Customer" })
       .getByRole("link", { name: "New request" })
       .click();
-    await page
-      .getByRole("spinbutton", { name: /How many leads/ })
-      .fill("1");
-    await page.getByRole("button", { name: "Continue" }).click();
-    await expect(
-      page.getByRole("radio", { name: /All my Licensed States \(CA, FL\)/ }),
-    ).toBeVisible();
+    const offered = page.getByRole("group", { name: "Appointed states" });
+    await expect(offered.getByRole("checkbox")).toHaveCount(2);
+    await expect(offered.getByRole("checkbox", { name: "California" })).toBeChecked();
+    await expect(offered.getByRole("checkbox", { name: "Florida" })).toBeChecked();
+    await expect(offered.getByRole("checkbox", { name: "Texas" })).toHaveCount(0);
   });
 
   test("explains that additions affect only future requests", async ({

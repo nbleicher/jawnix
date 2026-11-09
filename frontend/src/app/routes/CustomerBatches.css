@@ -1,0 +1,88 @@
+/* Batches and the batch page (CP3): data pages 88rem wide (V1). */
+
+/* What an action just did, once, above the table or the page's columns. */
+.customer-batches-notice {
+  padding: var(--jx-space-3) var(--jx-space-4);
+  border: var(--jx-rule) solid var(--jx-line-strong);
+  border-inline-start: var(--jx-rule-heavy) solid var(--jx-ink);
+  background: var(--jx-color-surface);
+  font-size: var(--jx-text-sm);
+}
+
+.customer-batches-notice--failed {
+  border-color: var(--jx-danger);
+  background: var(--jx-danger-soft);
+  color: var(--jx-danger-ink);
+}
+
+/* The record link and every value stay on one line at desktop widths. */
+.customer-batches-table td {
+  white-space: nowrap;
+}
+
+/* The row's button is a button, not a link in the text (V3). */
+.customer-batches-table a.jx-button {
+  text-decoration: none;
+}
+
+/* The stacked lines a phone shows in place of the columns (V8). */
+.customer-batches-table__stacked {
+  display: none;
+}
+
+.customer-batches-pages__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-3);
+}
+
+/* Report a bad lead: phone and reason side by side, details beneath. */
+.customer-report {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-4);
+}
+
+.customer-report__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--jx-space-3);
+}
+
+.customer-report__submit {
+  display: flex;
+}
+
+@media (max-width: 40rem) {
+  .customer-report__fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Each row: the batch and its labelled lines, its action on the right. */
+  .customer-batches-table td {
+    white-space: normal;
+  }
+
+  .customer-batches-table tbody tr {
+    flex-wrap: nowrap;
+    align-items: flex-start;
+  }
+
+  .customer-batches-table td.jx-table__record {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .customer-batches-table__stacked {
+    display: flex;
+    flex-direction: column;
+    gap: var(--jx-space-1);
+    margin-top: var(--jx-space-1);
+    font-weight: var(--jx-weight-regular);
+  }
+
+  /* A two-column total reads as one line, not a ruled cell per value. */
+  .customer-batch-states tfoot td {
+    border-top: 0;
+  }
+}

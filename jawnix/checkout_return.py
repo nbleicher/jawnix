@@ -51,22 +51,36 @@ def _states(value: str) -> str | None:
     return ",".join(sorted(set(codes)))
 
 
+# The unfinished request form: quantity, states, rows per file.
+_REQUEST_FORM: dict[str, Callable[[str], str | None]] = {
+    "quantity": _bounded(100_000),
+    "states": _states,
+    "rows_per_file": _bounded(100_000),
+}
+
 # The portal pages a purchase can return to, and the query each one reads.
 _RETURN_PAGES: dict[str, dict[str, Callable[[str], str | None]]] = {
     "/app/home": {},
     # Purchases started before Home replaced Overview; the page redirects.
     "/app/overview": {},
     "/app/account": {},
+    "/app/new-request": _REQUEST_FORM,
+    "/app/batches": {"page": _bounded(100_000)},
+    # Purchases started before New request and Batches had their own pages,
+    # and before Feedback left; both pages redirect.
     "/app/feedback": {"request": _request_id},
     "/app/requests": {
         "request": _request_id,
         "page": _bounded(100_000),
-        # The unfinished request form: quantity, states, rows per file.
-        "quantity": _bounded(100_000),
-        "states": _states,
-        "rows_per_file": _bounded(100_000),
+        **_REQUEST_FORM,
     },
 }
+
+# One batch's page, named by its number or by the UUID older links carry.
+_BATCH_PAGE = re.compile(
+    r"/app/batches/(?:[0-9]{1,9}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}"
+    r"-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
+)
 
 
 def customer_return_path(value: str | None) -> str:
@@ -83,6 +97,8 @@ def customer_return_path(value: str | None) -> str:
     parts = urlsplit(value)
     if parts.scheme or parts.netloc:
         return DEFAULT_RETURN_PATH
+    if _BATCH_PAGE.fullmatch(parts.path):
+        return parts.path
     allowed = _RETURN_PAGES.get(parts.path)
     if allowed is None:
         return DEFAULT_RETURN_PATH

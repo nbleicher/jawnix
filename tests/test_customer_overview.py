@@ -193,11 +193,15 @@ def test_recent_batches_offer_live_files_and_link_expired_ones(session, tmp_path
     assert first["cost_cents"] == 25_000
     assert first["file_available"] is True
     assert first["download_href"] == f"/api/me/batch-requests/{live.id}/artifact"
-    assert first["href"] == f"/app/requests?request={live.id}"
+    assert first["href"] == f"/app/batches/{live.number}"
+    assert first["can_request_copy"] is False
     assert second["cost_cents"] is None
     assert second["file_available"] is False
     assert second["download_href"] is None
-    assert second["href"] == f"/app/requests?request={expired.id}"
+    assert second["href"] == f"/app/batches/{expired.number}"
+    # An expired file can be copied again from Home.
+    assert second["can_request_copy"] is True
+    assert second["copy_pending"] is False
 
 
 def test_home_lists_at_most_five_recent_batches(session):

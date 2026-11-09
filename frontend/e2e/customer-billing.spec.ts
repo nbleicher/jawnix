@@ -77,7 +77,7 @@ test.describe("Credit Wallet widget", () => {
     await mockCustomerAuth(page, {
       billing: { wallet: BILLED_CUSTOMER_WALLET },
     });
-    await page.goto("./requests");
+    await page.goto("./batches");
 
     await page.getByRole("button", { name: "Buy credits" }).click();
     const dialog = page.getByRole("dialog", { name: "Buy credits" });
@@ -210,36 +210,27 @@ test.describe("Account Credit Ledger", () => {
 });
 
 test.describe("Billed request submission", () => {
-  test("review names cost, Batch Hold, and available balance", async ({
+  test("the summary names cost, balance, and the balance after", async ({
     page,
   }) => {
     await mockCustomerAuth(page, {
       billing: { wallet: BILLED_CUSTOMER_WALLET },
     });
     const state = await mockBatchRequests(page, { workspace: EMPTY_BATCH_REQUEST_WORKSPACE });
-    await page.goto("./requests");
+    await page.goto("./new-request");
 
-    await page.getByRole("spinbutton", { name: /How many leads/ }).fill("750");
-    await page.getByRole("button", { name: "Continue" }).click();
-    await page.getByRole("button", { name: "Continue" }).click();
-    await page.getByRole("button", { name: "Continue" }).click();
-
-    await expect(
-      page.getByRole("heading", { name: "Review your request" }),
-    ).toBeVisible();
-    await expect(
-      page.getByText("750 × $0.005 per lead = $3.75", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(/\$3\.75 reserved from your Credit Wallet/),
-    ).toBeVisible();
-    await expect(page.locator(".request-flow__review")).toContainText("$96.25");
-    await page.getByRole("button", { name:"Submit request", exact:true }).click();
-    await expect(page.getByRole("heading", { name:"Request submitted" })).toBeVisible();
-    expect(state.submissions[0]).toMatchObject({ expected_lead_rate_cents_per_thousand:500 });
+    await page.getByRole("textbox", { name: "How many leads?" }).fill("750");
+    const summary = page.getByRole("region", { name: "Summary" });
+    await expect(summary).toContainText("Rate$5.00 per 1,000");
+    await expect(summary).toContainText("Cost$3.75");
+    await expect(summary).toContainText("Your balance$96.25");
+    await expect(summary).toContainText("Balance after$92.50");
+    await summary.getByRole("button", { name: "Submit request" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Batch #1043" })).toBeVisible();
+    expect(state.submissions[0]).toMatchObject({ expected_lead_rate_cents_per_thousand: 500 });
   });
 
-  test("refuses submit when available balance cannot cover the Batch Hold", async ({
+  test("refuses submit when the balance cannot cover the cost", async ({
     page,
   }) => {
     await mockCustomerAuth(page, {
@@ -248,27 +239,21 @@ test.describe("Billed request submission", () => {
     const state = await mockBatchRequests(page, {
       workspace: EMPTY_BATCH_REQUEST_WORKSPACE,
     });
-    await page.goto("./requests");
+    await page.goto("./new-request");
 
-    await page.getByRole("spinbutton", { name: /How many leads/ }).fill("750");
-    await page.getByRole("button", { name: "Continue" }).click();
-    await page.getByRole("button", { name: "Continue" }).click();
-    await page.getByRole("button", { name: "Continue" }).click();
-
-    await expect(page.getByRole("alert")).toContainText(
-      /does not have enough available balance for this Batch Hold/,
-    );
-    await expect(page.getByRole("alert")).toContainText("Required $3.75");
-    await expect(page.getByRole("alert")).toContainText("available $2.00");
-    await expect(
-      page.getByRole("button", { name: "Submit request" }),
-    ).toBeDisabled();
+    await page.getByRole("textbox", { name: "How many leads?" }).fill("750");
+    const summary = page.getByRole("region", { name: "Summary" });
+    await expect(summary).toContainText("Cost$3.75");
+    await expect(summary).toContainText("Your balance$2.00");
+    await expect(summary).toContainText("Short by$1.75");
+    await expect(summary.getByRole("button", { name: "Buy $2.00 in credits" })).toBeVisible();
+    await expect(summary.getByRole("button", { name: "Submit request" })).toBeDisabled();
     expect(state.submissions).toHaveLength(0);
   });
 });
 
 test.describe("Returning from Stripe Checkout", () => {
-  test("Buy credits during a request returns to the filled-in form", async ({
+  test("Buy credits from the header during a request returns to the filled-in form", async ({
     page,
   }) => {
     await mockCustomerAuth(page, {
@@ -285,20 +270,14 @@ test.describe("Returning from Stripe Checkout", () => {
         body: "<html><body>Stripe Checkout</body></html>",
       }),
     );
-    await page.goto("./requests");
+    await page.goto("./new-request");
 
-    await page.getByRole("spinbutton", { name: /How many leads/ }).fill("750");
-    await page.getByRole("button", { name: "Continue" }).click();
-    await page.getByRole("radio", { name: "Choose specific states" }).check();
-    await page.getByRole("checkbox", { name: "FL" }).check();
-    await page.getByRole("button", { name: "Continue" }).click();
-    await page.getByRole("radio", { name: "Split by rows per file" }).check();
-    await page.getByRole("spinbutton", { name: /Rows per file/ }).fill("300");
-    await page.getByRole("button", { name: "Continue" }).click();
-    await page
-      .locator(".request-flow__commit")
-      .getByRole("button", { name: "Buy credits" })
-      .click();
+    await page.getByRole("textbox", { name: "How many leads?" }).fill("750");
+    await page.getByRole("checkbox", { name: "Texas" }).uncheck();
+    await page.getByText("Options · one file").click();
+    await page.getByRole("radio", { name: "Split into several files, in one zip" }).check();
+    await page.getByRole("textbox", { name: "Rows per file" }).fill("300");
+    await page.getByRole("banner").getByRole("button", { name: "Buy credits" }).click();
     const dialog = page.getByRole("dialog", { name: "Buy credits" });
     const purchaseRequest = page.waitForRequest(
       (request) =>
@@ -308,30 +287,26 @@ test.describe("Returning from Stripe Checkout", () => {
     await dialog.getByRole("button", { name: "Continue to Stripe" }).click();
     expect((await purchaseRequest).postDataJSON()).toEqual({
       amount_dollars: 25,
-      return_to: "/app/requests?quantity=750&states=FL&rows_per_file=300",
+      return_to: "/app/new-request?quantity=750&states=FL&rows_per_file=300",
     });
     await expect(page).toHaveURL(/checkout\.stripe\.test/);
 
     // Stripe sends the Customer back to the URL the backend validated.
     await page.goto(
-      "./requests?quantity=750&states=FL&rows_per_file=300&purchase=success",
+      "./new-request?quantity=750&states=FL&rows_per_file=300&purchase=success",
     );
 
     const notice = page.getByRole("status").filter({ hasText: /Credit Purchase/ });
     await expect(notice).toBeVisible();
-    const title = page.getByRole("heading", { level: 1, name: "Requests" });
+    const title = page.getByRole("heading", { level: 1, name: "New request" });
     expect((await notice.boundingBox())!.y).toBeLessThan(
       (await title.boundingBox())!.y,
     );
-    await expect(
-      page.getByRole("heading", { name: "Review your request" }),
-    ).toBeVisible();
-    const review = page.locator(".request-flow__review");
-    await expect(review).toContainText("750 leads");
-    await expect(review).toContainText("FL");
-    await expect(review).toContainText("750 at 300/file = 3 files");
+    await expect(page.getByRole("textbox", { name: "How many leads?" })).toHaveValue("750");
+    await expect(page.getByRole("checkbox", { name: "Texas" })).not.toBeChecked();
+    await expect(page.getByText("Options · split into files of 300 rows")).toBeVisible();
     // The address is cleaned so a reload starts fresh; the notice stays.
-    await expect(page).toHaveURL(/\/app\/requests$/);
+    await expect(page).toHaveURL(/\/app\/new-request$/);
     await expect(notice).toBeVisible();
   });
 
@@ -342,16 +317,11 @@ test.describe("Returning from Stripe Checkout", () => {
       billing: { wallet: BILLED_CUSTOMER_WALLET },
     });
     await mockBatchRequests(page, { workspace: EMPTY_BATCH_REQUEST_WORKSPACE });
-    await page.goto("./requests?quantity=750&purchase=cancelled");
+    await page.goto("./new-request?quantity=750&purchase=cancelled");
 
     await expect(
       page.getByRole("status").filter({ hasText: "Credit Purchase cancelled" }),
     ).toHaveText("Credit Purchase cancelled. Your Credit Wallet was not charged.");
-    await expect(
-      page.getByRole("spinbutton", { name: /How many leads/ }),
-    ).toHaveCount(0);
-    await expect(
-      page.getByRole("heading", { name: "Review your request" }),
-    ).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "How many leads?" })).toHaveValue("750");
   });
 });

@@ -1,47 +1,20 @@
 import type { NavigationDestination } from "../shell/Navigation";
 
-/** The id of the request history's section on /requests. */
-export const BATCH_HISTORY_ID = "batch-history";
+/** New request: the form that creates a batch (CP2). */
+export const NEW_REQUEST_HREF = "/app/new-request";
 
-/** Batches opens the request history's section on /requests. */
-export const BATCH_HISTORY_HASH = `#${BATCH_HISTORY_ID}`;
+/** Batches: every batch the Customer has requested (CP3). */
+export const BATCHES_HREF = "/app/batches";
 
 /**
- * Whether the Requests page is showing batches rather than the request form:
- * one batch (`?request=`), a later page of the history, or the history itself.
- * Until New request and Batches have pages of their own, this decides which
- * of the two is the current page.
+ * Customer navigation (Q10): the Customer's jobs, not the backend's tables.
+ * A batch page (/batches/1042) belongs to Batches.
  */
-export function showsBatches(location: { search: string; hash: string }): boolean {
-  const params = new URLSearchParams(location.search);
-  return (
-    location.hash === BATCH_HISTORY_HASH
-    || params.has("request")
-    || params.has("page")
-  );
-}
-
-/** Customer navigation (Q10): the Customer's jobs, not the backend's tables. */
-export function customerDestinations(location: {
-  search: string;
-  hash: string;
-}): NavigationDestination[] {
-  const batches = showsBatches(location);
-  const onRequests = (pathname: string) => /^\/requests(?:\/|$)/.test(pathname);
+export function customerDestinations(): NavigationDestination[] {
   return [
     { to: "/home", label: "Home", icon: "◆" },
-    {
-      to: "/requests",
-      label: "New request",
-      icon: "+",
-      match: (pathname) => onRequests(pathname) && !batches,
-    },
-    {
-      to: `/requests${BATCH_HISTORY_HASH}`,
-      label: "Batches",
-      icon: "▤",
-      match: (pathname) => onRequests(pathname) && batches,
-    },
+    { to: "/new-request", label: "New request", icon: "+" },
+    { to: "/batches", label: "Batches", icon: "▤" },
     { to: "/account", label: "Account", icon: "◑" },
   ];
 }

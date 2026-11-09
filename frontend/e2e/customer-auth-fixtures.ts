@@ -187,8 +187,8 @@ export async function mockCustomerAuth(
     return json(route, current(settings.overview));
   });
 
-  // Enough for a customer journey to arrive at /app/requests. Specs that
-  // exercise the guided flow itself layer mockBatchRequests over this.
+  // Enough for a customer journey to arrive at New request or Batches.
+  // Specs that exercise those pages layer mockBatchRequests over this.
   await page.route(/\/api\/me\/batch-requests(\?[^/]*)?$/, (route) =>
     json(route, current(settings.batchRequests)),
   );

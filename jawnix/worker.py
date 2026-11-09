@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, text
 
 from .allocation import allocate_request, fulfill_round_robin
+from .batch_copies import NEW_COPY_JOB, make_new_copy
 from .config import get_settings
 from .database import SessionLocal
 from .delivery import deliver_request, mark_delivery_failed
@@ -639,6 +640,13 @@ def process_job(job_id: int) -> None:
                                    session_factory=SessionLocal, job_id=job.id)
             elif job.kind == "deliver_request":
                 deliver_request(session, uuid.UUID(str(job.request_id)), settings)
+            elif job.kind == NEW_COPY_JOB:
+                make_new_copy(
+                    session,
+                    uuid.UUID(str(job.request_id)),
+                    settings,
+                    job_id=job.id,
+                )
             elif job.kind == EMIT_LEAD_ASSIGNED_JOB:
                 after_raw = job.payload.get("after_id")
                 after_id = int(after_raw) if after_raw is not None else None
@@ -671,6 +679,7 @@ def process_job(job_id: int) -> None:
                     request,
                     milestone,
                     settings,
+                    idempotency_key=job.payload.get("idempotency_key") or None,
                 )
                 job.payload = {
                     **job.payload,
