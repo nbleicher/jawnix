@@ -196,7 +196,7 @@ test.describe("Account Billing", () => {
       ],
     };
 
-    await expect(page.getByRole("status").filter({ hasText: /complete/i })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("status").filter({ hasText: /Payment received/ })).toBeVisible({ timeout: 10_000 });
     await expect(history.getByText("+$40.00")).toBeVisible();
     await expect(page.locator(".jx-kpi").filter({ hasText: "Balance" })).toContainText("$136.25");
   });
@@ -305,7 +305,7 @@ test.describe("Returning from Stripe Checkout", () => {
       "./new-request?quantity=750&states=FL&rows_per_file=300&purchase=success",
     );
 
-    const notice = page.getByRole("status").filter({ hasText: /Credit Purchase/ });
+    const notice = page.getByRole("status").filter({ hasText: /Payment (received|processing)/ });
     await expect(notice).toBeVisible();
     const title = page.getByRole("heading", { level: 1, name: "New request" });
     expect((await notice.boundingBox())!.y).toBeLessThan(
@@ -329,8 +329,8 @@ test.describe("Returning from Stripe Checkout", () => {
     await page.goto("./new-request?quantity=750&purchase=cancelled");
 
     await expect(
-      page.getByRole("status").filter({ hasText: "Credit Purchase cancelled" }),
-    ).toHaveText("Credit Purchase cancelled. Your Credit Wallet was not charged.");
+      page.getByRole("status").filter({ hasText: "Payment canceled" }),
+    ).toHaveText("Payment canceled. You were not charged.");
     await expect(page.getByRole("textbox", { name: "How many leads?" })).toHaveValue("750");
   });
 });

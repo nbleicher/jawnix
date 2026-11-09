@@ -82,7 +82,7 @@ describe("PurchaseReturnNotice", () => {
     const notice = await screen.findByRole("status");
     await waitFor(() =>
       expect(notice).toHaveTextContent(
-        "Your Credit Purchase is complete. The Credit Wallet has been updated.",
+        "Payment received. Your balance has been updated.",
       ),
     );
     // Above the page's own header.
@@ -108,7 +108,7 @@ describe("PurchaseReturnNotice", () => {
     await renderShell("/app/requests?purchase=cancelled");
 
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "Credit Purchase cancelled. Your Credit Wallet was not charged.",
+      "Payment canceled. You were not charged.",
     );
 
     await user.click(screen.getByRole("link", { name: "Overview" }));

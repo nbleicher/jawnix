@@ -172,7 +172,7 @@ def request_blocker(profile: CustomerProfile) -> CustomerRequestBlocker | None:
                 kind="add_licensed_states",
                 label="Add appointed states",
                 description="Save the states you are appointed in.",
-                href="/app/account",
+                href="/app/account/states",
             ),
         )
     return None

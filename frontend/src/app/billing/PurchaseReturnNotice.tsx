@@ -60,7 +60,7 @@ export function PurchaseReturnNotice() {
         className="purchase-return-notice purchase-return-notice--neutral"
         role="status"
       >
-        Credit Purchase cancelled. Your Credit Wallet was not charged.
+        Payment canceled. You were not charged.
       </div>
     );
   }
@@ -76,10 +76,10 @@ export function PurchaseReturnNotice() {
       role="status"
     >
       {processing
-        ? "Your Credit Purchase is processing. The Credit Wallet updates when Stripe confirms payment."
+        ? "Payment processing. Your balance updates as soon as Stripe confirms it."
         : failed
-          ? "Stripe did not complete this Credit Purchase. The Credit Wallet was not charged."
-          : "Your Credit Purchase is complete. The Credit Wallet has been updated."}
+          ? "Payment not completed. You were not charged."
+          : "Payment received. Your balance has been updated."}
     </div>
   );
 }

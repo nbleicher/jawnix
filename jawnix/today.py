@@ -481,7 +481,7 @@ def _registration_decisions(db: Session) -> list[dict[str, object]]:
                     + _plural(len(matches), "archived match", "archived matches")
                 ),
                 since=item.created_at,
-                href="/app/admin/customers",
+                href="/app/admin/customers#registrations",
                 facts={
                     **registration_status(item),
                     "id": str(item.auth_user_id),

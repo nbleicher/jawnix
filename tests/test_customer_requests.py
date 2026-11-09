@@ -514,7 +514,8 @@ def test_workspace_blocks_the_flow_with_the_fix_rather_than_the_stages(
 
     assert blocker["reason"] == reason
     assert blocker["action"]["kind"] == action_kind
-    assert blocker["action"]["href"] == "/app/account"
+    expected = "/app/account/states" if action_kind == "add_licensed_states" else "/app/account"
+    assert blocker["action"]["href"] == expected
 
 
 def test_workspace_never_leaks_the_fulfillment_state_machine(session):

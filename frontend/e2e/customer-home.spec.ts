@@ -231,7 +231,7 @@ test.describe("Overview links", () => {
 
     await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
     // The Stripe outcome the query carried still shows, then leaves the address.
-    await expect(page.getByText("Credit Purchase cancelled.", { exact: false })).toBeVisible();
+    await expect(page.getByText("Payment canceled.", { exact: false })).toBeVisible();
     await expect(page).toHaveURL(/\/app\/home$/);
   });
 

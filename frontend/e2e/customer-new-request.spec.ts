@@ -159,7 +159,7 @@ test.describe("New request", () => {
 
     // Stripe sends the Customer back to the path the backend validated.
     await page.goto("./new-request?quantity=100000&states=FL&rows_per_file=10000&purchase=success");
-    const notice = page.getByRole("status").filter({ hasText: /Credit Purchase/ });
+    const notice = page.getByRole("status").filter({ hasText: /Payment (received|processing)/ });
     await expect(notice).toBeVisible();
     await expect(quantity(page)).toHaveValue("100000");
     await expect(page.getByRole("checkbox", { name: "Florida" })).toBeChecked();
@@ -219,7 +219,7 @@ test.describe("Old request-form links", () => {
       "./requests?quantity=750&states=FL&rows_per_file=300&purchase=cancelled",
     );
 
-    await expect(page.getByRole("status").filter({ hasText: "Credit Purchase cancelled" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Payment canceled" })).toBeVisible();
     await expect(quantity(page)).toHaveValue("750");
     await expect(page.getByRole("checkbox", { name: "Texas" })).not.toBeChecked();
     await expect(page.getByText("Options · split into files of 300 rows")).toBeVisible();
