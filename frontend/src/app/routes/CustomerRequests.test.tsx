@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router";
+import type { LoaderFunction } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ThemeProvider } from "../../design-system/theme/ThemeProvider";
@@ -9,12 +10,16 @@ import type { CreditWallet } from "../billing/wallet";
 import {
   ACTIVE_REQUEST_REFRESH_MS,
   CustomerRequestsRoute,
+  draftStage,
   formatArtifactExpiry,
   formatFileCountPreview,
   previewFileCount,
+  readRequestDraft,
 } from "./CustomerRequests";
+import { batchRequestsLoader } from "./batchRequests";
 import type {
   BatchRequest,
+  BatchRequestsData,
   BatchRequestWorkspace,
   MilestoneGraphData,
 } from "./batchRequests";
@@ -129,6 +134,7 @@ function deliveredRequest(overrides: Partial<BatchRequest> = {}): BatchRequest {
 function workspace(
   overrides: Partial<BatchRequestWorkspace> = {},
 ): BatchRequestWorkspace {
+  const requests = overrides.requests ?? [];
   return {
     limits: {
       minimum_lead_count: 1,
@@ -136,16 +142,19 @@ function workspace(
       licensed_states: ["FL", "TX"],
     },
     blocker: null,
-    requests: [],
+    requests,
+    history: { page: 1, page_size: 20, total: requests.length },
     ...overrides,
   };
 }
 
 function renderRoute(
-  data: BatchRequestWorkspace,
+  data: BatchRequestsData,
   options: {
     initialEntry?: string;
-    loader?: () => BatchRequestWorkspace | Promise<BatchRequestWorkspace>;
+    loader?: LoaderFunction;
+    /** False runs the loader for the first render instead of hydrating. */
+    hydrate?: boolean;
     wallet?: CreditWallet;
   } = {},
 ) {
@@ -167,7 +176,9 @@ function renderRoute(
     ],
     {
       initialEntries: [options.initialEntry ?? "/app/requests"],
-      hydrationData: { loaderData: { requests: data } },
+      ...(options.hydrate === false
+        ? {}
+        : { hydrationData: { loaderData: { requests: data } } }),
     },
   );
   const tree = (
@@ -175,13 +186,14 @@ function renderRoute(
       <RouterProvider router={router} />
     </ThemeProvider>
   );
-  return render(
+  const rendered = render(
     options.wallet ? (
       <CreditWalletProvider>{tree}</CreditWalletProvider>
     ) : (
       tree
     ),
   );
+  return { ...rendered, router };
 }
 
 function mockFetch(handler: (body: unknown) => unknown, status = 201) {
@@ -945,5 +957,240 @@ describe("active request refresh", () => {
     });
 
     expect(loader).not.toHaveBeenCalled();
+  });
+});
+
+describe("request history beyond the newest page", () => {
+  const OLDER_ID = "99999999-9999-4999-8999-999999999999";
+
+  function respond(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  it("resolves an emailed link to a request outside the loaded page", async () => {
+    const older = batchRequest({ id: OLDER_ID, lead_count: 1_250 });
+    const page = workspace({
+      requests: Array.from({ length: 20 }, (_, index) =>
+        batchRequest({ id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}` }),
+      ),
+      history: { page: 1, page_size: 20, total: 21 },
+    });
+    const fetch = vi.fn((input: RequestInfo | URL) =>
+      Promise.resolve(
+        String(input) === `/api/me/batch-requests/${OLDER_ID}`
+          ? respond(older)
+          : respond(page),
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    renderRoute(page, {
+      initialEntry: `/app/requests?request=${OLDER_ID}`,
+      loader: batchRequestsLoader,
+      hydrate: false,
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: "1,250 lead Batch Request" }),
+    ).toBeVisible();
+    expect(screen.queryByText("Batch Request not found")).toBeNull();
+    expect(fetch).toHaveBeenCalledWith(`/api/me/batch-requests/${OLDER_ID}`, {
+      credentials: "same-origin",
+    });
+  });
+
+  it("shows not found only when the backend has no such request", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          String(input).endsWith(OLDER_ID)
+            ? respond({ detail: "Request was not found." }, 404)
+            : respond(workspace()),
+        ),
+      ),
+    );
+
+    renderRoute(workspace(), {
+      initialEntry: `/app/requests?request=${OLDER_ID}`,
+      loader: batchRequestsLoader,
+      hydrate: false,
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: "Batch Request not found" }),
+    ).toBeVisible();
+  });
+
+  it("pages through the whole history, newest first", () => {
+    renderRoute(
+      workspace({
+        requests: [batchRequest()],
+        history: { page: 2, page_size: 20, total: 45 },
+      }),
+      { initialEntry: "/app/requests?page=2" },
+    );
+
+    const pages = screen.getByRole("navigation", { name: "Request history pages" });
+    expect(within(pages).getByText("21–40 of 45")).toBeVisible();
+    expect(
+      within(pages).getByRole("link", { name: "Newer requests" }),
+    ).toHaveAttribute("href", "/app/requests");
+    expect(
+      within(pages).getByRole("link", { name: "Older requests" }),
+    ).toHaveAttribute("href", "/app/requests?page=3");
+  });
+
+  it("hides paging when the whole history fits on one page", () => {
+    renderRoute(workspace({ requests: [batchRequest()] }));
+
+    expect(
+      screen.queryByRole("navigation", { name: "Request history pages" }),
+    ).toBeNull();
+  });
+});
+
+describe("batchRequestsLoader", () => {
+  function args(path: string) {
+    return {
+      request: new Request(`https://jawnix.test/app${path}`),
+      params: {},
+      context: undefined,
+    } as unknown as Parameters<typeof batchRequestsLoader>[0];
+  }
+
+  it("reads the requested history page", async () => {
+    const fetch = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify(workspace()), { status: 200 })),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await batchRequestsLoader(args("/requests?page=3"));
+
+    expect(fetch).toHaveBeenCalledWith("/api/me/batch-requests?page=3", {
+      credentials: "same-origin",
+    });
+  });
+
+  it("never asks the backend about a malformed request id", async () => {
+    const fetch = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify(workspace()), { status: 200 })),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    const data = await batchRequestsLoader(args("/requests?request=42"));
+
+    expect(data.selected).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns to the same request after sign-in", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response("{}", { status: 401 }))),
+    );
+
+    const thrown = await batchRequestsLoader(
+      args(`/requests?request=${REQUEST_ID}`),
+    ).catch((error: unknown) => error);
+
+    expect((thrown as Response).headers.get("Location")).toBe(
+      `/sign-in?next=${encodeURIComponent(`/app/requests?request=${REQUEST_ID}`)}`,
+    );
+  });
+});
+
+describe("returning from Stripe Checkout", () => {
+  const WALLET: CreditWallet = {
+    customerId: 1,
+    billingEnabled: true,
+    leadRateCentsPerThousand: 500,
+    balanceCents: 200,
+    activeHoldsCents: 0,
+    availableBalanceCents: 200,
+    purchases: [],
+    ledger: [],
+  };
+
+  it("reads the unfinished request a return carries", () => {
+    const draft = readRequestDraft(
+      new URLSearchParams("quantity=750&states=tx,FL&rows_per_file=300"),
+    );
+    const limits = workspace().limits;
+
+    expect(draft).toEqual({ quantity: "750", states: ["TX", "FL"], rowsPerFile: "300" });
+    expect(draftStage(draft, limits)).toBe(3);
+    expect(draftStage({ quantity: "0", states: null, rowsPerFile: null }, limits)).toBe(0);
+    expect(draftStage({ quantity: "750", states: ["NY"], rowsPerFile: null }, limits)).toBe(1);
+    expect(readRequestDraft(new URLSearchParams("states=TX"))).toBeNull();
+  });
+
+  it("restores quantity, states, and file option at Review, then cleans the address", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify(WALLET), { status: 200 })),
+      ),
+    );
+    const { router } = renderRoute(workspace(), {
+      initialEntry: "/app/requests?quantity=750&states=TX&rows_per_file=300",
+      wallet: WALLET,
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Review your request" }),
+    ).toBeVisible();
+    const review = document.querySelector(".request-flow__review") as HTMLElement;
+    expect(review).toHaveTextContent("750 leads");
+    expect(review).toHaveTextContent("TX");
+    expect(review).not.toHaveTextContent("FL, TX");
+    expect(review).toHaveTextContent("750 at 300/file = 3 files");
+    // The draft keys leave the address so a reload starts clean.
+    await waitFor(() => expect(router.state.location.search).toBe(""));
+    expect(
+      screen.getByRole("heading", { name: "Review your request" }),
+    ).toBeVisible();
+  });
+
+  it("sends the filled-in request as the place to come back to", async () => {
+    const user = userEvent.setup();
+    const posted: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/me/billing/purchases") {
+          posted.push(JSON.parse(String(init?.body)));
+          return Promise.resolve(
+            new Response(JSON.stringify({ detail: "Stripe is unavailable." }), {
+              status: 503,
+            }),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify(WALLET), { status: 200 }),
+        );
+      }),
+    );
+    renderRoute(workspace(), { wallet: WALLET });
+
+    await completeQuantityStage(user);
+    await user.click(screen.getByRole("radio", { name: "Choose specific states" }));
+    await user.click(screen.getByRole("checkbox", { name: "FL" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("radio", { name: "Split by rows per file" }));
+    await user.type(screen.getByRole("spinbutton", { name: /Rows per file/ }), "250");
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Buy credits" }));
+    const dialog = await screen.findByRole("dialog", { name: "Buy credits" });
+    await user.click(within(dialog).getByRole("button", { name: "Continue to Stripe" }));
+
+    await waitFor(() => expect(posted).toHaveLength(1));
+    expect(posted[0]).toEqual({
+      amount_dollars: 25,
+      return_to: "/app/requests?quantity=750&states=FL&rows_per_file=250",
+    });
   });
 });

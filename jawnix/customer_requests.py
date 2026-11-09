@@ -18,8 +18,9 @@ Batch Request the first attempt created.
 from __future__ import annotations
 
 import uuid
+from math import ceil
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .customer_history import request_history_scope
@@ -43,6 +44,7 @@ from .schemas import (
     CustomerRequestBlocker,
     CustomerRequestCreate,
     CustomerRequestDetail,
+    CustomerRequestHistoryPage,
     CustomerRequestLimits,
     CustomerRequestWorkspaceOut,
 )
@@ -52,6 +54,10 @@ from .states import normalize_states
 # The Batch Request domain bound: an exact quantity of 1 to 100,000 Leads.
 MINIMUM_LEAD_COUNT = 1
 MAXIMUM_LEAD_COUNT = 100_000
+
+# Request history is read a page at a time, newest first. Every page is
+# reachable, so no request ever falls out of the Customer's history.
+REQUEST_HISTORY_PAGE_SIZE = 20
 
 # A Batch Request may be withdrawn only before any Distribution Event commits.
 # Allocation commits distribution, so these three statuses are the whole window
@@ -89,12 +95,14 @@ _REQUEST_AGAIN = CustomerRequestAction(
     description="Start a new request with the quantity and states you want.",
     href="/app/requests",
 )
-_SUBMIT_FEEDBACK = CustomerRequestAction(
-    kind="submit_feedback",
-    label="Submit Lead Feedback",
-    description="Tell us how the leads in this Batch worked out.",
-    href="/app/feedback",
-)
+def _submit_feedback(item: LeadRequest) -> CustomerRequestAction:
+    # Feedback opens scoped to this Batch, so its search covers only these Leads.
+    return CustomerRequestAction(
+        kind="submit_feedback",
+        label="Submit Lead Feedback",
+        description="Tell us how the leads in this Batch worked out.",
+        href=f"/app/feedback?request={item.id}",
+    )
 
 
 def request_limits(profile: CustomerProfile) -> CustomerRequestLimits:
@@ -149,7 +157,7 @@ def request_blocker(profile: CustomerProfile) -> CustomerRequestBlocker | None:
 
 def _next_action(item: LeadRequest) -> CustomerRequestAction | None:
     if item.status == RequestStatus.delivered.value:
-        return _SUBMIT_FEEDBACK
+        return _submit_feedback(item)
     if item.status == RequestStatus.failed.value:
         return _support_action()
     if item.status in {
@@ -201,22 +209,39 @@ def build_request_workspace(
     *,
     user_id: uuid.UUID,
     profile: CustomerProfile,
-    history_limit: int = 20,
+    page: int = 1,
+    page_size: int = REQUEST_HISTORY_PAGE_SIZE,
 ) -> CustomerRequestWorkspaceOut:
-    """Everything the guided Batch Request screen renders in one read."""
+    """Everything the guided Batch Request screen renders in one read.
 
+    History is one page of the Customer's requests, newest first. A page past
+    the end answers with the last page rather than an empty one.
+    """
+
+    scope = request_history_scope(profile, user_id)
+    total = int(
+        db.scalar(select(func.count()).select_from(LeadRequest).where(scope))
+        or 0
+    )
+    page = min(max(1, page), max(1, ceil(total / page_size)))
     items = list(
         db.scalars(
             select(LeadRequest)
-            .where(request_history_scope(profile, user_id))
+            .where(scope)
             .order_by(LeadRequest.created_at.desc(), LeadRequest.id.desc())
-            .limit(history_limit)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         )
     )
     return CustomerRequestWorkspaceOut(
         limits=request_limits(profile),
         blocker=request_blocker(profile),
         requests=[request_detail(item) for item in items],
+        history=CustomerRequestHistoryPage(
+            page=page,
+            page_size=page_size,
+            total=total,
+        ),
     )
 
 

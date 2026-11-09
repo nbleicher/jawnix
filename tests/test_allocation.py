@@ -61,10 +61,12 @@ def test_exact_allocation_and_csv(session, settings):
                 )
             )
         )
-    assert list(rows[0]) == ["phone", "title"]
+    assert list(rows[0]) == ["phone", "title", "state"]
+    assert artifact.csv_format == "phone_title_state"
     assert len(rows) == 2
     assert len({row["phone"] for row in rows}) == 2
     assert {row["title"] for row in rows} == {'Owner, "Acme"', "Manager"}
+    assert {row["state"] for row in rows} == {"PA"}
 
 
 def test_allocation_locks_only_lead_rows_on_postgres(
@@ -264,7 +266,7 @@ def test_allocation_snapshots_customer_agency_and_delivered_listing(session, set
             archive.read(artifact.parts[0]["filename"]).decode()
         )
         assert list(csv.DictReader(stream)) == [
-            {"phone": "2145553001", "title": "Original Listing"}
+            {"phone": "2145553001", "title": "Original Listing", "state": "TX"}
         ]
 
     session.refresh(event)

@@ -1253,6 +1253,15 @@ class BatchArtifact(Base):
     parts: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     byte_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    # The CSV column layout this artifact was written with. Regeneration reuses
+    # it so an expired file rebuilds byte for byte; artifacts from before the
+    # state column existed default to the original phone,title layout.
+    csv_format: Mapped[str] = mapped_column(
+        String(32),
+        default="phone_title_state",
+        server_default="phone_title",
+        nullable=False,
+    )
     delivery_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
     delivery_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     resend_message_id: Mapped[str] = mapped_column(String(160), default="", nullable=False)

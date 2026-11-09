@@ -8,6 +8,7 @@ import { StatusBadge } from "../../design-system/primitives/status";
 import { Text } from "../../design-system/primitives/typography";
 import { useBilledWallet, useCreditWallet } from "./CreditWalletContext";
 import { formatCents } from "./money";
+import { usePurchaseReturnTo } from "./purchaseReturn";
 import { hasProcessingPurchase, startCreditPurchase } from "./wallet";
 
 import "./CreditWalletWidget.css";
@@ -15,11 +16,17 @@ import "./CreditWalletWidget.css";
 export function PurchaseDialog({
   open,
   onClose,
+  returnTo: explicitReturnTo,
 }: {
   open: boolean;
   onClose: () => void;
+  /** The portal path Checkout returns to; defaults to the current page. */
+  returnTo?: string | undefined;
 }) {
   const { refresh } = useCreditWallet();
+  // Checkout comes back here, with any unfinished request form filled in.
+  const pageReturnTo = usePurchaseReturnTo();
+  const returnTo = explicitReturnTo ?? pageReturnTo;
   const [amount, setAmount] = useState("25");
   const [fieldError, setFieldError] = useState("");
   const [failure, setFailure] = useState("");
@@ -47,7 +54,7 @@ export function PurchaseDialog({
     setFieldError("");
     setFailure("");
     try {
-      const started = await startCreditPurchase(Number(trimmed));
+      const started = await startCreditPurchase(Number(trimmed), returnTo);
       await refresh();
       window.location.assign(started.checkoutUrl);
     } catch (caught) {

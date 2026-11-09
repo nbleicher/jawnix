@@ -6,7 +6,7 @@ import { ManagedAdminShell } from "./shells/ManagedAdminShell";
 import { managerAccessLoader } from "./auth/managedAdmin";
 import { RouteError } from "./routes/RouteError";
 import { adminAccessLoader, adminMFAStatusLoader } from "./auth/adminMFA";
-import { customerAccessLoader, invitationLoader, signInLoader } from "./auth/customerAuth";
+import { customerAccessLoader, invitationLoader, passwordResetLoader, signInLoader } from "./auth/customerAuth";
 import { lazyPage } from "./routeModules";
 import { scraperOverviewLoader } from "./routes/scraperMonitoring";
 import { scraperKeywordsLoader } from "./routes/scraperKeywordApi";
@@ -59,6 +59,14 @@ export const router = createBrowserRouter(
               "./routes/CustomerAuth"
             );
             return { Component: AcceptInvitationRoute };
+          },
+        },
+        {
+          path: "reset-password",
+          loader: passwordResetLoader,
+          lazy: async () => {
+            const { ResetPasswordRoute } = await import("./routes/CustomerAuth");
+            return { Component: ResetPasswordRoute };
           },
         },
 

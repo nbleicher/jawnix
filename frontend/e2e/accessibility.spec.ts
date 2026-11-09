@@ -41,12 +41,17 @@ const WCAG_AA_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 const ROUTES = [
   "./sign-in",
+  "./sign-in?password=updated",
   "./accept-invitation",
+  "./reset-password",
+  "./reset-password?token=fixture-one-time-password-token",
   "./overview",
   "./requests",
   `./requests?request=${WAITING_REQUEST.id}`,
   `./requests?request=${DELIVERED_REQUEST.id}`,
+  "./requests?quantity=750&states=FL&rows_per_file=300&purchase=success",
   "./feedback",
+  `./feedback?request=${DELIVERED_REQUEST.id}`,
   "./account",
   "./admin/overview",
   "./admin/fulfillment",

@@ -142,6 +142,9 @@ export async function mockCustomerAuth(
       }
       return json(route, { status: true });
     }
+    if (url.pathname.endsWith("/request-password-reset")) {
+      return json(route, { status: true });
+    }
     if (url.pathname.endsWith("/get-session")) {
       return json(route, providerSession());
     }
@@ -185,7 +188,7 @@ export async function mockCustomerAuth(
 
   // Enough for a customer journey to arrive at /app/requests. Specs that
   // exercise the guided flow itself layer mockBatchRequests over this.
-  await page.route(/\/api\/me\/batch-requests$/, (route) =>
+  await page.route(/\/api\/me\/batch-requests(\?[^/]*)?$/, (route) =>
     json(route, current(settings.batchRequests)),
   );
 

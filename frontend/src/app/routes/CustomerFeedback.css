@@ -91,6 +91,21 @@
   list-style: none;
 }
 
+.customer-feedback__scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--jx-space-2) var(--jx-space-4);
+  padding: var(--jx-space-3) var(--jx-space-4);
+  border-inline-start: var(--jx-rule-heavy) solid var(--jx-ink);
+  background: var(--jx-neutral-soft);
+}
+
+.customer-feedback__scope .jx-mono {
+  white-space: nowrap;
+}
+
 .customer-feedback__search-results {
   display: grid;
   gap: var(--jx-space-2);

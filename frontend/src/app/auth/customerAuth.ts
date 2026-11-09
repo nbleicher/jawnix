@@ -12,10 +12,16 @@ interface SessionExchangeResponse {
 
 export interface SignInLoaderData {
   next: string;
+  /** True after a password reset or invitation set a new password. */
+  passwordUpdated: boolean;
 }
 
 export interface InvitationLoaderData {
   canAccept: boolean;
+}
+
+export interface PasswordResetLoaderData {
+  canReset: boolean;
 }
 
 export type CustomerOverviewTone =
@@ -76,6 +82,22 @@ function safeCustomerPath(value: string | null, fallback = "/app/overview"): str
   return value;
 }
 
+/** The session exchange accepts a requested path of at most this length. */
+const MAX_NEXT_LENGTH = 200;
+
+/**
+ * Sign-in, returning to `url` afterwards. The query is kept, because emailed
+ * links name a request or batch with it; a query too long to carry through
+ * sign-in falls back to the page alone.
+ */
+export function signInPath(url: URL): string {
+  const full = url.pathname + url.search;
+  const requested = safeCustomerPath(
+    full.length <= MAX_NEXT_LENGTH ? full : url.pathname,
+  );
+  return `/sign-in?next=${encodeURIComponent(requested)}`;
+}
+
 export function routerPath(value: string): string {
   if (!value.startsWith("/app/") || value.startsWith("//")) {
     return "/overview";
@@ -85,12 +107,24 @@ export function routerPath(value: string): string {
 
 export function signInLoader({ request }: LoaderFunctionArgs): SignInLoaderData {
   const url = new URL(request.url);
-  return { next: safeCustomerPath(url.searchParams.get("next")) };
+  return {
+    next: safeCustomerPath(url.searchParams.get("next")),
+    passwordUpdated: url.searchParams.get("password") === "updated",
+  };
+}
+
+/** A one-time provider link is usable only with a token and no error. */
+function hasUsableToken(request: Request): boolean {
+  const params = new URL(request.url).searchParams;
+  return Boolean(params.get("token")) && !params.has("error");
 }
 
 export async function invitationLoader({ request }: LoaderFunctionArgs): Promise<InvitationLoaderData> {
-  const params = new URL(request.url).searchParams;
-  return { canAccept: Boolean(params.get("token")) && !params.has("error") };
+  return { canAccept: hasUsableToken(request) };
+}
+
+export async function passwordResetLoader({ request }: LoaderFunctionArgs): Promise<PasswordResetLoaderData> {
+  return { canReset: hasUsableToken(request) };
 }
 
 export async function exchangeJawnixSession(
@@ -120,8 +154,7 @@ export async function customerAccessLoader({
     credentials: "same-origin",
   });
   if (response.status === 401 || response.status === 403) {
-    const requested = safeCustomerPath(new URL(request.url).pathname);
-    throw redirect(`/sign-in?next=${encodeURIComponent(requested)}`);
+    throw redirect(signInPath(new URL(request.url)));
   }
   if (response.status === 409) throw redirect("/registration-status");
   // 404 is an authenticated principal with no Customer profile — the

@@ -91,9 +91,10 @@ export async function verifyProviderSignIn(
 export async function requestProviderPasswordReset(
   email: string,
 ): Promise<void> {
+  // A reset has its own page and words; invitations keep /accept-invitation.
   const { error } = await auth().requestPasswordReset({
     email,
-    redirectTo: `${window.location.origin}/app/accept-invitation`,
+    redirectTo: `${window.location.origin}/app/reset-password`,
   });
   if (error) throw new Error("Password recovery is temporarily unavailable.");
 }

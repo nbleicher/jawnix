@@ -274,19 +274,39 @@ def _artifact_path(settings: Settings, request: LeadRequest) -> tuple[Path, str]
 
 _ZIP_ENTRY_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 
+# Delivered CSV column layouts. Each Batch Artifact records the layout it was
+# written with, so regenerating an expired file reproduces the original bytes
+# and checksum. Only new artifacts get the current layout.
+CSV_FORMATS: dict[str, tuple[str, ...]] = {
+    "phone_title": ("phone", "title"),
+    "phone_title_state": ("phone", "title", "state"),
+}
+CURRENT_CSV_FORMAT = "phone_title_state"
 
-def _csv_bytes(rows: list[Lead] | list[DistributionEvent]) -> bytes:
+
+def _csv_bytes(
+    rows: list[Lead] | list[DistributionEvent],
+    csv_format: str,
+) -> bytes:
+    columns = CSV_FORMATS.get(csv_format)
+    if columns is None:
+        raise ValueError(f"Unknown Batch Artifact CSV format {csv_format!r}.")
     stream = io.StringIO(newline="")
     writer = csv.DictWriter(
         stream,
-        fieldnames=["phone", "title"],
+        fieldnames=list(columns),
         lineterminator="\n",
     )
     writer.writeheader()
     for row in rows:
-        writer.writerow(
-            {"phone": row.phone, "title": truncate_utf8(row.title)}
-        )
+        # Title and state come from the row's own snapshot; for a Distribution
+        # Event that is what was delivered, never the Lead's current listing.
+        values = {
+            "phone": row.phone,
+            "title": truncate_utf8(row.title),
+            "state": row.state or "",
+        }
+        writer.writerow({column: values[column] for column in columns})
     return stream.getvalue().encode("utf-8")
 
 
@@ -453,10 +473,13 @@ def generate_artifact(
     )
     if artifact is None:
         final_path, filename = _artifact_path(settings, request)
+        csv_format = CURRENT_CSV_FORMAT
     else:
         filename = artifact.filename
         final_path = Path(artifact.path)
         final_path.parent.mkdir(parents=True, exist_ok=True)
+        # A regenerated file keeps the layout it was first delivered with.
+        csv_format = artifact.csv_format
     legacy_csv = artifact is not None and filename.lower().endswith(".csv")
     parts = (
         [rows]
@@ -486,7 +509,7 @@ def generate_artifact(
     temp_path = Path(temp_name)
     try:
         if legacy_csv:
-            temp_path.write_bytes(_csv_bytes(rows))
+            temp_path.write_bytes(_csv_bytes(rows, csv_format))
         else:
             with zipfile.ZipFile(
                 temp_path,
@@ -506,7 +529,7 @@ def generate_artifact(
                     entry.external_attr = 0o600 << 16
                     archive.writestr(
                         entry,
-                        _csv_bytes(part),
+                        _csv_bytes(part, csv_format),
                         compress_type=zipfile.ZIP_DEFLATED,
                         compresslevel=9,
                     )
@@ -523,6 +546,7 @@ def generate_artifact(
             parts=part_metadata,
             byte_count=final_path.stat().st_size,
             sha256=digest,
+            csv_format=csv_format,
             expires_at=(
                 datetime.now(timezone.utc)
                 + timedelta(days=settings.batch_retention_days)

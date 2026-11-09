@@ -165,7 +165,7 @@ export const DELIVERED_REQUEST = {
     kind: "submit_feedback",
     label: "Submit Feedback",
     description: "Tell us how the leads performed.",
-    href: "/app/feedback",
+    href: "/app/feedback?request=44444444-4444-4444-8444-444444444444",
   },
   receipt_href:
     "/app/requests?request=44444444-4444-4444-8444-444444444444",
@@ -202,12 +202,55 @@ export const BATCH_REQUEST_WORKSPACE = {
   },
   blocker: null,
   requests: [WAITING_REQUEST, REJECTED_REQUEST],
+  history: { page: 1, page_size: 20, total: 2 },
 } as const;
 
 export const EMPTY_BATCH_REQUEST_WORKSPACE = {
   ...BATCH_REQUEST_WORKSPACE,
   requests: [],
+  history: { page: 1, page_size: 20, total: 0 },
 } as const;
+
+/** Delivered months ago: no longer among the newest 20 the list loads. */
+export const OLDER_DELIVERED_REQUEST = {
+  ...DELIVERED_REQUEST,
+  id: "55555555-5555-4555-8555-555555555555",
+  lead_count: 50_000,
+  submitted_at: "2026-03-02T12:00:00Z",
+  delivered_at: "2026-03-03T16:00:00Z",
+  receipt_href: "/app/requests?request=55555555-5555-4555-8555-555555555555",
+  next_action: {
+    ...DELIVERED_REQUEST.next_action,
+    href: "/app/feedback?request=55555555-5555-4555-8555-555555555555",
+  },
+  artifact: {
+    ...DELIVERED_REQUEST.artifact,
+    available: false,
+    download_href: null,
+    expires_at: "2026-04-02T16:00:00Z",
+  },
+} as const;
+
+/** One customer with 45 requests: three pages of history. */
+export function historyPage(page: number) {
+  const total = 45;
+  const first = (page - 1) * 20;
+  const count = Math.max(0, Math.min(20, total - first));
+  return {
+    ...BATCH_REQUEST_WORKSPACE,
+    requests: Array.from({ length: count }, (_, index) => {
+      const number = first + index + 1;
+      const id = `66666666-6666-4666-8666-${String(number).padStart(12, "0")}`;
+      return {
+        ...REJECTED_REQUEST,
+        id,
+        lead_count: 1_000 + number,
+        receipt_href: `/app/requests?request=${id}`,
+      };
+    }),
+    history: { page, page_size: 20, total },
+  };
+}
 
 export const BLOCKED_BATCH_REQUEST_WORKSPACE = {
   limits: {
@@ -229,6 +272,7 @@ export const BLOCKED_BATCH_REQUEST_WORKSPACE = {
     },
   },
   requests: [],
+  history: { page: 1, page_size: 20, total: 0 },
 } as const;
 
 export const MAPPING_BLOCKED_BATCH_REQUEST_WORKSPACE = {
@@ -254,10 +298,15 @@ export interface BatchRequestMockOptions {
   workspaceSequence?: unknown[];
   /** Held open long enough that a second click lands while the first is busy. */
   submitDelayMs?: number;
+  /** Requests the per-request read resolves although no loaded page lists them. */
+  extraRequests?: Array<{ id: string }>;
+  /** Answers `?page=N` reads; the workspace answers page 1 otherwise. */
+  pages?: (page: number) => unknown;
 }
 
 export interface BatchRequestMockState {
   workspaceRequests: number;
+  workspacePages: number[];
   requestReads: string[];
   submissions: Array<Record<string, unknown>>;
   cancellations: string[];
@@ -282,6 +331,7 @@ export async function mockBatchRequests(
 ): Promise<BatchRequestMockState> {
   const state: BatchRequestMockState = {
     workspaceRequests: 0,
+    workspacePages: [],
     requestReads: [],
     submissions: [],
     cancellations: [],
@@ -295,7 +345,8 @@ export async function mockBatchRequests(
     if (id === "events") return route.fulfill({status:503, contentType:"text/plain", body:"Push unavailable in this fixture"});
     state.requestReads.push(id);
     const source = options.workspaceSequence?.[Math.min(state.requestReads.length, options.workspaceSequence.length-1)] ?? workspace;
-    const request = (source as { requests: Array<{id:string}> }).requests.find((item) => item.id === id);
+    const request = (source as { requests: Array<{id:string}> }).requests.find((item) => item.id === id)
+      ?? options.extraRequests?.find((item) => item.id === id);
     return json(route, request ?? {detail:"Request was not found."}, request ? 200 : 404);
   });
 
@@ -360,9 +411,14 @@ export async function mockBatchRequests(
     });
   });
 
-  await page.route(/\/api\/me\/batch-requests$/, async (route) => {
+  await page.route(/\/api\/me\/batch-requests(\?[^/]*)?$/, async (route) => {
     if (route.request().method() !== "POST") {
       state.workspaceRequests += 1;
+      const requestedPage = Number(
+        new URL(route.request().url()).searchParams.get("page") ?? "1",
+      );
+      state.workspacePages.push(requestedPage);
+      if (options.pages) return json(route, options.pages(requestedPage));
       const sequence = options.workspaceSequence;
       const response = sequence?.length
         ? sequence[Math.min(state.workspaceRequests - 1, sequence.length - 1)]

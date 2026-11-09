@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
+  useHref,
   useLoaderData,
+  useLocation,
   useRevalidator,
   useSearchParams,
 } from "react-router";
@@ -33,6 +35,7 @@ import {
   useCreditWallet,
 } from "../billing/CreditWalletContext";
 import { PurchaseDialog } from "../billing/CreditWalletWidget";
+import { usePurchaseReturnPath } from "../billing/purchaseReturn";
 import {
   batchCostCents,
   formatBalanceRefusal,
@@ -54,7 +57,8 @@ import type {
   BatchArtifact,
   BatchRequest,
   BatchRequestReceipt,
-  BatchRequestWorkspace,
+  BatchRequestsData,
+  RequestHistoryPage,
   RequestLimits,
   Tone,
 } from "./batchRequests";
@@ -141,6 +145,60 @@ export function formatArtifactExpiry(expiresAt: string, now: number): string {
   }
   const minutes = Math.max(1, Math.ceil(remaining / MINUTE_MS));
   return `Expires in ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+}
+
+// --- The unfinished request a Stripe return carries back --------------------
+
+/**
+ * Buy credits from the Review stage sends the Customer to Stripe Checkout,
+ * which returns them to the request form with these query keys (rebuilt
+ * server-side from an allow-list in `checkout_return.py`). `states` absent
+ * means all Licensed States; `rows_per_file` absent means one file.
+ */
+export interface RequestDraft {
+  quantity: string;
+  states: string[] | null;
+  rowsPerFile: string | null;
+}
+
+export const REQUEST_DRAFT_KEYS = ["quantity", "states", "rows_per_file"] as const;
+
+export function readRequestDraft(params: URLSearchParams): RequestDraft | null {
+  const quantity = params.get("quantity");
+  if (quantity === null || !/^\d{1,6}$/.test(quantity)) return null;
+  const states = params.get("states");
+  const rowsPerFile = params.get("rows_per_file");
+  return {
+    quantity,
+    states: states
+      ? states.split(",").map((state) => state.trim().toUpperCase()).filter(Boolean)
+      : null,
+    rowsPerFile: rowsPerFile && /^\d{1,6}$/.test(rowsPerFile) ? rowsPerFile : null,
+  };
+}
+
+export function requestDraftQuery(draft: RequestDraft): string {
+  const query = new URLSearchParams({ quantity: draft.quantity });
+  if (draft.states) query.set("states", draft.states.join(","));
+  if (draft.rowsPerFile) query.set("rows_per_file", draft.rowsPerFile);
+  return query.toString().replace(/%2C/gi, ",");
+}
+
+/** The first stage a restored draft still has to answer, or Review. */
+export function draftStage(draft: RequestDraft | null, limits: RequestLimits): number {
+  if (!draft) return 0;
+  const quantity = Number(draft.quantity);
+  if (quantity < limits.minimum_lead_count || quantity > limits.maximum_lead_count) {
+    return 0;
+  }
+  if (draft.states !== null && !draft.states.some((state) => limits.licensed_states.includes(state))) {
+    return 1;
+  }
+  if (draft.rowsPerFile !== null) {
+    const rows = Number(draft.rowsPerFile);
+    if (rows < 1 || rows > MAX_ROWS_PER_FILE) return 2;
+  }
+  return 3;
 }
 
 // --- The guided flow --------------------------------------------------------
@@ -231,23 +289,28 @@ function Receipt({
 function RequestFlow({
   limits,
   billing,
+  draft,
   onSubmitted,
   onSubmitFailed,
   updates,
 }: {
   limits: RequestLimits;
   billing: CreditWallet | null;
+  /** An unfinished request carried back from Stripe Checkout. */
+  draft: RequestDraft | null;
   onSubmitted: (receipt: BatchRequestReceipt) => void;
   onSubmitFailed: () => void;
   updates: Record<string, BatchRequest>;
 }) {
-  const [stage, setStage] = useState(0);
+  const [stage, setStage] = useState(() => draftStage(draft, limits));
   const [submissionKey, setSubmissionKey] = useState(newSubmissionKey);
-  const [quantity, setQuantity] = useState("");
-  const [wholeScope, setWholeScope] = useState(true);
-  const [chosenStates, setChosenStates] = useState<string[]>([]);
-  const [oneFile, setOneFile] = useState(true);
-  const [rowsPerFile, setRowsPerFile] = useState("");
+  const [quantity, setQuantity] = useState(draft?.quantity ?? "");
+  const [wholeScope, setWholeScope] = useState(!draft || draft.states === null);
+  const [chosenStates, setChosenStates] = useState<string[]>(() =>
+    (draft?.states ?? []).filter((state) => limits.licensed_states.includes(state)),
+  );
+  const [oneFile, setOneFile] = useState(!draft || draft.rowsPerFile === null);
+  const [rowsPerFile, setRowsPerFile] = useState(draft?.rowsPerFile ?? "");
   const [quantityError, setQuantityError] = useState("");
   const [scopeError, setScopeError] = useState("");
   const [filesError, setFilesError] = useState("");
@@ -285,6 +348,19 @@ function RequestFlow({
     holdCents != null
     && billing != null
     && holdCents > billing.availableBalanceCents;
+
+  // While a request is being filled in, Buy credits returns here with it.
+  const { pathname } = useLocation();
+  const draftQuery =
+    !receipt && leadCount != null
+      ? requestDraftQuery({
+          quantity: String(leadCount),
+          states: wholeScope ? null : chosenStates,
+          rowsPerFile: !oneFile && /^\d+$/.test(rowsPerFile.trim()) ? rowsPerFile.trim() : null,
+        })
+      : null;
+  const draftHref = useHref({ pathname, search: draftQuery ? `?${draftQuery}` : "" });
+  usePurchaseReturnPath(draftQuery ? draftHref : null);
 
   useEffect(() => {
     if (receipt) return;
@@ -724,7 +800,11 @@ function RequestFlow({
             </Cluster>
           </Stack>
         </form>
-        <PurchaseDialog open={buying} onClose={() => setBuying(false)} />
+        <PurchaseDialog
+          open={buying}
+          onClose={() => setBuying(false)}
+          returnTo={draftQuery ? draftHref : undefined}
+        />
       </Stack>
     </Card>
   );
@@ -1009,15 +1089,60 @@ function RequestSummary({ request }: { request: BatchRequest }) {
   );
 }
 
+function HistoryPages({ history }: { history: RequestHistoryPage }) {
+  const pages = Math.max(1, Math.ceil(history.total / history.page_size));
+  if (pages <= 1) return null;
+  const first = (history.page - 1) * history.page_size + 1;
+  const last = Math.min(history.total, history.page * history.page_size);
+  const href = (page: number) =>
+    page > 1 ? `/app/requests?page=${page}` : "/app/requests";
+  return (
+    <nav aria-label="Request history pages">
+      <Cluster gap={2} justify="space-between">
+        {history.page > 1 ? (
+          <ActionLink href={href(history.page - 1)}>Newer requests</ActionLink>
+        ) : (
+          <Text size="sm" tone="muted">
+            Newest requests
+          </Text>
+        )}
+        <Text size="sm" tone="muted">
+          <Numeral>{`${formatCount(first)}–${formatCount(last)} of ${formatCount(history.total)}`}</Numeral>
+        </Text>
+        {history.page < pages ? (
+          <ActionLink href={href(history.page + 1)}>Older requests</ActionLink>
+        ) : (
+          <Text size="sm" tone="muted">
+            Oldest requests
+          </Text>
+        )}
+      </Cluster>
+    </nav>
+  );
+}
+
 // --- The route --------------------------------------------------------------
 
 export function CustomerRequestsRoute() {
-  const workspace = useLoaderData<BatchRequestWorkspace>();
+  const workspace = useLoaderData<BatchRequestsData>();
   const revalidator = useRevalidator();
   const billing = useBilledWallet();
   const { refresh: refreshWallet } = useCreditWallet();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const requestId = searchParams.get("request");
+
+  // An unfinished request carried back from Stripe Checkout fills the form
+  // once. Its keys then leave the address, after the purchase notice has
+  // taken its own, so a reload starts clean.
+  const [draft] = useState(() => readRequestDraft(searchParams));
+  const carriesDraft = REQUEST_DRAFT_KEYS.some((key) => searchParams.has(key));
+  const returningFromCheckout = searchParams.has("purchase");
+  useEffect(() => {
+    if (!carriesDraft || returningFromCheckout) return;
+    const next = new URLSearchParams(searchParams);
+    for (const key of REQUEST_DRAFT_KEYS) next.delete(key);
+    setSearchParams(next, { replace: true });
+  }, [carriesDraft, returningFromCheckout, searchParams, setSearchParams]);
 
   // A cancellation answers with the request's new timeline, so the screen shows
   // it at once instead of waiting for the list to be fetched again.
@@ -1029,13 +1154,23 @@ export function CustomerRequestsRoute() {
   }, [workspace]);
 
   const known = new Set(workspace.requests.map((request) => request.id));
+  const firstPage = workspace.history.page === 1;
   const requests = [
-    ...Object.values(canceled).filter((request) => !known.has(request.id)),
+    // A request submitted from this screen is the newest, so it heads page 1.
+    ...(firstPage
+      ? Object.values(canceled).filter(
+          (request) => !known.has(request.id) && request.id !== workspace.selected?.id,
+        )
+      : []),
     ...workspace.requests.map((request) => canceled[request.id] ?? request),
   ];
 
+  // The detail is read on its own, so a link resolves however far back in
+  // the history the request is, not only within the page loaded here.
   const selectedRequest = requestId
-    ? requests.find((request) => request.id === requestId)
+    ? canceled[requestId]
+      ?? (workspace.selected?.id === requestId ? workspace.selected : undefined)
+      ?? requests.find((request) => request.id === requestId)
     : undefined;
   useDocumentTitle(selectedRequest ? "Batch Request" : "Requests");
 
@@ -1044,7 +1179,10 @@ export function CustomerRequestsRoute() {
     setCanceled((current) => ({ ...current, [updated.id]: updated }));
   }
 
-  useLiveRequests("/api/me/batch-requests/events", requests.filter((request) => !isRequestSettled(request)).map((request) => request.id), async (ids) => {
+  const watched = selectedRequest && !known.has(selectedRequest.id)
+    ? [selectedRequest, ...requests]
+    : requests;
+  useLiveRequests("/api/me/batch-requests/events", watched.filter((request) => !isRequestSettled(request)).map((request) => request.id), async (ids) => {
     const versions = ids.map((id) => revisions.current[id] ?? 0);
     const updates = await Promise.all(ids.map(loadBatchRequest));
     setCanceled((current) => {
@@ -1114,6 +1252,7 @@ export function CustomerRequestsRoute() {
           <RequestFlow
             limits={workspace.limits}
             billing={billing}
+            draft={draft}
             updates={canceled}
             onSubmitted={(receipt) => {
               applyConfirmed(receipt.request);
@@ -1131,10 +1270,13 @@ export function CustomerRequestsRoute() {
         description="Every request you have submitted, newest first."
       >
         {requests.length ? (
-          <Stack as="ul" gap={4} className="request-list">
-            {requests.map((request) => (
-              <RequestSummary key={request.id} request={request} />
-            ))}
+          <Stack gap={4}>
+            <Stack as="ul" gap={4} className="request-list">
+              {requests.map((request) => (
+                <RequestSummary key={request.id} request={request} />
+              ))}
+            </Stack>
+            <HistoryPages history={workspace.history} />
           </Stack>
         ) : (
           <EmptyState

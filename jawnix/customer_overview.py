@@ -119,15 +119,25 @@ def build_customer_overview(
             .order_by(LeadRequest.created_at.desc(), LeadRequest.id.desc())
         )
     )
+    # Downloads belong to the Customer, not the User Account that made them:
+    # only the Customer's own logins can download its batches, so any download
+    # recorded against one of these requests counts, including downloads by a
+    # User Account that has since been replaced.
+    delivered_ids = [
+        str(item.id)
+        for item in requests
+        if item.status == RequestStatus.delivered.value
+    ]
     downloaded = set(
         db.scalars(
             select(AuditEntry.target_id)
             .where(
                 AuditEntry.action == "batch_artifact_downloaded",
-                AuditEntry.actor_user_id == str(user_id),
+                AuditEntry.target_type == "batch_request",
+                AuditEntry.target_id.in_(delivered_ids),
             )
         )
-    )
+    ) if delivered_ids else set()
     distributed_request_ids = set(
         db.scalars(
             select(DistributionEvent.request_id).where(

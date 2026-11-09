@@ -262,3 +262,105 @@ test.describe("Customer invitation acceptance", () => {
     });
   }
 });
+
+test.describe("Customer password reset", () => {
+  test("asking for a link explains the wait for an email and points at the reset page", async ({
+    page,
+  }) => {
+    const state = await mockCustomerAuth(page);
+    await page.goto("./sign-in");
+
+    const reset = page.getByRole("button", { name: "Set or reset password" });
+    await expect(reset).toBeDisabled();
+    await expect(reset).toHaveAccessibleDescription(
+      "Enter your email address above to get a link for setting a new password.",
+    );
+
+    await page.getByLabel("Email address (required)").fill("customer@example.com");
+    await expect(reset).toBeEnabled();
+    await expect(page.getByText(/Enter your email address above/)).toHaveCount(0);
+    await reset.click();
+
+    await expect(page.getByRole("status")).toContainText(
+      "a link to choose a new password is on its way",
+    );
+    const request = state.providerRequests.find((item) =>
+      item.path.endsWith("/request-password-reset"),
+    );
+    expect(request?.body).toMatchObject({
+      email: "customer@example.com",
+      redirectTo: expect.stringMatching(/\/app\/reset-password$/),
+    });
+  });
+
+  test("the reset page uses its own words and confirms on sign-in", async ({
+    page,
+  }) => {
+    const state = await mockCustomerAuth(page);
+    const password = "customer-known-password-48";
+    await page.goto(`./reset-password${invitationHash()}`);
+
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Choose a new password" }),
+    ).toBeVisible();
+    await expect(page.locator("body")).not.toContainText(/invitation/i);
+    await page.getByLabel("Password (required)", { exact: true }).fill(password);
+    await page
+      .getByLabel("Confirm password (required)", { exact: true })
+      .fill(password);
+    await page.getByRole("button", { name: "Save new password" }).click();
+
+    await expect(page).toHaveURL(/\/app\/sign-in\?password=updated$/);
+    await expect(page.getByRole("status")).toHaveText(
+      "Your password was changed. Sign in with your new password.",
+    );
+    const update = state.providerRequests.find(
+      (request) =>
+        request.path === "/auth/reset-password" && request.method === "POST",
+    );
+    expect(update?.body).toMatchObject({ newPassword: password });
+  });
+
+  for (const scenario of [
+    { name: "missing", hash: "", options: {} },
+    { name: "provider-refused", hash: "?error=INVALID_TOKEN", options: {} },
+    {
+      name: "expired",
+      hash: invitationHash(),
+      options: { passwordUpdateAccepted: false },
+    },
+  ] as const) {
+    test(`a ${scenario.name} reset link explains itself without invitation words`, async ({
+      page,
+    }) => {
+      await mockCustomerAuth(page, scenario.options);
+      await page.goto(`./reset-password${scenario.hash}`);
+
+      if (scenario.hash === invitationHash()) {
+        await page
+          .getByLabel("Password (required)", { exact: true })
+          .fill("customer-known-password-48");
+        await page
+          .getByLabel("Confirm password (required)", { exact: true })
+          .fill("customer-known-password-48");
+        await page.getByRole("button", { name: "Save new password" }).click();
+      }
+
+      const recovery = page.getByRole("alert");
+      await expect(recovery).toContainText("This password link has expired");
+      await expect(recovery).toContainText(
+        "Password links work once and expire after an hour.",
+      );
+      await expect(recovery).not.toContainText(/invitation/i);
+      await expect(page.getByRole("link", { name: "Go to sign in" })).toBeVisible();
+      await expect(page.locator("body")).not.toContainText(
+        "provider-known-secret-48",
+      );
+
+      const results = await new AxeBuilder({ page })
+        .withTags(WCAG_AA_TAGS)
+        .analyze();
+      expect(results.violations).toEqual([]);
+    });
+  }
+});

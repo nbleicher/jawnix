@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useLoaderData } from "react-router";
+import type { LoaderFunctionArgs } from "react-router";
 
-import { Button } from "../../design-system/primitives/Button";
+import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { DetailList } from "../../design-system/primitives/detail";
 import { EmptyState, ErrorState } from "../../design-system/primitives/feedback";
 import { Field, Fieldset, Input, Select, Textarea } from "../../design-system/primitives/form";
@@ -20,8 +21,10 @@ import {
   VisuallyHidden,
 } from "../../design-system/primitives/typography";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
-import { formatRequestRef } from "./batchRequests";
+import { formatRequestRef, isRequestId } from "./batchRequests";
+import type { BatchRequest } from "./batchRequests";
 import { CustomerExclusionListsSection } from "./CustomerExclusionLists";
+import { formatMilestoneTime } from "./MilestoneGraph";
 
 import "./CustomerFeedback.css";
 
@@ -76,6 +79,18 @@ export interface FeedbackCatalog {
     description: string;
     options: QualityRatingOption[];
   };
+}
+
+/**
+ * What the Feedback route renders. Overview and request pages link here with
+ * `?request=<batch>`; `batch` is that Batch Request as the Customer can read
+ * it, `null` when the link names no request of theirs, and absent when there
+ * is no link at all.
+ */
+export interface FeedbackData extends FeedbackCatalog {
+  batch?: BatchRequest | null;
+  /** The linked batch could not be read just now; search covers every batch. */
+  batchUnavailable?: boolean;
 }
 
 export interface DeliveredLead {
@@ -180,14 +195,85 @@ function formatTransitionRef(id: string): string {
   return `TR-${id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 }
 
-export async function feedbackLoader(): Promise<FeedbackCatalog> {
-  const response = await fetch("/api/me/feedback/dispositions", {
-    credentials: "same-origin",
-  });
+async function readBatch(
+  id: string,
+): Promise<Pick<FeedbackData, "batch" | "batchUnavailable">> {
+  try {
+    const response = await fetch(`/api/me/batch-requests/${id}`, {
+      credentials: "same-origin",
+    });
+    // A missing or foreign batch is the same answer: no scope.
+    if (response.status === 404) return { batch: null };
+    if (!response.ok) return { batchUnavailable: true };
+    return { batch: (await response.json()) as BatchRequest };
+  } catch {
+    // Feedback still works without the scope; it never blocks the page.
+    return { batchUnavailable: true };
+  }
+}
+
+export async function feedbackLoader({
+  request,
+}: LoaderFunctionArgs): Promise<FeedbackData> {
+  const requested = new URL(request.url).searchParams.get("request");
+  const [response, scope] = await Promise.all([
+    fetch("/api/me/feedback/dispositions", { credentials: "same-origin" }),
+    requested === null
+      ? Promise.resolve({})
+      : isRequestId(requested)
+        ? readBatch(requested)
+        : Promise.resolve({ batch: null }),
+  ]);
   if (!response.ok) {
     throw new Error("Feedback options could not be loaded.");
   }
-  return (await response.json()) as FeedbackCatalog;
+  const catalog = (await response.json()) as FeedbackCatalog;
+  return { ...catalog, ...scope };
+}
+
+/** Which delivered batch the search covers, said before anyone searches. */
+function SearchScope({ data }: { data: FeedbackData }) {
+  if (data.batchUnavailable) {
+    return (
+      <div className="customer-feedback__scope" role="note" aria-label="Search scope">
+        <Text size="sm">
+          That batch could not be loaded just now. Search covers all your
+          delivered batches.
+        </Text>
+      </div>
+    );
+  }
+  if (data.batch === undefined) return null;
+  const batch = data.batch;
+  if (batch && batch.delivered_at) {
+    return (
+      <div className="customer-feedback__scope" role="note" aria-label="Search scope">
+        <Text size="sm">
+          {"Searching only Batch "}
+          <Mono>{formatRequestRef(batch.id)}</Mono>
+          {`: ${batch.lead_count.toLocaleString()} leads in ${batch.states.join(", ")}, delivered `}
+          <Mono>{formatMilestoneTime(batch.delivered_at)}</Mono>.
+        </Text>
+        <ActionLink href="/app/feedback">Search all delivered batches</ActionLink>
+      </div>
+    );
+  }
+  return (
+    <div className="customer-feedback__scope" role="note" aria-label="Search scope">
+      <Text size="sm">
+        {batch ? (
+          <>
+            {"Batch "}
+            <Mono>{formatRequestRef(batch.id)}</Mono>
+            {" has not been delivered yet, so it has no Leads to search. "}
+          </>
+        ) : (
+          "That link does not name one of your batches. "
+        )}
+        Search covers all your delivered batches.
+      </Text>
+    </div>
+  );
 }
 
 function labelFor(catalog: FeedbackCatalog, disposition: string): string {
@@ -224,8 +310,11 @@ function CheckWitness() {
 }
 
 export function CustomerFeedbackRoute() {
-  const catalog = useLoaderData<FeedbackCatalog>();
+  const catalog = useLoaderData<FeedbackData>();
   useDocumentTitle("Feedback");
+  // A delivered batch named by the link scopes the search to its Leads.
+  const scopedBatchId =
+    catalog.batch && catalog.batch.delivered_at ? catalog.batch.id : null;
 
   const [phone, setPhone] = useState("");
   const [lead, setLead] = useState<DeliveredLead | null>(null);
@@ -382,7 +471,10 @@ export function CustomerFeedbackRoute() {
     setHistoryError("");
     try {
       setSearchResults(
-        await post<DeliveredLead[]>("/api/me/feedback/search", { query }),
+        await post<DeliveredLead[]>("/api/me/feedback/search", {
+          query,
+          ...(scopedBatchId ? { request_id: scopedBatchId } : {}),
+        }),
       );
     } catch {
       setSearchError(
@@ -506,8 +598,11 @@ export function CustomerFeedbackRoute() {
 
             <Stack gap={3}>
               <Heading level={3} size="sm">
-                Search your delivered batches
+                {scopedBatchId
+                  ? "Search this delivered batch"
+                  : "Search your delivered batches"}
               </Heading>
+              <SearchScope data={catalog} />
               <form onSubmit={(event) => void search(event)}>
                 <Stack gap={3}>
                   <Field
@@ -563,7 +658,11 @@ export function CustomerFeedbackRoute() {
                   ) : (
                     <EmptyState
                       title="No matching Leads"
-                      description="Try another part of the business name or phone number."
+                      description={
+                        scopedBatchId
+                          ? "Try another part of the business name or phone number, or search all delivered batches."
+                          : "Try another part of the business name or phone number."
+                      }
                     />
                   )}
                 </div>
@@ -792,7 +891,7 @@ export function CustomerFeedbackRoute() {
 
             <Section
               title="File a Lead Report"
-              description="Use this when a quality rating is not enough — Noah reviews every report. Data and compliance dispositions above already file a report automatically. Upheld reports are credited to your Credit Wallet."
+              description="Use this when a quality rating is not enough. Data and compliance dispositions above already file a report automatically. Noah reviews every report and replies by email."
             >
               <Card>
                 <Stack gap={4}>

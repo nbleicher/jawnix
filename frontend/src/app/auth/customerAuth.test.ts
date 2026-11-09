@@ -46,6 +46,27 @@ describe("customerAccessLoader", () => {
     );
   });
 
+  it("keeps an emailed link's query through sign-in", async () => {
+    mockOverviewStatus(401);
+    const id = "11111111-1111-4111-8111-111111111111";
+    const thrown = (await thrownBy(
+      customerAccessLoader(loaderArgs(`/requests?request=${id}`)),
+    )) as Response;
+    expect(thrown.headers.get("Location")).toBe(
+      `/sign-in?next=${encodeURIComponent(`/app/requests?request=${id}`)}`,
+    );
+  });
+
+  it("drops a query too long for the session exchange but keeps the page", async () => {
+    mockOverviewStatus(401);
+    const thrown = (await thrownBy(
+      customerAccessLoader(loaderArgs(`/requests?states=${"TX,".repeat(80)}`)),
+    )) as Response;
+    expect(thrown.headers.get("Location")).toBe(
+      "/sign-in?next=%2Fapp%2Frequests",
+    );
+  });
+
   it("hands an authenticated principal without a Customer profile to the admin shell", async () => {
     // The administrator identity intentionally has no Customer profile, and
     // since cutover the site root lands on this loader.

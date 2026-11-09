@@ -283,6 +283,43 @@ def test_credit_purchase_checkout_and_webhook_credits_wallet_once(session):
     assert session.scalar(select(func.count(CreditLedgerEntry.id))) == 1
 
 
+@pytest.mark.parametrize(
+    ("return_to", "expected_path"),
+    [
+        (None, "/app/account?"),
+        (
+            "/app/requests?quantity=50000&states=TX&rows_per_file=10000",
+            "/app/requests?quantity=50000&states=TX&rows_per_file=10000&",
+        ),
+        ("https://evil.test/app/requests", "/app/account?"),
+        ("//evil.test", "/app/account?"),
+    ],
+)
+def test_checkout_returns_to_the_validated_page_the_purchase_started_on(
+    session, return_to, expected_path
+):
+    fake = FakeStripeClient()
+    settings = _billing_settings(fake)
+    user_id, _, _ = _customer(session)
+    client = _as_customer(session, settings, user_id)
+
+    created = client.post(
+        "/api/me/billing/purchases",
+        json={
+            "amount_dollars": 25,
+            **({"return_to": return_to} if return_to is not None else {}),
+        },
+    )
+
+    assert created.status_code == 201, created.text
+    assert fake.created[0]["success_url"] == (
+        f"https://jawnix.test{expected_path}purchase=success"
+    )
+    assert fake.created[0]["cancel_url"] == (
+        f"https://jawnix.test{expected_path}purchase=cancelled"
+    )
+
+
 def test_duplicate_stripe_event_does_not_double_credit(session):
     fake = FakeStripeClient()
     settings = _billing_settings(fake)

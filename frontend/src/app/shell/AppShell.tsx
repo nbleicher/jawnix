@@ -14,6 +14,8 @@ export interface AppShellProps {
   audience: string;
   destinations: NavigationDestination[];
   headerActions?: ReactNode;
+  /** Shown at the top of every routed screen, above its page header. */
+  notice?: ReactNode;
 }
 
 /**
@@ -28,7 +30,7 @@ export interface AppShellProps {
  * header actions. On narrow screens the bar wraps and the nav scrolls
  * horizontally in its own row — no bottom bar, no hamburger.
  */
-export function AppShell({ audience, destinations, headerActions }: AppShellProps) {
+export function AppShell({ audience, destinations, headerActions, notice }: AppShellProps) {
   const navigation = useNavigation();
   const isNavigating = navigation.state !== "idle";
 
@@ -60,6 +62,7 @@ export function AppShell({ audience, destinations, headerActions }: AppShellProp
 
       <main className="jx-shell__main" id="jx-main" tabIndex={-1}>
         <div className="jx-shell__content">
+          {notice}
           <ErrorBoundary>
             <Outlet />
           </ErrorBoundary>

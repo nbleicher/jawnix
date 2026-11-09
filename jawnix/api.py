@@ -43,6 +43,7 @@ from .billing import (
     start_credit_purchase,
     wallet_view,
 )
+from .checkout_return import checkout_return_urls
 from .config import Settings, get_settings
 from .stripe_client import StripeClientError, get_stripe_client
 from .customer_accounts import (
@@ -1084,7 +1085,9 @@ def create_credit_purchase(
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer was not found.")
     stripe = get_stripe_client(settings)
-    base = settings.public_base_url.rstrip("/")
+    success_url, cancel_url = checkout_return_urls(
+        settings.public_base_url, payload.return_to
+    )
     try:
         purchase, checkout_url = start_credit_purchase(
             db,
@@ -1092,8 +1095,8 @@ def create_credit_purchase(
             amount_dollars=payload.amount_dollars,
             customer_email=profile.email,
             stripe=stripe,
-            success_url=f"{base}/app/account?purchase=success",
-            cancel_url=f"{base}/app/account?purchase=cancelled",
+            success_url=success_url,
+            cancel_url=cancel_url,
         )
     except BillingError as exc:
         raise HTTPException(
@@ -1286,6 +1289,7 @@ def get_customer_overview(
 
 @app.get("/api/me/batch-requests", response_model=CustomerRequestWorkspaceOut)
 def get_batch_request_workspace(
+    page: int = Query(default=1, ge=1, le=100_000),
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
@@ -1295,6 +1299,7 @@ def get_batch_request_workspace(
         db,
         user_id=principal.user_id,
         profile=_current_customer_profile(db, principal),
+        page=page,
     )
 
 
@@ -1635,6 +1640,11 @@ def search_feedback(
                 LeadRequest.agent_id == profile.customer_id,
                 LeadRequest.status == RequestStatus.delivered.value,
                 or_(*conditions),
+                *(
+                    [LeadRequest.id == payload.request_id]
+                    if payload.request_id is not None
+                    else []
+                ),
             )
             .order_by(
                 DistributionEvent.delivered_at.desc(),
@@ -5009,7 +5019,11 @@ async def _dispatch_invitation(settings: Settings, payload) -> uuid.UUID:
 async def _send_password_reset(settings: Settings, email: str) -> None:
     if settings.auth_provider == "better-auth":
         try:
-            await get_mfa_provider(settings).request("reset-user", email=email)
+            # "reset" lands on the password reset page rather than the
+            # invitation page; an older identity service ignores it.
+            await get_mfa_provider(settings).request(
+                "reset-user", email=email, purpose="reset"
+            )
             return
         except MFAProviderError:
             raise HTTPException(status_code=502, detail="Password recovery could not be sent.") from None

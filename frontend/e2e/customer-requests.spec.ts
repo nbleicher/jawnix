@@ -7,8 +7,10 @@ import {
   BLOCKED_BATCH_REQUEST_WORKSPACE,
   DELIVERED_REQUEST,
   EMPTY_BATCH_REQUEST_WORKSPACE,
+  OLDER_DELIVERED_REQUEST,
   REJECTED_REQUEST,
   WAITING_REQUEST,
+  historyPage,
   mockBatchRequests,
 } from "./customer-requests-fixtures";
 
@@ -518,5 +520,58 @@ test.describe("Active request refresh", () => {
 
     await page.clock.fastForward(30_000);
     expect(state.workspaceRequests).toBe(1);
+  });
+});
+
+test.describe("Request history beyond the newest 20", () => {
+  test("an emailed link to an older request opens that request", async ({
+    page,
+  }) => {
+    const state = await openRequestDetail(page, OLDER_DELIVERED_REQUEST.id, {
+      pages: historyPage,
+      extraRequests: [OLDER_DELIVERED_REQUEST],
+    });
+
+    await expect(
+      page.getByRole("heading", { name: "50,000 lead Batch Request" }),
+    ).toBeVisible();
+    await expect(page.getByText("Batch Request not found")).toHaveCount(0);
+    expect(state.requestReads).toContain(OLDER_DELIVERED_REQUEST.id);
+  });
+
+  test("pages through every request, newest first", async ({ page }) => {
+    const state = await openRequests(page, { pages: historyPage });
+
+    const pages = page.getByRole("navigation", { name: "Request history pages" });
+    await expect(pages).toContainText("1–20 of 45");
+    await expect(pages).toContainText("Newest requests");
+    await pages.getByRole("link", { name: "Older requests" }).click();
+    await expect(page).toHaveURL(/\/app\/requests\?page=2$/);
+    await expect(pages).toContainText("21–40 of 45");
+    await pages.getByRole("link", { name: "Older requests" }).click();
+    await expect(pages).toContainText("41–45 of 45");
+    await expect(pages).toContainText("Oldest requests");
+    await expect(page.locator(".request-list > li")).toHaveCount(5);
+    await pages.getByRole("link", { name: "Newer requests" }).click();
+    await expect(pages).toContainText("21–40 of 45");
+    expect(state.workspacePages).toEqual(expect.arrayContaining([1, 2, 3]));
+  });
+
+  test("a signed-out request link survives sign-in", async ({ page }) => {
+    const auth = await mockCustomerAuth(page, { overviewStatus: 401 });
+    await mockBatchRequests(page, { extraRequests: [OLDER_DELIVERED_REQUEST] });
+    const link = `/app/requests?request=${OLDER_DELIVERED_REQUEST.id}`;
+    await page.goto(`./requests?request=${OLDER_DELIVERED_REQUEST.id}`);
+
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Sign in" }),
+    ).toBeVisible();
+    expect(new URL(page.url()).searchParams.get("next")).toBe(link);
+
+    await page.getByLabel("Email address (required)").fill("customer@example.com");
+    await page.getByLabel("Password (required)").fill("customer-known-password-48");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect.poll(() => auth.sessionRequests.length).toBe(1);
+    expect(auth.sessionRequests[0]).toMatchObject({ requested_next: link });
   });
 });

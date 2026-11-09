@@ -62,7 +62,11 @@ test.describe("Credit Wallet widget", () => {
     );
     await dialog.getByRole("button", { name: "Continue to Stripe" }).click();
     const posted = await purchaseRequest;
-    expect(posted.postDataJSON()).toEqual({ amount_dollars: 40 });
+    // Checkout returns to the page the purchase started on.
+    expect(posted.postDataJSON()).toEqual({
+      amount_dollars: 40,
+      return_to: "/app/overview",
+    });
 
     await expect(page).toHaveURL(/checkout\.stripe\.test/);
   });
@@ -260,5 +264,94 @@ test.describe("Billed request submission", () => {
       page.getByRole("button", { name: "Submit request" }),
     ).toBeDisabled();
     expect(state.submissions).toHaveLength(0);
+  });
+});
+
+test.describe("Returning from Stripe Checkout", () => {
+  test("Buy credits during a request returns to the filled-in form", async ({
+    page,
+  }) => {
+    await mockCustomerAuth(page, {
+      billing: {
+        wallet: UNDERFUNDED_WALLET,
+        purchaseCheckoutUrl: "https://checkout.stripe.test/pay/cs_test_return",
+      },
+    });
+    await mockBatchRequests(page, { workspace: EMPTY_BATCH_REQUEST_WORKSPACE });
+    await page.route("https://checkout.stripe.test/**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<html><body>Stripe Checkout</body></html>",
+      }),
+    );
+    await page.goto("./requests");
+
+    await page.getByRole("spinbutton", { name: /How many leads/ }).fill("750");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("radio", { name: "Choose specific states" }).check();
+    await page.getByRole("checkbox", { name: "FL" }).check();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("radio", { name: "Split by rows per file" }).check();
+    await page.getByRole("spinbutton", { name: /Rows per file/ }).fill("300");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page
+      .locator(".request-flow__commit")
+      .getByRole("button", { name: "Buy credits" })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "Buy credits" });
+    const purchaseRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes("/api/me/billing/purchases")
+        && request.method() === "POST",
+    );
+    await dialog.getByRole("button", { name: "Continue to Stripe" }).click();
+    expect((await purchaseRequest).postDataJSON()).toEqual({
+      amount_dollars: 25,
+      return_to: "/app/requests?quantity=750&states=FL&rows_per_file=300",
+    });
+    await expect(page).toHaveURL(/checkout\.stripe\.test/);
+
+    // Stripe sends the Customer back to the URL the backend validated.
+    await page.goto(
+      "./requests?quantity=750&states=FL&rows_per_file=300&purchase=success",
+    );
+
+    const notice = page.getByRole("status").filter({ hasText: /Credit Purchase/ });
+    await expect(notice).toBeVisible();
+    const title = page.getByRole("heading", { level: 1, name: "Requests" });
+    expect((await notice.boundingBox())!.y).toBeLessThan(
+      (await title.boundingBox())!.y,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Review your request" }),
+    ).toBeVisible();
+    const review = page.locator(".request-flow__review");
+    await expect(review).toContainText("750 leads");
+    await expect(review).toContainText("FL");
+    await expect(review).toContainText("750 at 300/file = 3 files");
+    // The address is cleaned so a reload starts fresh; the notice stays.
+    await expect(page).toHaveURL(/\/app\/requests$/);
+    await expect(notice).toBeVisible();
+  });
+
+  test("a cancelled checkout says so at the top of the page it started on", async ({
+    page,
+  }) => {
+    await mockCustomerAuth(page, {
+      billing: { wallet: BILLED_CUSTOMER_WALLET },
+    });
+    await mockBatchRequests(page, { workspace: EMPTY_BATCH_REQUEST_WORKSPACE });
+    await page.goto("./requests?quantity=750&purchase=cancelled");
+
+    await expect(
+      page.getByRole("status").filter({ hasText: "Credit Purchase cancelled" }),
+    ).toHaveText("Credit Purchase cancelled. Your Credit Wallet was not charged.");
+    await expect(
+      page.getByRole("spinbutton", { name: /How many leads/ }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Review your request" }),
+    ).toBeVisible();
   });
 });

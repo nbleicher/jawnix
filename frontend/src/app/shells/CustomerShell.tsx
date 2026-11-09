@@ -10,6 +10,8 @@ import {
 } from "../../design-system/primitives/Button";
 import { CreditWalletProvider } from "../billing/CreditWalletContext";
 import { CreditWalletWidget } from "../billing/CreditWalletWidget";
+import { PurchaseReturnNotice } from "../billing/PurchaseReturnNotice";
+import { PurchaseReturnProvider } from "../billing/purchaseReturn";
 
 /** Customer-facing navigation, matching the Customer's jobs rather than the
  *  backend's structure. */
@@ -36,26 +38,29 @@ export function CustomerShell() {
 
   return (
     <CreditWalletProvider>
-      <AppShell
-        audience="Customer"
-        destinations={DESTINATIONS}
-        headerActions={
-          <>
-            <CreditWalletWidget />
-            <ActionLink href="mailto:noah@jawnix.com" variant="ghost">
-              Support
-            </ActionLink>
-            <Button
-              variant="ghost"
-              busy={signingOut}
-              busyLabel="Signing out…"
-              onClick={handleSignOut}
-            >
-              Sign out
-            </Button>
-          </>
-        }
-      />
+      <PurchaseReturnProvider>
+        <AppShell
+          audience="Customer"
+          destinations={DESTINATIONS}
+          notice={<PurchaseReturnNotice />}
+          headerActions={
+            <>
+              <CreditWalletWidget />
+              <ActionLink href="mailto:noah@jawnix.com" variant="ghost">
+                Support
+              </ActionLink>
+              <Button
+                variant="ghost"
+                busy={signingOut}
+                busyLabel="Signing out…"
+                onClick={handleSignOut}
+              >
+                Sign out
+              </Button>
+            </>
+          }
+        />
+      </PurchaseReturnProvider>
     </CreditWalletProvider>
   );
 }

@@ -660,12 +660,21 @@ class CustomerRequestBlocker(BaseModel):
     action: CustomerOverviewAction
 
 
+class CustomerRequestHistoryPage(BaseModel):
+    """Where one page of request history sits in the Customer's whole history."""
+
+    page: int
+    page_size: int
+    total: int
+
+
 class CustomerRequestWorkspaceOut(BaseModel):
     """Stable read contract for the guided Batch Request screen."""
 
     limits: CustomerRequestLimits
     blocker: CustomerRequestBlocker | None
     requests: list[CustomerRequestDetail]
+    history: CustomerRequestHistoryPage
 
 
 class CustomerRequestCreate(BaseModel):
@@ -713,6 +722,8 @@ class FeedbackSearch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str = Field(min_length=2, max_length=100)
+    # Scopes the search to one of the Customer's own delivered batches.
+    request_id: uuid.UUID | None = None
 
     @field_validator("query")
     @classmethod
@@ -862,6 +873,9 @@ class CreditPurchaseCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     amount_dollars: int = Field(ge=1)
+    # The portal page the purchase started on. Validated against an allow-list
+    # before Stripe sees it; anything else returns the Customer to Account.
+    return_to: str | None = Field(default=None, max_length=500)
 
 
 class LeadCorrectionApply(BaseModel):

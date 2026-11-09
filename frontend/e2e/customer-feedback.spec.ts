@@ -2,6 +2,11 @@ import { expect, test } from "@playwright/test";
 
 import { mockCustomerAuth } from "./customer-auth-fixtures";
 import {
+  DELIVERED_REQUEST,
+  WAITING_REQUEST,
+  mockBatchRequests,
+} from "./customer-requests-fixtures";
+import {
   HOLD_CONSEQUENCE,
   REPORT_ONLY_CONSEQUENCE,
   mockFeedback,
@@ -447,5 +452,61 @@ test.describe("Speed", () => {
     const submit = calls.find((call) => call.path === "/api/me/feedback");
     expect(submit?.body["note"]).toBe("");
     expect(submit?.body).not.toHaveProperty("quality_rating");
+  });
+});
+
+test.describe("A link scoped to one batch", () => {
+  test("Overview's feedback link searches only that batch and names it", async ({
+    page,
+  }) => {
+    await mockBatchRequests(page, {
+      workspace: { requests: [DELIVERED_REQUEST, WAITING_REQUEST] },
+    });
+    await page.goto(`./feedback?request=${DELIVERED_REQUEST.id}`);
+
+    const scope = page.getByRole("note", { name: "Search scope" });
+    await expect(scope).toContainText("Searching only Batch REQ-44444444");
+    await expect(scope).toContainText("750 leads in FL, TX");
+    await expect(
+      page.getByRole("heading", { name: "Search this delivered batch" }),
+    ).toBeVisible();
+
+    await page.getByLabel("Business name or phone").fill("roof");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await expect(page.getByRole("region", { name: "Search results" })).toBeVisible();
+    expect(
+      calls.find((call) => call.path === "/api/me/feedback/search")?.body,
+    ).toEqual({ query: "roof", request_id: DELIVERED_REQUEST.id });
+
+    await scope.getByRole("link", { name: "Search all delivered batches" }).click();
+    await expect(page).toHaveURL(/\/app\/feedback$/);
+    await expect(page.getByRole("note", { name: "Search scope" })).toHaveCount(0);
+  });
+
+  test("a batch still being prepared falls back to every delivered batch", async ({
+    page,
+  }) => {
+    await mockBatchRequests(page, {
+      workspace: { requests: [DELIVERED_REQUEST, WAITING_REQUEST] },
+    });
+    await page.goto(`./feedback?request=${WAITING_REQUEST.id}`);
+
+    await expect(page.getByRole("note", { name: "Search scope" })).toContainText(
+      "has not been delivered yet, so it has no Leads to search",
+    );
+  });
+});
+
+test.describe("Lead Report copy", () => {
+  test("promises a review and an email reply, not an automatic credit", async ({
+    page,
+  }) => {
+    await page.goto("./feedback");
+    await lookUp(page);
+
+    await expect(
+      page.getByRole("region", { name: "File a Lead Report" }),
+    ).toContainText("Noah reviews every report and replies by email.");
+    await expect(page.getByText(/credited to your Credit Wallet/)).toHaveCount(0);
   });
 });

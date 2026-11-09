@@ -3,8 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CustomerFeedbackRoute } from "./CustomerFeedback";
-import type { FeedbackCatalog } from "./CustomerFeedback";
+import { CustomerFeedbackRoute, feedbackLoader } from "./CustomerFeedback";
+import type { FeedbackCatalog, FeedbackData } from "./CustomerFeedback";
+import type { BatchRequest } from "./batchRequests";
 import { ThemeProvider } from "../../design-system/theme/ThemeProvider";
 
 /** Mirrors `jawnix/dispositions.py`'s payload. */
@@ -209,19 +210,19 @@ function mockApi(options: {
     });
 }
 
-function renderRoute() {
+function renderRoute(data: FeedbackData = CATALOG, path = "/feedback") {
   const router = createMemoryRouter(
     [
       {
         id: "feedback",
         path: "/feedback",
-        loader: () => CATALOG,
+        loader: () => data,
         element: <CustomerFeedbackRoute />,
       },
     ],
     {
-      initialEntries: ["/feedback"],
-      hydrationData: { loaderData: { feedback: CATALOG } },
+      initialEntries: [path],
+      hydrationData: { loaderData: { feedback: data } },
     },
   );
   return render(
@@ -832,5 +833,164 @@ describe("speed", () => {
     await user.click(screen.getByRole("button", { name: "Submit feedback" }));
 
     expect(await screen.findByRole("region", { name: "Recorded" })).toBeVisible();
+  });
+});
+
+const BATCH_ID = "44444444-4444-4444-8444-444444444444";
+
+function batch(overrides: Partial<BatchRequest> = {}): BatchRequest {
+  return {
+    id: BATCH_ID,
+    lead_count: 750,
+    rows_per_file: 750,
+    states: ["FL", "TX"],
+    submitted_at: "2026-07-25T12:00:00Z",
+    delivered_at: "2026-07-27T16:00:00Z",
+    status: { label: "Delivered", description: "Your Batch is ready.", tone: "success" },
+    milestones: { milestones: [], current_key: "delivered", pause: null, outcome: null },
+    can_cancel: false,
+    next_action: null,
+    receipt_href: `/app/requests?request=${BATCH_ID}`,
+    artifact: null,
+    ...overrides,
+  };
+}
+
+describe("a link scoped to one batch", () => {
+  it("names the batch in scope and searches only its Leads", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = mockApi();
+    renderRoute({ ...CATALOG, batch: batch() }, `/feedback?request=${BATCH_ID}`);
+
+    const scope = screen.getByRole("note", { name: "Search scope" });
+    expect(scope).toHaveTextContent(
+      "Searching only Batch REQ-44444444: 750 leads in FL, TX, delivered 2026-07-27 16:00 UTC.",
+    );
+    expect(
+      within(scope).getByRole("link", { name: "Search all delivered batches" }),
+    ).toHaveAttribute("href", "/app/feedback");
+    expect(
+      screen.getByRole("heading", { name: "Search this delivered batch" }),
+    ).toBeVisible();
+
+    await user.type(screen.getByLabelText("Business name or phone"), "roof");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await screen.findByRole("region", { name: "Search results" });
+
+    const searchCall = fetchSpy.mock.calls.find(([url]) =>
+      String(url).includes("/feedback/search"),
+    );
+    expect(JSON.parse(String((searchCall![1] as RequestInit).body))).toEqual({
+      query: "roof",
+      request_id: BATCH_ID,
+    });
+  });
+
+  it("falls back to every delivered batch, and says so, for a batch not yet delivered", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = mockApi();
+    renderRoute(
+      { ...CATALOG, batch: batch({ delivered_at: null }) },
+      `/feedback?request=${BATCH_ID}`,
+    );
+
+    expect(screen.getByRole("note", { name: "Search scope" })).toHaveTextContent(
+      "Batch REQ-44444444 has not been delivered yet, so it has no Leads to search. Search covers all your delivered batches.",
+    );
+
+    await user.type(screen.getByLabelText("Business name or phone"), "roof");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await screen.findByRole("region", { name: "Search results" });
+    const searchCall = fetchSpy.mock.calls.find(([url]) =>
+      String(url).includes("/feedback/search"),
+    );
+    expect(JSON.parse(String((searchCall![1] as RequestInit).body))).toEqual({
+      query: "roof",
+    });
+  });
+
+  it("says so when the link names no batch of this Customer's", () => {
+    mockApi();
+    renderRoute({ ...CATALOG, batch: null }, "/feedback?request=nope");
+
+    expect(screen.getByRole("note", { name: "Search scope" })).toHaveTextContent(
+      "That link does not name one of your batches. Search covers all your delivered batches.",
+    );
+  });
+
+  it("shows no scope without a link", () => {
+    mockApi();
+    renderRoute();
+
+    expect(screen.queryByRole("note", { name: "Search scope" })).toBeNull();
+  });
+});
+
+describe("feedbackLoader", () => {
+  function args(path: string) {
+    return {
+      request: new Request(`https://jawnix.test/app${path}`),
+      params: {},
+    } as unknown as Parameters<typeof feedbackLoader>[0];
+  }
+
+  it("reads the linked batch through the per-request API", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input: RequestInfo | URL) =>
+        String(input).includes("/batch-requests/") ? json(batch()) : json(CATALOG),
+      );
+
+    const data = await feedbackLoader(args(`/feedback?request=${BATCH_ID}`));
+
+    expect(data.batch?.id).toBe(BATCH_ID);
+    expect(fetchSpy).toHaveBeenCalledWith(`/api/me/batch-requests/${BATCH_ID}`, {
+      credentials: "same-origin",
+    });
+  });
+
+  it("treats a missing or malformed batch as no scope", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (input: RequestInfo | URL) =>
+        String(input).includes("/batch-requests/")
+          ? json({ detail: "Request was not found." }, 404)
+          : json(CATALOG),
+      );
+
+    expect((await feedbackLoader(args(`/feedback?request=${BATCH_ID}`))).batch).toBeNull();
+    expect((await feedbackLoader(args("/feedback?request=42"))).batch).toBeNull();
+    expect((await feedbackLoader(args("/feedback"))).batch).toBeUndefined();
+    expect(
+      fetchSpy.mock.calls.filter(([url]) => String(url).includes("/batch-requests/")),
+    ).toHaveLength(1);
+  });
+
+  it("never fails the page when the linked batch cannot be read", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) =>
+      String(input).includes("/batch-requests/") ? json({}, 503) : json(CATALOG),
+    );
+
+    const data = await feedbackLoader(args(`/feedback?request=${BATCH_ID}`));
+
+    expect(data.groups).toEqual(CATALOG.groups);
+    expect(data.batchUnavailable).toBe(true);
+    renderRoute(data, `/feedback?request=${BATCH_ID}`);
+    expect(screen.getByRole("note", { name: "Search scope" })).toHaveTextContent(
+      "That batch could not be loaded just now. Search covers all your delivered batches.",
+    );
+  });
+});
+
+describe("Lead Report copy", () => {
+  it("promises a review and a reply, never an automatic credit", async () => {
+    const user = userEvent.setup();
+    mockApi();
+    renderRoute();
+    await lookUp(user);
+
+    const report = screen.getByRole("region", { name: "File a Lead Report" });
+    expect(report).toHaveTextContent("Noah reviews every report and replies by email.");
+    expect(document.body).not.toHaveTextContent(/credited|Credit Wallet/);
   });
 });

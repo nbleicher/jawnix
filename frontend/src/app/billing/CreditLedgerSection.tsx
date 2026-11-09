@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useMemo, useState } from "react";
 
 import {
   Card,
@@ -15,14 +14,10 @@ import {
   Text,
   VisuallyHidden,
 } from "../../design-system/primitives/typography";
-import {
-  useBilledWallet,
-  useCreditWallet,
-} from "./CreditWalletContext";
+import { useBilledWallet } from "./CreditWalletContext";
 import { formatCents, formatLeadRate } from "./money";
 import {
   LEDGER_KIND_LABEL,
-  hasProcessingPurchase,
   type CreditLedgerEntry,
   type CreditLedgerKind,
   type CreditPurchase,
@@ -209,96 +204,23 @@ function LedgerTable({ wallet }: { wallet: CreditWallet }) {
   );
 }
 
-function PurchaseReturnNotice({
-  outcome,
-  processing,
-  failed,
-}: {
-  outcome: "success" | "cancelled" | null;
-  processing: boolean;
-  failed: boolean;
-}) {
-  const { refresh } = useCreditWallet();
-  const [params, setParams] = useSearchParams();
-
-  useEffect(() => {
-    const purchase = params.get("purchase");
-    if (purchase !== "success" && purchase !== "cancelled") return;
-    const next = new URLSearchParams(params);
-    next.delete("purchase");
-    setParams(next, { replace: true });
-  }, [params, setParams]);
-
-  useEffect(() => {
-    if (outcome === "success") void refresh();
-  }, [outcome, refresh]);
-
-  if (outcome === "cancelled") {
-    return (
-      <div
-        className="credit-ledger-notice credit-ledger-notice--neutral"
-        role="status"
-      >
-        Credit Purchase cancelled. Your Credit Wallet was not charged.
-      </div>
-    );
-  }
-
-  if (outcome === "success") {
-    const tone = processing ? "info" : failed ? "danger" : "success";
-    return (
-      <div
-        className={`credit-ledger-notice credit-ledger-notice--${tone}`}
-        role="status"
-      >
-        {processing
-          ? "Your Credit Purchase is processing. The Credit Wallet updates when Stripe confirms payment."
-          : failed
-            ? "Stripe did not complete this Credit Purchase. The Credit Wallet was not charged."
-            : "Your Credit Purchase is complete. The Credit Wallet has been updated."}
-      </div>
-    );
-  }
-
-  return null;
-}
-
 /**
  * Credit Wallet facts and the full Credit Ledger for a Billed Customer.
  * Free Customers never render this section.
  */
 export function CreditLedgerSection() {
   const wallet = useBilledWallet();
-  const [params] = useSearchParams();
-  const [outcome, setOutcome] = useState<"success" | "cancelled" | null>(null);
-
-  useEffect(() => {
-    const purchase = params.get("purchase");
-    if (purchase === "success" || purchase === "cancelled") {
-      setOutcome(purchase);
-    }
-  }, [params]);
 
   if (!wallet) return null;
 
-  const processing = hasProcessingPurchase(wallet);
   const pendingOrFailedPurchases = wallet.purchases.filter(
     (purchase) => purchase.status !== "completed",
   );
-  const latestPurchaseFailed = ["failed", "expired"].includes(
-    wallet.purchases[0]?.status ?? "",
-  );
 
+  // The Stripe return notice is not here: the Customer shell shows it at the
+  // top of whichever page Checkout returns to.
   return (
     <>
-      {/* Money events do not vanish: the notice persists until the page is
-          left, never on a timer. */}
-      <PurchaseReturnNotice
-        outcome={outcome}
-        processing={processing}
-        failed={latestPurchaseFailed}
-      />
-
       <Section
         title="Credit Wallet"
         description="Prepaid balance for Batch Requests. Purchases credit the wallet after Stripe confirms payment."

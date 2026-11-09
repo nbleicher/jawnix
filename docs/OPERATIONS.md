@@ -650,7 +650,7 @@ Before cutover, prove:
 - profile state save and all/subset request validation;
 - 1 and 100,000-row boundaries;
 - Telegram Approve/Reject, webhook-secret and authorized-user checks, replay behavior, and duplicate clicks;
-- exact CSV row count, unique phones, state scope, `phone,title` header, and recorded checksum;
+- exact CSV row count, unique phones, state scope, `phone,title,state` header (batches delivered before the state column keep `phone,title`), and recorded checksum;
 - shortage creates zero distribution events and Retry works after inventory arrives;
 - generation failure commits no allocation and delivery failure reuses its artifact;
 - Resend delivery, bounce, complaint, and failed webhooks update state and Telegram;

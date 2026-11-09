@@ -1,4 +1,6 @@
 import { redirect } from "react-router";
+import type { LoaderFunctionArgs } from "react-router";
+import { signInPath } from "../auth/customerAuth";
 import { clearReadPrefetch, readResponse } from "../routeReadCache";
 
 /**
@@ -109,10 +111,29 @@ export interface RequestBlocker {
   action: { kind: string; label: string; description: string; href: string };
 }
 
+/** Where this page of request history sits in the Customer's whole history. */
+export interface RequestHistoryPage {
+  page: number;
+  page_size: number;
+  total: number;
+}
+
 export interface BatchRequestWorkspace {
   limits: RequestLimits;
   blocker: RequestBlocker | null;
+  /** One page of history, newest first. */
   requests: BatchRequest[];
+  history: RequestHistoryPage;
+}
+
+/**
+ * What the Requests route renders: the workspace, plus the request a
+ * `?request=<id>` link names, read on its own so it resolves however far back
+ * in the history it is. `null` means the link names no request of this
+ * Customer's.
+ */
+export interface BatchRequestsData extends BatchRequestWorkspace {
+  selected?: BatchRequest | null;
 }
 
 export interface BatchRequestReceipt {
@@ -175,17 +196,61 @@ async function mutate<T>(path: string, body?: unknown): Promise<T> {
   return parsed as T;
 }
 
-export async function batchRequestsLoader(): Promise<BatchRequestWorkspace> {
-  const response = await readResponse(WORKSPACE_PATH);
+const REQUEST_ID_ONLY =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True when `value` is a request id the backend could resolve. */
+export function isRequestId(value: string | null): value is string {
+  return value !== null && REQUEST_ID_ONLY.test(value);
+}
+
+/** The 1-based history page a `?page=` value names; anything else is page 1. */
+export function historyPage(value: string | null): number {
+  if (!value || !/^\d{1,6}$/.test(value)) return 1;
+  return Math.max(1, Number(value));
+}
+
+function signInRedirect(url: URL): Response {
+  // Keeps the query, so an emailed request link opens that request after sign-in.
+  return redirect(signInPath(url));
+}
+
+async function readSelected(url: URL, id: string): Promise<BatchRequest | null> {
+  const response = await readResponse(`${WORKSPACE_PATH}/${id}`);
+  if (response.status === 401 || response.status === 403) throw signInRedirect(url);
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Response("This Batch Request is temporarily unavailable.", {
+      status: response.status,
+    });
+  }
+  return response.json() as Promise<BatchRequest>;
+}
+
+export async function batchRequestsLoader({
+  request,
+}: LoaderFunctionArgs): Promise<BatchRequestsData> {
+  const url = new URL(request.url);
+  const page = historyPage(url.searchParams.get("page"));
+  const requestParam = url.searchParams.get("request");
+  const [response, selected] = await Promise.all([
+    readResponse(page > 1 ? `${WORKSPACE_PATH}?page=${page}` : WORKSPACE_PATH),
+    requestParam === null
+      ? Promise.resolve(undefined)
+      : isRequestId(requestParam)
+        ? readSelected(url, requestParam)
+        : Promise.resolve(null),
+  ]);
   if (response.status === 401 || response.status === 403) {
-    throw redirect(`/sign-in?next=${encodeURIComponent("/app/requests")}`);
+    throw signInRedirect(url);
   }
   if (!response.ok) {
     throw new Response("Batch Requests are temporarily unavailable.", {
       status: response.status,
     });
   }
-  return response.json() as Promise<BatchRequestWorkspace>;
+  const workspace = (await response.json()) as BatchRequestWorkspace;
+  return selected === undefined ? workspace : { ...workspace, selected };
 }
 
 /**

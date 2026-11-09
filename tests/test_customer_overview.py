@@ -281,6 +281,84 @@ def test_overview_nudges_for_feedback_after_a_batch_is_downloaded(
     assert settled.json() == {"items": []}
 
 
+def test_a_replacement_user_account_inherits_the_customers_downloads(
+    session,
+    tmp_path,
+):
+    """Downloads belong to the Customer, so a replaced account changes nothing."""
+
+    user_id, customer, _, account = _customer(session, licensed_states=["TX"])
+    now = datetime.now(timezone.utc)
+
+    def delivered(lead_count: int) -> LeadRequest:
+        item = LeadRequest(
+            user_id=user_id,
+            agent=customer,
+            lead_count=lead_count,
+            states_snapshot=["TX"],
+            state_mode="all_saved",
+            delivery_email="customer@example.com",
+            status=RequestStatus.delivered.value,
+            delivered_at=now - timedelta(days=1),
+        )
+        session.add(item)
+        session.flush()
+        _artifact(session, tmp_path, item, expires_at=now + timedelta(days=20))
+        return item
+
+    downloaded = delivered(500)
+    waiting = delivered(250)
+    session.commit()
+
+    client = _authenticate(session, user_id)
+    try:
+        assert client.get(
+            f"/api/me/batch-requests/{downloaded.id}/artifact"
+        ).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+    # The invited replacement signs in: the former account is retired and the
+    # new one belongs to the same durable Customer.
+    replacement_id = uuid.uuid4()
+    account.active = False
+    account.replaced_at = now
+    account.replaced_by_auth_user_id = replacement_id
+    session.flush()
+    session.add_all(
+        [
+            CustomerProfile(
+                user_id=replacement_id,
+                email="replacement@example.com",
+                licensed_states=["TX"],
+                agent=customer,
+                mapping_confirmed_at=now,
+            ),
+            UserAccount(
+                auth_user_id=replacement_id,
+                email="replacement@example.com",
+                customer=customer,
+                active=True,
+            ),
+        ]
+    )
+    session.commit()
+
+    client = _authenticate(session, replacement_id)
+    try:
+        response = client.get("/api/me/overview")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    ready = {
+        item["id"]
+        for item in response.json()["items"]
+        if item["kind"] == "batch_ready"
+    }
+    assert ready == {f"batch-ready:{waiting.id}"}
+
+
 def test_overview_queues_a_setup_problem_that_the_customer_can_fix(session):
     user_id, _, _, _ = _customer(session, licensed_states=[])
     session.commit()

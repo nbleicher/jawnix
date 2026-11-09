@@ -5,6 +5,7 @@ import { mockCustomerAuth } from "./customer-auth-fixtures";
 import { mockFeedback } from "./customer-feedback-fixtures";
 import {
   BATCH_REQUEST_WORKSPACE,
+  DELIVERED_REQUEST,
   mockBatchRequests,
 } from "./customer-requests-fixtures";
 import {
@@ -101,6 +102,9 @@ test.describe("Customer Overview attention queue", () => {
   test("feedback nudge opens the feedback flow", async ({ page }) => {
     await mockFeedback(page);
     await mockCustomerAuth(page, { overview: { items: [FEEDBACK_NUDGE_ITEM] } });
+    await mockBatchRequests(page, {
+      extraRequests: [{ ...DELIVERED_REQUEST, id: FEEDBACK_REQUEST_ID }],
+    });
     await page.goto("./overview");
 
     await page.getByRole("link", { name: "Give feedback" }).click();
@@ -111,6 +115,10 @@ test.describe("Customer Overview attention queue", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Feedback" }),
     ).toBeVisible();
+    // The nudge's batch is the one the search covers.
+    await expect(page.getByRole("note", { name: "Search scope" })).toContainText(
+      "Searching only Batch",
+    );
   });
 
   test("Setup Problem opens Account", async ({ page }) => {
