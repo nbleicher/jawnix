@@ -124,15 +124,22 @@ export function DataTable<Row>({
         {hasFooter ? (
           <tfoot>
             <tr>
-              {columns.map((column, index) => (
-                <td
-                  key={column.key}
-                  data-label={index === 0 ? undefined : column.header}
-                  className={column.numeric ? "jx-table__numeric" : undefined}
-                >
-                  {column.footer ?? null}
-                </td>
-              ))}
+              {columns.map((column, index) => {
+                const empty = column.footer === undefined || column.footer === null || column.footer === "";
+                return (
+                  <td
+                    key={column.key}
+                    // A blank footer cell has nothing to label on a stacked row.
+                    data-label={index === 0 || empty ? undefined : column.header}
+                    className={cx(
+                      column.numeric && "jx-table__numeric",
+                      empty && "jx-table__cell--blank",
+                    )}
+                  >
+                    {column.footer ?? null}
+                  </td>
+                );
+              })}
             </tr>
           </tfoot>
         ) : null}

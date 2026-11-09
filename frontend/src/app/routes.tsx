@@ -267,15 +267,28 @@ export const router = createBrowserRouter(
             },
             {
               path: "customers",
-              lazy: lazyPage("AdminCustomers", "AdminCustomersRoute", "adminCustomerDirectoryLoader"),
+              lazy: lazyPage(
+                "AdminCustomers",
+                "AdminCustomersRoute",
+                "adminCustomerDirectoryLoader",
+                "adminCustomerDirectoryShouldRevalidate",
+              ),
             },
             {
               path: "activity",
               lazy: lazyPage("AdminActivity", "AdminActivityRoute", "adminActivityLoader"),
             },
+            // A3: the Customer page's tabs are their own addresses
+            // ("/admin/customers/7/billing"); the bare address is Summary, so
+            // every link that already points at a Customer still lands.
             {
-              path: "customers/:customerId",
-              lazy: lazyPage("AdminCustomerDetails", "AdminCustomerDetailsRoute", "adminCustomerDetailsLoader"),
+              path: "customers/:customerId/:tab?",
+              lazy: lazyPage(
+                "AdminCustomerDetails",
+                "AdminCustomerDetailsRoute",
+                "adminCustomerDetailsLoader",
+                "adminCustomerDetailsShouldRevalidate",
+              ),
             },
             {
               path: "agencies",

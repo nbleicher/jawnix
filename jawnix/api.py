@@ -59,6 +59,13 @@ from .customer_directory import (
     build_customer_directory,
     customer_dependency_counts,
 )
+from .customer_record import (
+    LeadDatabaseChangeError,
+    change_lead_database,
+    customer_lead_reports,
+    customer_summary,
+    operator_wallet,
+)
 from .customer_history import archived_customer_matches, remember_customer_name, request_history_scope
 from .customer_registration import CUSTOMER_HOME_PATH, complete_registration, decide_registration, lock_registration_identity, registration_next, registration_status, set_registration_states
 from .customer_overview import CustomerHome, build_customer_home, parse_month_start
@@ -168,6 +175,7 @@ from .schemas import (
     CreditAdjustmentCreate,
     CreditPurchaseCreate,
     CustomerBillingUpdate,
+    CustomerLeadDatabaseChange,
     CooldownWindowUpdate,
     LeadCorrectionApply,
     LeadReportCreate,
@@ -324,18 +332,23 @@ def admin_batches(
     status: str = "open",
     database: str = "",
     needs_decision: bool = Query(default=False, alias="needsDecision"),
+    customer: int | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100, alias="pageSize"),
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """All batches, filtered and paged, oldest open batch first."""
+    """All batches, filtered and paged, oldest open batch first.
+
+    ``customer`` narrows to one Customer's batches, for the Customer page.
+    """
     return list_batches(
         db,
         q=q,
         status=status,
         database=database,
         needs_decision=needs_decision,
+        customer_id=customer,
         page=page,
         page_size=page_size,
     )
@@ -2892,14 +2905,17 @@ def _configuration_dict(item: ScraperConfiguration) -> dict:
 @app.get("/api/admin/customers/directory", response_model=CustomerDirectoryOut)
 def admin_customer_directory(
     q: str = "",
-    status: str = "all",
+    status: str = "active",
     agency_id: int | None = None,
     state: str = "",
     problems_only: bool = False,
+    database: str = "",
+    billing: str = "",
+    needs_only: bool = False,
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Search Customers instead of navigating down the Agency hierarchy."""
+    """The Customers table: every match, the ones that need something first."""
     return build_customer_directory(
         db,
         query=q,
@@ -2907,6 +2923,9 @@ def admin_customer_directory(
         agency_id=agency_id,
         state=state,
         problems_only=problems_only,
+        database=database,
+        billing=billing,
+        needs_only=needs_only,
     )
 
 
@@ -3075,6 +3094,55 @@ def _allocation_customer(db: Session, customer_id: int) -> Customer:
     if customer is None or customer.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Customer was not found.")
     return customer
+
+
+@app.get("/api/admin/customers/{customer_id}/summary")
+def admin_customer_summary(
+    customer_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """The Customer page's numbers row and Needs list, in the table's terms."""
+    return customer_summary(db, _allocation_customer(db, customer_id))
+
+
+@app.get("/api/admin/customers/{customer_id}/lead-reports")
+def admin_customer_lead_reports(
+    customer_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Every Lead Report this Customer filed, newest first."""
+    return customer_lead_reports(db, _allocation_customer(db, customer_id))
+
+
+@app.put("/api/admin/customers/{customer_id}/lead-database")
+def admin_customer_lead_database(
+    customer_id: int,
+    payload: CustomerLeadDatabaseChange,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Point a Customer's future allocations at DB1 or DB2, with a reason."""
+    customer = db.scalar(
+        select(Customer)
+        .where(Customer.id == customer_id, Customer.deleted_at.is_(None))
+        .with_for_update()
+    )
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer was not found.")
+    try:
+        changed = change_lead_database(
+            db,
+            customer=customer,
+            database=payload.lead_database,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+        )
+    except LeadDatabaseChangeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    db.commit()
+    return {"customerId": customer.id, "leadDatabase": customer.lead_database, "changed": changed}
 
 
 @app.get("/api/admin/customers/{customer_id}/cooldown-window")
@@ -3346,7 +3414,7 @@ def admin_customer_billing(
     if customer is None or customer.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Customer was not found.")
     # Reads are not Activity: only consequential actions are audited.
-    return wallet_view(db, customer)
+    return operator_wallet(db, wallet_view(db, customer))
 
 
 @app.put("/api/admin/customers/{customer_id}/billing")

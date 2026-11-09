@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { LoaderFunction } from "react-router";
+import type { LoaderFunction, ShouldRevalidateFunction } from "react-router";
 import { prefetchRead } from "./routeReadCache";
 
 const pages = {
@@ -45,12 +45,15 @@ function loadPage(name: PageName): Promise<PageModule> {
   return result;
 }
 
-export function lazyPage(name: PageName, component: string, loader?: string) {
+export function lazyPage(name: PageName, component: string, loader?: string, shouldRevalidate?: string) {
   return async () => {
     const module = await loadPage(name);
     return {
       Component: module[component] as ComponentType,
       ...(loader ? { loader: module[loader] as LoaderFunction } : {}),
+      ...(shouldRevalidate
+        ? { shouldRevalidate: module[shouldRevalidate] as ShouldRevalidateFunction }
+        : {}),
     };
   };
 }

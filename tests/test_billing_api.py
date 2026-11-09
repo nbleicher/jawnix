@@ -524,7 +524,15 @@ def test_admin_adjustment_is_audited_and_billing_reads_write_no_activity(
     assert admin_read.status_code == customer_read.status_code == 200
     assert second_admin_read.status_code == 200
     assert admin_read.json()["balanceCents"] == 2_500
-    assert customer_read.json()["ledger"] == admin_read.json()["ledger"]
+    # The operator's read names who posted each entry and its batch; the
+    # entries themselves are the Customer's own.
+    operator_only = {"actorLabel", "batchNumber"}
+    assert customer_read.json()["ledger"] == [
+        {key: value for key, value in entry.items() if key not in operator_only}
+        for entry in admin_read.json()["ledger"]
+    ]
+    assert admin_read.json()["ledger"][0]["actorLabel"] == "Operator"
+    assert "actorLabel" not in customer_read.json()["ledger"][0]
     session.expire_all()
     assert session.scalar(
         select(func.count()).select_from(AuditEntry)

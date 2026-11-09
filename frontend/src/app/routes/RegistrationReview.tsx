@@ -52,16 +52,23 @@ export function RegistrationDecisions({ item, onDecided }: { item: PendingRegist
 }
 
 function RegistrationRow({ item }: { item: PendingRegistration }) {
-  return <Stack gap={3}>
-    <Text><strong>{item.firstName} {item.lastName}</strong> · {item.email} · {item.phone} · {item.states.join(", ")}</Text>
-    <Text size="sm">Compare the name and email before granting access to an archived Customer.</Text>
+  const name = `${item.firstName} ${item.lastName}`.trim() || item.email;
+  return <Stack as="li" gap={3} className="registration-review__item" aria-label={name}>
+    <Text><strong>{name}</strong> · {item.email} · {item.phone} · {item.states.join(", ") || "No states"}</Text>
+    <Text size="sm" tone="muted">
+      {item.matches.length
+        ? "Compare the name and email before granting access to an archived Customer."
+        : "No archived Customer matches this name."}
+    </Text>
     <RegistrationDecisions item={item} />
   </Stack>;
 }
 
+/** Verified sign-ups waiting on the operator, reachable from Customers and
+ *  Today. Hidden when none are waiting. */
 export function RegistrationReview({ items }: { items: PendingRegistration[] }) {
   if (!items.length) return null;
-  return <Section title="Registrations awaiting review" description="These verified registrations match archived customer names. Only the operator can decide whether to restore history.">
-    <Stack gap={6}>{items.map(item => <RegistrationRow key={item.id} item={item} />)}</Stack>
+  return <Section id="registrations" title="Registrations awaiting review" description="These verified registrations match archived customer names. Only the operator can decide whether to restore history.">
+    <Stack as="ul" gap={5} className="registration-review">{items.map(item => <RegistrationRow key={item.id} item={item} />)}</Stack>
   </Section>;
 }

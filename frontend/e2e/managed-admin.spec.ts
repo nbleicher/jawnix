@@ -80,41 +80,6 @@ test("manager can drop a CSV and upload it with the selected state", async ({ pa
   await transfer.dispose();
 });
 
-test("operator changes a user's database and withdraws Alex access without a page reload", async ({ page }) => {
-  let directoryReads = 0;
-  const changes: Record<string,unknown>[] = [];
-  let scope = { id:7, lead_database:"db1", allowed_manager_id:null as string|null, manager_id:null as string|null };
-  const standing = { label:"Active", description:"Active", tone:"success" };
-  await page.route("**/api/**", async route => {
-    const path = new URL(route.request().url()).pathname;
-    if (path === "/api/auth/admin-mfa/access") { await route.fulfill({json:{ok:true}}); return; }
-    if (path === "/api/admin/registrations") { await route.fulfill({json:[]}); return; }
-    if (path === "/api/admin/customers/7/scope") {
-      const change = route.request().postDataJSON() as Record<string,unknown>;
-      changes.push(change); scope = { ...scope, ...change };
-      await route.fulfill({json:scope}); return;
-    }
-    if (path === "/api/admin/customers/directory") {
-      directoryReads += 1;
-      await route.fulfill({json:{ filters:{query:"",status:"all",agency_id:null,state:"",problems_only:false}, agencies:[],states:["TN"],total:1,matched:1,
-        managed_admins:[{id:MANAGER,name:"Alex",email:"alex@example.test"}], customers:[{...scope,slug:"harbor",name:"Harbor Insurance",agency_id:null,agency:"",licensed_states:["TN"],customer_status:standing,account_status:standing,account_email:"owner@harbor.example",last_activity_at:null,problems:[],href:"/app/admin/customers/7"}] }}); return;
-    }
-    await route.fulfill({status:404,json:{detail:"Not found"}});
-  });
-  await page.goto("./admin/customers");
-  await page.getByLabel("Lead database for Harbor Insurance").selectOption("db2");
-  await expect(page.getByRole("status").filter({hasText:"Saved"})).toBeVisible();
-  const assignment = page.getByLabel("Alex management for Harbor Insurance");
-  await assignment.selectOption("assigned");
-  await expect(assignment).toHaveValue("assigned");
-  await expect(assignment).toBeEnabled();
-  await assignment.selectOption("unavailable");
-  await expect(assignment).toHaveValue("unavailable");
-  expect(changes[0]).toEqual({lead_database:"db2"});
-  expect(changes.at(-1)).toEqual({allowed_manager_id:null,manager_id:null});
-  expect(directoryReads).toBe(1);
-});
-
 test("operator uploads a CSV into the shared DB2 and sees who added each file", async ({ page }) => {
   let submitted = "";
   const alex = { ...complete, id:"cccccccc-cccc-4ccc-8ccc-cccccccccccc", filename:"alex.csv", uploadedBy:"Alex" };

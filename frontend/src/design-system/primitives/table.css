@@ -157,4 +157,13 @@
   .jx-table tfoot tr {
     border-top: var(--jx-rule) solid var(--jx-line-strong);
   }
+
+  /* The row draws the footer's rule; its cells stack without their own. */
+  .jx-table tfoot td {
+    border-top: 0;
+  }
+
+  .jx-table tfoot td.jx-table__cell--blank {
+    display: none;
+  }
 }

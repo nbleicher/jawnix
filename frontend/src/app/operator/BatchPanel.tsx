@@ -4,7 +4,7 @@ import { Button } from "../../design-system/primitives/Button";
 import { FactList } from "../../design-system/primitives/facts";
 import type { Fact } from "../../design-system/primitives/facts";
 import { Stack } from "../../design-system/primitives/layout";
-import { SidePanel } from "../../design-system/primitives/panel";
+import { SidePanel, Steps } from "../../design-system/primitives/panel";
 import { StatusBadge } from "../../design-system/primitives/status";
 import { Text } from "../../design-system/primitives/typography";
 import { formatCents } from "../billing/money";
@@ -15,6 +15,7 @@ import {
   postReason,
   requestEndpoint,
 } from "./actions";
+import { formatAsOf } from "../routes/OperatorNumbers";
 import { useBatch } from "./batch";
 import type { BatchDetail } from "./batch";
 import {
@@ -90,6 +91,32 @@ function panelFacts(batch: BatchDetail): Fact[] {
   return facts;
 }
 
+/** "$250.00 held at $5.00 per 1,000": what the Customer's page reads. */
+function customerCost(batch: BatchDetail): string {
+  const { cost } = batch;
+  if (!cost.billed) return "Not billed";
+  const amount = formatCents(cost.amountCents ?? 0);
+  const held = cost.hold === "active" ? " held" : "";
+  return `${amount}${held} at ${formatRate(cost.rateCentsPerThousand)}`;
+}
+
+/** Facts for a Batch opened on its own Customer's page, where the Customer
+ *  is already known and the batch's progress matters more. */
+function customerFacts(batch: BatchDetail): Fact[] {
+  const { fill } = batch;
+  return [
+    { term: "States", description: formatStates(batch.states) },
+    fill.kind === "committed"
+      ? {
+          term: "Committed",
+          description: `${formatCount(fill.committed ?? 0)} of ${formatCount(batch.leadCount)}`,
+        }
+      : { term: "Available for this customer", description: availableFact(batch) },
+    { term: "Cost", description: customerCost(batch) },
+    { term: "Delivery email", description: batch.email },
+  ];
+}
+
 /** The actions a Batch offers, from the server, plus re-notify (A1). */
 export function BatchActions({
   batch,
@@ -132,6 +159,9 @@ export interface BatchPanelProps {
   onChanged: () => void;
   autoFocus?: boolean | undefined;
   returnFocus?: (() => HTMLElement | null) | undefined;
+  /** "customer" when opened on the Customer's own page: the title names the
+   *  size instead of the Customer, and the batch's progress is shown. */
+  context?: "list" | "customer";
 }
 
 /** A Batch opened beside a list: what decides it, and its actions. */
@@ -143,16 +173,24 @@ export function BatchPanel({
   onChanged,
   autoFocus,
   returnFocus,
+  context = "list",
 }: BatchPanelProps) {
   const { batch, error, reload } = useBatch(reference);
   function changed() {
     reload();
     onChanged();
   }
+  const onCustomerPage = context === "customer";
   return (
     <SidePanel
       eyebrow={batch ? `${kind} · ${stageLabel(batch.stage)}` : kind}
-      title={batch ? `#${batch.number} · ${batch.customerIdentity}` : fallbackTitle}
+      title={
+        batch
+          ? onCustomerPage
+            ? `#${batch.number} · ${formatCount(batch.leadCount)} leads`
+            : `#${batch.number} · ${batch.customerIdentity}`
+          : fallbackTitle
+      }
       onClose={onClose}
       fullHref={`/app/admin/batches/${reference}`}
       autoFocus={autoFocus}
@@ -160,7 +198,23 @@ export function BatchPanel({
       actions={batch ? <BatchActions batch={batch} onChanged={changed} /> : null}
     >
       {batch ? (
-        <FactList label={`Batch #${batch.number}`} items={panelFacts(batch)} />
+        <>
+          <FactList
+            label={`Batch #${batch.number}`}
+            items={onCustomerPage ? customerFacts(batch) : panelFacts(batch)}
+          />
+          {onCustomerPage && batch.progress?.length ? (
+            <Steps
+              label={`Batch #${batch.number} progress`}
+              steps={batch.progress.map((step) => ({
+                key: step.key,
+                label: step.label,
+                done: step.done,
+                time: step.at ? formatAsOf(step.at, new Date()) : null,
+              }))}
+            />
+          ) : null}
+        </>
       ) : error ? (
         <Stack gap={2}>
           <Text size="sm" tone="danger" role="alert">

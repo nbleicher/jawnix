@@ -15,6 +15,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from .customer_accounts import active_user_account, pending_invitation
+from .customer_record import customer_figures
 from .models import (
     Agency,
     AgencyMembershipHistory,
@@ -43,6 +44,7 @@ from .schemas import (
     CustomerDeletionGuard,
     CustomerDetailsOut,
     CustomerDirectoryAgency,
+    CustomerDirectoryCounts,
     CustomerDirectoryFilters,
     CustomerDirectoryOut,
     CustomerDirectoryRow,
@@ -102,6 +104,7 @@ _PENDING_INVITATION = CustomerAdminStatus(
 _ACTIVITY_LABELS: dict[str, str] = {
     "customer_history_restored": "Archived customer history restored",
     "customer_inventory_scope_changed": "Inventory database or manager changed",
+    "customer_lead_database_changed": "Lead database changed",
     "customer_manager_assigned": "Managed administrator assigned",
     "customer_created": "Customer created",
     "customer_updated": "Customer updated",
@@ -184,18 +187,29 @@ def build_customer_directory(
     db: Session,
     *,
     query: str = "",
-    status: str = "all",
+    status: str = "active",
     agency_id: int | None = None,
     state: str = "",
     problems_only: bool = False,
+    database: str = "",
+    billing: str = "",
+    needs_only: bool = False,
 ) -> CustomerDirectoryOut:
-    """Build the searchable Customer directory."""
+    """Build the Customers table: every match, the ones that need something first.
+
+    Rows are not paged: there are tens of Customers, not thousands, and the
+    totals row sums every match.
+    """
     term = query.strip()
     state = state.strip().upper()
     if state and state not in US_STATES:
         state = ""
     if status not in {"all", "active", "deactivated"}:
-        status = "all"
+        status = "active"
+    if database not in {"db1", "db2"}:
+        database = ""
+    if billing not in {"billed", "not_billed"}:
+        billing = ""
 
     selection = select(Customer).where(Customer.deleted_at.is_(None))
     if term:
@@ -217,43 +231,75 @@ def build_customer_directory(
         selection = selection.where(Customer.active.is_(False))
     if agency_id is not None:
         selection = selection.where(Customer.agency_id == agency_id)
+    if database:
+        selection = selection.where(Customer.lead_database == database)
 
-    customers = list(db.scalars(selection.order_by(Customer.name, Customer.id)))
+    customers = [
+        customer
+        for customer in db.scalars(selection.order_by(Customer.name, Customer.id))
+        if not state or state in (customer.licensed_states or [])
+    ]
     accounts = _accounts_by_customer(db)
     invitations = _pending_invitations_by_customer(db)
+    figures = customer_figures(
+        db, customers, accounts=accounts, invitations=invitations
+    )
 
-    rows: list[CustomerDirectoryRow] = []
+    rows: list[tuple[tuple, CustomerDirectoryRow]] = []
     for customer in customers:
-        states = list(customer.licensed_states or [])
-        if state and state not in states:
+        figure = figures[customer.id]
+        if billing == "billed" and not figure.billed:
+            continue
+        if billing == "not_billed" and figure.billed:
+            continue
+        if needs_only and not figure.needs:
             continue
         account = accounts.get(customer.id)
         invitation = invitations.get(customer.id)
         problems = _setup_problems(customer, account, invitation)
         if problems_only and not problems:
             continue
+        row = CustomerDirectoryRow(
+            id=customer.id,
+            slug=customer.slug,
+            name=customer.name,
+            agency_id=customer.agency_id,
+            agency=customer.agency.name if customer.agency else "",
+            licensed_states=list(customer.licensed_states or []),
+            customer_status=(
+                _ACTIVE_CUSTOMER if customer.active
+                else _DEACTIVATED_CUSTOMER
+            ),
+            account_status=_account_status(account, invitation),
+            account_email=account.email if account else "",
+            last_activity_at=customer.last_fulfilled_at,
+            problems=problems,
+            href=f"/app/admin/customers/{customer.id}",
+            lead_database=customer.lead_database,
+            allowed_manager_id=customer.allowed_manager_id,
+            manager_id=customer.manager_id,
+            needs=[need.as_dict() for need in figure.needs],
+            billed=figure.billed,
+            balance_cents=figure.balance_cents,
+            held_cents=figure.held_cents,
+            held_for=figure.held_for,
+            lead_rate_cents_per_thousand=figure.rate_cents_per_thousand,
+            open_batches=figure.open_batches,
+            open_batch=figure.open_batch,
+            delivered_30d=figure.delivered_leads,
+            delivered_30d_batches=figure.delivered_batches,
+            last_delivery_at=figure.last_delivery_at,
+            available=figure.available,
+            available_as_of=figure.available_as_of,
+        )
+        # Needs first, worst need first; then the busiest Customers.
         rows.append(
-            CustomerDirectoryRow(
-                id=customer.id,
-                slug=customer.slug,
-                name=customer.name,
-                agency_id=customer.agency_id,
-                agency=customer.agency.name if customer.agency else "",
-                licensed_states=states,
-                customer_status=(
-                    _ACTIVE_CUSTOMER if customer.active
-                    else _DEACTIVATED_CUSTOMER
-                ),
-                account_status=_account_status(account, invitation),
-                account_email=account.email if account else "",
-                last_activity_at=customer.last_fulfilled_at,
-                problems=problems,
-                href=f"/app/admin/customers/{customer.id}",
-                lead_database=customer.lead_database,
-                allowed_manager_id=customer.allowed_manager_id,
-                manager_id=customer.manager_id,
+            (
+                (*figure.sort_key(), -figure.delivered_leads, customer.name.lower(), customer.id),
+                row,
             )
         )
+    rows.sort(key=lambda item: item[0])
 
     agencies = [
         CustomerDirectoryAgency(
@@ -267,14 +313,15 @@ def build_customer_directory(
             .order_by(Agency.name)
         )
     ]
-    total = int(
-        db.scalar(
-            select(func.count(Customer.id)).where(
-                Customer.deleted_at.is_(None)
-            )
-        )
-        or 0
+    counts = dict(
+        db.execute(
+            select(Customer.active, func.count(Customer.id))
+            .where(Customer.deleted_at.is_(None))
+            .group_by(Customer.active)
+        ).all()
     )
+    active_count = int(counts.get(True, 0) or 0)
+    deactivated_count = int(counts.get(False, 0) or 0)
     return CustomerDirectoryOut(
         filters=CustomerDirectoryFilters(
             query=term,
@@ -282,12 +329,18 @@ def build_customer_directory(
             agency_id=agency_id,
             state=state,
             problems_only=problems_only,
+            database=database,  # type: ignore[arg-type]
+            billing=billing,  # type: ignore[arg-type]
+            needs_only=needs_only,
         ),
         agencies=agencies,
         states=sorted(US_STATES),
-        total=total,
+        total=active_count + deactivated_count,
         matched=len(rows),
-        customers=rows,
+        customers=[row for _, row in rows],
+        counts=CustomerDirectoryCounts(
+            active=active_count, deactivated=deactivated_count
+        ),
         managed_admins=[ManagedAdminRecord(id=item.auth_user_id, name=item.name, email=item.email)
                        for item in db.scalars(select(ManagedAdmin).where(ManagedAdmin.active.is_(True)).order_by(ManagedAdmin.name))],
     )

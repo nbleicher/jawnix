@@ -1,22 +1,21 @@
 import { useId, useState } from "react";
+import { Link } from "react-router";
 
 import { api } from "../auth/adminMFA";
-import { parseLeadRate } from "../billing/money";
 import { Button } from "../../design-system/primitives/Button";
+import type { ButtonVariant } from "../../design-system/primitives/Button";
 import { Dialog } from "../../design-system/primitives/Dialog";
-import { EmptyState } from "../../design-system/primitives/feedback";
+import { FactList } from "../../design-system/primitives/facts";
 import { Field, Fieldset, Input, Select } from "../../design-system/primitives/form";
-import {
-  Card,
-  Cluster,
-  Grid,
-  Section,
-  Stack,
-} from "../../design-system/primitives/layout";
+import { Card, Cluster, Grid, Section, Stack } from "../../design-system/primitives/layout";
+import { Panel, RecordColumns } from "../../design-system/primitives/panel";
 import { StatusBadge } from "../../design-system/primitives/status";
-import { Heading, Text } from "../../design-system/primitives/typography";
-import { errorMessage, formatAdminDate } from "./AdminCustomers";
-import { Fact, useActionDialog } from "./AdminCustomerActions";
+import { DataTable } from "../../design-system/primitives/table";
+import type { DataColumn } from "../../design-system/primitives/table";
+import { Text } from "../../design-system/primitives/typography";
+import { formatCount, formatDatabase, formatDateTime, formatDay, formatRate } from "../operator/format";
+import { errorMessage } from "./AdminCustomers";
+import { useActionDialog } from "./AdminCustomerActions";
 
 import "./AdminCustomerDetails.css";
 
@@ -33,7 +32,11 @@ export interface CreditLedgerEntryView {
   amountCents: number;
   reason: string;
   actor: string | null;
+  /** Who posted it, in words. Present on the operator's read. */
+  actorLabel?: string;
   batchRequestId: string | null;
+  /** The Batch the entry belongs to, by number. */
+  batchNumber?: number | null;
   createdAt: string;
 }
 
@@ -72,38 +75,64 @@ export interface CooldownWindowView {
   days: number;
 }
 
+export interface CustomerExclusionListView {
+  id: string;
+  type: string;
+  filename: string;
+  status: string;
+  acceptedRows: number;
+  invalidRows: number;
+  duplicateRows: number;
+  poolImpact: number | null;
+  global: boolean;
+  createdAt: string;
+}
+
+/** Money always with cents (V5); a debit carries a real minus sign. */
 export function formatUsdCents(cents: number): string {
   const sign = cents < 0 ? "−" : "";
-  return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
+  const value = (Math.abs(cents) / 100).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${sign}$${value}`;
 }
 
-function formatDollarsPerLead(centsPerThousand: number): string {
-  const [whole, initialFraction] = (centsPerThousand / 100_000)
-    .toFixed(5)
-    .split(".");
-  let fraction = initialFraction ?? "000";
-  while (fraction.length > 3 && fraction.endsWith("0")) {
-    fraction = fraction.slice(0, -1);
-  }
-  return `${whole}.${fraction}`;
-}
-
+/** Rates as "$5.00 per 1,000" (V5). */
 export function formatLeadRate(centsPerThousand: number | null): string {
   if (centsPerThousand === null) return "Not set";
-  return `$${formatDollarsPerLead(centsPerThousand)} per lead`;
+  return formatRate(centsPerThousand);
 }
+
+/** "5" or "5.00" dollars per 1,000 leads, as integer cents per 1,000. */
+export function parseRatePerThousand(value: string): number | null {
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(value.trim());
+  if (!match) return null;
+  const cents = Number(match[1]) * 100 + Number((match[2] ?? "").padEnd(2, "0"));
+  return Number.isSafeInteger(cents) ? cents : null;
+}
+
+const RATE_MIN = 100;
+const RATE_MAX = 2_000;
 
 function ledgerKindLabel(kind: string): string {
   switch (kind) {
     case "purchase":
-      return "Credit Purchase";
+      return "Credit purchase";
     case "batch_charge":
-      return "Batch Charge";
+      return "Batch charge";
     case "admin_adjustment":
-      return "Administrator adjustment";
+      return "Adjustment";
     default:
-      return kind;
+      return kind.replaceAll("_", " ");
   }
+}
+
+function purchaseTone(status: string) {
+  if (status === "failed") return "danger" as const;
+  if (status === "completed" || status === "succeeded") return "success" as const;
+  if (status === "processing" || status === "pending") return "info" as const;
+  return "neutral" as const;
 }
 
 interface ControlProps {
@@ -111,177 +140,227 @@ interface ControlProps {
   onChanged: () => Promise<void> | void;
 }
 
-export function CustomerBillingSection({
-  billing,
+// ------------------------------------------------------------ quick actions
+
+/** Post a Credit Wallet adjustment. Shared by the Customers side panel and
+ *  the Billing tab. */
+export function PostAdjustmentAction({
   customerId,
   onChanged,
-}: ControlProps & { billing: CustomerBillingView }) {
-  const savedDatabase = billing.leadDatabase ?? "db1";
-  const [pendingDatabase, setPendingDatabase] = useState<"db1" | "db2" | null>(null);
-  const [databaseError, setDatabaseError] = useState("");
-  const databaseA = savedDatabase === "db1";
-  const configure = useActionDialog(onChanged);
-  const adjust = useActionDialog(onChanged);
-  const [enabled, setEnabled] = useState(billing.billingEnabled);
-  const [leadRate, setLeadRate] = useState(
-    billing.leadRateCentsPerThousand === null
-      ? ""
-      : formatDollarsPerLead(billing.leadRateCentsPerThousand),
-  );
-  const [configureReason, setConfigureReason] = useState("");
-  const [adjustAmount, setAdjustAmount] = useState("");
-  const [adjustReason, setAdjustReason] = useState("");
-
-  function openConfigure() {
-    setEnabled(billing.billingEnabled);
-    setLeadRate(
-      billing.leadRateCentsPerThousand === null
-        ? ""
-        : formatDollarsPerLead(billing.leadRateCentsPerThousand),
-    );
-    setConfigureReason("");
-    configure.show();
-  }
-
-  async function chooseDatabase(value: "db1" | "db2") {
-    setPendingDatabase(value);
-    setDatabaseError("");
-    try {
-      await api(`/api/admin/customers/${customerId}/scope`, {
-        method: "PATCH",
-        body: JSON.stringify({ lead_database: value }),
-      });
-      await onChanged();
-    } catch (caught) {
-      setDatabaseError(errorMessage(caught));
-    } finally {
-      setPendingDatabase(null);
-    }
-  }
-
-  function openAdjust() {
-    setAdjustAmount("");
-    setAdjustReason("");
-    adjust.show();
-  }
-
-  const rateValue = parseLeadRate(leadRate);
-  const rateDescription =
-    rateValue !== null && rateValue >= 100 && rateValue <= 2_000
-      ? `${formatUsdCents(rateValue)} per 1,000 leads. Applies to future Batch Requests.`
-      : "$0.001 to $0.02 per lead. Use up to five decimal places.";
-  const configureReady =
-    databaseA &&
-    configureReason.trim().length > 0 &&
-    (!enabled ||
-      (rateValue !== null && rateValue >= 100 && rateValue <= 2_000));
-
-  const adjustCents = Math.round(Number(adjustAmount) * 100);
-  const adjustReady =
-    adjustReason.trim().length > 0 &&
-    Number.isFinite(adjustCents) &&
-    adjustCents !== 0 &&
-    Number(adjustAmount) !== 0;
+  variant = "secondary",
+}: ControlProps & { variant?: ButtonVariant }) {
+  const dialog = useActionDialog(onChanged);
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const cents = Math.round(Number(amount) * 100);
+  const ready =
+    reason.trim().length > 0 &&
+    amount.trim().length > 0 &&
+    Number.isFinite(cents) &&
+    cents !== 0;
 
   return (
-    <Section
-      title="Billing"
-      description="Set this Customer’s price per lead for Database A. Customers add prepaid credits through Stripe; balances remain when billing is off or Database B is selected."
-    >
-      <Card>
+    <>
+      <Button
+        variant={variant}
+        onClick={() => {
+          setAmount("");
+          setReason("");
+          dialog.show();
+        }}
+      >
+        Post adjustment
+      </Button>
+      <Dialog
+        open={dialog.open}
+        onClose={dialog.close}
+        title="Post Credit Wallet adjustment"
+        description="Appends an administrator adjustment to the Credit Ledger. Card refunds happen in Stripe and reconcile here."
+        dismissOnBackdrop={false}
+      >
         <Stack gap={4}>
-          <Cluster justify="space-between" align="flex-start">
-            <Heading level={3} size="sm">
-              Credit Wallet
-            </Heading>
-            <StatusBadge tone={billing.billingEnabled ? "success" : "neutral"}>
-              {billing.billingEnabled ? "Billing on" : "Billing off"}
-            </StatusBadge>
+          {dialog.failure ? (
+            <Text role="alert" tone="danger" size="sm">
+              {dialog.failure}
+            </Text>
+          ) : null}
+          <Field
+            label="Amount (USD)"
+            required
+            description="Positive credits the wallet; negative debits it. Zero is not allowed."
+          >
+            <Input
+              type="number"
+              step="0.01"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              autoFocus
+            />
+          </Field>
+          <Field label="Reason" required>
+            <Input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              autoComplete="off"
+            />
+          </Field>
+          <Cluster gap={3}>
+            <Button
+              variant="primary"
+              busy={dialog.busy}
+              disabled={!ready}
+              onClick={() =>
+                void dialog.run(() =>
+                  api(`/api/admin/customers/${customerId}/billing/adjustments`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      amount_cents: cents,
+                      reason: reason.trim(),
+                    }),
+                  }),
+                )
+              }
+            >
+              Post adjustment
+            </Button>
+            <Button onClick={dialog.close}>Cancel</Button>
           </Cluster>
-          <Field label="Lead database" description="Future allocations draw from this inventory.">
+        </Stack>
+      </Dialog>
+    </>
+  );
+}
+
+/** Choose which database a Customer's future allocations draw from. */
+export function ChangeDatabaseAction({
+  customerId,
+  database,
+  onChanged,
+  variant = "secondary",
+}: ControlProps & { database: string; variant?: ButtonVariant }) {
+  const dialog = useActionDialog(onChanged);
+  const current = database === "db2" ? "db2" : "db1";
+  const [choice, setChoice] = useState<"db1" | "db2">(current);
+  const [reason, setReason] = useState("");
+  const ready = choice !== current && reason.trim().length > 0;
+
+  return (
+    <>
+      <Button
+        variant={variant}
+        onClick={() => {
+          setChoice(current === "db1" ? "db2" : "db1");
+          setReason("");
+          dialog.show();
+        }}
+      >
+        Change database
+      </Button>
+      <Dialog
+        open={dialog.open}
+        onClose={dialog.close}
+        title="Change database"
+        description="Future allocations draw from this database. Batches already allocated keep the leads they hold. Billing applies only to DB1."
+        dismissOnBackdrop={false}
+      >
+        <Stack gap={4}>
+          {dialog.failure ? (
+            <Text role="alert" tone="danger" size="sm">
+              {dialog.failure}
+            </Text>
+          ) : null}
+          <Field
+            label="Database"
+            description={`Currently ${formatDatabase(current)}. The availability count is recounted for the new database.`}
+          >
             <Select
-              disabled={pendingDatabase !== null}
-              value={pendingDatabase ?? savedDatabase}
-              onChange={(event) => {
-                void chooseDatabase(event.target.value as "db1" | "db2");
-              }}
+              value={choice}
+              onChange={(event) => setChoice(event.target.value as "db1" | "db2")}
             >
               <option value="db1">DB1 · Operator leads</option>
               <option value="db2">DB2 · CSV uploads</option>
             </Select>
           </Field>
-          {databaseError ? <Text size="sm" role="alert" tone="danger">{databaseError}</Text> : null}
-          <dl className="admin-customer-details__facts">
-            <Fact label="Lead Rate">
-              {formatLeadRate(billing.leadRateCentsPerThousand)}
-            </Fact>
-            <Fact label="Balance">{formatUsdCents(billing.balanceCents)}</Fact>
-            <Fact label="Active Batch Holds">
-              {formatUsdCents(billing.activeHoldsCents)}
-            </Fact>
-            <Fact label="Available">
-              {formatUsdCents(billing.availableBalanceCents)}
-            </Fact>
-          </dl>
+          <Field label="Reason" required>
+            <Input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              autoComplete="off"
+              autoFocus
+            />
+          </Field>
           <Cluster gap={3}>
-            <Button variant="primary" onClick={openConfigure} disabled={!databaseA}>
-              Configure billing
+            <Button
+              variant="primary"
+              busy={dialog.busy}
+              disabled={!ready}
+              onClick={() =>
+                void dialog.run(() =>
+                  api(`/api/admin/customers/${customerId}/lead-database`, {
+                    method: "PUT",
+                    body: JSON.stringify({
+                      lead_database: choice,
+                      reason: reason.trim(),
+                    }),
+                  }),
+                )
+              }
+            >
+              Use {formatDatabase(choice)}
             </Button>
-            <Button onClick={openAdjust}>Post adjustment</Button>
+            <Button onClick={dialog.close}>Cancel</Button>
           </Cluster>
-          {!databaseA ? <Text size="sm" tone="muted">Stripe payments are available only for Database A. Select Database A to configure this Customer’s price.</Text> : null}
-
-          <Stack gap={2}>
-            <Heading level={3} size="sm">
-              Credit Ledger
-            </Heading>
-            {billing.ledger.length ? (
-              <div
-                className="admin-customer-details__ledger"
-                role="table"
-                aria-label="Credit Ledger"
-                tabIndex={0}
-              >
-                <div className="admin-customer-details__ledger-row admin-customer-details__ledger-row--head" role="row">
-                  <span role="columnheader">When</span>
-                  <span role="columnheader">Kind</span>
-                  <span role="columnheader">Amount</span>
-                  <span role="columnheader">Reason</span>
-                </div>
-                {billing.ledger.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="admin-customer-details__ledger-row"
-                    role="row"
-                  >
-                    <span role="cell">{formatAdminDate(entry.createdAt)}</span>
-                    <span role="cell">{ledgerKindLabel(entry.kind)}</span>
-                    <span role="cell">{formatUsdCents(entry.amountCents)}</span>
-                    <span role="cell">{entry.reason}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <EmptyState
-                title="No Credit Ledger entries"
-                description="Purchases, Batch Charges, and administrator adjustments will appear here."
-              />
-            )}
-          </Stack>
         </Stack>
-      </Card>
+      </Dialog>
+    </>
+  );
+}
 
+function ConfigureBillingAction({
+  billing,
+  customerId,
+  onChanged,
+}: ControlProps & { billing: CustomerBillingView }) {
+  const dialog = useActionDialog(onChanged);
+  const databaseOne = (billing.leadDatabase ?? "db1") === "db1";
+  const configured = billing.billingConfigured ?? billing.billingEnabled;
+  const initialRate =
+    billing.leadRateCentsPerThousand === null
+      ? ""
+      : (billing.leadRateCentsPerThousand / 100).toFixed(2);
+  const [enabled, setEnabled] = useState(configured);
+  const [rate, setRate] = useState(initialRate);
+  const [reason, setReason] = useState("");
+
+  const rateCents = parseRatePerThousand(rate);
+  const rateValid = rateCents !== null && rateCents >= RATE_MIN && rateCents <= RATE_MAX;
+  const ready = databaseOne && reason.trim().length > 0 && (!enabled || rateValid);
+
+  return (
+    <>
+      <Button
+        variant="primary"
+        disabled={!databaseOne}
+        onClick={() => {
+          setEnabled(configured);
+          setRate(initialRate);
+          setReason("");
+          dialog.show();
+        }}
+      >
+        Configure billing
+      </Button>
       <Dialog
-        open={configure.open}
-        onClose={configure.close}
+        open={dialog.open}
+        onClose={dialog.close}
         title="Configure billing"
-        description="Enabling billing requires a Lead Rate. Existing Batch Requests keep the billed-or-free status frozen at submission."
+        description="Enabling billing requires a rate. Batches already submitted keep the billed-or-free status frozen at submission."
         dismissOnBackdrop={false}
       >
         <Stack gap={4}>
-          {configure.failure ? (
+          {dialog.failure ? (
             <Text role="alert" tone="danger" size="sm">
-              {configure.failure}
+              {dialog.failure}
             </Text>
           ) : null}
           <label className="admin-customer-details__toggle">
@@ -293,25 +372,29 @@ export function CustomerBillingSection({
             Billing enabled
           </label>
           <Field
-            label="Price per lead (USD)"
+            label="Rate per 1,000 leads (USD)"
             required={enabled}
-            description={rateDescription}
+            description={
+              rateValid
+                ? `${formatRate(rateCents)}. Applies to future batches.`
+                : "$1.00 to $20.00 per 1,000 leads, to the cent."
+            }
           >
             <Input
               type="number"
-              min="0.001"
-              max="0.02"
-              step="0.00001"
+              min="1"
+              max="20"
+              step="0.01"
               inputMode="decimal"
-              value={leadRate}
-              onChange={(event) => setLeadRate(event.target.value)}
+              value={rate}
+              onChange={(event) => setRate(event.target.value)}
               disabled={!enabled}
             />
           </Field>
           <Field label="Reason" required>
             <Input
-              value={configureReason}
-              onChange={(event) => setConfigureReason(event.target.value)}
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
               autoComplete="off"
               autoFocus
             />
@@ -319,18 +402,16 @@ export function CustomerBillingSection({
           <Cluster gap={3}>
             <Button
               variant="primary"
-              busy={configure.busy}
-              disabled={!configureReady}
+              busy={dialog.busy}
+              disabled={!ready}
               onClick={() =>
-                void configure.run(() =>
+                void dialog.run(() =>
                   api(`/api/admin/customers/${customerId}/billing`, {
                     method: "PUT",
                     body: JSON.stringify({
                       billing_enabled: enabled,
-                      lead_rate_cents_per_thousand: enabled
-                        ? rateValue
-                        : null,
-                      reason: configureReason.trim(),
+                      lead_rate_cents_per_thousand: enabled ? rateCents : null,
+                      reason: reason.trim(),
                     }),
                   }),
                 )
@@ -338,70 +419,166 @@ export function CustomerBillingSection({
             >
               Save billing
             </Button>
-            <Button onClick={configure.close}>Cancel</Button>
+            <Button onClick={dialog.close}>Cancel</Button>
           </Cluster>
         </Stack>
       </Dialog>
+    </>
+  );
+}
 
-      <Dialog
-        open={adjust.open}
-        onClose={adjust.close}
-        title="Post Credit Wallet adjustment"
-        description="Appends an administrator adjustment to the Credit Ledger. Card refunds happen in Stripe and reconcile here."
-        dismissOnBackdrop={false}
-      >
-        <Stack gap={4}>
-          {adjust.failure ? (
-            <Text role="alert" tone="danger" size="sm">
-              {adjust.failure}
+// -------------------------------------------------------------- Billing tab
+
+function routePath(href: string): string {
+  return href.startsWith("/app/") ? href.slice("/app".length) : href;
+}
+
+const LEDGER_COLUMNS: DataColumn<CreditLedgerEntryView>[] = [
+  { key: "when", header: "When", cell: (entry) => formatDateTime(entry.createdAt) },
+  { key: "kind", header: "Kind", cell: (entry) => ledgerKindLabel(entry.kind) },
+  {
+    key: "amount",
+    header: "Amount",
+    numeric: true,
+    cell: (entry) => formatUsdCents(entry.amountCents),
+  },
+  { key: "who", header: "Who", cell: (entry) => entry.actorLabel ?? "—" },
+  {
+    key: "batch",
+    header: "Batch",
+    cell: (entry) =>
+      entry.batchNumber ? (
+        <Link to={routePath(`/app/admin/batches/${entry.batchNumber}`)}>
+          #{entry.batchNumber}
+        </Link>
+      ) : (
+        "—"
+      ),
+  },
+  { key: "reason", header: "Reason", cell: (entry) => entry.reason || "—" },
+];
+
+const PURCHASE_COLUMNS: DataColumn<CreditPurchaseView>[] = [
+  { key: "when", header: "Started", cell: (item) => formatDateTime(item.createdAt) },
+  {
+    key: "amount",
+    header: "Amount",
+    numeric: true,
+    cell: (item) => formatUsdCents(item.amountCents),
+  },
+  {
+    key: "status",
+    header: "Status",
+    cell: (item) => (
+      <StatusBadge tone={purchaseTone(item.status)}>
+        {item.status.replaceAll("_", " ")}
+      </StatusBadge>
+    ),
+  },
+  {
+    key: "completed",
+    header: "Completed",
+    cell: (item) => (item.completedAt ? formatDateTime(item.completedAt) : "—"),
+  },
+];
+
+/**
+ * The Billing tab: the wallet and its actions in the right column, the
+ * purchases and the Credit Ledger (with who posted each entry and the batch
+ * it belongs to) in the main column.
+ */
+export function CustomerBillingSection({
+  billing,
+  customerId,
+  onChanged,
+}: ControlProps & { billing: CustomerBillingView }) {
+  const database = billing.leadDatabase ?? "db1";
+  return (
+    <RecordColumns
+      main={
+        <>
+          <Section title="Credit ledger" description="Every credit and debit, newest first.">
+            <DataTable
+              label="Credit ledger"
+              columns={LEDGER_COLUMNS}
+              rows={billing.ledger}
+              rowKey={(entry) => entry.id}
+              empty="No ledger entries yet. Purchases, batch charges, and adjustments appear here."
+            />
+          </Section>
+          <Section title="Purchases" description="Card purchases through Stripe.">
+            <DataTable
+              label="Purchases"
+              columns={PURCHASE_COLUMNS}
+              rows={billing.purchases}
+              rowKey={(item) => item.id}
+              empty="No card purchases yet."
+            />
+          </Section>
+        </>
+      }
+      aside={
+        <Panel
+          title="Credit wallet"
+          action={
+            <StatusBadge tone={billing.billingEnabled ? "success" : "neutral"}>
+              {billing.billingEnabled ? "Billing on" : "Billing off"}
+            </StatusBadge>
+          }
+        >
+          <FactList
+            label="Credit wallet"
+            items={[
+              { term: "Rate", description: formatLeadRate(billing.leadRateCentsPerThousand) },
+              { term: "Balance", description: formatUsdCents(billing.balanceCents) },
+              { term: "Held for open batches", description: formatUsdCents(billing.activeHoldsCents) },
+              { term: "Available", description: formatUsdCents(billing.availableBalanceCents) },
+              { term: "Database", description: formatDatabase(database) },
+            ]}
+          />
+          <Cluster gap={3}>
+            <ConfigureBillingAction billing={billing} customerId={customerId} onChanged={onChanged} />
+            <PostAdjustmentAction customerId={customerId} onChanged={onChanged} />
+          </Cluster>
+          {database !== "db1" ? (
+            <Text size="sm" tone="muted">
+              Card payments and billing apply only to DB1. Change the database on Rules to bill this customer.
             </Text>
           ) : null}
-          <Field
-            label="Amount (USD)"
-            required
-            description="Positive credits the wallet; negative debits it. Zero is not allowed."
-          >
-            <Input
-              type="number"
-              step="0.01"
-              value={adjustAmount}
-              onChange={(event) => setAdjustAmount(event.target.value)}
-              autoFocus
-            />
-          </Field>
-          <Field label="Reason" required>
-            <Input
-              value={adjustReason}
-              onChange={(event) => setAdjustReason(event.target.value)}
-              autoComplete="off"
-            />
-          </Field>
-          <Cluster gap={3}>
-            <Button
-              variant="primary"
-              busy={adjust.busy}
-              disabled={!adjustReady}
-              onClick={() =>
-                void adjust.run(() =>
-                  api(
-                    `/api/admin/customers/${customerId}/billing/adjustments`,
-                    {
-                      method: "POST",
-                      body: JSON.stringify({
-                        amount_cents: adjustCents,
-                        reason: adjustReason.trim(),
-                      }),
-                    },
-                  ),
-                )
-              }
-            >
-              Post adjustment
-            </Button>
-            <Button onClick={adjust.close}>Cancel</Button>
-          </Cluster>
-        </Stack>
-      </Dialog>
+        </Panel>
+      }
+    />
+  );
+}
+
+// ---------------------------------------------------------------- Rules tab
+
+/** Which database future allocations draw from. */
+export function CustomerDatabaseSection({
+  customerId,
+  database,
+  billed,
+  onChanged,
+}: ControlProps & { database: string; billed: boolean }) {
+  return (
+    <Section
+      title="Database"
+      description="Future allocations draw from this database."
+    >
+      <Stack gap={3} align="flex-start">
+        <FactList
+          label="Database"
+          className="admin-customer-details__facts-narrow"
+          items={[
+            {
+              term: "Draws from",
+              description: database === "db2" ? "DB2 · CSV uploads" : "DB1 · Operator leads",
+            },
+            { term: "Billing", description: billed ? "On" : "Off" },
+          ]}
+        />
+        <ChangeDatabaseAction customerId={customerId} database={database} onChanged={onChanged} />
+      </Stack>
     </Section>
   );
 }
@@ -422,26 +599,30 @@ export function CustomerCooldownSection({
 
   return (
     <Section
-      title="Cooldown Window"
-      description="Minimum age of another Customer's Distribution Event before this Customer may draw that Lead. Default is seven days; minimum is one."
+      title="Cooldown window"
+      description="How old another customer's delivery of a lead must be before this customer can receive it. Default seven days; minimum one."
     >
-      <Card>
-        <Stack gap={4} align="flex-start">
-          <dl className="admin-customer-details__facts">
-            <Fact label="Current window">{cooldown.days} days</Fact>
-          </dl>
-          <Button
-            variant="primary"
-            onClick={() => {
-              setDays(String(cooldown.days));
-              setReason("");
-              dialog.show();
-            }}
-          >
-            Change Cooldown Window
-          </Button>
-        </Stack>
-      </Card>
+      <Stack gap={3} align="flex-start">
+        <FactList
+          label="Cooldown window"
+          className="admin-customer-details__facts-narrow"
+          items={[
+            {
+              term: "Current window",
+              description: `${formatCount(cooldown.days)} day${cooldown.days === 1 ? "" : "s"}`,
+            },
+          ]}
+        />
+        <Button
+          onClick={() => {
+            setDays(String(cooldown.days));
+            setReason("");
+            dialog.show();
+          }}
+        >
+          Change Cooldown Window
+        </Button>
+      </Stack>
 
       <Dialog
         open={dialog.open}
@@ -554,13 +735,11 @@ function parseDraftRows(rows: DraftPolicyRow[]): NichePolicyRowView[] {
     }));
 }
 
-function describeRow(row: NichePolicyRowView): string {
-  const scope = row.state ?? "All states";
-  const niches = row.niches.join(", ");
-  return row.mode === "exclude"
-    ? `${scope}: exclude ${niches}`
-    : `${scope}: only ${niches}`;
-}
+const POLICY_COLUMNS: DataColumn<NichePolicyRowView>[] = [
+  { key: "state", header: "States", cell: (row) => row.state ?? "All states" },
+  { key: "mode", header: "Mode", cell: (row) => (row.mode === "exclude" ? "Exclude" : "Only") },
+  { key: "niches", header: "Niches", cell: (row) => row.niches.join(", ") },
+];
 
 export function CustomerNichePolicySection({
   policy,
@@ -620,30 +799,21 @@ export function CustomerNichePolicySection({
 
   return (
     <Section
-      title="Niche Policy"
-      description="Per-state rows that either exclude listed Niches or restrict allocation to only them. A state's row fully overrides the all-states default."
+      title="Niche policy"
+      description="Per-state rows that exclude listed niches or allow only them. A state's row replaces the all-states default."
     >
-      <Card>
-        <Stack gap={4} align="flex-start">
-          {policy.rows.length ? (
-            <ul className="admin-customer-details__list" aria-label="Current Niche Policy">
-              {policy.rows.map((row) => (
-                <li key={`${row.state ?? "all"}-${row.mode}-${row.niches.join(",")}`}>
-                  <Text>{describeRow(row)}</Text>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <EmptyState
-              title="No Niche Policy rows"
-              description="Without rows, Niche does not restrict this Customer's eligibility beyond Licensed States and history."
-            />
-          )}
-          <Button variant="primary" onClick={openEditor}>
-            Edit Niche Policy
-          </Button>
-        </Stack>
-      </Card>
+      <Stack gap={3} align="flex-start">
+        <div className="admin-customer-details__full">
+          <DataTable
+            label="Current Niche Policy"
+            columns={POLICY_COLUMNS}
+            rows={policy.rows}
+            rowKey={(row) => `${row.state ?? "all"}-${row.mode}-${row.niches.join(",")}`}
+            empty="No rows. Niche does not narrow what this customer can receive beyond its states and history."
+          />
+        </div>
+        <Button onClick={openEditor}>Edit Niche Policy</Button>
+      </Stack>
 
       <Dialog
         open={dialog.open}
@@ -780,7 +950,7 @@ export function CustomerNichePolicySection({
             </Button>
             {projected !== null ? (
               <Text weight="semibold" role="status">
-                Projected available Leads: {projected.toLocaleString()}
+                Projected available Leads: {projected.toLocaleString("en-US")}
               </Text>
             ) : (
               <Text size="sm" tone="muted">
@@ -820,6 +990,64 @@ export function CustomerNichePolicySection({
           </Cluster>
         </Stack>
       </Dialog>
+    </Section>
+  );
+}
+
+const EXCLUSION_TYPES: Record<string, string> = {
+  landline: "Landline",
+  dnc: "DNC",
+  tcpa_litigator: "TCPA litigator",
+};
+
+function exclusionTone(status: string) {
+  if (status === "failed") return "danger" as const;
+  if (status === "pending_confirmation") return "danger" as const;
+  if (status === "active" || status === "confirmed") return "success" as const;
+  if (status === "queued" || status === "ingesting") return "info" as const;
+  return "neutral" as const;
+}
+
+const EXCLUSION_COLUMNS: DataColumn<CustomerExclusionListView>[] = [
+  { key: "file", header: "File", cell: (item) => item.filename },
+  { key: "type", header: "Type", cell: (item) => EXCLUSION_TYPES[item.type] ?? item.type.replaceAll("_", " ") },
+  {
+    key: "status",
+    header: "Status",
+    cell: (item) => (
+      <StatusBadge tone={exclusionTone(item.status)}>{item.status.replaceAll("_", " ")}</StatusBadge>
+    ),
+  },
+  { key: "scope", header: "Scope", cell: (item) => (item.global ? "Global" : "Customer-scoped") },
+  { key: "accepted", header: "Phones", numeric: true, cell: (item) => formatCount(item.acceptedRows) },
+  {
+    key: "impact",
+    header: "In pool",
+    numeric: true,
+    cell: (item) => (item.poolImpact === null ? "—" : formatCount(item.poolImpact)),
+  },
+  { key: "uploaded", header: "Uploaded", cell: (item) => formatDay(item.createdAt) },
+];
+
+/** Exclusion lists this Customer uploaded. Global effect is confirmed on the
+ *  operator's decisions, not here. */
+export function CustomerExclusionListsSection({
+  items,
+}: {
+  items: CustomerExclusionListView[];
+}) {
+  return (
+    <Section
+      title="Exclusion lists"
+      description="Lists this customer uploaded. They apply to this customer only unless their global effect is confirmed."
+    >
+      <DataTable
+        label="Exclusion lists"
+        columns={EXCLUSION_COLUMNS}
+        rows={items}
+        rowKey={(item) => item.id}
+        empty="This customer has not uploaded an exclusion list."
+      />
     </Section>
   );
 }

@@ -1,0 +1,57 @@
+/* One tab style for record sub-sections (V7): quiet labels on a ruled line,
+   the current one in ink with a heavy underline. */
+.jx-tabs {
+  min-width: 0;
+  border-bottom: var(--jx-rule) solid var(--jx-line-strong);
+}
+
+.jx-tabs__list {
+  display: flex;
+  gap: var(--jx-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* One line; phones scroll sideways rather than wrapping (V10). */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.jx-tabs__list::-webkit-scrollbar {
+  display: none;
+}
+
+.jx-tabs__item {
+  flex: none;
+}
+
+.jx-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--jx-touch-target);
+  padding: var(--jx-space-2) 0;
+  border-bottom: var(--jx-rule-heavy) solid transparent;
+  color: var(--jx-ink-muted);
+  font-size: var(--jx-text-md);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.jx-tabs__tab:hover {
+  color: var(--jx-ink);
+}
+
+.jx-tabs__tab[aria-current="page"] {
+  color: var(--jx-ink);
+  border-bottom-color: var(--jx-ink);
+}
+
+.jx-tabs__tab:focus-visible {
+  outline: var(--jx-rule-heavy) solid var(--jx-focus);
+  outline-offset: calc(-1 * var(--jx-rule-heavy));
+}
+
+@media (max-width: 40rem) {
+  .jx-tabs__list {
+    gap: var(--jx-space-4);
+  }
+}

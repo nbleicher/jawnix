@@ -1,14 +1,18 @@
-import { render, screen, within } from "@testing-library/react";
+import { render as renderBase, screen, within } from "@testing-library/react";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import { api } from "../auth/adminMFA";
 import {
   CustomerBillingSection,
   CustomerCooldownSection,
+  CustomerDatabaseSection,
   CustomerNichePolicySection,
   formatLeadRate,
   formatUsdCents,
+  parseRatePerThousand,
 } from "./AdminCustomerControls";
 import type {
   CustomerBillingView,
@@ -16,6 +20,11 @@ import type {
 } from "./AdminCustomerControls";
 
 vi.mock("../auth/adminMFA", () => ({ api: vi.fn() }));
+
+/** The ledger links each entry to its batch, so these render in a router. */
+function render(element: ReactElement) {
+  return renderBase(<MemoryRouter>{element}</MemoryRouter>);
+}
 
 const BILLING: CustomerBillingView = {
   customerId: 7,
@@ -27,12 +36,25 @@ const BILLING: CustomerBillingView = {
   purchases: [],
   ledger: [
     {
+      id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+      kind: "batch_charge",
+      amountCents: -25_000,
+      reason: "Batch #1033 delivered",
+      actor: "system:allocation",
+      actorLabel: "System",
+      batchRequestId: "10331033-1033-4033-8033-103310331033",
+      batchNumber: 1033,
+      createdAt: "2026-07-10T12:00:00Z",
+    },
+    {
       id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
       kind: "admin_adjustment",
       amountCents: 2500,
       reason: "Opening credit",
       actor: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      actorLabel: "Operator",
       batchRequestId: null,
+      batchNumber: null,
       createdAt: "2026-07-01T12:00:00Z",
     },
   ],
@@ -46,13 +68,14 @@ describe("admin billing and allocation money formatting", () => {
   it("formats wallet cents and Lead Rates for operators", () => {
     expect(formatUsdCents(2500)).toBe("$25.00");
     expect(formatUsdCents(-1050)).toBe("−$10.50");
+    expect(formatUsdCents(123_200)).toBe("$1,232.00");
     expect(formatLeadRate(null)).toBe("Not set");
-    expect(formatLeadRate(1000)).toBe(
-      "$0.010 per lead",
-    );
-    expect(formatLeadRate(150)).toBe(
-      "$0.0015 per lead",
-    );
+    expect(formatLeadRate(500)).toBe("$5.00 per 1,000");
+    expect(formatLeadRate(150)).toBe("$1.50 per 1,000");
+    expect(parseRatePerThousand("5")).toBe(500);
+    expect(parseRatePerThousand("5.25")).toBe(525);
+    expect(parseRatePerThousand("5.255")).toBeNull();
+    expect(parseRatePerThousand("")).toBeNull();
   });
 });
 
@@ -79,7 +102,7 @@ describe("CustomerBillingSection", () => {
     expect(save).toBeDisabled();
 
     await user.click(within(dialog).getByLabelText("Billing enabled"));
-    await user.type(within(dialog).getByLabelText(/Price per lead/), "0.01");
+    await user.type(within(dialog).getByLabelText(/Rate per 1,000 leads/), "10");
     expect(save).toBeDisabled();
     await user.type(
       within(dialog).getByLabelText("Reason (required)"),
@@ -101,7 +124,7 @@ describe("CustomerBillingSection", () => {
     expect(onChanged).toHaveBeenCalled();
   });
 
-  it("previews the per-lead price as the Lead Rate changes", async () => {
+  it("previews the rate per 1,000 as it changes", async () => {
     const user = userEvent.setup();
     const onChanged = vi.fn().mockResolvedValue(undefined);
 
@@ -115,59 +138,41 @@ describe("CustomerBillingSection", () => {
 
     await user.click(screen.getByRole("button", { name: "Configure billing" }));
     const dialog = screen.getByRole("dialog", { name: "Configure billing" });
-    expect(
-      within(dialog).getByText(
-        "$0.001 to $0.02 per lead. Use up to five decimal places.",
-      ),
-    ).toBeVisible();
+    const range = "$1.00 to $20.00 per 1,000 leads, to the cent.";
+    expect(within(dialog).getByText(range)).toBeVisible();
 
     await user.click(within(dialog).getByLabelText("Billing enabled"));
-    const rate = within(dialog).getByLabelText(/Price per lead/);
-    await user.type(rate, "0.01");
+    const rate = within(dialog).getByLabelText(/Rate per 1,000 leads/);
+    await user.type(rate, "5");
     expect(
-      within(dialog).getByText(
-        "$10.00 per 1,000 leads. Applies to future Batch Requests.",
-      ),
+      within(dialog).getByText("$5.00 per 1,000. Applies to future batches."),
     ).toBeVisible();
 
     await user.clear(rate);
-    await user.type(rate, "0.05");
-    expect(
-      within(dialog).getByText(
-        "$0.001 to $0.02 per lead. Use up to five decimal places.",
-      ),
-    ).toBeVisible();
+    await user.type(rate, "25");
+    expect(within(dialog).getByText(range)).toBeVisible();
 
     await user.clear(rate);
-    expect(
-      within(dialog).getByText(
-        "$0.001 to $0.02 per lead. Use up to five decimal places.",
-      ),
-    ).toBeVisible();
+    expect(within(dialog).getByText(range)).toBeVisible();
   });
 
-  it("cannot enable Stripe for Database B", () => {
+  it("names who posted each ledger entry and links its batch", () => {
+    render(<CustomerBillingSection billing={BILLING} customerId={7} onChanged={vi.fn()} />);
+
+    const ledger = screen.getByRole("table", { name: "Credit ledger" });
+    const [, charge, adjustment] = within(ledger).getAllByRole("row");
+    expect(within(charge!).getByText("Batch charge")).toBeVisible();
+    expect(within(charge!).getByText("−$250.00")).toBeVisible();
+    expect(within(charge!).getByText("System")).toBeVisible();
+    expect(within(charge!).getByRole("link", { name: "#1033" })).toHaveAttribute("href", "/admin/batches/1033");
+    expect(within(adjustment!).getByText("Operator")).toBeVisible();
+    expect(screen.getByRole("table", { name: "Purchases" })).toHaveTextContent("No card purchases yet.");
+  });
+
+  it("cannot bill a DB2 customer", () => {
     render(<CustomerBillingSection billing={{ ...BILLING, leadDatabase:"db2" }} customerId={7} onChanged={vi.fn()} />);
     expect(screen.getByRole("button", { name:"Configure billing" })).toBeDisabled();
-    expect(screen.getByText(/Stripe payments are available only for Database A/)).toBeVisible();
-  });
-
-  it("switches the Customer's lead database from the billing section", async () => {
-    const user = userEvent.setup();
-    const onChanged = vi.fn().mockResolvedValue(undefined);
-    vi.mocked(api).mockReset().mockResolvedValue({ id: 7, lead_database: "db2" });
-
-    render(<CustomerBillingSection billing={BILLING} customerId={7} onChanged={onChanged} />);
-
-    const database = screen.getByLabelText("Lead database");
-    expect(database).toHaveValue("db1");
-    await user.selectOptions(database, "db2");
-
-    expect(api).toHaveBeenCalledWith("/api/admin/customers/7/scope", {
-      method: "PATCH",
-      body: JSON.stringify({ lead_database: "db2" }),
-    });
-    expect(onChanged).toHaveBeenCalledOnce();
+    expect(screen.getByText(/Card payments and billing apply only to DB1/)).toBeVisible();
   });
 
   it("posts a Credit Wallet adjustment with a required reason", async () => {
@@ -208,6 +213,28 @@ describe("CustomerBillingSection", () => {
         }),
       }),
     );
+  });
+});
+
+describe("CustomerDatabaseSection", () => {
+  it("changes the customer's database with a reason", async () => {
+    const user = userEvent.setup();
+    const onChanged = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(api).mockReset().mockResolvedValue({ customerId: 7, leadDatabase: "db2", changed: true });
+
+    render(<CustomerDatabaseSection customerId={7} database="db1" billed onChanged={onChanged} />);
+
+    expect(screen.getByText("DB1 · Operator leads")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Change database" }));
+    const dialog = screen.getByRole("dialog", { name: "Change database" });
+    await user.type(within(dialog).getByLabelText("Reason (required)"), "Uploads only");
+    await user.click(within(dialog).getByRole("button", { name: "Use DB2" }));
+
+    expect(api).toHaveBeenCalledWith("/api/admin/customers/7/lead-database", {
+      method: "PUT",
+      body: JSON.stringify({ lead_database: "db2", reason: "Uploads only" }),
+    });
+    expect(onChanged).toHaveBeenCalledOnce();
   });
 });
 
@@ -345,7 +372,10 @@ describe("CustomerNichePolicySection", () => {
       />,
     );
 
-    expect(screen.getByText(/All states: exclude roofing/)).toBeVisible();
+    const current = screen.getByRole("table", { name: "Current Niche Policy" });
+    expect(within(current).getByText("All states")).toBeVisible();
+    expect(within(current).getByText("Exclude")).toBeVisible();
+    expect(within(current).getByText("roofing")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Edit Niche Policy" }));
     const dialog = screen.getByRole("dialog", { name: "Edit Niche Policy" });
     const save = within(dialog).getByRole("button", {
