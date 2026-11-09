@@ -139,7 +139,7 @@ export function CompleteSignupRoute() {
     if (started.current) return;
     started.current = true;
     if (new URLSearchParams(window.location.search).has("error")) { setError("This verification link is invalid or expired. Sign in to request a new link."); return; }
-    void getProviderSession(true).then(provider => exchangeJawnixSession(provider.access_token, "/app/overview"))
+    void getProviderSession(true).then(provider => exchangeJawnixSession(provider.access_token, "/app/home"))
       .then(session => navigate(routerPath(session.next), { replace: true }))
       .catch(() => setError("We could not finish signup. Sign in to continue, or request a new verification link."));
   }, [navigate]);

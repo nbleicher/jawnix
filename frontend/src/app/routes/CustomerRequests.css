@@ -223,3 +223,9 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Batches opens the history below the form; keep its heading clear of the
+   sticky header when it scrolls into place. */
+#batch-history {
+  scroll-margin-top: calc(var(--jx-space-8) * 2);
+}

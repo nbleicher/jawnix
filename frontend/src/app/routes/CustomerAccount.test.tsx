@@ -259,7 +259,7 @@ describe("Licensed State management", () => {
 
     await waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent(
-        "Overview and Batch Requests are up to date",
+        "Home and Batch Requests are up to date",
       ),
     );
     expect(calls).toContain("POST /api/me/licensed-states/apply");

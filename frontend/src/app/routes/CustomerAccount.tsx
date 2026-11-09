@@ -21,6 +21,7 @@ import {
 } from "../../design-system/primitives/typography";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { CreditLedgerSection } from "../billing/CreditLedgerSection";
+import { CustomerSessionActions } from "../customer/CustomerSessionActions";
 import {
   LicensedStateRequestError,
   applyLicensedStateReview,
@@ -459,7 +460,7 @@ export function CustomerAccountRoute() {
       setSelected(result.account.states);
       setReview(null);
       setSaved(
-        "Licensed States saved. Overview and Batch Requests are up to date.",
+        "Licensed States saved. Home and Batch Requests are up to date.",
       );
       void revalidator.revalidate();
     } catch (caught) {
@@ -485,6 +486,10 @@ export function CustomerAccountRoute() {
       title="Account"
       description="Review your identity and setup status, and keep the states where you are licensed accurate."
     >
+      {/* Phones keep Support and Sign out here; the header has no room (V8). */}
+      <div className="account-session">
+        <CustomerSessionActions />
+      </div>
       {failure ? (
         <div className="licensed-state-page__message licensed-state-page__message--error" role="alert">
           {failure}

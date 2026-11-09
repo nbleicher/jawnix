@@ -1,36 +1,52 @@
+/* The header balance: a quiet label over the figure, then Buy credits as the
+   header's one primary action. No box: the balance reads as part of the bar. */
 .credit-wallet-widget {
   display: flex;
   align-items: center;
   gap: var(--jx-space-3);
-  padding: var(--jx-space-1) var(--jx-space-2) var(--jx-space-1) var(--jx-space-3);
-  border: var(--jx-rule) solid var(--jx-line);
-  background: var(--jx-plate);
   min-width: 0;
 }
 
 .credit-wallet-widget__balance {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: var(--jx-space-1);
+  align-items: flex-end;
   min-width: 0;
+  line-height: 1.1;
 }
 
 .credit-wallet-widget__label {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-2);
+  font-family: var(--jx-font-mono);
   font-size: var(--jx-text-xs);
-  font-weight: var(--jx-weight-bold);
   letter-spacing: var(--jx-tracking-label);
   text-transform: uppercase;
   color: var(--jx-ink-muted);
 }
 
 .credit-wallet-widget__amount {
-  font-family: var(--jx-font-mono);
   font-feature-settings: var(--jx-font-features-numeral);
-  font-size: var(--jx-text-sm);
+  font-size: var(--jx-text-md);
   font-weight: var(--jx-weight-semibold);
   color: var(--jx-ink);
   white-space: nowrap;
+}
+
+/* While a purchase settles: a small square witness and the word, beside the
+   label so the header keeps one row. */
+.credit-wallet-widget__processing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jx-space-1);
+  color: var(--jx-ink);
+}
+
+.credit-wallet-widget__processing-mark {
+  width: 5px;
+  height: 5px;
+  background: currentColor;
 }
 
 .credit-purchase-amount {
@@ -41,6 +57,20 @@
 @media (max-width: 40rem) {
   .credit-wallet-widget {
     gap: var(--jx-space-2);
-    padding-inline: var(--jx-space-2);
+  }
+
+  .credit-wallet-widget .jx-button {
+    padding-inline: var(--jx-space-3);
+  }
+
+  /* The phone header has one row (V8): the mark stays, the word is read
+     out but not drawn. The purchase notice says it in full. */
+  .credit-wallet-widget__processing-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }

@@ -1,6 +1,6 @@
 import type { Page, Route } from "@playwright/test";
 
-import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
+import { CUSTOMER_HOME } from "./customer-home-fixtures";
 import { TODAY } from "./today-fixtures";
 import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
 import {
@@ -368,8 +368,8 @@ export async function mockAdminMFA(
     return json(route, { detail: "Unexpected Scraper mock request" }, 500);
   });
 
-  await page.route(/\/api\/me\/overview$/, (route) =>
-    json(route, CUSTOMER_OVERVIEW),
+  await page.route(/\/api\/me\/overview(\?.*)?$/, (route) =>
+    json(route, CUSTOMER_HOME),
   );
 
   await page.route(/\/api\/admin\/today(\?.*)?$/, (route) =>

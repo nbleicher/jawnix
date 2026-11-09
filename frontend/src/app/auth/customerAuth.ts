@@ -2,6 +2,8 @@ import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
 import { clearReadPrefetch } from "../routeReadCache";
+import { customerHomePath } from "../customer/home";
+import type { CustomerHomeData } from "../customer/home";
 
 interface SessionExchangeResponse {
   ok: true;
@@ -24,44 +26,6 @@ export interface PasswordResetLoaderData {
   canReset: boolean;
 }
 
-export type CustomerOverviewTone =
-  | "neutral"
-  | "info"
-  | "success"
-  | "warning"
-  | "danger";
-
-export interface CustomerOverviewAction {
-  kind:
-    | "download_artifact"
-    | "request_batch"
-    | "submit_feedback"
-    | "review_request"
-    | "review_account"
-    | "add_licensed_states";
-  label: string;
-  description: string;
-  href: string;
-}
-
-export interface CustomerOverviewItem {
-  id: string;
-  kind:
-    | "batch_ready"
-    | "artifact_expiring"
-    | "waiting_inventory"
-    | "feedback_nudge"
-    | "setup_problem";
-  title: string;
-  description: string;
-  tone: CustomerOverviewTone;
-  action: CustomerOverviewAction;
-}
-
-export interface CustomerOverviewData {
-  items: CustomerOverviewItem[];
-}
-
 function csrf(): string {
   const item = document.cookie
     .split(";")
@@ -70,7 +34,7 @@ function csrf(): string {
   return decodeURIComponent(item?.split("=", 2)[1] ?? "");
 }
 
-function safeCustomerPath(value: string | null, fallback = "/app/overview"): string {
+function safeCustomerPath(value: string | null, fallback = "/app/home"): string {
   if (
     !value
     || !value.startsWith("/app/")
@@ -100,7 +64,7 @@ export function signInPath(url: URL): string {
 
 export function routerPath(value: string): string {
   if (!value.startsWith("/app/") || value.startsWith("//")) {
-    return "/overview";
+    return "/home";
   }
   return value.replace(/^\/app/, "");
 }
@@ -147,10 +111,14 @@ export async function exchangeJawnixSession(
   return response.json() as Promise<SessionExchangeResponse>;
 }
 
+/**
+ * The Customer shell's access check, which is also Home's one read: every
+ * Customer page crosses it, and Home renders what it returns.
+ */
 export async function customerAccessLoader({
   request,
-}: LoaderFunctionArgs): Promise<CustomerOverviewData> {
-  const response = await fetch("/api/me/overview", {
+}: LoaderFunctionArgs): Promise<CustomerHomeData> {
+  const response = await fetch(customerHomePath(), {
     credentials: "same-origin",
   });
   if (response.status === 401 || response.status === 403) {
@@ -174,7 +142,7 @@ export async function customerAccessLoader({
       status: response.status,
     });
   }
-  return response.json() as Promise<CustomerOverviewData>;
+  return response.json() as Promise<CustomerHomeData>;
 }
 
 // Shared by the Customer and Administration shells: clears the Jawnix session

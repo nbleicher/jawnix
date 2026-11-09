@@ -21,6 +21,7 @@ REQUEST_ID = "11111111-1111-4111-8111-111111111111"
         (f"/app/requests?request={REQUEST_ID}", f"/app/requests?request={REQUEST_ID}"),
         ("/app/requests?page=2", "/app/requests?page=2"),
         (f"/app/feedback?request={REQUEST_ID}", f"/app/feedback?request={REQUEST_ID}"),
+        ("/app/home", "/app/home"),
         ("/app/overview", "/app/overview"),
         ("/app/account", "/app/account"),
         # Keys a page does not read, and invalid values, are dropped.
@@ -30,6 +31,7 @@ REQUEST_ID = "11111111-1111-4111-8111-111111111111"
         ("/app/requests?quantity=1e3", "/app/requests"),
         ("/app/requests?states=TX,ZZ", "/app/requests"),
         ("/app/requests?request=not-a-uuid", "/app/requests"),
+        ("/app/home?quantity=750", "/app/home"),
         ("/app/overview?quantity=750", "/app/overview"),
         ("/app/requests?purchase=success", "/app/requests"),
         ("/app/requests?quantity=750&quantity=900", "/app/requests?quantity=750"),

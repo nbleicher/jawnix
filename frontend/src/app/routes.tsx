@@ -15,6 +15,7 @@ import { scraperDatabaseLoader, scraperDatabaseStateLoader } from "./routes/scra
 import { stateCoverageDetailLoader, stateCoverageLoader } from "./routes/scraperCoverageData";
 import { batchRequestsLoader } from "./routes/batchRequests";
 import { customerAccountLoader } from "./routes/licensedStates";
+import { customerShouldRevalidate, overviewRedirectLoader } from "./customer/home";
 
 /**
  * Route table for the redesigned application.
@@ -35,7 +36,7 @@ export const router = createBrowserRouter(
       path: "/",
       errorElement: <RouteError />,
       children: [
-        { index: true, element: <Navigate to="/overview" replace /> },
+        { index: true, element: <Navigate to="/home" replace /> },
         {
           path: "sign-in",
           loader: signInLoader,
@@ -70,15 +71,21 @@ export const router = createBrowserRouter(
           },
         },
 
-        // Customer portal — Overview, Requests, Feedback, Account.
+        // Overview became Home; old links (emails, bookmarks) still land.
+        { path: "overview", loader: overviewRedirectLoader },
+
+        // Customer portal — Home, New request, Batches, Account. Until the
+        // New request and Batches pages exist, both live on /requests.
         {
           id: "customer",
           element: <CustomerShell />,
           loader: customerAccessLoader,
+          // Home renders this loader's data, so it is read again on arrival.
+          shouldRevalidate: customerShouldRevalidate,
           children: [
             {
-              path: "overview",
-              lazy: lazyPage("CustomerOverview", "CustomerOverviewRoute"),
+              path: "home",
+              lazy: lazyPage("CustomerHome", "CustomerHomeRoute"),
             },
             {
               path: "requests",
@@ -87,7 +94,8 @@ export const router = createBrowserRouter(
             },
             // #53 replaced the placeholder with the guided flow. The loader
             // reads the Lead Disposition catalog, whose consequence copy is
-            // derived from the rule that materializes the controls.
+            // derived from the rule that materializes the controls. It left
+            // the navigation in C2; batch pages and old links still open it.
             {
               path: "feedback",
               lazy: lazyPage("CustomerFeedback", "CustomerFeedbackRoute", "feedbackLoader"),

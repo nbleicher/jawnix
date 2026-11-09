@@ -53,6 +53,8 @@ def _states(value: str) -> str | None:
 
 # The portal pages a purchase can return to, and the query each one reads.
 _RETURN_PAGES: dict[str, dict[str, Callable[[str], str | None]]] = {
+    "/app/home": {},
+    # Purchases started before Home replaced Overview; the page redirects.
     "/app/overview": {},
     "/app/account": {},
     "/app/feedback": {"request": _request_id},

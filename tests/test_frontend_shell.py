@@ -61,6 +61,7 @@ def test_serves_the_compiled_document(dist_dir):
         "/app/sign-in",
         "/app/accept-invitation",
         "/app/overview",
+        "/app/home",
         "/app/admin/fulfillment",
         "/app/requests/1234",
     ],

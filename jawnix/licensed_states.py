@@ -23,12 +23,16 @@ from sqlalchemy.orm import Session
 from .billing import release_batch_hold
 from .activity import record_activity
 from .config import Settings
-from .customer_overview import build_customer_overview, customer_request_status
+from .customer_overview import (
+    CustomerHome,
+    build_customer_home,
+    customer_request_status,
+)
 from .customer_requests import CANCELABLE_STATUSES, build_request_workspace
 from .jobs import enqueue_job
 from .milestone_emails import enqueue_milestone_email
 from .models import CustomerProfile, LeadRequest, RequestStatus, utcnow
-from .schemas import CustomerOverviewOut, CustomerRequestWorkspaceOut
+from .schemas import CustomerRequestWorkspaceOut
 from .states import US_STATE_OPTIONS, normalize_states
 
 
@@ -93,7 +97,7 @@ class LicensedStateConfirmation(BaseModel):
 
 class LicensedStateApplyResult(BaseModel):
     account: LicensedStateWorkspace
-    overview: CustomerOverviewOut
+    overview: CustomerHome
     requests: CustomerRequestWorkspaceOut
 
 
@@ -399,7 +403,7 @@ def apply_review(
 
     result = LicensedStateApplyResult(
         account=workspace(profile),
-        overview=build_customer_overview(
+        overview=build_customer_home(
             db,
             user_id=user_id,
             profile=profile,

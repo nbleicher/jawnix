@@ -1,6 +1,6 @@
 import type { Page, Route } from "@playwright/test";
 
-import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
+import { CUSTOMER_HOME } from "./customer-home-fixtures";
 import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
 
 interface MockRequestWorkspace {
@@ -165,7 +165,7 @@ export async function mockLicensedStates(
     };
     return json(route, {
       account: state.account,
-      overview: CUSTOMER_OVERVIEW,
+      overview: CUSTOMER_HOME,
       requests: state.requestWorkspace,
     });
   });

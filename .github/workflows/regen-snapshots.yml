@@ -33,7 +33,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Regenerate the visual baselines
-        run: npx playwright test e2e/customer-auth.spec.ts e2e/customer-overview.spec.ts e2e/customer-requests.spec.ts e2e/scraper-coverage.spec.ts --update-snapshots --reporter=list
+        run: npx playwright test e2e/customer-auth.spec.ts e2e/customer-home.spec.ts e2e/customer-requests.spec.ts e2e/scraper-coverage.spec.ts --update-snapshots --reporter=list
 
       - name: Commit regenerated baselines
         run: |

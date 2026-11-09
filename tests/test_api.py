@@ -2956,7 +2956,7 @@ def test_active_customer_session_uses_safe_react_destination_when_enabled(
             },
         )
         assert refused_admin_path.status_code == 200
-        assert refused_admin_path.json()["next"] == "/app/overview"
+        assert refused_admin_path.json()["next"] == "/app/home"
     finally:
         app.dependency_overrides.clear()
 

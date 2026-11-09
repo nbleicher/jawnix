@@ -18,7 +18,7 @@ from sqlalchemy.orm import sessionmaker
 
 from jawnix.acquisition import workspace as acquisition_workspace
 from jawnix.config import Settings
-from jawnix.customer_overview import build_customer_overview
+from jawnix.customer_overview import build_customer_home
 from jawnix.database import Base
 from jawnix.fulfillment import describe_request, workspace as fulfillment_workspace
 from jawnix.models import (
@@ -212,7 +212,7 @@ def test_telegram_batch_action_and_replay_converge_in_every_jawnix_read(
         profile = session.get(CustomerProfile, user_id)
         detail = describe_request(session, request)
         fulfillment = fulfillment_workspace(session)
-        overview = build_customer_overview(
+        home = build_customer_home(
             session,
             user_id=user_id,
             profile=profile,
@@ -232,7 +232,15 @@ def test_telegram_batch_action_and_replay_converge_in_every_jawnix_read(
             for item in fulfillment["batchRequests"]
             if item["id"] == str(request_id)
         )["status"] == RequestStatus.approved.value
-        assert overview.items == []
+        # Home shows the approval as done and the leads as being prepared.
+        assert [
+            (step.key, step.state) for step in home.in_progress[0].steps
+        ] == [
+            ("submitted", "complete"),
+            ("approval", "complete"),
+            ("preparing", "current"),
+            ("ready", "upcoming"),
+        ]
         assert session.scalar(
             select(func.count(AuditEntry.id)).where(
                 AuditEntry.action == "batch_request_approve",
