@@ -19,7 +19,6 @@ function workspace(
     current: ["plumbers", "electricians"],
     version: VERSION,
     ai_enabled: true,
-    idle_expires_in: 900,
     rollover: {
       enabled: false,
       state: "off",

@@ -99,7 +99,6 @@ class CoverageFeed(BaseModel, Generic[DataT]):
 class StateCoverageSnapshot(BaseModel):
     service_state: Literal["connected", "unavailable"]
     last_successful_at: datetime | None = None
-    idle_expires_in: int
     states: CoverageFeed[list[StateCoverageCard]]
 
 
@@ -107,6 +106,5 @@ class StateCoverageDetail(BaseModel):
     state: str
     service_state: Literal["connected", "degraded", "unavailable"]
     last_successful_at: datetime | None = None
-    idle_expires_in: int
     keywords: CoverageFeed[list[StateKeywordActivity]]
     cells: CoverageFeed[StateGridCoverage]

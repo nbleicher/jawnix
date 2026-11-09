@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { MouseEvent, ReactNode } from "react";
 
 import "./table.css";
@@ -36,6 +37,12 @@ export interface DataTableProps<Row> {
   hasActions?: boolean;
   /** Shown in place of the body when there are no rows. */
   empty?: ReactNode;
+  /** Detail opened under a row, spanning the table (e.g. an Activity
+   *  entry's before and after). Return nothing for a closed row; the row's
+   *  own disclosure control names it with `aria-controls`. */
+  expanded?: (row: Row) => ReactNode;
+  /** The id the expanded detail's cell carries, for `aria-controls`. */
+  expandedId?: (row: Row) => string;
   className?: string;
 }
 
@@ -61,6 +68,8 @@ export function DataTable<Row>({
   onRowClick,
   hasActions = false,
   empty,
+  expanded,
+  expandedId,
   className,
 }: DataTableProps<Row>) {
   const hasFooter = columns.some((column) => column.footer !== undefined);
@@ -92,36 +101,45 @@ export function DataTable<Row>({
           {rows.map((row) => {
             const key = rowKey(row);
             const selected = selectedKey === key;
+            const detail = expanded?.(row);
             return (
-              <tr
-                key={key}
-                className={cx(
-                  selected && "jx-table__row--selected",
-                  onRowClick && "jx-table__row--clickable",
-                )}
-                aria-current={selected ? "true" : undefined}
-                onClick={
-                  onRowClick
-                    ? (event) => {
-                        if (!interactive(event)) onRowClick(row);
-                      }
-                    : undefined
-                }
-              >
-                {columns.map((column, index) => (
-                  <td
-                    key={column.key}
-                    data-label={index === 0 ? undefined : column.header}
-                    className={cx(
-                      column.numeric && "jx-table__numeric",
-                      index === 0 && "jx-table__record",
-                      column.hideWhenStacked && "jx-table__cell--unstacked",
-                    )}
-                  >
-                    {column.cell(row)}
-                  </td>
-                ))}
-              </tr>
+              <Fragment key={key}>
+                <tr
+                  className={cx(
+                    selected && "jx-table__row--selected",
+                    onRowClick && "jx-table__row--clickable",
+                  )}
+                  aria-current={selected ? "true" : undefined}
+                  onClick={
+                    onRowClick
+                      ? (event) => {
+                          if (!interactive(event)) onRowClick(row);
+                        }
+                      : undefined
+                  }
+                >
+                  {columns.map((column, index) => (
+                    <td
+                      key={column.key}
+                      data-label={index === 0 ? undefined : column.header}
+                      className={cx(
+                        column.numeric && "jx-table__numeric",
+                        index === 0 && "jx-table__record",
+                        column.hideWhenStacked && "jx-table__cell--unstacked",
+                      )}
+                    >
+                      {column.cell(row)}
+                    </td>
+                  ))}
+                </tr>
+                {detail ? (
+                  <tr className="jx-table__expansion">
+                    <td colSpan={columns.length} id={expandedId?.(row)}>
+                      {detail}
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             );
           })}
         </tbody>

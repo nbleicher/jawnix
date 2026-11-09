@@ -251,7 +251,7 @@ def test_monitoring_requires_the_scraper_privileged_session(
     assert fake.monitoring_calls == []
 
 
-def test_monitoring_stops_once_the_privileged_session_goes_idle(
+def test_monitoring_lasts_the_sign_in_and_stops_without_a_grant(
     workspace_client,
 ):
     client, csrf, _, now = workspace_client
@@ -259,8 +259,11 @@ def test_monitoring_stops_once_the_privileged_session_goes_idle(
     monitoring(client, csrf)
     assert client.get("/api/admin/scraper/monitoring/stats").status_code == 200
 
+    # An hour away no longer closes the Scraper Privileged Session.
     now[0] = now[0].replace(hour=now[0].hour + 1)
+    assert client.get("/api/admin/scraper/monitoring/stats").status_code == 200
 
+    client.cookies.delete("jawnix_scraper_grant", path="/api/admin/scraper")
     assert client.get("/api/admin/scraper/monitoring/stats").status_code == 401
 
 

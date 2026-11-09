@@ -189,7 +189,6 @@ export interface MonitoringRegion {
 export interface MonitoringSnapshot {
   service_state: "connected" | "unavailable";
   last_successful_at: string | null;
-  idle_expires_in: number;
   regions: MonitoringRegion[];
 }
 

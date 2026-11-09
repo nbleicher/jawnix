@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -407,7 +408,7 @@ def _mapping_decisions(db: Session) -> list[dict[str, object]]:
             subject=f"{mapping.keyword} · {mapping.state}",
             detail=f"Proposed {mapping.niche}" if mapping.niche else "No niche proposed",
             since=mapping.updated_at,
-            href="/app/admin/acquisition",
+            href=f"/app/admin/setup/niche-mappings?segment={quote(mapping.segment_key, safe='')}",
             facts=niche_dict(mapping),
         )
         for mapping in db.scalars(

@@ -107,7 +107,6 @@ class ScraperDatabaseWorkspace(ScraperDatabaseModel):
 class DatabaseWorkspace(ScraperDatabaseModel):
     service_state: Literal["connected", "unavailable"]
     last_successful_at: str | None = None
-    idle_expires_in: int = Field(gt=0)
     totals: DatabaseTotals | None = None
     states: list[DatabaseStateSummary] = Field(default_factory=list)
     browse: DatabaseBrowsePage | None = None
@@ -128,7 +127,6 @@ class ScraperDatabaseStateDetail(ScraperDatabaseModel):
 class DatabaseStateDetail(ScraperDatabaseModel):
     service_state: Literal["connected", "unavailable"]
     last_successful_at: str | None = None
-    idle_expires_in: int = Field(gt=0)
     state: str
     totals: DatabaseStateSummary | None = None
     niches: list[DatabaseNiche] = Field(default_factory=list)

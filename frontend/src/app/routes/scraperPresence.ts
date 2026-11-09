@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 
+/** How long without a click or key before live regions stop refreshing. */
+export const PRESENCE_IDLE_MS = 15 * 60 * 1000;
+
 /**
  * Whether an operator is actually watching the privileged Scraper workspace.
  *
- * Polling is not operator activity. It stops while the tab is hidden or the
- * operator is idle so background refresh cannot silently extend the
- * fifteen-minute grant forever.
+ * The Scraper grant lasts the whole sign-in, so this is not a security
+ * boundary: it only stops polling while the tab is hidden or nobody has
+ * touched it for a while, so an unattended tab puts no load on the Scraper.
  */
-export function useOperatorPresence(idleMs: number): {
+export function useOperatorPresence(idleMs: number = PRESENCE_IDLE_MS): {
   watching: boolean;
   resume: () => void;
 } {

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { mockAcquisition, SCRAPE_RUN_ID } from "./acquisition-fixtures";
+import { CONFIGURATION_ID, mockAcquisition, SCRAPE_RUN_ID } from "./acquisition-fixtures";
 import { mockActivity } from "./activity-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
@@ -12,82 +12,97 @@ test.beforeEach(async ({ page }) => {
   await mockActivity(page);
 });
 
+test("shows one line per entry with who, what, which record, and why", async ({ page }) => {
+  await page.goto("./admin/activity");
+
+  await expect(page.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();
+  const table = page.getByRole("table", { name: "Activity" });
+  const failed = table.getByRole("row").filter({ hasText: "Delivery failed" });
+  await expect(failed).toContainText("System");
+  await expect(failed.getByRole("link", { name: "Batch #1040" })).toHaveAttribute(
+    "href",
+    "/app/admin/batches/1040",
+  );
+  await expect(failed).toContainText("Email provider returned 503");
+  await expect(table.getByRole("row").filter({ hasText: "Batch requested" }).first()).toContainText(
+    "River Morgan",
+  );
+  await expect(page.getByText("Showing 1–25 of 51")).toBeVisible();
+});
+
 test("combines filters and keeps them in the shareable URL", async ({ page }) => {
   await page.goto("./admin/activity");
 
-  await page.getByRole("searchbox", { name: "Search activity" }).fill("signed agreement");
-  await page.getByRole("textbox", { name: "Actor" }).fill(
-    "admin.one@example.com",
-  );
-  await page.getByRole("textbox", { name: "Action" }).fill("customer_updated");
-  await page.getByRole("combobox", { name: "Entity type" }).selectOption(
-    "customer",
-  );
-  await page.getByRole("textbox", { name: "Entity ID" }).fill("7");
-  await page.getByLabel("From date").fill("2026-07-29");
-  await page.getByLabel("Through date").fill("2026-07-29");
-  await page.getByRole("button", { name: "Apply filters" }).click();
+  await page.getByRole("searchbox", { name: "Search" }).fill("DB1");
+  await page.getByRole("combobox", { name: "Who" }).selectOption({ label: "Operator" });
+  await page.getByRole("combobox", { name: "Record type" }).selectOption({ label: "Customer" });
+  await page.getByLabel("From").fill("2026-11-08");
+  await page.getByLabel("Through").fill("2026-11-08");
 
-  await expect(page).toHaveURL(/actor=admin\.one%40example\.com/);
-  await expect(page).toHaveURL(/q=signed\+agreement/);
-  await expect(page).toHaveURL(/action=customer_updated/);
+  await expect(page).toHaveURL(/q=DB1/);
+  await expect(page).toHaveURL(/who=operator/);
   await expect(page).toHaveURL(/entityType=customer/);
-  await expect(page).toHaveURL(/entityId=7/);
-  await expect(page).toHaveURL(/dateFrom=2026-07-29/);
-  await expect(page).toHaveURL(/dateTo=2026-07-29/);
-  await expect(page.getByRole("article")).toHaveCount(1);
-  await expect(page.getByText("Customer updated", { exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/dateFrom=2026-11-08/);
+  await expect(page).toHaveURL(/dateTo=2026-11-08/);
+  const rows = page.getByRole("table", { name: "Activity" }).getByRole("row");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1)).toContainText("Lead database changed");
 });
 
-test("keeps attribution and changes collapsed until the operator opens an entry", async ({
-  page,
-}) => {
-  await page.goto("./admin/activity?q=signed+agreement");
-
-  await expect(page.getByText("Harbor Coverage")).toBeHidden();
-  await page.getByText("Customer updated", { exact: true }).click();
-  await expect(page.getByText("Harbor Coverage")).toBeVisible();
-  await expect(page.getByText("Harbor Insurance", { exact: true })).toBeVisible();
-});
-
-test("paginates on the server and preserves the investigation", async ({ page }) => {
+test("the record type filter offers every recorded type", async ({ page }) => {
   await page.goto("./admin/activity");
 
-  await expect(page.getByRole("article")).toHaveCount(25);
-  await page.getByRole("link", { name: "Next page" }).click();
+  const types = page.getByRole("combobox", { name: "Record type" });
+  for (const label of ["Batch", "Customer", "DB2 upload", "Niche mapping", "Nightly review", "Scrape run"]) {
+    await expect(types.getByRole("option", { name: label, exact: true })).toHaveCount(1);
+  }
+});
+
+test("refused only keeps the guarded actions that were refused", async ({ page }) => {
+  await page.goto("./admin/activity");
+
+  await page.getByRole("checkbox", { name: "Refused only" }).check();
+
+  await expect(page).toHaveURL(/refused=true/);
+  const rows = page.getByRole("table", { name: "Activity" }).getByRole("row");
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(1)).toContainText("Refused: permanent deletion");
+  await expect(rows.nth(1)).toContainText("Lakeside Brokers");
+});
+
+test("opens an entry to show its before and after", async ({ page }) => {
+  await page.goto("./admin/activity");
+
+  await expect(page.getByText("lead_database: db1")).toHaveCount(0);
+  await page.getByRole("button", { name: /Lead database changed: show what changed/ }).click();
+  await expect(page.getByText("lead_database: db1")).toBeVisible();
+  await expect(page.getByText("lead_database: db2")).toBeVisible();
+  await page.getByRole("button", { name: /Lead database changed: hide what changed/ }).click();
+  await expect(page.getByText("lead_database: db1")).toHaveCount(0);
+});
+
+test("pages on the server and keeps the investigation", async ({ page }) => {
+  await page.goto("./admin/activity?who=operator");
+
+  await page.getByRole("link", { name: "Next" }).click();
 
   await expect(page).toHaveURL(/page=2/);
-  await expect(page.getByText(/entries · page 2 of 3/)).toBeVisible();
-  await expect(page.getByRole("article")).toHaveCount(25);
+  await expect(page).toHaveURL(/who=operator/);
+  await expect(page.getByText(/Showing 26–/)).toBeVisible();
+  await page.getByRole("link", { name: "Previous" }).click();
+  await expect(page.getByText(/Showing 1–25/)).toBeVisible();
 });
 
-test("navigates from an entry to the entity it touched", async ({ page }) => {
-  await page.goto(
-    "./admin/activity?action=customer_updated&entityType=customer&entityId=7",
-  );
-
-  await page.getByText("Customer updated", { exact: true }).click();
-  await page.getByRole("link", { name: /Customer 7/ }).click();
-
-  await expect(page).toHaveURL(/\/app\/admin\/customers\/7$/);
-  await expect(
-    page.getByRole("heading", { level: 1, name: "Harbor Insurance" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("region", { name: "Activity" }).getByText(
-      "Correct the Customer name from the signed agreement.",
-    ),
-  ).toBeVisible();
-});
-
-test("an entity with no Activity says so plainly", async ({ page }) => {
+test("a record's page carries its own Activity, or says there is none", async ({ page }) => {
   await page.goto(`./admin/acquisition/runs/${SCRAPE_RUN_ID}`);
-
-  const activity = page.getByRole("region", { name: "Activity" });
   await expect(
-    activity.getByRole("heading", { name: "No activity recorded" }),
-  ).toBeVisible();
-  await expect(activity).toContainText(
-    "No consequential action has been recorded for this Scrape Run.",
+    page.getByRole("table", { name: "Scrape run activity" }).getByRole("row").filter({
+      hasText: "Scrape run committed",
+    }),
+  ).toContainText("1 segment held");
+
+  await page.goto(`./admin/acquisition/configurations/${CONFIGURATION_ID}`);
+  await expect(page.getByRole("region", { name: "Activity" })).toContainText(
+    "No consequential action has been recorded for this Scraper Configuration.",
   );
 });

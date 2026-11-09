@@ -79,7 +79,6 @@ function overview(): StateCoverageSnapshot {
   return {
     service_state: "connected",
     last_successful_at: "2026-07-29T12:00:00Z",
-    idle_expires_in: 900,
     states: feed(
       [
         {
@@ -111,7 +110,6 @@ function detail(): StateCoverageDetail {
     state: "PA",
     service_state: "connected",
     last_successful_at: "2026-07-29T12:00:00Z",
-    idle_expires_in: 900,
     keywords: feed(keywords, 10),
     cells: feed(grid, 15),
   };

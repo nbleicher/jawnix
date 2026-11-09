@@ -50,7 +50,6 @@ export interface CoverageFeed<T> {
 export interface StateCoverageSnapshot {
   service_state: "connected" | "unavailable";
   last_successful_at: string | null;
-  idle_expires_in: number;
   states: CoverageFeed<StateCoverageCard[]>;
 }
 
@@ -58,7 +57,6 @@ export interface StateCoverageDetail {
   state: string;
   service_state: "connected" | "degraded" | "unavailable";
   last_successful_at: string | null;
-  idle_expires_in: number;
   keywords: CoverageFeed<StateKeywordActivity[]>;
   cells: CoverageFeed<StateGridCoverage>;
 }

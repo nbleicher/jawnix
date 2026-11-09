@@ -141,7 +141,7 @@ function IdleNotice({
   return !watching ? (
     <div className="coverage-idle" role="status">
       <Text as="span" size="sm">
-        Live coverage refresh paused so the privileged session can expire.
+        Live coverage refresh paused while this tab sat unattended.
       </Text>
       <Button onClick={onResume}>Resume live refresh</Button>
     </div>
@@ -221,9 +221,7 @@ export function ScraperStateCoverageRoute() {
   const expire = useCallback(() => {
     void navigate("/admin/acquisition/scraper", { replace: true });
   }, [navigate]);
-  const { watching, resume } = useOperatorPresence(
-    snapshot.idle_expires_in * 1000,
-  );
+  const { watching, resume } = useOperatorPresence();
   const states = useRetainedFeed(
     snapshot.states,
     watching,
@@ -238,7 +236,7 @@ export function ScraperStateCoverageRoute() {
       title="States"
       description="Per-state Scraper coverage, business counts, active keywords, and today’s grid progress."
       actions={
-        <ActionLink href="/app/admin/acquisition#scraper-configuration-versions">
+        <ActionLink href="/app/admin/setup/configurations">
           Configuration versions
         </ActionLink>
       }
@@ -284,7 +282,7 @@ export function ScraperStateCoverageRoute() {
                     title="No active states"
                     description="Add an active state through the current Scraper configuration before coverage can begin."
                     action={
-                      <ActionLink href="/app/admin/acquisition#scraper-configuration-versions">
+                      <ActionLink href="/app/admin/setup/configurations">
                         Open configuration versions
                       </ActionLink>
                     }
@@ -589,9 +587,7 @@ export function ScraperStateDetailRoute() {
   const expire = useCallback(() => {
     void navigate("/admin/acquisition/scraper", { replace: true });
   }, [navigate]);
-  const { watching, resume } = useOperatorPresence(
-    snapshot.idle_expires_in * 1000,
-  );
+  const { watching, resume } = useOperatorPresence();
   const keywords = useRetainedFeed(
     snapshot.keywords,
     watching,
@@ -614,7 +610,7 @@ export function ScraperStateDetailRoute() {
       actions={
         <>
           <ActionLink href={STATES_PATH}>All states</ActionLink>
-          <ActionLink href="/app/admin/acquisition#scraper-configuration-versions">
+          <ActionLink href="/app/admin/setup/configurations">
             Configuration versions
           </ActionLink>
         </>

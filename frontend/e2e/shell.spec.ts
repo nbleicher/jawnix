@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 
 import { mockAcquisition } from "./acquisition-fixtures";
 import { mockActivity } from "./activity-fixtures";
+import { mockInsights } from "./insights-fixtures";
+import { mockSetup } from "./setup-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockFulfillment } from "./fulfillment-fixtures";
 import { mockInventory } from "./inventory-fixtures";
@@ -24,6 +26,8 @@ test.beforeEach(async ({ page }) => {
   // Fulfillment since #57, Customers since #59, Acquisition since #68.
   await mockAcquisition(page);
   await mockActivity(page);
+  await mockInsights(page);
+  await mockSetup(page);
   await mockAdminCustomers(page);
   await mockFulfillment(page);
   await mockInventory(page);
@@ -166,19 +170,20 @@ test.describe("Administration shell", () => {
     ).toBeVisible();
   });
 
-  test("Inventory, Insights, and Setup reach the pages they stand in for", async ({ page }) => {
+  test("Insights and Setup reach their own pages", async ({ page }) => {
     await page.goto("./admin/today");
     const nav = page.getByRole("navigation", { name: "Administration" });
     await expect(nav.getByRole("link", { name: "Inventory" })).toHaveAttribute("href", "/app/admin/inventory");
-    await expect(nav.getByRole("link", { name: "Insights" })).toHaveAttribute(
-      "href",
-      "/app/admin/acquisition/performance",
-    );
+    await expect(nav.getByRole("link", { name: "Insights" })).toHaveAttribute("href", "/app/admin/insights");
 
     await nav.getByRole("link", { name: "Setup" }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "Acquisition" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Setup" })).toBeVisible();
     await expect(nav.getByRole("link", { name: "Setup" })).toHaveAttribute("aria-current", "page");
     await expect(nav.getByRole("link", { name: "Insights" })).not.toHaveAttribute("aria-current", "page");
+
+    await nav.getByRole("link", { name: "Insights" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Insights" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Insights" })).toHaveAttribute("aria-current", "page");
   });
 
   test("the old Overview address lands on Today", async ({ page }) => {
@@ -201,34 +206,18 @@ test.describe("Administration shell", () => {
     ).toHaveCount(0);
   });
 
-  test("Acquisition exposes its operating areas and security action at both form factors", async ({ page }) => {
+  test("Setup reaches every occasional tool, security included, at both form factors", async ({ page }) => {
     await page.goto("./admin/acquisition");
-
-    await expect(page.getByRole("heading", { level: 1, name: "Acquisition" })).toBeVisible();
+    await expect(page).toHaveURL(/\/app\/admin\/setup$/);
     await expect(page.getByText("Not built yet")).toHaveCount(0);
 
-    for (const area of [
-      "Held Scrape Anomalies",
-      "Source Recommendations",
-      "Scraper Configuration versions",
-      "Nightly Reviews",
-    ]) {
-      await expect(page.getByRole("region", { name: area })).toBeVisible();
-    }
-
-    // Administrator navigation omits Security, so this rail is its only route.
-    const rail = page.getByRole("navigation", {
-      name: "Acquisition workspace sections",
-    });
-    const security = rail.getByRole("link", { name: "Administrator security" });
-    await expect(security).toBeVisible();
-    await security.click();
+    const areas = page.getByRole("table", { name: "Setup areas" });
+    await areas.getByRole("link", { name: "Security" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Administrator security" })).toBeVisible();
+    const nav = page.getByRole("navigation", { name: "Administration" });
+    await expect(nav.getByRole("link", { name: "Setup" })).toHaveAttribute("aria-current", "page");
 
-    await page.goto("./admin/acquisition");
-    const back = rail.getByRole("link", { name: "Exit to Today" });
-    await expect(back).toBeVisible();
-    await back.click();
+    await nav.getByRole("link", { name: "Today" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Today" })).toBeVisible();
   });
 

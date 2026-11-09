@@ -64,13 +64,13 @@ function renderRoute(data: SourcePerformanceData) {
     [
       {
         id: "source-performance",
-        path: "/admin/acquisition/performance",
+        path: "/admin/insights/sources",
         loader: () => data,
         element: <AdminSourcePerformanceRoute />,
       },
     ],
     {
-      initialEntries: ["/admin/acquisition/performance"],
+      initialEntries: ["/admin/insights/sources"],
       hydrationData: { loaderData: { "source-performance": data } },
     },
   );
@@ -86,40 +86,62 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("the Source Performance workspace", () => {
-  it("renders inside the Match workspace frame", () => {
+describe("Source performance under Insights", () => {
+  it("is an Insights page with a way back", () => {
     renderRoute(performance());
 
     expect(
-      screen.getByRole("heading", { level: 1, name: "Source Performance" }),
+      screen.getByRole("heading", { level: 1, name: "Source performance" }),
     ).toBeVisible();
-    expect(
-      screen.getByRole("region", { name: "Source Performance workspace" }),
-    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Back to Insights" })).toHaveAttribute(
+      "href",
+      "/app/admin/insights",
+    );
   });
 
   it("shows the all-time summary from global counts and rates", () => {
     renderRoute(performance());
 
-    const summary = screen.getByRole("region", { name: "All-time summary" });
+    const summary = screen.getByLabelText("All-time summary");
     expect(within(summary).getByText("400")).toBeVisible();
     expect(within(summary).getByText("320")).toBeVisible();
     expect(within(summary).getByText("66.7%")).toBeVisible();
-    expect(
-      within(summary).getByText(/15 legacy-source deliveries/),
-    ).toBeVisible();
+    expect(within(summary).getByText(/15 legacy-source deliveries/)).toBeVisible();
   });
 
   it("lists nightly rows with their state, keyword, and niche", () => {
     renderRoute(performance());
 
     const table = screen.getByRole("table", { name: /nightly/i });
-    expect(
-      within(table).getByRole("button", { name: "roofing contractor" }),
-    ).toBeVisible();
+    expect(within(table).getByRole("button", { name: "roofing contractor" })).toBeVisible();
     expect(within(table).getByText("TX")).toBeVisible();
     expect(within(table).getByText("Roofing")).toBeVisible();
-    expect(within(table).getByText("eligible")).toBeVisible();
+    expect(within(table).getByText("Eligible")).toBeVisible();
+    expect(within(table).getByText("31.3%")).toBeVisible();
+  });
+
+  it("shows no rate, not 0%, for a segment without outcomes", () => {
+    renderRoute(
+      performance({
+        global: {
+          ...performance().global,
+          worked: 0,
+          rated: 0,
+          rates: { good: 0, positiveResponse: 0, appointmentBooked: 0 },
+        },
+        rows: [
+          row({
+            counts: { delivered: 84_210, worked: 0, rated: 0 },
+            rates: { good: 0, positiveResponse: 0, appointmentBooked: 0 },
+          }),
+        ],
+      }),
+    );
+
+    const table = screen.getByRole("table", { name: /nightly/i });
+    expect(within(table).queryByText("0.0%")).toBeNull();
+    expect(within(table).getAllByText("—").length).toBeGreaterThanOrEqual(4);
+    expect(screen.getByText("Rates stay empty until customers report outcomes.")).toBeVisible();
   });
 
   it("opens a history dialog for a keyword, not an alert", async () => {
@@ -140,35 +162,22 @@ describe("the Source Performance workspace", () => {
     );
     renderRoute(performance());
 
-    await user.click(
-      screen.getByRole("button", { name: "roofing contractor" }),
-    );
+    await user.click(screen.getByRole("button", { name: "roofing contractor" }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(dialog).toHaveAccessibleName(
-      "History · TX::roofing contractor",
-    );
-    expect(within(dialog).getByText("2026-07-27")).toBeVisible();
-    expect(
-      within(dialog).getByText(/retained evidence/),
-    ).toBeVisible();
+    expect(dialog).toHaveAccessibleName("History · roofing contractor · TX");
+    expect(await within(dialog).findByText(/Jul 27/)).toBeVisible();
+    expect(within(dialog).getByText(/retained evidence/)).toBeVisible();
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/admin/source-performance/TX%3A%3Aroofing%20contractor/history",
       expect.anything(),
     );
-    // A Dialog, not window.alert — the history is dismissible, inspectable
-    // evidence, not a one-shot message.
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
   it("shows no nightly rows without pretending the filters failed", () => {
     renderRoute(performance({ rows: [] }));
 
-    expect(
-      screen.getByRole("heading", {
-        level: 2,
-        name: "No nightly rows match these filters",
-      }),
-    ).toBeVisible();
+    expect(screen.getByText(/No nightly rows match these filters/)).toBeVisible();
   });
 });

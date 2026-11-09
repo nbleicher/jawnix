@@ -16,9 +16,10 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
-from .activity import record_activity
+from .activity import actor_name, actor_people, record_activity
 from .allocation import eligible_query
 from .config import Settings
+from .fulfillment import OPEN_STATUSES
 from .models import (
     Agency,
     AgencyMembershipHistory,
@@ -27,6 +28,7 @@ from .models import (
     DistributionEvent,
     Lead,
     LeadRequest,
+    RequestStatus,
     SharedHistoryLeadCount,
     utcnow,
 )
@@ -277,6 +279,40 @@ def _history_lead_count(db: Session, subjects: HistorySubjects) -> int:
     return count
 
 
+#: The Agencies table's delivered column covers the same window as Today.
+DELIVERED_WINDOW_DAYS = 30
+
+
+def _customer_work(
+    db: Session,
+    *,
+    now: datetime,
+) -> dict[int, tuple[int, int]]:
+    """Leads delivered in the last 30 days and open Batches, per Customer.
+
+    Both are small aggregates over Batch Requests (a few dozen a month), never
+    over Distribution Events.
+    """
+    since = now - timedelta(days=DELIVERED_WINDOW_DAYS)
+    work: dict[int, list[int]] = {}
+    for customer_id, leads in db.execute(
+        select(LeadRequest.agent_id, func.sum(LeadRequest.lead_count))
+        .where(
+            LeadRequest.status == RequestStatus.delivered.value,
+            LeadRequest.delivered_at >= since,
+        )
+        .group_by(LeadRequest.agent_id)
+    ):
+        work.setdefault(customer_id, [0, 0])[0] = int(leads or 0)
+    for customer_id, count in db.execute(
+        select(LeadRequest.agent_id, func.count(LeadRequest.id))
+        .where(LeadRequest.status.in_(OPEN_STATUSES))
+        .group_by(LeadRequest.agent_id)
+    ):
+        work.setdefault(customer_id, [0, 0])[1] = int(count or 0)
+    return {key: (value[0], value[1]) for key, value in work.items()}
+
+
 def agency_directory(
     db: Session,
     *,
@@ -306,6 +342,7 @@ def agency_directory(
     members_by_agency: dict[int | None, list[Customer]] = {}
     for customer in customers:
         members_by_agency.setdefault(customer.agency_id, []).append(customer)
+    work = _customer_work(db, now=utcnow())
 
     normalized_term = term.lower()
 
@@ -333,12 +370,15 @@ def agency_directory(
     ]
 
     def serialize_member(member: Customer) -> dict:
+        delivered, open_batches = work.get(member.id, (0, 0))
         return {
             "id": member.id,
             "slug": member.slug,
             "name": member.name,
             "active": member.active,
             "licensedStates": list(member.licensed_states or []),
+            "delivered30d": delivered,
+            "openBatches": open_batches,
             "href": f"/app/admin/customers/{member.id}",
         }
 
@@ -374,6 +414,12 @@ def agency_directory(
                 },
                 "members": [serialize_member(member) for member in members],
                 "currentMembers": len(members),
+                "delivered30d": sum(
+                    work.get(member.id, (0, 0))[0] for member in members
+                ),
+                "openBatches": sum(
+                    work.get(member.id, (0, 0))[1] for member in members
+                ),
                 "sharedHistory": _history_summary(
                     db,
                     subjects=subjects,
@@ -516,6 +562,10 @@ def agency_details(
         )
     )
     customers_by_id = _membership_customers(db, memberships)
+    work = _customer_work(db, now=utcnow())
+    people = actor_people(
+        db, {membership.assigned_by for membership in memberships}
+    )
     distribution_count = int(
         db.scalar(
             select(func.count(DistributionEvent.id)).where(
@@ -552,6 +602,8 @@ def agency_details(
                 "name": member.name,
                 "active": member.active,
                 "licensedStates": list(member.licensed_states or []),
+                "delivered30d": work.get(member.id, (0, 0))[0],
+                "openBatches": work.get(member.id, (0, 0))[1],
                 "href": f"/app/admin/customers/{member.id}",
             }
             for member in members
@@ -566,9 +618,17 @@ def agency_details(
                     if membership.customer_id in customers_by_id
                     else "Deleted Customer"
                 ),
+                "customerHref": (
+                    f"/app/admin/customers/{membership.customer_id}"
+                    if membership.customer_id in customers_by_id
+                    and customers_by_id[membership.customer_id].deleted_at
+                    is None
+                    else None
+                ),
                 "startedAt": membership.started_at,
                 "endedAt": membership.ended_at,
                 "assignedBy": membership.assigned_by,
+                "assignedByName": actor_name(membership.assigned_by, people),
                 "reason": membership.reason,
             }
             for membership in memberships

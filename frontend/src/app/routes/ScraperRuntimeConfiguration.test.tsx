@@ -18,7 +18,6 @@ const NEXT_VERSION = "b".repeat(64);
 const HISTORY: CampaignHistory = {
   service_state: "connected",
   last_successful_at: "2026-07-29T12:00:00Z",
-  idle_expires_in: 900,
   search: "",
   state: "",
   sort: "last_enqueued",
@@ -39,7 +38,6 @@ const HISTORY: CampaignHistory = {
 const WORKSPACE: RuntimeWorkspace = {
   service_state: "connected",
   last_successful_at: "2026-07-29T12:00:00Z",
-  idle_expires_in: 900,
   version: VERSION,
   all_states: ["KY", "OH", "PA"],
   current: {

@@ -207,13 +207,35 @@ export const router = createBrowserRouter(
               path: "fulfillment/reports/:reportId",
               lazy: lazyPage("AdminLeadReport", "AdminLeadReportRoute", "adminLeadReportLoader"),
             },
-            // #68 replaced the Acquisition task map with the native
-            // terminal-themed workspace. Its decisions post back to the
-            // endpoints that already own them, so the screen never becomes a
-            // second path to change acquisition.
+            // A5: Insights is the weekly review — money, deliveries, Customer
+            // trends, Source Performance, and the Nightly Review history.
+            {
+              path: "insights",
+              lazy: lazyPage("AdminInsights", "AdminInsightsRoute", "adminInsightsLoader"),
+            },
+            {
+              path: "insights/sources",
+              lazy: lazyPage("AdminSourcePerformance", "AdminSourcePerformanceRoute", "sourcePerformanceLoader"),
+            },
+            // Setup indexes the occasional tools. Acquisition's remaining
+            // pieces live under it; its decisions are on Today.
+            {
+              path: "setup",
+              lazy: lazyPage("AdminSetup", "AdminSetupRoute", "adminSetupLoader"),
+            },
+            {
+              path: "setup/configurations",
+              lazy: lazyPage("AdminAcquisition", "AdminConfigurationsRoute", "configurationsLoader"),
+            },
+            {
+              path: "setup/niche-mappings",
+              lazy: lazyPage("AdminAcquisition", "AdminNicheMappingsRoute", "nicheMappingsLoader"),
+            },
+            // The Acquisition page moved into Setup, Insights, and Today.
+            // Telegram reviews and older links still land, by their anchor.
             {
               path: "acquisition",
-              lazy: lazyPage("AdminAcquisition", "AdminAcquisitionRoute", "acquisitionLoader"),
+              lazy: lazyPage("AdminSetup", "AcquisitionMovedRoute"),
             },
             {
               path: "acquisition/configurations/:configurationId",
@@ -223,13 +245,11 @@ export const router = createBrowserRouter(
               path: "acquisition/runs/:runId",
               lazy: lazyPage("AdminAcquisitionDetails", "ScrapeRunDetailsRoute", "scrapeRunDetailsLoader"),
             },
-            // #173 A1 restored Source Performance as its own destination —
-            // the descriptive nightly evidence Acquisition's optimizer reads,
-            // without re-porting the Niche mappings or Source Recommendation
-            // decisions that already live there.
+            // Source Performance moved under Insights; filters carry over.
             {
               path: "acquisition/performance",
-              lazy: lazyPage("AdminSourcePerformance", "AdminSourcePerformanceRoute", "sourcePerformanceLoader"),
+              loader: ({ request }) =>
+                redirect(`/admin/insights/sources${new URL(request.url).search}`),
             },
             {
               path: "acquisition/scraper",

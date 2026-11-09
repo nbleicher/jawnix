@@ -16,24 +16,22 @@ function within(pathname: string, path: string): boolean {
  * Operator navigation, split by how often each tool is used: Today for the
  * daily work, records next, occasional tools last (V1, V8).
  *
- * Insights and Setup point at the existing Source Performance and Acquisition
- * pages until their own pages exist. Inventory owns lead lookup and its tools
- * under /admin/inventory.
+ * Inventory owns lead lookup and its tools under /admin/inventory.
  */
 const DESTINATIONS: NavigationDestination[] = [
   { to: "/admin/today", label: "Today", icon: "◆" },
   { to: "/admin/customers", label: "Customers", icon: "◑" },
   { to: "/admin/inventory", label: "Inventory", icon: "▦" },
-  { to: "/admin/acquisition/performance", label: "Insights", icon: "▲" },
+  { to: "/admin/insights", label: "Insights", icon: "▲" },
   {
-    to: "/admin/acquisition",
+    to: "/admin/setup",
     label: "Setup",
     icon: "▚",
-    // Setup owns Acquisition and the occasional tools, but not the Source
-    // Performance page that Insights points at.
+    // Setup owns the occasional tools, wherever their pages live: the
+    // Scraper workspace and acquisition records, Agencies, and security.
     match: (pathname) =>
-      (within(pathname, "/admin/acquisition") &&
-        !within(pathname, "/admin/acquisition/performance")) ||
+      within(pathname, "/admin/setup") ||
+      within(pathname, "/admin/acquisition") ||
       within(pathname, "/admin/agencies") ||
       within(pathname, "/admin/security"),
   },

@@ -1,12 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ThemeProvider } from "../../design-system/theme/ThemeProvider";
 import {
   ScraperStepUpRoute,
   ScraperWorkspaceRoute,
+  scraperEntryLoader,
 } from "./ScraperWorkspace";
 
 const factors = [
@@ -46,7 +47,7 @@ describe("Scraper Operations workspace", () => {
     const user = userEvent.setup();
     renderRoute(
       <ScraperStepUpRoute />,
-      { factors, idleExpiresIn: 900 },
+      { granted: false, factors },
     );
 
     expect(
@@ -70,7 +71,7 @@ describe("Scraper Operations workspace", () => {
     );
     expect(screen.getAllByRole("radio")).toHaveLength(2);
     expect(
-      screen.getByText(/closes after 15 minutes without Scraper activity/i),
+      screen.getByText(/lasts until\s+you sign out or your administrator session expires/i),
     ).toBeVisible();
   });
 
@@ -93,8 +94,38 @@ describe("Scraper Operations workspace", () => {
     expect(screen.getByText(/No controls are available/i)).toBeVisible();
     expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
     expect(
-      screen.getByRole("link", { name: "Back to Acquisition" }),
-    ).toHaveAttribute("href", "/app/admin/acquisition");
+      screen.getByRole("link", { name: "Back to Setup" }),
+    ).toHaveAttribute("href", "/app/admin/setup");
     expect(screen.queryByText("Pause pipeline")).not.toBeInTheDocument();
+  });
+});
+
+describe("entering the Scraper workspace", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function entry(body: unknown) {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  }
+
+  it("reuses this sign-in's live grant instead of asking again", async () => {
+    entry({ granted: true, factors: [] });
+
+    const outcome = await scraperEntryLoader().catch((thrown: unknown) => thrown);
+
+    expect(outcome).toBeInstanceOf(Response);
+    expect((outcome as Response).headers.get("Location")).toBe(
+      "/admin/acquisition/scraper/workspace",
+    );
+  });
+
+  it("asks for the challenge when this sign-in has no grant", async () => {
+    entry({ granted: false, factors });
+
+    await expect(scraperEntryLoader()).resolves.toEqual({ granted: false, factors });
   });
 });
