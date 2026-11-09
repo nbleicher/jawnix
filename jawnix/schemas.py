@@ -513,29 +513,6 @@ class CustomerOverviewAction(BaseModel):
     href: str
 
 
-class CustomerOverviewItem(BaseModel):
-    """One action that currently needs the Customer's attention."""
-
-    id: str
-    kind: Literal[
-        "batch_ready",
-        "artifact_expiring",
-        "waiting_inventory",
-        "feedback_nudge",
-        "setup_problem",
-    ]
-    title: str
-    description: str
-    tone: Literal["neutral", "info", "success", "warning", "danger"]
-    action: CustomerOverviewAction
-
-
-class CustomerOverviewOut(BaseModel):
-    """The Customer's strictly actionable attention queue."""
-
-    items: list[CustomerOverviewItem]
-
-
 CustomerMilestoneKey = Literal[
     "submitted",
     "approved",

@@ -28,56 +28,93 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("Customer shell", () => {
-  test("keeps email support in the shell chrome across destinations", async ({
+  test("keeps email support and sign-out reachable at both form factors", async ({
     page,
+    isMobile,
   }) => {
-    await page.goto("./overview");
+    await page.goto("./home");
 
-    const support = page.getByRole("banner").getByRole("link", {
-      name: "Support",
-    });
-    await expect(support).toBeVisible();
-    await expect(support).toHaveAttribute("href", "mailto:noah@jawnix.com");
+    // Desktop: Support and Sign out in the header. Phones (V8): the header
+    // keeps the balance and Buy credits, and Account carries the other two.
+    const banner = page.getByRole("banner");
+    const support = page.getByRole("link", { name: "Support" });
+    if (isMobile) {
+      await expect(banner.getByRole("link", { name: "Support" })).toHaveCount(0);
+      await expect(banner.getByRole("button", { name: "Sign out" })).toHaveCount(0);
+    } else {
+      await expect(banner.getByRole("link", { name: "Support" })).toBeVisible();
+      await expect(banner.getByRole("button", { name: "Sign out" })).toBeVisible();
+    }
 
     await page
       .getByRole("navigation", { name: "Customer" })
       .getByRole("link", { name: "Account" })
       .click();
-    await expect(support).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Account" })).toBeVisible();
+    await expect(support.first()).toBeVisible();
+    await expect(support.first()).toHaveAttribute("href", "mailto:noah@jawnix.com");
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   });
 
-  test("lands on Overview and reaches every primary destination", async ({ page }) => {
+  test("lands on Home and reaches every primary destination", async ({ page }) => {
     await page.goto("./");
 
-    // The index route redirects to Overview.
-    await expect(page).toHaveURL(/\/app\/overview$/);
-    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+    // The index route redirects to Home.
+    await expect(page).toHaveURL(/\/app\/home$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
 
     const nav = page.getByRole("navigation", { name: "Customer" });
-
-    for (const destination of ["Requests", "Feedback", "Account"]) {
+    const destinations: Array<[string, string]> = [
+      ["New request", "Requests"],
+      ["Batches", "Requests"],
+      ["Account", "Account"],
+      ["Home", "Home"],
+    ];
+    for (const [destination, heading] of destinations) {
       await nav.getByRole("link", { name: destination }).click();
-      await expect(page.getByRole("heading", { level: 1, name: destination })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
       await expect(nav.getByRole("link", { name: destination })).toHaveAttribute("aria-current", "page");
+      await expect(nav.locator("[aria-current=page]")).toHaveCount(1);
     }
   });
 
-  test("exposes every destination at both form factors", async ({ page }) => {
+  test("Batches opens the request history until it has its own page", async ({ page }) => {
+    await page.goto("./home");
+
+    await page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "Batches" }).click();
+    await expect(page).toHaveURL(/\/app\/requests#batch-history$/);
+    await expect(page.getByRole("region", { name: "Your Batch Requests" })).toBeInViewport();
+  });
+
+  test("exposes every destination at both form factors without scrolling", async ({ page }) => {
     await page.goto("./");
 
     const nav = page.getByRole("navigation", { name: "Customer" });
-    // Mobile must not be a degraded experience: the same four links are present
-    // and visible whichever viewport the project runs at.
-    for (const destination of ["Overview", "Requests", "Feedback", "Account"]) {
-      await expect(nav.getByRole("link", { name: destination })).toBeVisible();
+    await expect(nav.getByRole("link")).toHaveCount(4);
+    // Mobile must not be a degraded experience: the same four links are
+    // present, visible, and inside the viewport without scrolling the bar.
+    for (const destination of ["Home", "New request", "Batches", "Account"]) {
+      await expect(nav.getByRole("link", { name: destination })).toBeInViewport({ ratio: 1 });
     }
+    // Feedback left the navigation; its page still opens.
+    await expect(nav.getByRole("link", { name: "Feedback" })).toHaveCount(0);
+    await page.goto("./feedback");
+    await expect(page.getByRole("heading", { level: 1, name: "Feedback" })).toBeVisible();
+  });
+
+  test("hides the tape strip on phones only", async ({ page, isMobile }) => {
+    await page.goto("./home");
+
+    const tape = page.locator(".jx-tape");
+    if (isMobile) await expect(tape).toBeHidden();
+    else await expect(tape).toBeVisible();
   });
 
   test("updates the document title on navigation", async ({ page }) => {
     await page.goto("./");
-    await expect(page).toHaveTitle("Overview · JAWNIX");
+    await expect(page).toHaveTitle("Home · JAWNIX");
 
-    await page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "Requests" }).click();
+    await page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "New request" }).click();
     await expect(page).toHaveTitle("Requests · JAWNIX");
   });
 });
@@ -257,7 +294,7 @@ test.describe("Administration shell", () => {
 
 test.describe("Direct navigation", () => {
   // A hard load of a deep link must work, not just client-side routing.
-  for (const path of ["./requests", "./account", "./admin/fulfillment", "./design-system"]) {
+  for (const path of ["./home", "./requests", "./account", "./admin/fulfillment", "./design-system"]) {
     test(`serves the shell for a hard load of ${path}`, async ({ page }) => {
       const response = await page.goto(path);
       expect(response?.status()).toBe(200);
@@ -269,7 +306,7 @@ test.describe("Direct navigation", () => {
     await page.goto("./no-such-route");
 
     await expect(page.getByRole("heading", { level: 1, name: "Page not found" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Go to Overview" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Go to Home" })).toBeVisible();
   });
 });
 
@@ -282,7 +319,7 @@ test.describe("Assets", () => {
     });
 
     await page.goto("./");
-    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
 
     expect(assetUrls.length).toBeGreaterThan(0);
     // Vite emits `name-<hash>.ext`; the hash is what makes immutable caching safe.

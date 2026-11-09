@@ -41,10 +41,10 @@ export function RouteError() {
           title={title}
           titleAs="h1"
           description={description}
-          retryLabel={notFound ? "Go to Overview" : "Try again"}
+          retryLabel={notFound ? "Go to Home" : "Try again"}
           onRetry={() => {
             if (notFound) {
-              void navigate("/overview", { replace: true });
+              void navigate("/home", { replace: true });
               return;
             }
             void navigate(0);

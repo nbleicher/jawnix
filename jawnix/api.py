@@ -60,8 +60,8 @@ from .customer_directory import (
     customer_dependency_counts,
 )
 from .customer_history import archived_customer_matches, remember_customer_name, request_history_scope
-from .customer_registration import complete_registration, decide_registration, lock_registration_identity, registration_next, registration_status, set_registration_states
-from .customer_overview import build_customer_overview
+from .customer_registration import CUSTOMER_HOME_PATH, complete_registration, decide_registration, lock_registration_identity, registration_next, registration_status, set_registration_states
+from .customer_overview import CustomerHome, build_customer_home, parse_month_start
 from .customer_requests import (
     RequestSubmissionError,
     build_request_workspace,
@@ -187,7 +187,6 @@ from .schemas import (
     ProfileOut,
     ProfileUpdate,
     CustomerMappingUpdate,
-    CustomerOverviewOut,
     CustomerRequestCreate,
     CustomerRequestDetail,
     CustomerRequestReceipt,
@@ -697,9 +696,9 @@ async def create_session(
             and not requested.startswith("/app/admin/")
             and not requested.startswith("/app/manager/")
             and not requested.startswith("//")
-            else "/app/overview"
+            else CUSTOMER_HOME_PATH
         )
-        if registration is not None and registration_next(registration) != "/app/overview":
+        if registration is not None and registration_next(registration) != CUSTOMER_HOME_PATH:
             next_path = registration_next(registration)
     return {
         "ok": True,
@@ -719,7 +718,7 @@ def signup_options():
 def my_registration(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
     item = db.get(CustomerRegistration, principal.user_id)
     if item is None:
-        return {"status": "active", "next": administration_home(principal) if principal.role in {"admin", "manager"} else "/app/overview"}
+        return {"status": "active", "next": administration_home(principal) if principal.role in {"admin", "manager"} else CUSTOMER_HOME_PATH}
     return registration_status(item)
 
 
@@ -759,7 +758,7 @@ def authentication_destination(principal: Principal = Depends(require_principal)
     registration = db.get(CustomerRegistration, principal.user_id)
     if principal.role == "customer" and registration is not None:
         return {"next": registration_next(registration)}
-    return {"next": administration_home(principal) if principal.role in {"admin", "manager"} else "/app/overview"}
+    return {"next": administration_home(principal) if principal.role in {"admin", "manager"} else CUSTOMER_HOME_PATH}
 
 
 @app.post("/api/auth/logout")
@@ -1275,15 +1274,23 @@ def apply_licensed_state_changes(
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
-@app.get("/api/me/overview", response_model=CustomerOverviewOut)
-def get_customer_overview(
+@app.get("/api/me/overview", response_model=CustomerHome)
+def get_customer_home(
+    month_start: str | None = Query(default=None, max_length=64),
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
-    return build_customer_overview(
+    """The Customer's Home in one read, and the Customer shell's access check.
+
+    ``month_start`` is the start of the browser's local month, so "this month"
+    follows the Customer's calendar; without it the UTC month applies.
+    """
+
+    return build_customer_home(
         db,
         user_id=principal.user_id,
         profile=_current_customer_profile(db, principal),
+        month_start=parse_month_start(month_start),
     )
 
 

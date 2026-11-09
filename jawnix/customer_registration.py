@@ -14,6 +14,9 @@ from .customer_history import archived_customer_matches
 from .models import Customer, CustomerProfile, CustomerRegistration, CustomerTombstone, LeadRequest, UserAccount, utcnow
 from .schemas import RegistrationDecision, SignupProfile
 
+#: Where an active Customer lands. /app/overview still redirects here.
+CUSTOMER_HOME_PATH = "/app/home"
+
 
 def lock_registration_identity(db: Session, user_id: uuid.UUID) -> None:
     if db.get_bind().dialect.name == "postgresql":
@@ -151,4 +154,4 @@ def registration_status(registration: CustomerRegistration) -> dict:
 def registration_next(registration: CustomerRegistration) -> str:
     if registration.status != "rejected" and not registration.licensed_states:
         return "/app/appointed-states"
-    return "/app/overview" if registration.status == "active" else "/app/registration-status"
+    return CUSTOMER_HOME_PATH if registration.status == "active" else "/app/registration-status"

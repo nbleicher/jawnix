@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { mockCustomerAuth } from "./customer-auth-fixtures";
+import { CUSTOMER_HOME } from "./customer-home-fixtures";
 
 test("signup collects identity before states and sends credentials only to the provider", async ({ page }) => {
   const state = await mockCustomerAuth(page);
@@ -35,13 +36,13 @@ test("verified signup selects states in a separate step before reaching the port
     state.sessionRequests.push(route.request().postDataJSON());
     return route.fulfill({ json:{ ok:true, role:"customer", next:"/app/appointed-states" } });
   });
-  await page.route(/\/api\/me\/registration$/, route => route.fulfill({ json: { status:completed ? "active" : "awaiting_review", next:completed ? "/app/overview" : "/app/appointed-states" } }));
+  await page.route(/\/api\/me\/registration$/, route => route.fulfill({ json: { status:completed ? "active" : "awaiting_review", next:completed ? "/app/home" : "/app/appointed-states" } }));
   await page.route(/\/api\/auth\/signup-options$/, route => route.fulfill({ json: { states: [{ code:"TN", name:"Tennessee" }, { code:"SC", name:"South Carolina" }] } }));
   await page.route(/\/api\/me\/registration\/states$/, route => {
     expect(route.request().postDataJSON()).toEqual({ states:["SC", "TN"] });
     expect(route.request().headers()["x-csrf-token"]).toBe("e2e-csrf");
     completed = true;
-    return route.fulfill({ json: { status:"active", next:"/app/overview" } });
+    return route.fulfill({ json: { status:"active", next:"/app/home" } });
   });
   await page.goto("./complete-signup");
   await expect(page).toHaveURL(/\/app\/appointed-states$/);
@@ -54,10 +55,10 @@ test("verified signup selects states in a separate step before reaching the port
   expect(accessibility.violations).toEqual([]);
   expect(await page.locator(".jx-signup-states__options").evaluate(element => getComputedStyle(element).gridTemplateColumns.split(" ").length)).toBe(5);
   await page.getByRole("button", { name:"Continue", exact:true }).click();
-  await expect(page).toHaveURL(/\/app\/overview$/);
-  expect(state.sessionRequests).toEqual([{ access_token:"customer-provider-access-token-long-enough", requested_next:"/app/overview" }]);
+  await expect(page).toHaveURL(/\/app\/home$/);
+  expect(state.sessionRequests).toEqual([{ access_token:"customer-provider-access-token-long-enough", requested_next:"/app/home" }]);
   await page.goto("./appointed-states");
-  await expect(page).toHaveURL(/\/app\/overview$/);
+  await expect(page).toHaveURL(/\/app\/home$/);
 });
 
 test("unfinished state setup resumes from a direct portal visit and can proceed to history review", async ({ page }) => {
@@ -69,7 +70,7 @@ test("unfinished state setup resumes from a direct portal visit and can proceed 
     completed = true;
     return route.fulfill({ json: { status:"awaiting_review", next:"/app/registration-status" } });
   });
-  await page.goto("./overview");
+  await page.goto("./home");
   await expect(page).toHaveURL(/\/app\/appointed-states$/);
   await page.reload();
   await expect(page.getByRole("heading", { name:"Select your appointed states" })).toBeVisible();
@@ -94,12 +95,12 @@ test("state save failure preserves the selection for retry", async ({ page }) =>
 test("a matching registration waits for operator review and checks approval without a redirect loop", async ({ page }) => {
   await mockCustomerAuth(page, { overviewStatus:409 });
   let approved = false;
-  await page.route(/\/api\/me\/registration$/, route => route.fulfill({ json: { status:approved ? "active" : "awaiting_review", next:approved ? "/app/overview" : "/app/registration-status" } }));
-  await page.goto("./overview");
+  await page.route(/\/api\/me\/registration$/, route => route.fulfill({ json: { status:approved ? "active" : "awaiting_review", next:approved ? "/app/home" : "/app/registration-status" } }));
+  await page.goto("./home");
   await expect(page).toHaveURL(/\/app\/registration-status$/);
   await expect(page.getByRole("heading", { name:"Account awaiting review" })).toBeVisible();
   approved = true;
-  await page.route(/\/api\/me\/overview$/, route => route.fulfill({ json: { items:[] } }));
+  await page.route(/\/api\/me\/overview(\?.*)?$/, route => route.fulfill({ json: CUSTOMER_HOME }));
   await page.getByRole("button", { name:"Check status" }).click();
-  await expect(page).toHaveURL(/\/app\/overview$/);
+  await expect(page).toHaveURL(/\/app\/home$/);
 });

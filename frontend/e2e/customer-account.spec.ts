@@ -7,7 +7,7 @@ import {
   mockLicensedStates,
 } from "./customer-account-fixtures";
 import { mockCustomerAuth } from "./customer-auth-fixtures";
-import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
+import { CUSTOMER_HOME } from "./customer-home-fixtures";
 import { MAPPING_BLOCKED_BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
 
 async function openAccount(
@@ -17,7 +17,7 @@ async function openAccount(
   const state = await mockLicensedStates(page, options);
   await mockCustomerAuth(page, {
     overview: () => ({
-      ...CUSTOMER_OVERVIEW,
+      ...CUSTOMER_HOME,
     }),
     batchRequests: () => state.requestWorkspace,
     licensedStates: () => {
@@ -179,7 +179,7 @@ test.describe("safe Licensed State management", () => {
       .click();
 
     await expect(page.locator(".licensed-state-page__message--success")).toContainText(
-      "Overview and Batch Requests are up to date",
+      "Home and Batch Requests are up to date",
     );
     expect(state.applies).toBe(1);
     expect(state.previews).toHaveLength(2);
@@ -193,15 +193,15 @@ test.describe("safe Licensed State management", () => {
     // the Account region after clicking away raced the route swap.)
     await page
       .getByRole("navigation", { name: "Customer" })
-      .getByRole("link", { name: "Overview" })
+      .getByRole("link", { name: "Home" })
       .click();
     await expect(
-      page.getByRole("heading", { level: 1, name: "Overview" }),
+      page.getByRole("heading", { level: 1, name: "Home" }),
     ).toBeVisible();
 
     await page
       .getByRole("navigation", { name: "Customer" })
-      .getByRole("link", { name: "Requests" })
+      .getByRole("link", { name: "New request" })
       .click();
     await page
       .getByRole("spinbutton", { name: /How many leads/ })

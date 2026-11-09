@@ -1,0 +1,261 @@
+/* Home is a data page (V1): 88rem wide, a numbers row of four, then the
+   recent batches beside the boxed in-progress panel. */
+.customer-home > .jx-page {
+  max-width: 88rem;
+}
+
+.customer-home .jx-page__description {
+  max-width: none;
+}
+
+/* --- Alerts: red when the Customer has something to do (V4). --- */
+.customer-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.customer-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jx-space-4);
+  padding: var(--jx-space-3) var(--jx-space-4);
+  border: var(--jx-rule) solid var(--jx-line-strong);
+  background: var(--jx-color-surface);
+  font-size: var(--jx-text-sm);
+}
+
+.customer-alert--action {
+  border-color: var(--jx-danger);
+  background: var(--jx-danger-soft);
+}
+
+.customer-alert__text {
+  min-width: 0;
+  color: var(--jx-ink);
+}
+
+.customer-alert .jx-button {
+  flex: none;
+  background: var(--jx-paper);
+}
+
+/* --- The numbers row --- */
+.customer-home__edit {
+  color: var(--jx-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+/* --- Recent batches beside the in-progress panel (V2) --- */
+.customer-home__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(19rem, 1fr);
+  gap: var(--jx-space-5);
+  align-items: start;
+}
+
+.customer-home__columns > .jx-section:only-child {
+  grid-column: 1 / -1;
+}
+
+.customer-home__aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-4);
+  min-width: 0;
+}
+
+@media (max-width: 64rem) {
+  .customer-home__columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The batch table (V3): the record first, as a link; numbers right-aligned
+   with tabular figures; one button per row in the last column, and rows
+   that share one height. */
+.customer-batches {
+  min-width: 0;
+  overflow-x: auto;
+  border: var(--jx-rule) solid var(--jx-line-strong);
+  background: var(--jx-color-surface);
+}
+
+.customer-batches__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--jx-text-sm);
+}
+
+.customer-batches__table th,
+.customer-batches__table td {
+  padding: var(--jx-space-2) var(--jx-space-3);
+  border-bottom: var(--jx-rule) solid var(--jx-line);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.customer-batches__table tbody td {
+  height: 3.75rem;
+}
+
+.customer-batches__table thead th {
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-regular);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
+  color: var(--jx-ink-muted);
+  background: var(--jx-accent-soft);
+}
+
+.customer-batches__table tbody tr:last-child > td {
+  border-bottom: 0;
+}
+
+.customer-batches__numeric {
+  text-align: right !important;
+  font-feature-settings: var(--jx-font-features-numeral);
+}
+
+.customer-batches__table a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+.customer-batches__action {
+  width: 1%;
+}
+
+.customer-batches__table .customer-batches__action a {
+  text-decoration: none;
+}
+
+.customer-batches__stacked {
+  display: none;
+}
+
+/* Phones stack each row (V8): the batch on top, labelled values beneath
+   ("50,000 leads · FL, TX"), and its one action on the right. */
+@media (max-width: 40rem) {
+  .customer-batches__table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .customer-batches__table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--jx-space-3);
+    padding: var(--jx-space-3);
+    border-bottom: var(--jx-rule) solid var(--jx-line);
+  }
+
+  .customer-batches__table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .customer-batches__table tbody td {
+    height: auto;
+    padding: 0;
+    border: 0;
+    white-space: normal;
+  }
+
+  .customer-batches__table .customer-batches__wide {
+    display: none;
+  }
+
+  .customer-batches__stacked {
+    display: flex;
+    flex-direction: column;
+    gap: var(--jx-space-1);
+    margin-top: var(--jx-space-1);
+    color: var(--jx-ink-muted);
+  }
+
+  .customer-batches__action {
+    width: auto;
+  }
+}
+
+/* --- The in-progress panel: a boxed panel in the right column (V2) --- */
+.customer-home-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+  padding: var(--jx-space-4);
+  border: var(--jx-rule) solid var(--jx-line-strong);
+  background: var(--jx-color-surface);
+  min-width: 0;
+}
+
+.customer-home-panel__title {
+  font-size: var(--jx-text-md);
+  font-weight: var(--jx-weight-medium);
+  line-height: var(--jx-leading-heading);
+  color: var(--jx-ink);
+}
+
+.customer-home-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--jx-text-sm);
+}
+
+.customer-home-steps__step {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr) max-content;
+  gap: var(--jx-space-2);
+  align-items: center;
+  color: var(--jx-ink);
+}
+
+/* Reached steps are filled squares; the next ones are open (state is also
+   in the words, never the mark alone). */
+.customer-home-steps__mark {
+  width: 0.625rem;
+  height: 0.625rem;
+  border: 2px solid var(--jx-ink);
+  background: var(--jx-ink);
+}
+
+.customer-home-steps__step--upcoming {
+  color: var(--jx-ink-muted);
+}
+
+.customer-home-steps__step--upcoming .customer-home-steps__mark {
+  border-color: var(--jx-line-control);
+  background: transparent;
+}
+
+.customer-home-steps__time {
+  color: var(--jx-ink-muted);
+  font-size: var(--jx-text-xs);
+  font-feature-settings: var(--jx-font-features-numeral);
+}
+
+@media (max-width: 40rem) {
+  .customer-alert {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

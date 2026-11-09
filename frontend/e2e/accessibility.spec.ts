@@ -45,7 +45,7 @@ const ROUTES = [
   "./accept-invitation",
   "./reset-password",
   "./reset-password?token=fixture-one-time-password-token",
-  "./overview",
+  "./home",
   "./requests",
   `./requests?request=${WAITING_REQUEST.id}`,
   `./requests?request=${DELIVERED_REQUEST.id}`,
@@ -209,7 +209,7 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
     await mockCustomerAuth(page, {
       billing: { wallet: BILLED_CUSTOMER_WALLET },
     });
-    await page.goto("./overview");
+    await page.goto("./home");
     await page.getByRole("button", { name: "Buy credits" }).click();
     await expect(
       page.getByRole("dialog", { name: "Buy credits" }),
@@ -225,7 +225,7 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
 
 test.describe("Landmarks", () => {
   test("exposes banner, navigation, and main exactly once", async ({ page }) => {
-    await page.goto("./overview");
+    await page.goto("./home");
 
     await expect(page.getByRole("banner")).toHaveCount(1);
     await expect(page.getByRole("navigation")).toHaveCount(1);
@@ -236,7 +236,7 @@ test.describe("Landmarks", () => {
 
 test.describe("Keyboard operation", () => {
   test("the skip link is the first stop and moves focus to main", async ({ page }) => {
-    await page.goto("./overview");
+    await page.goto("./home");
     await page.locator("body").press("Tab");
 
     const skipLink = page.getByRole("link", { name: "Skip to main content" });
@@ -249,9 +249,9 @@ test.describe("Keyboard operation", () => {
   });
 
   test("every primary destination is reachable by keyboard alone", async ({ page }) => {
-    await page.goto("./overview");
+    await page.goto("./home");
 
-    const requests = page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "Requests" });
+    const requests = page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "New request" });
     await requests.focus();
     await expect(requests).toBeFocused();
     await page.keyboard.press("Enter");
@@ -347,13 +347,13 @@ test.describe("Touch targets", () => {
 
   test("navigation links meet the 44px minimum", async ({ page }) => {
     // The real mobile targets: measured on a shell route, not the gallery.
-    await page.goto("./overview");
+    await page.goto("./home");
 
     expect(await undersizedTargets(page, "nav a")).toEqual([]);
   });
 
   test("the skip link meets the 44px minimum once focused", async ({ page }) => {
-    await page.goto("./overview");
+    await page.goto("./home");
     await page.getByRole("link", { name: "Skip to main content" }).focus();
 
     const box = await page.getByRole("link", { name: "Skip to main content" }).boundingBox();
@@ -389,7 +389,7 @@ test.describe("Reduced motion", () => {
   });
 
   test("the shell is still fully navigable", async ({ page }) => {
-    await page.goto("./overview");
+    await page.goto("./home");
 
     await page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "Account" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Account" })).toBeVisible();

@@ -1,0 +1,54 @@
+/* The Customer frame. Desktop: lockup and nav on the left; balance, Buy
+   credits, Support, and Sign out on the right. Phones (V8): no tape strip,
+   one header row with the lockup, balance, and Buy credits, and the four
+   destinations sharing the row beneath without scrolling. */
+
+.customer-shell__session {
+  display: contents;
+}
+
+/* When the bar wraps on mid-size screens, the actions stay on the right. */
+.customer-shell .jx-shell__header-actions {
+  margin-inline-start: auto;
+}
+
+@media (max-width: 40rem) {
+  .customer-shell .jx-tape {
+    display: none;
+  }
+
+  /* Support and Sign out live at the top of Account on phones. */
+  .customer-shell__session {
+    display: none;
+  }
+
+  .customer-shell .jx-shell__banner {
+    flex-wrap: wrap;
+    gap: 0 var(--jx-space-3);
+  }
+
+  .customer-shell .jx-shell__header-actions {
+    flex-wrap: nowrap;
+    margin-inline-start: auto;
+  }
+
+  /* Four destinations always fit: they share the row evenly and the bar
+     never needs to scroll. */
+  .customer-shell .jx-nav__list {
+    justify-content: space-between;
+    overflow-x: visible;
+  }
+
+  .customer-shell .jx-nav__link {
+    gap: var(--jx-space-2);
+    padding-inline: var(--jx-space-2);
+  }
+
+  .customer-shell .jx-nav__item:first-child .jx-nav__link {
+    padding-inline-start: 0;
+  }
+
+  .customer-shell .jx-nav__item:last-child .jx-nav__link {
+    padding-inline-end: 0;
+  }
+}

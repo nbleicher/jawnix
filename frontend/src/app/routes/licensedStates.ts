@@ -1,7 +1,7 @@
 import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
-import type { CustomerOverviewData } from "../auth/customerAuth";
+import type { CustomerHomeData } from "../customer/home";
 import type { BatchRequestWorkspace } from "./batchRequests";
 
 export interface LicensedStateOption {
@@ -51,7 +51,8 @@ export interface LicensedStateReview {
 
 export interface LicensedStateApplyResult {
   account: LicensedStateWorkspace;
-  overview: CustomerOverviewData;
+  /** Home after the change, read in the same transaction. */
+  overview: CustomerHomeData;
   requests: BatchRequestWorkspace;
 }
 

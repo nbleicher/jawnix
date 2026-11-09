@@ -16,7 +16,7 @@ test.describe("Credit Wallet widget", () => {
     await mockCustomerAuth(page, {
       billing: { wallet: FREE_CUSTOMER_WALLET },
     });
-    await page.goto("./overview");
+    await page.goto("./home");
 
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await expect(page.getByLabel("Credit Wallet summary")).toHaveCount(0);
@@ -44,7 +44,7 @@ test.describe("Credit Wallet widget", () => {
       }),
     );
 
-    await page.goto("./overview");
+    await page.goto("./home");
     const wallet = page.getByLabel("Credit Wallet summary");
     await expect(wallet).toBeVisible();
     await expect(wallet.getByText("$96.25")).toBeVisible();
@@ -65,7 +65,7 @@ test.describe("Credit Wallet widget", () => {
     // Checkout returns to the page the purchase started on.
     expect(posted.postDataJSON()).toEqual({
       amount_dollars: 40,
-      return_to: "/app/overview",
+      return_to: "/app/home",
     });
 
     await expect(page).toHaveURL(/checkout\.stripe\.test/);

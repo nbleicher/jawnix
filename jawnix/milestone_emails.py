@@ -42,10 +42,10 @@ class MilestoneMessage:
     text: str
 
 
-def customer_overview_url(settings: Settings) -> str:
-    """The authenticated Customer attention queue used by email links."""
+def customer_home_url(settings: Settings) -> str:
+    """The authenticated Customer Home used by email links."""
 
-    return f"{settings.public_base_url.rstrip('/')}/app/overview"
+    return f"{settings.public_base_url.rstrip('/')}/app/home"
 
 
 def customer_request_url(settings: Settings, request_id: object) -> str:

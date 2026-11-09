@@ -229,8 +229,8 @@ def test_public_verification_creates_customer_and_password_only_manager_stays_re
             assert client.get("/api/me/overview").status_code == 409
             client.headers["X-CSRF-Token"] = client.cookies.get("jawnix_csrf")
             selected = client.post("/api/me/registration/states", json={"states":["TN", "SC"]})
-            assert selected.status_code == 200 and selected.json()["next"] == "/app/overview"
-            assert client.post("/api/auth/session", json={"access_token":token}).json()["next"] == "/app/overview"
+            assert selected.status_code == 200 and selected.json()["next"] == "/app/home"
+            assert client.post("/api/auth/session", json={"access_token":token}).json()["next"] == "/app/home"
             profile = session.get(CustomerProfile, user_id)
             assert profile.phone == "6155550100" and profile.licensed_states == ["SC", "TN"]
             assert session.get(Customer, profile.customer_id).active

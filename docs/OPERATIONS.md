@@ -791,7 +791,7 @@ Cutover:
    enable the legacy-URL redirects (`/`, `/login[.html]`, `/portal[.html]`,
    `/portal-accept.html`, `/admin.html` → `/app/...`, all 302).
 3. Smoke-verify in production: sign-in at `/app/sign-in`; each legacy URL
-   redirects; Customer Overview, Batch Request submission, Telegram approval,
+   redirects; Customer Home, Batch Request submission, Telegram approval,
    delivery email, Customer Feedback; administrator MFA challenge and each
    admin destination; Scraper step-up and workspace against the live private
    service; `/app` hard-refresh on a deep route.

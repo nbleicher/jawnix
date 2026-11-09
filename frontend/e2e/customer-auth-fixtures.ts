@@ -1,6 +1,6 @@
 import type { Page, Route } from "@playwright/test";
 
-import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
+import { CUSTOMER_HOME } from "./customer-home-fixtures";
 import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
 import {
   CUSTOMER_ACCOUNT_IDENTITY,
@@ -92,7 +92,7 @@ export async function mockCustomerAuth(
     passwordUpdateAccepted: true,
     sessionExchangeStatus: 200,
     overviewStatus: 200,
-    overview: CUSTOMER_OVERVIEW,
+    overview: CUSTOMER_HOME,
     batchRequests: BATCH_REQUEST_WORKSPACE,
     licensedStates: LICENSED_STATE_ACCOUNT,
     exclusionLists: [] as unknown[],
@@ -170,11 +170,12 @@ export async function mockCustomerAuth(
       role: "customer",
       assurance: "aal1",
       next:
-        (body as { requested_next?: string }).requested_next ?? "/app/overview",
+        (body as { requested_next?: string }).requested_next ?? "/app/home",
     });
   });
 
-  await page.route(/\/api\/me\/overview$/, (route) => {
+  // Home's one read, which is also the shell's access check.
+  await page.route(/\/api\/me\/overview(\?.*)?$/, (route) => {
     state.overviewRequests += 1;
     if (settings.overviewStatus !== 200) {
       return json(
@@ -190,6 +191,11 @@ export async function mockCustomerAuth(
   // exercise the guided flow itself layer mockBatchRequests over this.
   await page.route(/\/api\/me\/batch-requests(\?[^/]*)?$/, (route) =>
     json(route, current(settings.batchRequests)),
+  );
+
+  // Home watches batches in progress; without push it polls instead.
+  await page.route(/\/api\/me\/batch-requests\/events$/, (route) =>
+    route.fulfill({ status: 503, contentType: "text/plain", body: "Push unavailable in this fixture" }),
   );
 
   await page.route(/\/api\/me\/licensed-states$/, (route) =>

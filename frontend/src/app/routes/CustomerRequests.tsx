@@ -53,6 +53,7 @@ import {
   submitBatchRequest,
 } from "./batchRequests";
 import { useLiveRequests } from "./useLiveRequests";
+import { BATCH_HISTORY_HASH, BATCH_HISTORY_ID } from "../customer/navigation";
 import type {
   BatchArtifact,
   BatchRequest,
@@ -1130,6 +1131,14 @@ export function CustomerRequestsRoute() {
   const { refresh: refreshWallet } = useCreditWallet();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestId = searchParams.get("request");
+  const location = useLocation();
+
+  // Batches in the navigation opens the history below the form. The page
+  // renders after the browser's own anchor jump, so it scrolls itself.
+  useEffect(() => {
+    if (location.hash !== BATCH_HISTORY_HASH) return;
+    document.getElementById(BATCH_HISTORY_ID)?.scrollIntoView({ block: "start" });
+  }, [location.hash, location.key]);
 
   // An unfinished request carried back from Stripe Checkout fills the form
   // once. Its keys then leave the address, after the purchase notice has
@@ -1266,6 +1275,7 @@ export function CustomerRequestsRoute() {
       </Section>
 
       <Section
+        id={BATCH_HISTORY_ID}
         title="Your Batch Requests"
         description="Every request you have submitted, newest first."
       >

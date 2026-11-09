@@ -56,7 +56,7 @@ def test_verified_signup_activates_one_customer_and_saves_details(signup, sessio
     for _ in range(2):
         response = exchange(client)
         assert response.status_code == 200, response.text
-        assert response.json()["next"] == "/app/overview"
+        assert response.json()["next"] == "/app/home"
     profile = session.get(CustomerProfile, user_id)
     customer = session.get(Customer, profile.agent_id)
     assert profile.phone == "6155550100"
@@ -84,14 +84,14 @@ def test_states_follow_verified_signup_and_resume_until_completed(signup, sessio
     assert client.get("/api/me/overview").status_code == 409
     response = client.post("/api/me/registration/states", json={"states":["TN", "SC", "TN"]})
     assert response.status_code == 200, response.text
-    assert response.json()["next"] == "/app/overview"
+    assert response.json()["next"] == "/app/home"
     assert response.json()["states"] == ["SC", "TN"]
     customer_id = session.get(UserAccount, user_id).customer_id
     assert session.get(Customer, customer_id).licensed_states == ["SC", "TN"]
     assert session.get(CustomerProfile, user_id).licensed_states == ["SC", "TN"]
     # An old provider metadata snapshot and repeated submissions cannot reset
     # state setup or bypass the later Licensed State impact review.
-    assert exchange(client).json()["next"] == "/app/overview"
+    assert exchange(client).json()["next"] == "/app/home"
     assert client.post("/api/me/registration/states", json={"states":["AL"]}).json()["states"] == ["SC", "TN"]
     assert client.get("/api/me/overview").status_code == 200
     assert session.scalar(select(func.count()).select_from(Customer)) == 1

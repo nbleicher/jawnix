@@ -7,9 +7,10 @@ import type { Page, TestInfo } from "@playwright/test";
 
 import { mockCustomerAuth } from "./customer-auth-fixtures";
 import {
-  CUSTOMER_OVERVIEW,
-  EMPTY_CUSTOMER_OVERVIEW,
-} from "./customer-overview-fixtures";
+  CUSTOMER_HOME,
+  NEW_CUSTOMER_HOME,
+  NORTHSTAR_WALLET,
+} from "./customer-home-fixtures";
 import {
   BATCH_REQUEST_WORKSPACE,
   DELIVERED_REQUEST,
@@ -109,22 +110,25 @@ for (const scheme of SCHEMES) {
       await setScheme(page, scheme);
     });
 
-    test(`overview queue (${scheme})`, async ({ page }, testInfo) => {
-      await mockCustomerAuth(page, { overview: CUSTOMER_OVERVIEW });
-      await page.goto("./overview");
+    test(`home (${scheme})`, async ({ page }, testInfo) => {
+      await mockCustomerAuth(page, {
+        overview: CUSTOMER_HOME,
+        billing: { wallet: NORTHSTAR_WALLET },
+      });
+      await page.goto("./home");
       await page
-        .getByRole("list", { name: "Attention queue" })
+        .getByRole("table", { name: "Recent batches" })
         .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `overview-queue-${scheme}`);
+      await shoot(page, testInfo, `home-${scheme}`);
     });
 
-    test(`overview empty (${scheme})`, async ({ page }, testInfo) => {
-      await mockCustomerAuth(page, { overview: EMPTY_CUSTOMER_OVERVIEW });
-      await page.goto("./overview");
+    test(`home empty (${scheme})`, async ({ page }, testInfo) => {
+      await mockCustomerAuth(page, { overview: NEW_CUSTOMER_HOME });
+      await page.goto("./home");
       await page
-        .getByRole("heading", { level: 1, name: "Overview" })
+        .getByRole("heading", { level: 1, name: "Home" })
         .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `overview-empty-${scheme}`);
+      await shoot(page, testInfo, `home-empty-${scheme}`);
     });
 
     test(`requests list (${scheme})`, async ({ page }, testInfo) => {

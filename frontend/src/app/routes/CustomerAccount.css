@@ -155,3 +155,21 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Support and Sign out: in the header on wider screens, here on phones (V8). */
+.account-session {
+  display: none;
+}
+
+@media (max-width: 40rem) {
+  .account-session {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--jx-space-2) var(--jx-space-4);
+    border-bottom: var(--jx-rule) solid var(--jx-line);
+  }
+
+  .account-session .jx-button {
+    padding-inline: 0;
+  }
+}
