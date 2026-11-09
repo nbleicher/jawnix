@@ -5,8 +5,6 @@ import {
   HOLD_RELEASE,
   OPEN_REPORT_ID,
   RESOLVED_REPORT_ID,
-  RESTORE_NOTICE,
-  SUPPRESSED_LEAD_ID,
   mockLeadReports,
 } from "./lead-report-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
@@ -17,6 +15,8 @@ import type { RecordedCall } from "./lead-report-fixtures";
  *
  * Both Playwright projects run these, so the report stays readable and every
  * decision stays operable at the Pixel 7 viewport as well as the desktop one.
+ * Reports are reached from Today's Decisions (today.spec.ts); suppressed Leads
+ * are restored from Inventory (inventory.spec.ts).
  */
 
 let calls: RecordedCall[];
@@ -25,52 +25,6 @@ test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
   await mockFulfillment(page);
   calls = await mockLeadReports(page);
-});
-
-test.describe("Reaching a Lead Report from the workspace", () => {
-  test("the Fulfillment workspace lists reports, holds, and suppressed Leads", async ({
-    page,
-  }) => {
-    await page.goto("./admin/fulfillment");
-
-    for (const section of [
-      "Lead Reports",
-      "Eligibility Holds",
-      "Suppressed Leads",
-    ]) {
-      const region = page.getByRole("region", { name: section });
-      await expect(region).toBeVisible();
-      await region.locator("summary").click();
-    }
-
-    await expect(
-      page
-        .getByRole("region", { name: "Lead Reports" })
-        .getByText(/Reported by Northstar Insurance/),
-    ).toBeVisible();
-  });
-
-  test("opening a report lands on its record", async ({ page }) => {
-    await page.goto("./admin/fulfillment");
-
-    await page
-      .getByRole("region", { name: "Lead Reports" })
-      .locator("summary")
-      .click();
-    await page
-      .getByRole("region", { name: "Lead Reports" })
-      .getByRole("link", { name: "Wrong number" })
-      .click();
-
-    await expect(
-      page.getByRole("heading", { level: 1, name: "Lead report · Wrong number" }),
-    ).toBeVisible();
-    await expect(
-      page.getByText(
-        "The number I was given rings a dental office, not a roofing contractor.",
-      ),
-    ).toBeVisible();
-  });
 });
 
 test.describe("The report is evidence", () => {
@@ -234,43 +188,6 @@ test.describe("A Lead Correction sits beside what it overrides", () => {
       dialog.getByText("Enter a corrected title, a corrected state, or both."),
     ).toBeVisible();
     expect(calls).toHaveLength(0);
-  });
-});
-
-test.describe("Restoring is not a promise of allocation", () => {
-  test("the restore notice is beside the Restore control", async ({ page }) => {
-    await page.goto("./admin/fulfillment");
-
-    const suppressed = page.getByRole("region", { name: "Suppressed Leads" });
-    await suppressed.locator("summary").click();
-    await expect(suppressed.getByText(RESTORE_NOTICE)).toBeVisible();
-    await expect(
-      suppressed.getByRole("button", { name: "Restore" }),
-    ).toBeVisible();
-  });
-
-  test("restoring requires a reason and goes through the Lead's suppression", async ({
-    page,
-  }) => {
-    await page.goto("./admin/fulfillment");
-
-    const suppressed = page.getByRole("region", { name: "Suppressed Leads" });
-    await suppressed.locator("summary").click();
-    await suppressed.getByRole("button", { name: "Restore" }).click();
-    const dialog = page.getByRole("dialog");
-
-    await dialog.getByRole("button", { name: "Restore" }).click();
-    await expect(dialog.getByText("A reason is required.")).toBeVisible();
-    expect(calls).toHaveLength(0);
-
-    await dialog.getByLabel("Reason (required)").fill("Report was mistaken.");
-    await dialog.getByRole("button", { name: "Restore" }).click();
-
-    await expect
-      .poll(() => calls.map((call) => call.url))
-      .toContain(`/api/admin/leads/${SUPPRESSED_LEAD_ID}/suppression`);
-    expect(calls.at(-1)?.method).toBe("DELETE");
-    expect(calls.at(-1)?.body).toEqual({ reason: "Report was mistaken." });
   });
 });
 

@@ -96,7 +96,14 @@ from .exclusions import (
     exclusion_list_status,
 )
 from .frontend import register_frontend_shell
+from .inventory import (
+    exclusion_lists_overview,
+    inventory_overview,
+    suppressed_leads_page,
+    usable_by_state_csv,
+)
 from .jobs import enqueue_job
+from .lead_lookup import lead_lookup
 from .licensed_states import (
     LicensedStateApplyResult,
     LicensedStateConflict,
@@ -1074,6 +1081,16 @@ def upload_admin_exclusion_list(
     )
     db.commit()
     return exclusion_list_status(item, db)
+
+
+@app.get("/api/admin/exclusion-lists")
+def admin_exclusion_lists(
+    page: int = Query(default=1, ge=1),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Lists waiting for a global decision, then every list, newest first."""
+    return exclusion_lists_overview(db, page=page)
 
 
 @app.get("/api/admin/exclusion-lists/{exclusion_list_id}")
@@ -3311,6 +3328,54 @@ def refresh_inventory_snapshots_endpoint(
     enqueue_inventory_refresh(db, reason="manual")
     db.commit()
     return read_inventory_snapshots(db)
+
+
+@app.get("/api/admin/inventory")
+def admin_inventory(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """The Inventory page: usable DB1 and DB2 snapshots and the tools beside them."""
+    return inventory_overview(db)
+
+
+@app.get("/api/admin/inventory/usable-by-state.csv")
+def admin_usable_by_state_csv(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Usable Leads per state in DB1 and DB2, from the stored snapshots."""
+    return Response(
+        content=usable_by_state_csv(db),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": 'attachment; filename="usable-by-state.csv"',
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@app.get("/api/admin/suppressed-leads")
+def admin_suppressed_leads(
+    page: int = Query(default=1, ge=1),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return suppressed_leads_page(db, page=page)
+
+
+@app.get("/api/admin/leads/lookup")
+def admin_lead_lookup(
+    phone: str | None = Query(default=None, max_length=40),
+    lead_id: int | None = Query(default=None, alias="lead", ge=1),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Everything about one phone number (or Lead id, from Activity links)."""
+    if phone is None and lead_id is None:
+        raise HTTPException(status_code=422, detail="Enter a phone number.")
+    return lead_lookup(db, settings, phone=phone, lead_id=lead_id)
 
 
 @app.get("/api/admin/customers/{customer_id}/availability")

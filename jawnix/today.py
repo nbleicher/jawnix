@@ -448,7 +448,7 @@ def _exclusion_decisions(db: Session) -> list[dict[str, object]]:
                 subject=str(facts["customerName"]),
                 detail=detail,
                 since=item.created_at,
-                href="/app/admin/acquisition",
+                href=f"/app/admin/inventory/exclusions?list={item.id}",
                 facts={
                     **facts,
                     "typeLabel": _EXCLUSION_TYPES.get(

@@ -17,6 +17,12 @@ import type { RecordedCall } from "./fulfillment-fixtures";
 /**
  * Core Fulfillment operations in a real browser (#57).
  *
+ * The Fulfillment workspace page is gone (A4): its queues are covered on
+ * Today and All batches, and its suppressed Leads and pool analytics on
+ * Inventory (inventory.spec.ts). What remains here are the Batch page
+ * actions, reached through the old request links, and the Inventory
+ * Conflict page.
+ *
  * Both Playwright projects run these, so every assertion holds at the Pixel 7
  * and desktop viewports — the workspace has to stay complete and operable on
  * mobile, not merely fit.
@@ -141,29 +147,6 @@ test.describe("Delivery recovery keeps its two paths apart", () => {
 });
 
 test.describe("Consequential actions are confirmed with a reason", () => {
-  test("shows the committed approval while the follow-up read is still pending", async ({ page }) => {
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => { release = resolve; });
-    await page.route(`**/api/admin/requests/${PENDING_REQUEST_ID}`, async (route) => {
-      await held;
-      return route.fallback();
-    });
-    await page.route(`**/api/admin/requests/${PENDING_REQUEST_ID}/approve`, (route) => route.fulfill({
-      status:200, contentType:"application/json",
-      body:JSON.stringify({ id:PENDING_REQUEST_ID, status:"approved", statusMessage:"Approved; allocation is queued.", actions:[] }),
-    }));
-    await page.goto("./admin/fulfillment");
-    const batch = page.getByRole("region", {name:"Batch Requests"});
-    await batch.locator("summary").click();
-    await batch.getByRole("button", {name:"Approve", exact:true}).click();
-    await page.getByRole("dialog").getByLabel("Reason (required)").fill("Inventory verified.");
-    await page.getByRole("dialog").getByRole("button", {name:"Approve",exact:true}).click();
-    try {
-      await expect(batch.getByText("Approved; allocation is queued.")).toBeVisible();
-      await expect(batch.getByRole("button", {name:"Approve",exact:true})).toHaveCount(0);
-    } finally { release(); }
-  });
-
   test("the reason reaches the server and the dialog states the consequence", async ({
     page,
   }) => {
@@ -221,35 +204,6 @@ test.describe("Consequential actions are confirmed with a reason", () => {
 });
 
 test.describe("Telegram re-notification is reachable (B5)", () => {
-  test("a delivery failure re-notifies Telegram with a reason", async ({
-    page,
-  }) => {
-    await page.goto("./admin/fulfillment");
-    const failures = page.getByRole("region", { name: "Delivery failures" });
-    await failures.locator("summary").click();
-
-    await failures
-      .getByRole("button", { name: "Re-notify in Telegram" })
-      .click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toHaveAccessibleName("Re-notify in Telegram");
-    await expect(dialog).toHaveAccessibleDescription(
-      /The Batch Request itself does not change/,
-    );
-    await dialog
-      .getByLabel("Reason (required)")
-      .fill("Telegram never showed this batch.");
-    await dialog.getByRole("button", { name: "Re-notify" }).click();
-
-    await expect
-      .poll(() => calls.map((call) => call.url))
-      .toContain(`/api/admin/requests/${FAILED_WITH_ARTIFACT_ID}/notify`);
-    expect(calls.at(-1)?.reason).toBe("Telegram never showed this batch.");
-    await expect(
-      failures.getByText("Telegram re-notification queued."),
-    ).toBeVisible();
-  });
-
   test("an open Batch Request re-notifies from its own page", async ({
     page,
   }) => {
@@ -286,23 +240,6 @@ test.describe("Telegram re-notification is reachable (B5)", () => {
 });
 
 test.describe("Artifact regeneration is reachable", () => {
-  test("an expired Batch Artifact is offered from the workspace", async ({
-    page,
-  }) => {
-    await page.goto("./admin/fulfillment");
-
-    const expired = page.getByRole("region", {
-      name: "Expired Batch Artifacts",
-    });
-    await expired.locator("summary").click();
-    await expect(expired.getByText("Harbor Point")).toBeVisible();
-
-    await expired.getByRole("button", { name: "Regenerate artifact" }).click();
-    await expect(page.getByRole("dialog")).toHaveAccessibleDescription(
-      /checksum are unchanged/,
-    );
-  });
-
   test("regeneration posts to the artifact endpoint, not a transition", async ({
     page,
   }) => {
@@ -435,52 +372,5 @@ test.describe("Inventory Conflicts", () => {
     await expect(page.getByRole("dialog")).toHaveAccessibleDescription(
       /Authorizes one allocation attempt for this exact inventory snapshot/,
     );
-  });
-});
-
-test.describe("Mobile operation", () => {
-  test("the workspace is complete and operable at the current viewport", async ({
-    page,
-  }) => {
-    await page.goto("./admin/fulfillment");
-
-    // All three areas of work remain reachable on small screens.
-    for (const section of [
-      "Batch Requests",
-      "Inventory Conflicts",
-      "Delivery failures",
-    ]) {
-      await expect(page.getByRole("region", { name: section })).toBeVisible();
-    }
-
-    await page
-      .getByRole("region", { name: "Batch Requests" })
-      .locator("summary")
-      .click();
-    const approve = page
-      .getByRole("region", { name: "Batch Requests" })
-      .getByRole("button", { name: "Approve" })
-      .first();
-    await expect(approve).toBeVisible();
-    const box = await approve.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.height).toBeGreaterThanOrEqual(44);
-
-    await approve.click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-  });
-
-  test("a delivery failure shows the exact provider error", async ({ page }) => {
-    await page.goto("./admin/fulfillment");
-
-    await page
-      .getByRole("region", { name: "Delivery failures" })
-      .locator("summary")
-      .click();
-    await expect(
-      page
-        .getByRole("region", { name: "Delivery failures" })
-        .getByText("Provider returned HTTP 503"),
-    ).toBeVisible();
   });
 });

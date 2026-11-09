@@ -171,14 +171,10 @@ export const router = createBrowserRouter(
               path: "batches/:batchId",
               lazy: lazyPage("AdminBatches", "AdminBatchRoute", "adminBatchLoader"),
             },
-            // #57 replaced the Fulfillment task map with the real workspace.
-            // Its loaders read one aggregate contract, and every action the
-            // screens render is projected by the backend rather than derived
-            // here, so the UI cannot offer what the domain refuses.
-            {
-              path: "fulfillment",
-              lazy: lazyPage("AdminFulfillment", "AdminFulfillmentRoute", "fulfillmentLoader"),
-            },
+            // A4 emptied the Fulfillment workspace: its queues live on Today
+            // and All batches, its suppressed Leads and pool analytics on
+            // Inventory. Telegram, email, and bookmark links still land.
+            { path: "fulfillment", element: <Navigate to="/admin/batches" replace /> },
             // The Batch page replaced the Fulfillment request detail. Telegram,
             // email, and Activity links to the old address still land.
             {
@@ -296,10 +292,38 @@ export const router = createBrowserRouter(
               path: "agencies",
               lazy: lazyPage("AdminAgencies", "AdminAgenciesRoute", "adminAgencyDirectoryLoader"),
             },
+            // Inventory (P4) and its occasional tools, each on its own page,
+            // with lead lookup (P5) beside them.
             {
-              path: "lead-uploads",
-              lazy: lazyPage("ManagedAdmin", "AdminLeadUploadsRoute", "adminLeadUploadsLoader"),
+              path: "inventory",
+              lazy: lazyPage("AdminInventory", "AdminInventoryRoute", "adminInventoryLoader"),
             },
+            {
+              path: "inventory/lookup",
+              lazy: lazyPage("AdminLeadLookup", "AdminLeadLookupRoute", "adminLeadLookupLoader"),
+            },
+            {
+              path: "inventory/uploads",
+              lazy: lazyPage("AdminInventoryUploads", "AdminInventoryUploadsRoute", "adminInventoryUploadsLoader"),
+            },
+            {
+              path: "inventory/exclusions",
+              lazy: lazyPage("AdminInventoryExclusions", "AdminInventoryExclusionsRoute", "adminInventoryExclusionsLoader"),
+            },
+            {
+              path: "inventory/suppressed",
+              lazy: lazyPage("AdminInventory", "AdminSuppressedLeadsRoute", "adminSuppressedLeadsLoader"),
+            },
+            {
+              path: "inventory/niche-assignment",
+              lazy: lazyPage("AdminInventory", "AdminNicheAssignmentRoute"),
+            },
+            {
+              path: "inventory/pool",
+              lazy: lazyPage("AdminInventory", "AdminPoolAnalyticsRoute", "adminPoolAnalyticsLoader"),
+            },
+            // DB2 uploads moved into Inventory; the old address still lands.
+            { path: "lead-uploads", element: <Navigate to="/admin/inventory/uploads" replace /> },
             {
               path: "agencies/:agencyId",
               lazy: lazyPage("AdminAgencies", "AdminAgencyDetailsRoute", "adminAgencyDetailsLoader"),

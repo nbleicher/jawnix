@@ -1,6 +1,6 @@
 const PATHS = new Set([
   "/api/admin/operations-overview", "/api/admin/fulfillment",
-  "/api/admin/pool-breakdown", "/api/admin/acquisition",
+  "/api/admin/pool-breakdown", "/api/admin/acquisition", "/api/admin/inventory",
   "/api/admin/customers/directory", "/api/admin/activity",
   "/api/me/batch-requests",
 ]);

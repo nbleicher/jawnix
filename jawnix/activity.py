@@ -45,13 +45,15 @@ _ENTITY_PATHS = {
     "customer": "/app/admin/customers/{id}",
     "inventory_conflict": "/app/admin/fulfillment/conflicts/{id}",
     "lead_report": "/app/admin/fulfillment/reports/{id}",
+    "lead": "/app/admin/inventory/lookup?lead={id}",
     "scrape_run": "/app/admin/acquisition/runs/{id}",
     "scraper_configuration": "/app/admin/acquisition/configurations/{id}",
 }
 
 _ENTITY_DESTINATIONS = {
     "administrator_mfa": "/app/admin/security",
-    "lead": "/app/admin/fulfillment",
+    "lead_upload": "/app/admin/inventory/uploads",
+    "niche_assignment_upload": "/app/admin/inventory/niche-assignment",
     "nightly_review": "/app/admin/acquisition",
     "scrape_anomaly": "/app/admin/acquisition",
     "scraper_pipeline": "/app/admin/acquisition/scraper/workspace",
@@ -72,7 +74,7 @@ _ENTITY_DESTINATIONS = {
         "/app/admin/acquisition/scraper/workspace/runtime"
     ),
     "source_recommendation": "/app/admin/acquisition",
-    "exclusion_list": "/app/admin/acquisition",
+    "exclusion_list": "/app/admin/inventory/exclusions",
     "source_segment": "/app/admin/acquisition",
     "user_account": "/app/admin/customers",
 }

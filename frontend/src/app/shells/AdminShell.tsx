@@ -16,14 +16,14 @@ function within(pathname: string, path: string): boolean {
  * Operator navigation, split by how often each tool is used: Today for the
  * daily work, records next, occasional tools last (V1, V8).
  *
- * Inventory, Insights, and Setup point at the existing DB2 uploads, Source
- * Performance, and Acquisition pages until their own pages exist. Fulfillment
- * stays reachable at its address but is no longer a destination.
+ * Insights and Setup point at the existing Source Performance and Acquisition
+ * pages until their own pages exist. Inventory owns lead lookup and its tools
+ * under /admin/inventory.
  */
 const DESTINATIONS: NavigationDestination[] = [
   { to: "/admin/today", label: "Today", icon: "◆" },
   { to: "/admin/customers", label: "Customers", icon: "◑" },
-  { to: "/admin/lead-uploads", label: "Inventory", icon: "▦" },
+  { to: "/admin/inventory", label: "Inventory", icon: "▦" },
   { to: "/admin/acquisition/performance", label: "Insights", icon: "▲" },
   {
     to: "/admin/acquisition",

@@ -100,7 +100,7 @@ function reportControlRequest(report: LeadReportDetail): ControlResolver {
   };
 }
 
-function validateOverride(
+export function validateOverride(
   action: ControlAction,
   values: Record<string, string>,
 ): string {
@@ -122,7 +122,7 @@ function evidenceItems(evidence: LeadEvidence): DetailItem[] {
 /** The evidence panel shown inside the correct dialog, beside the override
  *  being typed. Rule of the ticket: the operator must be able to read what
  *  they are overriding while they type the thing that overrides it. */
-function OverrideFields({
+export function OverrideFields({
   evidence,
   values,
   set,

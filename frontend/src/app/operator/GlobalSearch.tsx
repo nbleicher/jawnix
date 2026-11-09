@@ -13,8 +13,8 @@ import "./GlobalSearch.css";
  * An ARIA 1.2 combobox: focus stays in the input while the arrow keys move
  * the highlighted result (aria-activedescendant), Enter opens it, and Escape
  * closes the list, then clears the box. Results arrive grouped by record type
- * from GET /api/admin/search; a new group (phone-number Leads in A4) renders
- * here without changes.
+ * from GET /api/admin/search; a phone number also finds its Lead, which opens
+ * lead lookup.
  */
 
 export interface SearchResult {
@@ -146,7 +146,7 @@ export function GlobalSearch() {
       : status === "error"
         ? "Search is unavailable. Try again."
         : status === "done" && !results.length
-          ? `No customers, batches, or uploads match “${trimmed}”.`
+          ? `No customers, batches, uploads, or phones match “${trimmed}”.`
           : status === "done"
             ? `${results.length} result${results.length === 1 ? "" : "s"}.`
             : "";
@@ -168,13 +168,13 @@ export function GlobalSearch() {
         className="jx-global-search__input"
         type="search"
         role="combobox"
-        aria-label="Search customers, batches, and uploads"
+        aria-label="Search customers, batches, uploads, and phones"
         aria-autocomplete="list"
         aria-expanded={expanded}
         aria-controls={listboxId}
         aria-activedescendant={activeId}
         aria-describedby={`${id}-status`}
-        placeholder="Search customers, batches, uploads"
+        placeholder="Search customers, batches, phones"
         autoComplete="off"
         spellCheck={false}
         value={query}
@@ -233,7 +233,7 @@ export function GlobalSearch() {
         ) : null}
         <p className="jx-global-search__hint">
           {results.length ? "Enter opens the highlighted result. " : ""}
-          Searches customer names and emails, batch numbers, and DB2 upload files.
+          Searches customer names and emails, batch numbers, DB2 upload files, and phone numbers.
         </p>
       </div>
       <VisuallyHidden id={`${id}-status`} role="status">

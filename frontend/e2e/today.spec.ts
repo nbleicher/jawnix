@@ -203,7 +203,7 @@ test.describe("Today", () => {
 test.describe("Global search", () => {
   test("groups results and opens one with the keyboard", async ({ page }) => {
     await page.goto("./admin/today");
-    const box = page.getByRole("combobox", { name: "Search customers, batches, and uploads" });
+    const box = page.getByRole("combobox", { name: "Search customers, batches, uploads, and phones" });
     await box.fill("north");
     const results = page.getByRole("listbox", { name: "Search results" });
     await expect(results.getByRole("group", { name: "Customers" })).toBeVisible();
@@ -230,7 +230,7 @@ test.describe("Global search", () => {
 
   test("a batch number opens the Batch page", async ({ page }) => {
     await page.goto("./admin/today");
-    const box = page.getByRole("combobox", { name: "Search customers, batches, and uploads" });
+    const box = page.getByRole("combobox", { name: "Search customers, batches, uploads, and phones" });
     await box.fill("1042");
     await expect(page.getByRole("option", { name: /Batch #1042 · Northstar Insurance/ })).toBeVisible();
     await box.press("Enter");
@@ -240,6 +240,6 @@ test.describe("Global search", () => {
   test("says when nothing matches", async ({ page }) => {
     await page.goto("./admin/today");
     await page.getByRole("combobox").fill("zzz");
-    await expect(page.getByText("No customers, batches, or uploads match “zzz”.").first()).toBeVisible();
+    await expect(page.getByText("No customers, batches, uploads, or phones match “zzz”.").first()).toBeVisible();
   });
 });

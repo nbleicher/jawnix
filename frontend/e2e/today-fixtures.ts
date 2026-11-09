@@ -253,7 +253,7 @@ export const DECISIONS = [
     "Liberty Roofing",
     "DNC · 61 in pool",
     48,
-    "/app/admin/acquisition",
+    `/app/admin/inventory/exclusions?list=${EXCLUSION_ID}`,
     {
       facts: {
         id: EXCLUSION_ID,
@@ -561,7 +561,7 @@ export const SEARCH_RESULTS: Record<string, unknown> = {
             id: "u1",
             title: "north-carolina-agents.csv",
             detail: "Alex · NC · Nov 6 · Published",
-            href: "/app/admin/lead-uploads",
+            href: "/app/admin/inventory/uploads",
           },
         ],
       },

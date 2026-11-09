@@ -258,8 +258,8 @@ def refresh_inventory_snapshots(session: Session) -> dict:
             counts["allRows"],
             (utcnow() - started).total_seconds(),
         )
-    # Fulfillment still reads the state x Niche breakdown until the Inventory
-    # page replaces it, so keep it on the same schedule.
+    # Inventory's pool analytics reads the state x Niche breakdown, so keep
+    # it on the same schedule.
     refresh_pool_breakdown(session)
     settle_nightly_review_inventory(session, stored["db1"])
     return read_inventory_snapshots(session)

@@ -283,6 +283,10 @@ def test_decisions_merge_every_kind_oldest_first_and_match_the_number(session):
     assert anomaly["detail"] == "roofing · TX · down more than 50%"
     assert anomaly["facts"]["segments"][0]["label"] == "roofing · TX"
     assert by_kind["exclusionList"]["detail"] == "DNC · 61 in pool"
+    # Exclusion Lists moved to Inventory (A4); the full page opens this list.
+    assert by_kind["exclusionList"]["href"] == (
+        f"/app/admin/inventory/exclusions?list={by_kind['exclusionList']['recordId']}"
+    )
     assert by_kind["nicheMapping"]["subject"] == "roofer · TX"
     assert by_kind["nicheMapping"]["facts"]["segment"] == "TX::roofer"
     assert by_kind["registration"]["subject"] == "New Customer"

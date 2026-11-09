@@ -176,6 +176,26 @@ REMOVE_CORRECTION = ControlAction(
     destructive=True,
 )
 
+#: The same two Lead-level controls offered from lead lookup, where there is
+#: no Lead Report and so no Eligibility Hold for a decision to release.
+CORRECT_LEAD = ControlAction(
+    name="correct",
+    label="Correct title or state",
+    consequence=(
+        "Overrides the Lead's title or state for every future delivery. The "
+        "override outranks the Current Listing until an administrator "
+        "removes it; deliveries already made keep the values they were sent "
+        "with."
+    ),
+    requires_override=True,
+)
+SUPPRESS_LEAD = ControlAction(
+    name="suppress",
+    label="Suppress",
+    consequence=SUPPRESS.consequence,
+    destructive=True,
+)
+
 _EVIDENCE_LABELS = {
     "current_listing": "Current Listing (Google Maps observation)",
     "legacy_snapshot": "Legacy Listing Snapshot (imported)",
@@ -675,6 +695,7 @@ def _describe_lead(
 
 
 __all__ = [
+    "CORRECT_LEAD",
     "ControlAction",
     "ControlConflict",
     "HOLD_RELEASE_RULE",
@@ -683,6 +704,7 @@ __all__ = [
     "REPORT_ACTIONS",
     "RESTORE_LEAD",
     "RESTORE_NOTICE",
+    "SUPPRESS_LEAD",
     "active_holds",
     "correct_from_report",
     "describe_report",

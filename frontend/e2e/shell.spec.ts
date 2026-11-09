@@ -5,8 +5,10 @@ import { mockActivity } from "./activity-fixtures";
 import { mockFeedback } from "./customer-feedback-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockFulfillment } from "./fulfillment-fixtures";
+import { mockInventory } from "./inventory-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 import { mockCustomerAuth } from "./customer-auth-fixtures";
+import { mockOperatorDesk } from "./today-fixtures";
 
 /**
  * Shell journeys against the compiled application.
@@ -24,6 +26,7 @@ test.beforeEach(async ({ page }) => {
   await mockActivity(page);
   await mockAdminCustomers(page);
   await mockFulfillment(page);
+  await mockInventory(page);
   // Feedback reads a real contract since #53.
   await mockFeedback(page);
   await mockCustomerAuth(page);
@@ -157,14 +160,14 @@ test.describe("Administration shell", () => {
     }
     await expect(nav.getByRole("link", { name: "Fulfillment" })).toHaveCount(0);
     await expect(
-      page.getByRole("banner").getByRole("combobox", { name: "Search customers, batches, and uploads" }),
+      page.getByRole("banner").getByRole("combobox", { name: "Search customers, batches, uploads, and phones" }),
     ).toBeVisible();
   });
 
   test("Inventory, Insights, and Setup reach the pages they stand in for", async ({ page }) => {
     await page.goto("./admin/today");
     const nav = page.getByRole("navigation", { name: "Administration" });
-    await expect(nav.getByRole("link", { name: "Inventory" })).toHaveAttribute("href", "/app/admin/lead-uploads");
+    await expect(nav.getByRole("link", { name: "Inventory" })).toHaveAttribute("href", "/app/admin/inventory");
     await expect(nav.getByRole("link", { name: "Insights" })).toHaveAttribute(
       "href",
       "/app/admin/acquisition/performance",
@@ -185,23 +188,15 @@ test.describe("Administration shell", () => {
     await expect(page).toHaveURL(/\/app\/admin\/today$/);
   });
 
-  test("Fulfillment stays reachable at its address, out of the navigation", async ({ page }) => {
+  test("the old Fulfillment address lands on All batches, out of the navigation", async ({ page }) => {
+    await mockOperatorDesk(page);
     await page.goto("./admin/fulfillment");
 
-    await expect(page.getByRole("heading", { level: 1, name: "Fulfillment" })).toBeVisible();
-    for (const area of ["Batch Requests", "Inventory Conflicts", "Delivery failures"]) {
-      await expect(page.getByRole("region", { name: area })).toBeVisible();
-    }
-
-    await page
-      .getByRole("region", { name: "Batch Requests" })
-      .locator("summary")
-      .click();
-    await page
-      .getByRole("region", { name: "Batch Requests" })
-      .getByRole("link", { name: "Northstar Insurance" })
-      .click();
-    await expect(page).toHaveURL(/\/app\/admin\/batches\//);
+    await expect(page).toHaveURL(/\/app\/admin\/batches$/);
+    await expect(page.getByRole("heading", { level: 1, name: "All batches" })).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Administration" }).getByRole("link", { name: "Fulfillment" }),
+    ).toHaveCount(0);
   });
 
   test("Acquisition exposes its operating areas and security action at both form factors", async ({ page }) => {
@@ -296,7 +291,7 @@ test.describe("Administration shell", () => {
 
 test.describe("Direct navigation", () => {
   // A hard load of a deep link must work, not just client-side routing.
-  for (const path of ["./home", "./requests", "./account", "./admin/fulfillment", "./design-system"]) {
+  for (const path of ["./home", "./requests", "./account", "./admin/inventory", "./design-system"]) {
     test(`serves the shell for a hard load of ${path}`, async ({ page }) => {
       const response = await page.goto(path);
       expect(response?.status()).toBe(200);
