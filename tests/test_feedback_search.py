@@ -219,3 +219,109 @@ def test_search_never_exposes_another_customers_or_undelivered_leads(session):
     ]
     assert wildcard.status_code == 200
     assert wildcard.json() == []
+
+
+def test_search_scoped_to_one_batch_returns_only_that_batchs_leads(session):
+    """Overview and request pages link to Feedback with ?request=<batch>."""
+
+    my_user_id = uuid.uuid4()
+    their_user_id = uuid.uuid4()
+    mine = Agent(slug="scoped-mine", name="Mine")
+    theirs = Agent(slug="scoped-theirs", name="Theirs")
+    my_profile = CustomerProfile(
+        user_id=my_user_id,
+        email="scoped-mine@example.com",
+        licensed_states=["TX"],
+        customer=mine,
+        mapping_confirmed_at=utcnow(),
+    )
+    their_profile = CustomerProfile(
+        user_id=their_user_id,
+        email="scoped-theirs@example.com",
+        licensed_states=["TX"],
+        customer=theirs,
+        mapping_confirmed_at=utcnow(),
+    )
+    leads = [
+        Lead(phone=f"214555130{index}", title=f"Roofing {index}", state="TX")
+        for index in range(3)
+    ]
+    session.add_all([mine, theirs, my_profile, their_profile, *leads])
+    session.flush()
+
+    def batch(user_id, customer, email):
+        return LeadRequest(
+            user_id=user_id,
+            customer=customer,
+            lead_count=1,
+            states_snapshot=["TX"],
+            state_mode="all_saved",
+            delivery_email=email,
+            status=RequestStatus.delivered.value,
+        )
+
+    first = batch(my_user_id, mine, my_profile.email)
+    second = batch(my_user_id, mine, my_profile.email)
+    their_batch = batch(their_user_id, theirs, their_profile.email)
+    session.add_all([first, second, their_batch])
+    session.flush()
+    events = [
+        DistributionEvent(
+            lead_id=lead.id,
+            customer_id=customer.id,
+            customer_name=customer.name,
+            request_id=request.id,
+            phone=lead.phone,
+            title=lead.title,
+            state=lead.state,
+            delivered_at=utcnow(),
+            source="batch",
+        )
+        for lead, customer, request in zip(
+            leads, [mine, mine, theirs], [first, second, their_batch]
+        )
+    ]
+    session.add_all(events)
+    session.commit()
+
+    def database_override():
+        yield session
+
+    app.dependency_overrides[get_db] = database_override
+    app.dependency_overrides[require_principal] = lambda: Principal(
+        user_id=my_user_id,
+        email=my_profile.email,
+        role="customer",
+        csrf="test",
+    )
+    try:
+        client = TestClient(app)
+        everything = client.post(
+            "/api/me/feedback/search", json={"query": "roofing"}
+        )
+        scoped = client.post(
+            "/api/me/feedback/search",
+            json={"query": "roofing", "request_id": str(second.id)},
+        )
+        foreign = client.post(
+            "/api/me/feedback/search",
+            json={"query": "roofing", "request_id": str(their_batch.id)},
+        )
+        malformed = client.post(
+            "/api/me/feedback/search",
+            json={"query": "roofing", "request_id": "not-a-batch"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert sorted(item["distributionEventId"] for item in everything.json()) == sorted(
+        [events[0].id, events[1].id]
+    )
+    assert scoped.status_code == 200
+    assert [
+        (item["distributionEventId"], item["batchId"]) for item in scoped.json()
+    ] == [(events[1].id, str(second.id))]
+    # Another Customer's batch is indistinguishable from an empty one.
+    assert foreign.status_code == 200
+    assert foreign.json() == []
+    assert malformed.status_code == 422

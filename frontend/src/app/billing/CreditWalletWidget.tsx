@@ -4,10 +4,10 @@ import { Button } from "../../design-system/primitives/Button";
 import { Dialog } from "../../design-system/primitives/Dialog";
 import { Field, Input } from "../../design-system/primitives/form";
 import { Cluster, Stack } from "../../design-system/primitives/layout";
-import { StatusBadge } from "../../design-system/primitives/status";
 import { Text } from "../../design-system/primitives/typography";
 import { useBilledWallet, useCreditWallet } from "./CreditWalletContext";
 import { formatCents } from "./money";
+import { usePurchaseReturnTo } from "./purchaseReturn";
 import { hasProcessingPurchase, startCreditPurchase } from "./wallet";
 
 import "./CreditWalletWidget.css";
@@ -15,11 +15,17 @@ import "./CreditWalletWidget.css";
 export function PurchaseDialog({
   open,
   onClose,
+  returnTo: explicitReturnTo,
 }: {
   open: boolean;
   onClose: () => void;
+  /** The portal path Checkout returns to; defaults to the current page. */
+  returnTo?: string | undefined;
 }) {
   const { refresh } = useCreditWallet();
+  // Checkout comes back here, with any unfinished request form filled in.
+  const pageReturnTo = usePurchaseReturnTo();
+  const returnTo = explicitReturnTo ?? pageReturnTo;
   const [amount, setAmount] = useState("25");
   const [fieldError, setFieldError] = useState("");
   const [failure, setFailure] = useState("");
@@ -47,7 +53,7 @@ export function PurchaseDialog({
     setFieldError("");
     setFailure("");
     try {
-      const started = await startCreditPurchase(Number(trimmed));
+      const started = await startCreditPurchase(Number(trimmed), returnTo);
       await refresh();
       window.location.assign(started.checkoutUrl);
     } catch (caught) {
@@ -118,8 +124,8 @@ export function PurchaseDialog({
 }
 
 /**
- * Persistent Credit Wallet chrome for Billed Customers: available balance and
- * a Buy credits action. Free Customers never render this.
+ * Persistent Credit Wallet chrome for Billed Customers: the balance available
+ * for new requests and a Buy credits action. Free Customers never render this.
  */
 export function CreditWalletWidget() {
   const wallet = useBilledWallet();
@@ -133,15 +139,20 @@ export function CreditWalletWidget() {
     <>
       <div className="credit-wallet-widget" aria-label="Credit Wallet summary">
         <div className="credit-wallet-widget__balance">
-          <span className="credit-wallet-widget__label">Available</span>
+          <span className="credit-wallet-widget__label">
+            Balance
+            {processing ? (
+              <span className="credit-wallet-widget__processing">
+                <span className="credit-wallet-widget__processing-mark" aria-hidden="true" />
+                <span className="credit-wallet-widget__processing-text">Processing</span>
+              </span>
+            ) : null}
+          </span>
           <span className="credit-wallet-widget__amount">
             {formatCents(wallet.availableBalanceCents)}
           </span>
-          {processing ? (
-            <StatusBadge tone="info">Processing</StatusBadge>
-          ) : null}
         </div>
-        <Button variant="secondary" onClick={() => setDialogOpen(true)}>
+        <Button variant="primary" onClick={() => setDialogOpen(true)}>
           Buy credits
         </Button>
       </div>

@@ -20,7 +20,6 @@ export interface CampaignHistoryRow {
 export interface CampaignHistory {
   service_state: "connected" | "unavailable";
   last_successful_at: string | null;
-  idle_expires_in: number;
   search: string;
   state: string;
   sort: HistorySort;
@@ -95,7 +94,6 @@ export interface StateCellEffect {
 export interface RuntimeWorkspace {
   service_state: "connected" | "unavailable";
   last_successful_at: string | null;
-  idle_expires_in: number;
   current: RuntimeConfiguration;
   version: string;
   all_states: string[];

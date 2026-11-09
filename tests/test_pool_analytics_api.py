@@ -1,8 +1,9 @@
 """Admin-only pool analytics (#155 T9).
 
 Seam: admin HTTP API in; seeded inventory scenarios out. Counts are never
-computed on a plain GET (page-load path) — only on explicit refresh / draft
-projection. Eligibility semantics match allocation.
+computed on a plain GET (page-load path). The pool breakdown is recounted by
+the background inventory refresh job; per-Customer figures on explicit refresh
+or draft projection. Eligibility semantics match allocation.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from jawnix.api import app
 from jawnix.auth import Principal, require_admin
 from jawnix.config import get_settings
 from jawnix.database import get_db
+from jawnix.inventory_snapshots import refresh_inventory_snapshots
 from jawnix.pool_analytics import compute_cooldown_forecast
 from jawnix.models import (
     Agent,
@@ -136,7 +138,14 @@ def test_pool_breakdown_groups_by_state_and_niche_with_unmapped_bucket(
         empty = client.get("/api/admin/pool-breakdown").json()
         assert empty == {"asOf": None, "cells": []}
 
-        refreshed = client.post("/api/admin/pool-breakdown/refresh").json()
+        queued = client.post("/api/admin/pool-breakdown/refresh").json()
+        # The refresh is queued for the background job, never counted here.
+        assert queued["refreshQueued"] is True
+        assert queued["asOf"] is None
+        refresh_inventory_snapshots(session)
+        session.commit()
+
+        refreshed = client.get("/api/admin/pool-breakdown").json()
         assert refreshed["asOf"] is not None
         cells = {
             (cell["state"], cell["niche"]): cell["count"]
@@ -189,7 +198,10 @@ def test_pool_breakdown_subtracts_global_exclusions(session, settings):
 
     client = as_admin(session, settings)
     try:
-        cells = client.post("/api/admin/pool-breakdown/refresh").json()["cells"]
+        client.post("/api/admin/pool-breakdown/refresh")
+        refresh_inventory_snapshots(session)
+        session.commit()
+        cells = client.get("/api/admin/pool-breakdown").json()["cells"]
         assert cells == [{"state": "TX", "niche": "Dental", "count": 1}]
     finally:
         app.dependency_overrides.clear()

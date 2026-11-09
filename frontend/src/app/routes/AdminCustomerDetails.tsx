@@ -1,30 +1,51 @@
 import { useState } from "react";
-import { useLoaderData, useNavigate, useRevalidator } from "react-router";
-import type { LoaderFunctionArgs } from "react-router";
+import type { ReactNode } from "react";
+import {
+  Link,
+  useLoaderData,
+  useNavigate,
+  useParams,
+  useRevalidator,
+} from "react-router";
+import type { LoaderFunctionArgs, ShouldRevalidateFunctionArgs } from "react-router";
 
 import { api } from "../auth/adminMFA";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { ConfirmDialog, Dialog } from "../../design-system/primitives/Dialog";
-import { EmptyState } from "../../design-system/primitives/feedback";
+import { FactList } from "../../design-system/primitives/facts";
+import type { Fact } from "../../design-system/primitives/facts";
 import { Field, Input, Select } from "../../design-system/primitives/form";
+import { Kpi, KpiRow } from "../../design-system/primitives/kpi";
 import {
   Card,
   Cluster,
-  DisclosureSection,
   Grid,
   Page,
   Section,
   Stack,
 } from "../../design-system/primitives/layout";
+import { Panel, RecordColumns } from "../../design-system/primitives/panel";
 import { StatusBadge } from "../../design-system/primitives/status";
+import { DataTable } from "../../design-system/primitives/table";
+import { Tabs } from "../../design-system/primitives/tabs";
+import { Heading, Text } from "../../design-system/primitives/typography";
 import {
-  Heading,
-  LabelText,
-  Text,
-} from "../../design-system/primitives/typography";
-import type { CustomerAdminStatus } from "./AdminCustomers";
-import { errorMessage, formatAdminDate } from "./AdminCustomers";
+  formatCount,
+  formatDatabase,
+  formatDateTime,
+  formatDay,
+  formatRate,
+  formatStates,
+  plural,
+  stageLabel,
+} from "../operator/format";
+import type {
+  CustomerAdminStatus,
+  CustomerNeed,
+  CustomerOpenBatch,
+} from "./AdminCustomers";
+import { errorMessage } from "./AdminCustomers";
 import {
   ActivityTimeline,
   loadEntityActivity,
@@ -32,24 +53,28 @@ import {
 import type { ActivityPage } from "./AdminActivity";
 import {
   CustomerLifecycleAction,
-  Fact,
   RenameCustomerAction,
   SendPasswordResetAction,
 } from "./AdminCustomerActions";
-import {
-  CustomerAvailabilitySection,
-} from "./AdminCustomerAvailability";
+import { CustomerAvailabilityPanel } from "./AdminCustomerAvailability";
 import type { CustomerAvailabilityView } from "./AdminCustomerAvailability";
+import { CustomerBatchesTab, CustomerReportsTab } from "./AdminCustomerBatches";
+import type { CustomerLeadReportView } from "./AdminCustomerBatches";
 import {
   CustomerBillingSection,
   CustomerCooldownSection,
+  CustomerDatabaseSection,
+  CustomerExclusionListsSection,
   CustomerNichePolicySection,
+  formatUsdCents,
 } from "./AdminCustomerControls";
 import type {
   CooldownWindowView,
   CustomerBillingView,
+  CustomerExclusionListView,
   NichePolicyView,
 } from "./AdminCustomerControls";
+import { formatAsOf } from "./OperatorNumbers";
 
 import "./AdminCustomerDetails.css";
 
@@ -61,6 +86,28 @@ export interface UserAccountRecord {
   created_at: string;
   replaced_at: string | null;
   replaced_by_auth_user_id: string | null;
+}
+
+/** The Customer page's numbers row and Needs list
+ *  (GET /api/admin/customers/{id}/summary), in the Customers table's terms. */
+export interface CustomerSummaryView {
+  customerId: number;
+  database: string;
+  states: string[];
+  customerSince: string | null;
+  needs: CustomerNeed[];
+  balance: {
+    billed: boolean;
+    availableCents: number;
+    heldCents: number;
+    heldFor: number[];
+    rateCentsPerThousand: number | null;
+  };
+  available: { count: number; asOf: string | null } | null;
+  openBatches: { count: number; first: CustomerOpenBatch | null };
+  delivered: { windowDays: number; leads: number; batches: number };
+  lastDeliveryAt: string | null;
+  leadReports: { open: number; total: number };
 }
 
 export interface CustomerDetailsData {
@@ -75,6 +122,7 @@ export interface CustomerDetailsData {
     licensed_states: string[];
     status: CustomerAdminStatus;
     last_activity_at: string | null;
+    lead_database?: "db1" | "db2";
   };
   history: {
     requests: number;
@@ -112,29 +160,18 @@ export interface CustomerDetailsData {
     name: string;
     active: boolean;
   }[];
-  /** Present on the Customer details route; omitted from the agency floating card. */
+  /** Present on the Customer page; omitted from the agency floating card. */
+  summary?: CustomerSummaryView;
   billing?: CustomerBillingView;
   cooldown?: CooldownWindowView;
   nichePolicy?: NichePolicyView;
   /** Cached pool availability; omitted when the details payload is reused elsewhere. */
   availability?: CustomerAvailabilityView;
   exclusionLists?: CustomerExclusionListView[];
+  leadReports?: CustomerLeadReportView[];
   /** Sections whose own fetch failed, so the page renders without them.
    *  An absent section and a broken one look identical otherwise. */
   unavailableSections?: string[];
-}
-
-interface CustomerExclusionListView {
-  id: string;
-  type: string;
-  filename: string;
-  status: string;
-  acceptedRows: number;
-  invalidRows: number;
-  duplicateRows: number;
-  poolImpact: number;
-  global: boolean;
-  createdAt: string;
 }
 
 interface AgencyAssignmentPreview {
@@ -180,6 +217,29 @@ interface Failure {
   dependencies: Record<string, number> | null;
 }
 
+/** The record's sub-sections (V7). Each is its own address. */
+export const CUSTOMER_TABS = [
+  { key: "summary", label: "Summary" },
+  { key: "batches", label: "Batches" },
+  { key: "billing", label: "Billing" },
+  { key: "rules", label: "Rules" },
+  { key: "reports", label: "Reports" },
+  { key: "access", label: "Access" },
+  { key: "activity", label: "Activity" },
+] as const;
+
+type CustomerTab = (typeof CUSTOMER_TABS)[number]["key"];
+
+function currentTab(value: string | undefined): CustomerTab {
+  return CUSTOMER_TABS.some((tab) => tab.key === value) ? (value as CustomerTab) : "summary";
+}
+
+export function customerTabHref(customerId: number, tab: CustomerTab): string {
+  return tab === "summary"
+    ? `/app/admin/customers/${customerId}`
+    : `/app/admin/customers/${customerId}/${tab}`;
+}
+
 /** The backend counts dependencies with its own storage keys, one of which is
  *  camelCase. Operators read record names, not storage keys. */
 const DEPENDENCY_LABELS: Record<string, string> = {
@@ -211,6 +271,10 @@ function blockingDependencies(error: unknown): Record<string, number> | null {
   return detail?.dependencies ?? null;
 }
 
+function routePath(href: string): string {
+  return href.startsWith("/app/") ? href.slice("/app".length) : href;
+}
+
 export async function adminCustomerDetailsLoader({
   params,
 }: LoaderFunctionArgs): Promise<CustomerDetailsData> {
@@ -219,16 +283,19 @@ export async function adminCustomerDetailsLoader({
     Omit<
       CustomerDetailsData,
       | "agencies"
+      | "summary"
       | "billing"
       | "cooldown"
       | "nichePolicy"
       | "availability"
       | "exclusionLists"
+      | "leadReports"
       | "activityTimeline"
       | "unavailableSections"
     >
   >(`/api/admin/customers/${customerId}/details`);
   const [
+    summary,
     directory,
     activityTimeline,
     billing,
@@ -236,7 +303,11 @@ export async function adminCustomerDetailsLoader({
     nichePolicy,
     availability,
     exclusionLists,
+    leadReports,
   ] = await Promise.all([
+    api<CustomerSummaryView>(`/api/admin/customers/${customerId}/summary`).catch(
+      () => undefined,
+    ),
     api<{
       agencies: { id: number; name: string; active: boolean }[];
     }>("/api/admin/agencies/directory").catch(() => undefined),
@@ -256,17 +327,22 @@ export async function adminCustomerDetailsLoader({
     api<CustomerExclusionListView[]>(
       `/api/admin/customers/${customerId}/exclusion-lists`,
     ).catch(() => undefined),
+    api<CustomerLeadReportView[]>(
+      `/api/admin/customers/${customerId}/lead-reports`,
+    ).catch(() => undefined),
   ]);
   // A section that failed to load is not a section that does not exist, and
   // an administrator making a decision needs to know which one they are
   // looking at. Naming the gap keeps the page usable without letting a
   // transient error read as "this Customer has no Billing".
   const unavailableSections = [
+    summary === undefined ? "Numbers" : null,
     billing === undefined ? "Billing" : null,
-    cooldown === undefined ? "Cooldown Window" : null,
+    cooldown === undefined ? "Cooldown window" : null,
     availability === undefined ? "Availability" : null,
-    nichePolicy === undefined ? "Niche Policy" : null,
-    exclusionLists === undefined ? "Customer Exclusion Lists" : null,
+    nichePolicy === undefined ? "Niche policy" : null,
+    exclusionLists === undefined ? "Exclusion lists" : null,
+    leadReports === undefined ? "Lead reports" : null,
     activityTimeline === undefined ? "Activity" : null,
     directory === undefined ? "Agency directory" : null,
   ].filter((label): label is string => label !== null);
@@ -279,11 +355,13 @@ export async function adminCustomerDetailsLoader({
       total: 0,
       pages: 1,
     },
+    ...(summary ? { summary } : {}),
     ...(billing ? { billing } : {}),
     ...(cooldown ? { cooldown } : {}),
     ...(nichePolicy ? { nichePolicy } : {}),
     ...(availability ? { availability } : {}),
     ...(exclusionLists ? { exclusionLists } : {}),
+    ...(leadReports ? { leadReports } : {}),
     ...(unavailableSections.length ? { unavailableSections } : {}),
     agencies: (directory?.agencies ?? []).map(({ id, name, active }) => ({
       id,
@@ -293,55 +371,21 @@ export async function adminCustomerDetailsLoader({
   };
 }
 
-function CustomerExclusionLists({
-  items,
-}: {
-  items: CustomerExclusionListView[];
-}) {
-  return (
-    <DisclosureSection
-      title="Customer Exclusion Lists"
-      description="Lists uploaded by this Customer remain scoped to this Customer unless their global effect is separately confirmed in Acquisition."
-      summary={`${items.length.toLocaleString()} list${items.length === 1 ? "" : "s"}`}
-    >
-      {items.length ? (
-        <Grid minColumnWidth="16rem">
-          {items.map((item) => (
-            <Card as="article" key={item.id}>
-              <Stack gap={2}>
-                <Cluster gap={2} justify="space-between">
-                  <Heading level={3} size="sm">
-                    {item.filename}
-                  </Heading>
-                  <StatusBadge
-                    tone={item.status === "active" ? "success" : "info"}
-                  >
-                    {item.status.replaceAll("_", " ")}
-                  </StatusBadge>
-                </Cluster>
-                <Text size="sm">{item.type.replaceAll("_", " ")}</Text>
-                <Text size="sm">
-                  <strong>{item.acceptedRows.toLocaleString()}</strong> accepted
-                  {" · "}
-                  {item.poolImpact.toLocaleString()} pool impact
-                </Text>
-                <Text size="xs" tone="muted">
-                  {item.invalidRows.toLocaleString()} invalid ·{" "}
-                  {item.duplicateRows.toLocaleString()} duplicates ·{" "}
-                  {item.global ? "Global" : "Customer-scoped"}
-                </Text>
-              </Stack>
-            </Card>
-          ))}
-        </Grid>
-      ) : (
-        <EmptyState
-          title="No Customer Exclusion Lists"
-          description="Lists uploaded by this Customer will appear here with ingestion and pool-impact status."
-        />
-      )}
-    </DisclosureSection>
-  );
+/**
+ * Switching tabs or opening a batch beside the list is not new data: the
+ * page keeps what it read. Actions re-read it explicitly, and another
+ * Customer reads its own.
+ */
+export function adminCustomerDetailsShouldRevalidate({
+  currentUrl,
+  nextUrl,
+  currentParams,
+  nextParams,
+  defaultShouldRevalidate,
+}: ShouldRevalidateFunctionArgs): boolean {
+  if (currentParams.customerId !== nextParams.customerId) return defaultShouldRevalidate;
+  if (currentUrl.href === nextUrl.href) return defaultShouldRevalidate;
+  return false;
 }
 
 function Dependencies({ counts }: { counts: Record<string, number> }) {
@@ -351,31 +395,137 @@ function Dependencies({ counts }: { counts: Record<string, number> }) {
     <ul className="admin-customer-details__dependencies">
       {blocking.map(([key, count]) => (
         <li key={key}>
-          {dependencyLabel(key)}: {count.toLocaleString()}
+          {dependencyLabel(key)}: {count.toLocaleString("en-US")}
         </li>
       ))}
     </ul>
   );
 }
 
-function AccountCard({ account }: { account: UserAccountRecord }) {
+function heldMeta(summary: CustomerSummaryView): string {
+  const { balance } = summary;
+  if (!balance.billed) return summary.database === "db2" ? "DB2 is not billed" : "Billing off";
+  if (!balance.heldCents) return `Nothing held · ${formatRate(balance.rateCentsPerThousand)}`;
+  const batches = balance.heldFor.map((number) => `#${number}`).join(", ");
+  return `${formatUsdCents(balance.heldCents)} held for ${batches}`;
+}
+
+function CustomerNumbers({ summary }: { summary: CustomerSummaryView }) {
+  const now = new Date();
+  const first = summary.openBatches.first;
+  const need = summary.needs[0];
   return (
-    <Card as="article" aria-label="Current User Account">
-      <Stack gap={3}>
-        <Cluster justify="space-between" align="flex-start">
-          <Heading level={3} size="sm">
-            {account.email}
-          </Heading>
-          <StatusBadge tone={account.active ? "success" : "warning"}>
-            {account.active ? "Active" : "Inactive"}
-          </StatusBadge>
-        </Cluster>
-        <dl className="admin-customer-details__facts">
-          <Fact label="Name">{account.name || "Not provided"}</Fact>
-          <Fact label="Created">{formatAdminDate(account.created_at)}</Fact>
-        </dl>
-      </Stack>
-    </Card>
+    <KpiRow label="Customer numbers" columns={6}>
+      <Kpi
+        label="Balance"
+        value={summary.balance.billed ? formatUsdCents(summary.balance.availableCents) : "Not billed"}
+        meta={heldMeta(summary)}
+      />
+      <Kpi
+        label="Available now"
+        value={summary.available ? formatCount(summary.available.count) : "Not counted"}
+        meta={
+          summary.available?.asOf
+            ? `${formatDatabase(summary.database)} · as of ${formatAsOf(summary.available.asOf, now)}`
+            : `${formatDatabase(summary.database)} · refresh on Summary`
+        }
+      />
+      <Kpi
+        label="Open batches"
+        value={formatCount(summary.openBatches.count)}
+        meta={first ? `#${first.number} ${stageLabel(first.stage).toLowerCase()}` : "None open"}
+      />
+      <Kpi
+        label={`Delivered · ${summary.delivered.windowDays} days`}
+        value={formatCount(summary.delivered.leads)}
+        meta={plural(summary.delivered.batches, "batch", "batches")}
+      />
+      <Kpi
+        label="Lead reports"
+        value={formatCount(summary.leadReports.open)}
+        meta={
+          summary.leadReports.open
+            ? `${formatCount(summary.leadReports.open)} open of ${formatCount(summary.leadReports.total)}`
+            : summary.leadReports.total
+              ? `None open · ${formatCount(summary.leadReports.total)} in total`
+              : "None open"
+        }
+      />
+      <Kpi
+        label="Needs"
+        value={formatCount(summary.needs.length)}
+        meta={need ? need.label : "Nothing waiting"}
+        alert={summary.needs.length > 0}
+      />
+    </KpiRow>
+  );
+}
+
+function actionWords(action: string): string {
+  const spaced = action.replaceAll("_", " ").trim();
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : "Change";
+}
+
+/** The latest few changes, so Summary says what happened lately; the
+ *  Activity tab has the whole trail. */
+function RecentActivity({ activity, customerId }: { activity: ActivityPage; customerId: number }) {
+  const entries = activity.entries.slice(0, 3);
+  return (
+    <Panel title="Recent activity">
+      {entries.length ? (
+        <ul className="admin-customer-details__recent">
+          {entries.map((entry) => (
+            <li key={entry.id}>
+              <Text size="sm">{actionWords(entry.action)}</Text>
+              <Text size="xs" tone="muted">
+                {entry.reason ? `${entry.reason} · ` : ""}
+                {formatDateTime(entry.recordedAt)}
+              </Text>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <Text size="sm" tone="muted">
+          No administrator has changed this customer yet.
+        </Text>
+      )}
+      <ActionLink href={customerTabHref(customerId, "activity")}>All activity</ActionLink>
+    </Panel>
+  );
+}
+
+function agencyName(customer: CustomerDetailsData["customer"]): string {
+  return customer.agency_id === null || !customer.agency ? "No agency" : customer.agency;
+}
+
+function describe(data: CustomerDetailsData): string {
+  const { customer, summary } = data;
+  const parts = [
+    agencyName(customer),
+    formatStates(customer.licensed_states),
+    formatDatabase(summary?.database ?? customer.lead_database),
+  ];
+  if (summary?.customerSince) parts.push(`customer since ${formatDay(summary.customerSince)}`);
+  if (!customer.active) parts.push("deactivated");
+  return parts.join(" · ");
+}
+
+function NeedsList({ needs }: { needs: CustomerNeed[] }) {
+  if (!needs.length) {
+    return (
+      <Text size="sm" tone="muted">
+        Nothing is waiting on this customer.
+      </Text>
+    );
+  }
+  return (
+    <ul className="admin-customer-details__needs" aria-label="Needs">
+      {needs.map((need) => (
+        <li key={`${need.kind}-${need.href}-${need.label}`}>
+          <Link to={routePath(need.href)}>{need.label}</Link>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -383,6 +533,8 @@ export function AdminCustomerDetailsRoute() {
   const data = useLoaderData<CustomerDetailsData>();
   const revalidator = useRevalidator();
   const navigate = useNavigate();
+  const { tab: tabParam } = useParams();
+  const tab = currentTab(tabParam);
   const [dialog, setDialog] = useState<DialogName | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -396,6 +548,8 @@ export function AdminCustomerDetailsRoute() {
   useDocumentTitle(data.customer.name);
 
   const { customer, history, deletion } = data;
+  const database = data.summary?.database ?? customer.lead_database ?? "db1";
+  const refresh = () => revalidator.revalidate();
 
   function open(name: DialogName) {
     setReason("");
@@ -526,13 +680,334 @@ export function AdminCustomerDetailsRoute() {
   }
 
   const replacing = data.user_account !== null;
+  const availabilityPanel = data.availability ? (
+    <CustomerAvailabilityPanel
+      availability={data.availability}
+      customerId={customer.id}
+      database={database}
+      onChanged={refresh}
+    />
+  ) : null;
+
+  const summaryFacts: Fact[] = [
+    { term: "Slug", description: customer.slug },
+    { term: "Standing", description: customer.status.description },
+    {
+      term: "Agency",
+      description:
+        customer.agency_id === null || !customer.agency ? (
+          "No agency"
+        ) : (
+          <Link to={routePath(`/app/admin/agencies/${customer.agency_id}`)}>{customer.agency}</Link>
+        ),
+    },
+    { term: "States", description: customer.licensed_states.length ? customer.licensed_states.join(", ") : "None yet" },
+    { term: "Database", description: formatDatabase(database) },
+    {
+      term: "Last delivery",
+      description: data.summary?.lastDeliveryAt
+        ? formatDay(data.summary.lastDeliveryAt)
+        : history.last_delivered_at
+          ? formatDay(history.last_delivered_at)
+          : "Never",
+    },
+  ];
+
+  const historyFacts: Fact[] = [
+    { term: "Batch Requests", description: formatCount(history.requests) },
+    { term: "Distributions", description: formatCount(history.distributions) },
+    { term: "Lead Outcomes", description: formatCount(history.outcomes) },
+    { term: "Lead Reports", description: formatCount(history.reports) },
+    { term: "First delivered", description: history.first_delivered_at ? formatDay(history.first_delivered_at) : "Never" },
+    { term: "Last delivered", description: history.last_delivered_at ? formatDay(history.last_delivered_at) : "Never" },
+  ];
+
+  let content: ReactNode;
+  switch (tab) {
+    case "batches":
+      content = <CustomerBatchesTab customerId={customer.id} onChanged={refresh} />;
+      break;
+    case "billing":
+      content = data.billing ? (
+        <CustomerBillingSection billing={data.billing} customerId={customer.id} onChanged={refresh} />
+      ) : (
+        <Text size="sm" tone="muted">Billing could not be read.</Text>
+      );
+      break;
+    case "rules":
+      content = (
+        <RecordColumns
+          main={
+            <>
+              <CustomerDatabaseSection
+                customerId={customer.id}
+                database={database}
+                billed={data.billing?.billingEnabled ?? data.summary?.balance.billed ?? false}
+                onChanged={refresh}
+              />
+              {data.cooldown ? (
+                <CustomerCooldownSection cooldown={data.cooldown} customerId={customer.id} onChanged={refresh} />
+              ) : null}
+              {data.nichePolicy ? (
+                <CustomerNichePolicySection policy={data.nichePolicy} customerId={customer.id} onChanged={refresh} />
+              ) : null}
+              {data.exclusionLists ? <CustomerExclusionListsSection items={data.exclusionLists} /> : null}
+            </>
+          }
+          aside={availabilityPanel}
+        />
+      );
+      break;
+    case "reports":
+      content = data.leadReports ? (
+        <CustomerReportsTab reports={data.leadReports} />
+      ) : (
+        <Text size="sm" tone="muted">Lead reports could not be read.</Text>
+      );
+      break;
+    case "access":
+      content = (
+        <Stack gap={6}>
+          <Section
+            title="User account"
+            description="Replaceable sign-in, and nothing more. Administrators provision access by invitation and never set or see a password."
+          >
+            <Stack gap={4}>
+              {data.user_account ? (
+                <Card as="article" aria-label="Current User Account" className="admin-customer-details__account">
+                  <Stack gap={3}>
+                    <Cluster justify="space-between" align="flex-start">
+                      <Heading level={3} size="sm">
+                        {data.user_account.email}
+                      </Heading>
+                      <StatusBadge tone={data.user_account.active ? "success" : "neutral"}>
+                        {data.user_account.active ? "Active" : "Inactive"}
+                      </StatusBadge>
+                    </Cluster>
+                    <FactList
+                      label="Current User Account"
+                      items={[
+                        { term: "Name", description: data.user_account.name || "Not provided" },
+                        { term: "Created", description: formatDay(data.user_account.created_at) },
+                      ]}
+                    />
+                    {!data.invitation ? (
+                      <div>
+                        <SendPasswordResetAction account={data.user_account} onChanged={refresh} />
+                      </div>
+                    ) : null}
+                  </Stack>
+                </Card>
+              ) : (
+                <Card>
+                  <Stack gap={2}>
+                    <Heading level={3} size="sm">
+                      No user account yet
+                    </Heading>
+                    <Text size="sm" tone="muted">
+                      Nobody can sign in for this customer. The customer and its history already exist; invite a user account from the top of this page.
+                    </Text>
+                  </Stack>
+                </Card>
+              )}
+
+              {data.invitation ? (
+                <Card
+                  as="article"
+                  className="admin-customer-details__pending"
+                  aria-label="Pending invitation"
+                >
+                  <Stack gap={3}>
+                    <Cluster justify="space-between" align="flex-start">
+                      <Heading level={3} size="sm">
+                        Invitation pending
+                      </Heading>
+                      <StatusBadge tone="info">{data.invitation.status.label}</StatusBadge>
+                    </Cluster>
+                    <Text>
+                      {data.invitation.email} was invited on {formatDay(data.invitation.invited_at)}.
+                    </Text>
+                    <Text weight="semibold">
+                      {replacing
+                        ? "Nothing has been replaced yet. The current User Account stays active until this invitation is accepted."
+                        : "No User Account is active until this invitation is accepted."}
+                    </Text>
+                    <div>
+                      <Button onClick={() => open("cancel")}>Cancel invitation</Button>
+                    </div>
+                  </Stack>
+                </Card>
+              ) : null}
+            </Stack>
+          </Section>
+
+          <Section
+            title="Former user accounts"
+            description="Access that has already been replaced. The customer, its agency, and its history survived every one of them."
+          >
+            <DataTable
+              label="Former user accounts"
+              columns={[
+                { key: "email", header: "Email", cell: (account) => account.email },
+                { key: "name", header: "Name", cell: (account) => account.name || "—" },
+                { key: "created", header: "Created", cell: (account) => formatDay(account.created_at) },
+                {
+                  key: "replaced",
+                  header: "Replaced",
+                  cell: (account) => (account.replaced_at ? formatDay(account.replaced_at) : "—"),
+                },
+              ]}
+              rows={data.former_accounts}
+              rowKey={(account) => account.auth_user_id}
+              empty="Access for this customer has never been replaced."
+            />
+          </Section>
+        </Stack>
+      );
+      break;
+    case "activity":
+      content = (
+        <Section
+          title="Activity"
+          description="What administrators have done to this customer and its access."
+        >
+          <ActivityTimeline
+            activity={data.activityTimeline}
+            emptyDescription="No administrator has changed this Customer yet."
+          />
+        </Section>
+      );
+      break;
+    default:
+      content = (
+        <RecordColumns
+          main={
+            <>
+              <Section title="Needs">
+                <NeedsList needs={data.summary?.needs ?? []} />
+              </Section>
+              <Section
+                title="Customer"
+                description="The durable party. This identity, its agency membership, and its states do not change when access is replaced."
+              >
+                <FactList label="Customer" items={summaryFacts} />
+              </Section>
+              <Section
+                title="Permanent history"
+                description="Everything this Customer has ever been sent. Replacing a User Account never resets any of it."
+              >
+                <FactList label="Permanent history" items={historyFacts} />
+              </Section>
+              <Section
+                title="Lifecycle"
+                description="These act on the durable customer, not on its access."
+              >
+                <Stack gap={3}>
+                  {deletion.tombstoned ? (
+                    <Text>
+                      Personal data for this Customer has been erased. The record
+                      remains as a tombstone so the permanent history above stays
+                      intact.
+                    </Text>
+                  ) : null}
+                  <Text size="sm" tone="muted">
+                    {customer.active
+                      ? "Deactivating stops all access and new work. Every record above is kept."
+                      : "This Customer is deactivated. Reactivating restores access and new work."}
+                  </Text>
+                  {deletion.requires_deactivation ? (
+                    <Text size="sm" tone="muted">
+                      Deletion and erasure need the Customer deactivated first.
+                    </Text>
+                  ) : null}
+                  {!deletion.can_hard_delete && !deletion.requires_deactivation ? (
+                    <Stack gap={2} align="flex-start">
+                      <Text size="sm" tone="muted">
+                        Permanent deletion is blocked while these records exist. Only
+                        the history-preserving removal is available.
+                      </Text>
+                      <Dependencies counts={deletion.dependencies} />
+                    </Stack>
+                  ) : null}
+                  <Cluster gap={3}>
+                    <CustomerLifecycleAction customer={customer} onChanged={refresh} />
+                    <Button
+                      variant="danger"
+                      onClick={() => open("delete")}
+                      disabled={deletion.requires_deactivation}
+                    >
+                      Delete Customer
+                    </Button>
+                    <Button
+                      variant="danger"
+                      onClick={() => open("erase")}
+                      disabled={deletion.requires_deactivation || deletion.tombstoned}
+                    >
+                      Erase personal data
+                    </Button>
+                  </Cluster>
+                </Stack>
+              </Section>
+            </>
+          }
+          aside={
+            <>
+              {availabilityPanel}
+              <Panel title="Agency">
+                <FactList
+                  label="Agency"
+                  items={[{ term: "Member of", description: agencyName(customer) }]}
+                />
+                <Text size="xs" tone="muted">
+                  Membership can change. No-repeat history joined by an assignment stays merged permanently.
+                </Text>
+                <div>
+                  <Button onClick={() => open("assignment")}>
+                    {customer.agency_id === null ? "Assign to Agency" : "Change Agency assignment"}
+                  </Button>
+                </div>
+              </Panel>
+              <Panel title="Access">
+                <FactList
+                  label="Access"
+                  items={[
+                    {
+                      term: "User account",
+                      description: data.user_account?.email ?? "None",
+                    },
+                    {
+                      term: "Invitation",
+                      description: data.invitation ? data.invitation.email : "None pending",
+                    },
+                  ]}
+                />
+                <ActionLink href={customerTabHref(customer.id, "access")}>Manage access</ActionLink>
+              </Panel>
+              <RecentActivity activity={data.activityTimeline} customerId={customer.id} />
+            </>
+          }
+        />
+      );
+  }
 
   return (
     <Page
       title={customer.name}
-      description="The Customer is permanent. Its User Account is only the credential that signs in, and can be replaced without affecting anything below."
+      width="data"
+      density="data"
+      description={describe(data)}
       actions={
-        <ActionLink href="/app/admin/customers">Back to Customers</ActionLink>
+        <>
+          <StatusBadge tone={customer.active ? "success" : "neutral"}>
+            {customer.active ? "Active" : "Deactivated"}
+          </StatusBadge>
+          <RenameCustomerAction customer={customer} onChanged={refresh} label="Rename" />
+          {data.invitation ? null : (
+            <Button onClick={() => open("account")}>
+              {replacing ? "Replace user account" : "Invite user account"}
+            </Button>
+          )}
+        </>
       }
     >
       {data.unavailableSections?.length ? (
@@ -550,322 +1025,19 @@ export function AdminCustomerDetailsRoute() {
         </Card>
       ) : null}
 
-      <Section
-        title="Customer"
-        description="The durable party. This identity, its Agency membership, and its Licensed States do not change when access is replaced."
-      >
-        <Card>
-          <Stack gap={4}>
-            <Cluster justify="space-between" align="flex-start">
-              <Heading level={3}>{customer.slug}</Heading>
-              <StatusBadge tone={customer.status.tone}>
-                {customer.status.label}
-              </StatusBadge>
-            </Cluster>
-            <Text size="sm" tone="muted">
-              {customer.status.description}
-            </Text>
-            <dl className="admin-customer-details__facts">
-              <Fact label="Agency">
-                {customer.agency_id === null || !customer.agency
-                  ? "No Agency"
-                  : customer.agency}
-              </Fact>
-              <Fact label="Licensed States">
-                {customer.licensed_states.length
-                  ? customer.licensed_states.join(", ")
-                  : "None yet"}
-              </Fact>
-              <Fact label="Last activity">
-                {formatAdminDate(customer.last_activity_at)}
-              </Fact>
-            </dl>
-            <div>
-              <RenameCustomerAction
-                customer={customer}
-                onChanged={() => revalidator.revalidate()}
-              />
-            </div>
-          </Stack>
-        </Card>
-      </Section>
+      {data.summary ? <CustomerNumbers summary={data.summary} /> : null}
 
-      <Section
-        title="Agency assignment"
-        description="Current membership can change. Every no-repeat history joined by an assignment remains merged permanently."
-      >
-        <Card>
-          <Stack gap={4} align="flex-start">
-            <Text>
-              Current Agency:{" "}
-              <strong>
-                {customer.agency_id === null || !customer.agency
-                  ? "No Agency"
-                  : customer.agency}
-              </strong>
-            </Text>
-            <Text size="sm" tone="muted">
-              Previewing shows the inventory and no-repeat consequence in both
-              directions before anything changes.
-            </Text>
-            <Button variant="primary" onClick={() => open("assignment")}>
-              {customer.agency_id === null
-                ? "Assign to Agency"
-                : "Change Agency assignment"}
-            </Button>
-          </Stack>
-        </Card>
-      </Section>
+      <Tabs
+        label="Customer sections"
+        current={tab}
+        items={CUSTOMER_TABS.map((item) => ({
+          key: item.key,
+          label: item.label,
+          href: customerTabHref(customer.id, item.key),
+        }))}
+      />
 
-      {data.billing ? (
-        <CustomerBillingSection
-          billing={data.billing}
-          customerId={customer.id}
-          onChanged={() => revalidator.revalidate()}
-        />
-      ) : null}
-
-      {data.cooldown ? (
-        <CustomerCooldownSection
-          cooldown={data.cooldown}
-          customerId={customer.id}
-          onChanged={() => revalidator.revalidate()}
-        />
-      ) : null}
-
-      {data.availability ? (
-        <CustomerAvailabilitySection
-          availability={data.availability}
-          customerId={customer.id}
-          onChanged={() => revalidator.revalidate()}
-        />
-      ) : null}
-
-      {data.nichePolicy ? (
-        <CustomerNichePolicySection
-          policy={data.nichePolicy}
-          customerId={customer.id}
-          onChanged={() => revalidator.revalidate()}
-        />
-      ) : null}
-
-      {data.exclusionLists ? (
-        <CustomerExclusionLists items={data.exclusionLists} />
-      ) : null}
-
-      <Section
-        title="Permanent history"
-        description="Everything this Customer has ever been sent. Replacing a User Account never resets any of it."
-      >
-        <Grid minColumnWidth="10rem">
-          <Card>
-            <Stack gap={1} align="flex-start">
-              <LabelText>Batch Requests</LabelText>
-              <Text size="lg" weight="bold">
-                {history.requests.toLocaleString()}
-              </Text>
-            </Stack>
-          </Card>
-          <Card>
-            <Stack gap={1} align="flex-start">
-              <LabelText>Distributions</LabelText>
-              <Text size="lg" weight="bold">
-                {history.distributions.toLocaleString()}
-              </Text>
-            </Stack>
-          </Card>
-          <Card>
-            <Stack gap={1} align="flex-start">
-              <LabelText>Lead Outcomes</LabelText>
-              <Text size="lg" weight="bold">
-                {history.outcomes.toLocaleString()}
-              </Text>
-            </Stack>
-          </Card>
-          <Card>
-            <Stack gap={1} align="flex-start">
-              <LabelText>Lead Reports</LabelText>
-              <Text size="lg" weight="bold">
-                {history.reports.toLocaleString()}
-              </Text>
-            </Stack>
-          </Card>
-          <Card>
-            <Stack gap={1} align="flex-start">
-              <LabelText>First delivered</LabelText>
-              <Text weight="semibold">
-                {formatAdminDate(history.first_delivered_at)}
-              </Text>
-            </Stack>
-          </Card>
-          <Card>
-            <Stack gap={1} align="flex-start">
-              <LabelText>Last delivered</LabelText>
-              <Text weight="semibold">
-                {formatAdminDate(history.last_delivered_at)}
-              </Text>
-            </Stack>
-          </Card>
-        </Grid>
-      </Section>
-
-      <Section
-        title="User Account"
-        description="Replaceable authentication, and nothing more. Administrators provision access by invitation and never set or see a password."
-      >
-        <Stack gap={4}>
-          {data.user_account ? (
-            <AccountCard account={data.user_account} />
-          ) : (
-            <EmptyState
-              title="No User Account yet"
-              description="Nobody can sign in for this Customer. Invite one — the Customer and its history already exist."
-              action={
-                <Button variant="primary" onClick={() => open("account")}>
-                  Invite User Account
-                </Button>
-              }
-            />
-          )}
-
-          {data.invitation ? (
-            <Card
-              as="article"
-              className="admin-customer-details__pending"
-              aria-label="Pending invitation"
-            >
-              <Stack gap={3}>
-                <Cluster justify="space-between" align="flex-start">
-                  <Heading level={3} size="sm">
-                    Invitation pending
-                  </Heading>
-                  <StatusBadge tone={data.invitation.status.tone}>
-                    {data.invitation.status.label}
-                  </StatusBadge>
-                </Cluster>
-                <Text>
-                  {data.invitation.email} was invited on{" "}
-                  {formatAdminDate(data.invitation.invited_at)}.
-                </Text>
-                <Text weight="semibold">
-                  {replacing
-                    ? "Nothing has been replaced yet. The current User Account stays active until this invitation is accepted."
-                    : "No User Account is active until this invitation is accepted."}
-                </Text>
-                <div>
-                  <Button onClick={() => open("cancel")}>
-                    Cancel invitation
-                  </Button>
-                </div>
-              </Stack>
-            </Card>
-          ) : null}
-          {data.user_account && !data.invitation ? (
-            <Cluster gap={3}>
-              <Button variant="primary" onClick={() => open("account")}>
-                Replace User Account
-              </Button>
-              <SendPasswordResetAction
-                account={data.user_account}
-                onChanged={() => revalidator.revalidate()}
-              />
-            </Cluster>
-          ) : null}
-        </Stack>
-      </Section>
-
-      <Section
-        title="Former User Accounts"
-        description="Access that has already been replaced. The Customer, its Agency, and its history above survived every one of them."
-      >
-        {data.former_accounts.length ? (
-          <Stack as="ul" gap={3} className="admin-customer-details__list">
-            {data.former_accounts.map((account) => (
-              <li key={account.auth_user_id}>
-                <Card>
-                  <Cluster justify="space-between" align="flex-start">
-                    <Text weight="semibold">{account.email}</Text>
-                    <Text size="sm" tone="muted">
-                      Replaced {formatAdminDate(account.replaced_at)}
-                    </Text>
-                  </Cluster>
-                </Card>
-              </li>
-            ))}
-          </Stack>
-        ) : (
-          <EmptyState
-            title="No former User Accounts"
-            description="Access for this Customer has never been replaced."
-          />
-        )}
-      </Section>
-
-      <Section
-        title="Activity"
-        description="What administrators have done to this Customer and its access."
-      >
-        <ActivityTimeline
-          activity={data.activityTimeline}
-          emptyDescription="No administrator has changed this Customer yet."
-        />
-      </Section>
-
-      <Section
-        title="Lifecycle"
-        description="These act on the durable Customer, not on its access."
-      >
-        <Card>
-          <Stack gap={4}>
-            {deletion.tombstoned ? (
-              <Text>
-                Personal data for this Customer has been erased. The record
-                remains as a tombstone so the permanent history above stays
-                intact.
-              </Text>
-            ) : null}
-            <Text size="sm" tone="muted">
-              {customer.active
-                ? "Deactivating stops all access and new work. Every record above is kept."
-                : "This Customer is deactivated. Reactivating restores access and new work."}
-            </Text>
-            {deletion.requires_deactivation ? (
-              <Text size="sm" tone="warning">
-                Deletion and erasure need the Customer deactivated first.
-              </Text>
-            ) : null}
-            {!deletion.can_hard_delete && !deletion.requires_deactivation ? (
-              <Stack gap={2} align="flex-start">
-                <Text size="sm" tone="warning">
-                  Permanent deletion is blocked while these records exist. Only
-                  the history-preserving removal is available.
-                </Text>
-                <Dependencies counts={deletion.dependencies} />
-              </Stack>
-            ) : null}
-            <Cluster gap={3}>
-              <CustomerLifecycleAction
-                customer={customer}
-                onChanged={() => revalidator.revalidate()}
-              />
-              <Button
-                variant="danger"
-                onClick={() => open("delete")}
-                disabled={deletion.requires_deactivation}
-              >
-                Delete Customer
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => open("erase")}
-                disabled={deletion.requires_deactivation || deletion.tombstoned}
-              >
-                Erase personal data
-              </Button>
-            </Cluster>
-          </Stack>
-        </Card>
-      </Section>
+      {content}
 
       <Dialog
         open={dialog === "assignment"}
@@ -917,28 +1089,41 @@ export function AdminCustomerDetailsRoute() {
                     ? `Moving to ${assignmentPreview.destination.name}`
                     : "Removing current membership"}
                 </Text>
-                <dl className="admin-customer-details__facts">
-                  <Fact label="Eligible inventory before">
-                    {assignmentPreview.inventory.eligibleBefore.toLocaleString()}
-                  </Fact>
-                  <Fact label="Eligible inventory after">
-                    {assignmentPreview.inventory.eligibleAfter.toLocaleString()}
-                  </Fact>
-                  <Fact label="Customer history newly blocked for destination">
-                    {assignmentPreview.consequences.customerHistoryBlockedForDestination.toLocaleString()}
-                  </Fact>
-                  <Fact label="Destination history newly blocked for Customer">
-                    {assignmentPreview.consequences.destinationHistoryBlockedForCustomer.toLocaleString()}
-                  </Fact>
-                  <Fact label="Customers in merged history">
-                    {assignmentPreview.sharedHistory.customersAfter.toLocaleString()}
-                  </Fact>
-                  <Fact label="Agencies in merged history">
-                    {assignmentPreview.sharedHistory.agenciesAfter.toLocaleString()}
-                  </Fact>
-                </dl>
+                <FactList
+                  label="Permanent consequence"
+                  items={[
+                    {
+                      term: "Eligible inventory before",
+                      description: formatCount(assignmentPreview.inventory.eligibleBefore),
+                    },
+                    {
+                      term: "Eligible inventory after",
+                      description: formatCount(assignmentPreview.inventory.eligibleAfter),
+                    },
+                    {
+                      term: "Customer history newly blocked for destination",
+                      description: formatCount(
+                        assignmentPreview.consequences.customerHistoryBlockedForDestination,
+                      ),
+                    },
+                    {
+                      term: "Destination history newly blocked for Customer",
+                      description: formatCount(
+                        assignmentPreview.consequences.destinationHistoryBlockedForCustomer,
+                      ),
+                    },
+                    {
+                      term: "Customers in merged history",
+                      description: formatCount(assignmentPreview.sharedHistory.customersAfter),
+                    },
+                    {
+                      term: "Agencies in merged history",
+                      description: formatCount(assignmentPreview.sharedHistory.agenciesAfter),
+                    },
+                  ]}
+                />
                 {assignmentPreview.consequences.historyMergeIsPermanent ? (
-                  <Text tone="warning" weight="semibold">
+                  <Text weight="semibold">
                     This history merge is permanent. Moving the Customer again
                     will not split it.
                   </Text>

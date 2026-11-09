@@ -40,6 +40,19 @@
   max-width: var(--jx-content-max);
 }
 
+.jx-page--wide {
+  max-width: var(--jx-data-max);
+}
+
+/* One line at desktop widths (V1). */
+.jx-page--wide .jx-page__description {
+  max-width: none;
+}
+
+.jx-page--wide .jx-page__actions {
+  align-items: center;
+}
+
 .jx-page__header {
   display: flex;
   flex-direction: column;

@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from "react-router";
+import { createBrowserRouter, Navigate, redirect } from "react-router";
 import { AdminShell } from "./shells/AdminShell";
 import { MFAShell } from "./shells/MFAShell";
 import { CustomerShell } from "./shells/CustomerShell";
@@ -6,15 +6,22 @@ import { ManagedAdminShell } from "./shells/ManagedAdminShell";
 import { managerAccessLoader } from "./auth/managedAdmin";
 import { RouteError } from "./routes/RouteError";
 import { adminAccessLoader, adminMFAStatusLoader } from "./auth/adminMFA";
-import { customerAccessLoader, invitationLoader, signInLoader } from "./auth/customerAuth";
+import { customerAccessLoader, invitationLoader, passwordResetLoader, signInLoader } from "./auth/customerAuth";
 import { lazyPage } from "./routeModules";
 import { scraperOverviewLoader } from "./routes/scraperMonitoring";
 import { scraperKeywordsLoader } from "./routes/scraperKeywordApi";
 import { scraperCampaignHistoryLoader, scraperRuntimeLoader } from "./routes/scraperRuntimeApi";
 import { scraperDatabaseLoader, scraperDatabaseStateLoader } from "./routes/scraperDatabaseData";
 import { stateCoverageDetailLoader, stateCoverageLoader } from "./routes/scraperCoverageData";
-import { batchRequestsLoader } from "./routes/batchRequests";
+import {
+  batchesLoader,
+  batchLoader,
+  feedbackRedirectLoader,
+  newRequestLoader,
+  requestsRedirectLoader,
+} from "./routes/batchRequests";
 import { customerAccountLoader } from "./routes/licensedStates";
+import { customerShouldRevalidate, overviewRedirectLoader } from "./customer/home";
 
 /**
  * Route table for the redesigned application.
@@ -35,7 +42,7 @@ export const router = createBrowserRouter(
       path: "/",
       errorElement: <RouteError />,
       children: [
-        { index: true, element: <Navigate to="/overview" replace /> },
+        { index: true, element: <Navigate to="/home" replace /> },
         {
           path: "sign-in",
           loader: signInLoader,
@@ -61,31 +68,57 @@ export const router = createBrowserRouter(
             return { Component: AcceptInvitationRoute };
           },
         },
+        {
+          path: "reset-password",
+          loader: passwordResetLoader,
+          lazy: async () => {
+            const { ResetPasswordRoute } = await import("./routes/CustomerAuth");
+            return { Component: ResetPasswordRoute };
+          },
+        },
 
-        // Customer portal — Overview, Requests, Feedback, Account.
+        // Overview became Home; old links (emails, bookmarks) still land.
+        { path: "overview", loader: overviewRedirectLoader },
+
+        // Customer portal — Home, New request, Batches, Account.
         {
           id: "customer",
           element: <CustomerShell />,
           loader: customerAccessLoader,
+          // Home renders this loader's data, so it is read again on arrival.
+          shouldRevalidate: customerShouldRevalidate,
           children: [
             {
-              path: "overview",
-              lazy: lazyPage("CustomerOverview", "CustomerOverviewRoute"),
+              path: "home",
+              lazy: lazyPage("CustomerHome", "CustomerHomeRoute"),
             },
             {
-              path: "requests",
-              loader: batchRequestsLoader,
-              lazy: lazyPage("CustomerRequests", "CustomerRequestsRoute"),
-            },
-            // #53 replaced the placeholder with the guided flow. The loader
-            // reads the Lead Disposition catalog, whose consequence copy is
-            // derived from the rule that materializes the controls.
-            {
-              path: "feedback",
-              lazy: lazyPage("CustomerFeedback", "CustomerFeedbackRoute", "feedbackLoader"),
+              path: "new-request",
+              loader: newRequestLoader,
+              lazy: lazyPage("CustomerNewRequest", "CustomerNewRequestRoute"),
             },
             {
-              path: "account",
+              path: "batches",
+              loader: batchesLoader,
+              lazy: lazyPage("CustomerBatches", "CustomerBatchesRoute"),
+            },
+            // A batch is named by its number ("/batches/1042"); the page also
+            // accepts the UUID older emails carry.
+            {
+              path: "batches/:batchId",
+              loader: batchLoader,
+              lazy: lazyPage("CustomerBatches", "CustomerBatchRoute"),
+            },
+            // /requests held the request form and the history until C3 gave
+            // them pages of their own. Emailed request links still land.
+            { path: "requests", loader: requestsRedirectLoader },
+            // Feedback left the portal: "Report a bad lead" lives on each
+            // batch page.
+            { path: "feedback", loader: feedbackRedirectLoader },
+            {
+              // Account's tabs live in the URL: /account is Profile, and
+              // /account/states, /billing, /exclusion-lists, /password.
+              path: "account/:tab?",
               loader: customerAccountLoader,
               lazy: lazyPage("CustomerAccount", "CustomerAccountRoute"),
             },
@@ -135,22 +168,33 @@ export const router = createBrowserRouter(
           element: <AdminShell />,
           loader: adminAccessLoader,
           children: [
-            { index: true, element: <Navigate to="/admin/overview" replace /> },
+            { index: true, element: <Navigate to="/admin/today" replace /> },
+            // A2 replaced the Overview with Today. The old address keeps
+            // working for bookmarks and anything that still links to it.
+            { path: "overview", element: <Navigate to="/admin/today" replace /> },
             {
-              path: "overview",
-              lazy: lazyPage("AdminDestinations", "AdminDestinationRoute", "adminOverviewLoader"),
+              path: "today",
+              lazy: lazyPage("AdminToday", "AdminTodayRoute", "adminTodayLoader"),
             },
-            // #57 replaced the Fulfillment task map with the real workspace.
-            // Its loaders read one aggregate contract, and every action the
-            // screens render is projected by the backend rather than derived
-            // here, so the UI cannot offer what the domain refuses.
+            // A Batch is named by its number ("/admin/batches/1042"); the
+            // Batch page also accepts the UUID older links carry.
             {
-              path: "fulfillment",
-              lazy: lazyPage("AdminFulfillment", "AdminFulfillmentRoute", "fulfillmentLoader"),
+              path: "batches",
+              lazy: lazyPage("AdminBatches", "AdminBatchesRoute", "adminBatchesLoader"),
             },
+            {
+              path: "batches/:batchId",
+              lazy: lazyPage("AdminBatches", "AdminBatchRoute", "adminBatchLoader"),
+            },
+            // A4 emptied the Fulfillment workspace: its queues live on Today
+            // and All batches, its suppressed Leads and pool analytics on
+            // Inventory. Telegram, email, and bookmark links still land.
+            { path: "fulfillment", element: <Navigate to="/admin/batches" replace /> },
+            // The Batch page replaced the Fulfillment request detail. Telegram,
+            // email, and Activity links to the old address still land.
             {
               path: "fulfillment/requests/:requestId",
-              lazy: lazyPage("AdminFulfillment", "AdminFulfillmentRequestRoute", "fulfillmentRequestLoader"),
+              loader: ({ params }) => redirect(`/admin/batches/${params.requestId ?? ""}`),
             },
             {
               path: "fulfillment/conflicts/:conflictId",
@@ -163,13 +207,35 @@ export const router = createBrowserRouter(
               path: "fulfillment/reports/:reportId",
               lazy: lazyPage("AdminLeadReport", "AdminLeadReportRoute", "adminLeadReportLoader"),
             },
-            // #68 replaced the Acquisition task map with the native
-            // terminal-themed workspace. Its decisions post back to the
-            // endpoints that already own them, so the screen never becomes a
-            // second path to change acquisition.
+            // A5: Insights is the weekly review — money, deliveries, Customer
+            // trends, Source Performance, and the Nightly Review history.
+            {
+              path: "insights",
+              lazy: lazyPage("AdminInsights", "AdminInsightsRoute", "adminInsightsLoader"),
+            },
+            {
+              path: "insights/sources",
+              lazy: lazyPage("AdminSourcePerformance", "AdminSourcePerformanceRoute", "sourcePerformanceLoader"),
+            },
+            // Setup indexes the occasional tools. Acquisition's remaining
+            // pieces live under it; its decisions are on Today.
+            {
+              path: "setup",
+              lazy: lazyPage("AdminSetup", "AdminSetupRoute", "adminSetupLoader"),
+            },
+            {
+              path: "setup/configurations",
+              lazy: lazyPage("AdminAcquisition", "AdminConfigurationsRoute", "configurationsLoader"),
+            },
+            {
+              path: "setup/niche-mappings",
+              lazy: lazyPage("AdminAcquisition", "AdminNicheMappingsRoute", "nicheMappingsLoader"),
+            },
+            // The Acquisition page moved into Setup, Insights, and Today.
+            // Telegram reviews and older links still land, by their anchor.
             {
               path: "acquisition",
-              lazy: lazyPage("AdminAcquisition", "AdminAcquisitionRoute", "acquisitionLoader"),
+              lazy: lazyPage("AdminSetup", "AcquisitionMovedRoute"),
             },
             {
               path: "acquisition/configurations/:configurationId",
@@ -179,13 +245,11 @@ export const router = createBrowserRouter(
               path: "acquisition/runs/:runId",
               lazy: lazyPage("AdminAcquisitionDetails", "ScrapeRunDetailsRoute", "scrapeRunDetailsLoader"),
             },
-            // #173 A1 restored Source Performance as its own destination —
-            // the descriptive nightly evidence Acquisition's optimizer reads,
-            // without re-porting the Niche mappings or Source Recommendation
-            // decisions that already live there.
+            // Source Performance moved under Insights; filters carry over.
             {
               path: "acquisition/performance",
-              lazy: lazyPage("AdminSourcePerformance", "AdminSourcePerformanceRoute", "sourcePerformanceLoader"),
+              loader: ({ request }) =>
+                redirect(`/admin/insights/sources${new URL(request.url).search}`),
             },
             {
               path: "acquisition/scraper",
@@ -236,24 +300,65 @@ export const router = createBrowserRouter(
             },
             {
               path: "customers",
-              lazy: lazyPage("AdminCustomers", "AdminCustomersRoute", "adminCustomerDirectoryLoader"),
+              lazy: lazyPage(
+                "AdminCustomers",
+                "AdminCustomersRoute",
+                "adminCustomerDirectoryLoader",
+                "adminCustomerDirectoryShouldRevalidate",
+              ),
             },
             {
               path: "activity",
               lazy: lazyPage("AdminActivity", "AdminActivityRoute", "adminActivityLoader"),
             },
+            // A3: the Customer page's tabs are their own addresses
+            // ("/admin/customers/7/billing"); the bare address is Summary, so
+            // every link that already points at a Customer still lands.
             {
-              path: "customers/:customerId",
-              lazy: lazyPage("AdminCustomerDetails", "AdminCustomerDetailsRoute", "adminCustomerDetailsLoader"),
+              path: "customers/:customerId/:tab?",
+              lazy: lazyPage(
+                "AdminCustomerDetails",
+                "AdminCustomerDetailsRoute",
+                "adminCustomerDetailsLoader",
+                "adminCustomerDetailsShouldRevalidate",
+              ),
             },
             {
               path: "agencies",
               lazy: lazyPage("AdminAgencies", "AdminAgenciesRoute", "adminAgencyDirectoryLoader"),
             },
+            // Inventory (P4) and its occasional tools, each on its own page,
+            // with lead lookup (P5) beside them.
             {
-              path: "lead-uploads",
-              lazy: lazyPage("ManagedAdmin", "AdminLeadUploadsRoute", "adminLeadUploadsLoader"),
+              path: "inventory",
+              lazy: lazyPage("AdminInventory", "AdminInventoryRoute", "adminInventoryLoader"),
             },
+            {
+              path: "inventory/lookup",
+              lazy: lazyPage("AdminLeadLookup", "AdminLeadLookupRoute", "adminLeadLookupLoader"),
+            },
+            {
+              path: "inventory/uploads",
+              lazy: lazyPage("AdminInventoryUploads", "AdminInventoryUploadsRoute", "adminInventoryUploadsLoader"),
+            },
+            {
+              path: "inventory/exclusions",
+              lazy: lazyPage("AdminInventoryExclusions", "AdminInventoryExclusionsRoute", "adminInventoryExclusionsLoader"),
+            },
+            {
+              path: "inventory/suppressed",
+              lazy: lazyPage("AdminInventory", "AdminSuppressedLeadsRoute", "adminSuppressedLeadsLoader"),
+            },
+            {
+              path: "inventory/niche-assignment",
+              lazy: lazyPage("AdminInventory", "AdminNicheAssignmentRoute"),
+            },
+            {
+              path: "inventory/pool",
+              lazy: lazyPage("AdminInventory", "AdminPoolAnalyticsRoute", "adminPoolAnalyticsLoader"),
+            },
+            // DB2 uploads moved into Inventory; the old address still lands.
+            { path: "lead-uploads", element: <Navigate to="/admin/inventory/uploads" replace /> },
             {
               path: "agencies/:agencyId",
               lazy: lazyPage("AdminAgencies", "AdminAgencyDetailsRoute", "adminAgencyDetailsLoader"),

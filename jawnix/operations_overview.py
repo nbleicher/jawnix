@@ -23,6 +23,7 @@ from .acquisition import (
     workspace as acquisition_workspace,
 )
 from .fulfillment import OPEN_STATUSES, workspace as fulfillment_workspace
+from .operator_numbers import OperatorNumbers, operator_numbers
 from .models import (
     EligibilityHold,
     Job,
@@ -90,6 +91,9 @@ class OperationsOverview(ContractModel):
     generated_at: datetime = Field(alias="generatedAt")
     available_count: int = Field(alias="availableCount")
     degraded: bool
+    #: The headline numbers row. ``None`` only when reading them failed; the
+    #: queues below stay usable either way.
+    numbers: OperatorNumbers | None = None
     sources: list[OperationSource]
 
 
@@ -171,7 +175,7 @@ def read_fulfillment_source(db: Session) -> OperationSource:
             recorded_at=item["createdAt"],
             action=OperationAction(
                 label="Open Batch Request",
-                href=f"/app/admin/fulfillment/requests/{item['id']}",
+                href=f"/app/admin/batches/{item.get('number') or item['id']}",
             ),
         )
         for item in batch_requests[:OVERVIEW_ITEM_LIMIT]
@@ -277,7 +281,7 @@ def read_fulfillment_source(db: Session) -> OperationSource:
             recorded_at=item["createdAt"],
             action=OperationAction(
                 label="Recover Delivery",
-                href=f"/app/admin/fulfillment/requests/{item['id']}",
+                href=f"/app/admin/batches/{item.get('number') or item['id']}",
             ),
         )
         for item in delivery_failures[:OVERVIEW_ITEM_LIMIT]
@@ -408,7 +412,7 @@ def _job_destination(
     if job.request_id is not None:
         return OperationAction(
             label="Open Batch Request",
-            href=f"/app/admin/fulfillment/requests/{job.request_id}",
+            href=f"/app/admin/batches/{job.request_id}",
         )
     payload = job.payload or {}
     if failed_job_id := payload.get("failed_job_id"):
@@ -575,7 +579,7 @@ def read_jobs_source(db: Session) -> OperationSource:
             recorded_at=item.created_at,
             action=OperationAction(
                 label="Open Batch Request",
-                href=f"/app/admin/fulfillment/requests/{item.id}",
+                href=f"/app/admin/batches/{item.number}",
             ),
         )
         for item in unnotified
@@ -831,8 +835,15 @@ def operations_overview(db: Session) -> OperationsOverview:
                 workspace=workspace,
             )
         sources.append(source)
+    try:
+        with db.begin_nested():
+            numbers = operator_numbers(db)
+    except Exception:
+        log.exception("Operations overview numbers failed")
+        numbers = None
     return OperationsOverview(
         generated_at=datetime.now(timezone.utc),
+        numbers=numbers,
         available_count=sum(
             source.count or 0
             for source in sources

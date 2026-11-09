@@ -18,6 +18,7 @@ from jawnix.models import (
     Customer,
     DistributionEvent,
     Lead,
+    RequestStatus,
 )
 
 from conftest import make_request
@@ -440,9 +441,13 @@ def test_agency_directory_details_creation_and_lifecycle_contracts(
                 "name": "Harbor Customer",
                 "active": True,
                 "licensedStates": ["FL"],
+                "delivered30d": 0,
+                "openBatches": 0,
                 "href": f"/app/admin/customers/{customer.id}",
             }
         ]
+        assert row["delivered30d"] == 0
+        assert row["openBatches"] == 0
         assert row["sharedHistory"]["customers"] == 1
         assert directory.json()["independent"] == []
 
@@ -454,6 +459,8 @@ def test_agency_directory_details_creation_and_lifecycle_contracts(
                 "name": "Solo Customer",
                 "active": False,
                 "licensedStates": [],
+                "delivered30d": 0,
+                "openBatches": 0,
                 "href": f"/app/admin/customers/{independent.id}",
             }
         ]
@@ -497,6 +504,55 @@ def test_agency_directory_details_creation_and_lifecycle_contracts(
         )
         assert bypass.status_code == 409
         assert "preview" in bypass.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_agency_details_lists_membership_history_after_assignment(
+    session,
+    settings,
+):
+    """Regression: details raised NameError once any membership existed."""
+    agency = Agency(slug="harbor", name="Harbor Agency")
+    customer = Customer(
+        slug="harbor-customer",
+        name="Harbor Customer",
+        licensed_states=["FL"],
+    )
+    session.add_all([agency, customer])
+    session.commit()
+    client = _admin_client(session, settings)
+    try:
+        assigned = client.post(
+            f"/api/admin/customers/{customer.id}/agency-assignment",
+            json={
+                "agency_id": agency.id,
+                "reason": "Joining the Harbor servicing team.",
+                "confirmed": True,
+            },
+        )
+        assert assigned.status_code == 200
+        assert session.scalar(
+            select(AgencyMembershipHistory.id).where(
+                AgencyMembershipHistory.agency_id == agency.id
+            )
+        ) is not None
+
+        details = client.get(f"/api/admin/agencies/{agency.id}/details")
+        assert details.status_code == 200
+        history = details.json()["membershipHistory"]
+        assert len(history) == 1
+        assert history[0]["customerId"] == customer.id
+        assert history[0]["customer"] == "Harbor Customer"
+        assert history[0]["reason"] == "Joining the Harbor servicing team."
+        assert history[0]["endedAt"] is None
+        assert details.json()["deletion"]["dependencies"][
+            "membershipHistory"
+        ] == 1
+        assert any(
+            item["label"] == "Harbor Customer assigned"
+            for item in details.json()["activity"]
+        )
     finally:
         app.dependency_overrides.clear()
 
@@ -648,3 +704,52 @@ def test_assignment_preview_never_binds_history_lead_ids_as_parameters(
     }
     assert preview["sharedHistory"]["distributedLeadsAfter"] == 300
     assert max(parameter_counts) < 100
+
+
+def test_agency_directory_counts_recent_deliveries_and_open_batches(
+    session,
+    settings,
+):
+    """The Agencies table: members, leads delivered in 30 days, open Batches."""
+    agency = Agency(slug="gulf", name="Gulf Coast Agency")
+    first = Customer(slug="pinecrest", name="Pinecrest", agency=agency)
+    second = Customer(slug="harbor", name="Harbor", agency=agency)
+    solo = Customer(slug="solo", name="Solo")
+    session.add_all([agency, first, second, solo])
+    session.flush()
+    now = datetime.now(timezone.utc)
+
+    recent = make_request(session, first, 50_000)
+    recent.status = RequestStatus.delivered.value
+    recent.delivered_at = now - timedelta(days=3)
+    old = make_request(session, second, 25_000)
+    old.status = RequestStatus.delivered.value
+    old.delivered_at = now - timedelta(days=45)
+    make_request(session, second, 10_000).status = RequestStatus.pending.value
+    make_request(session, second, 5_000).status = (
+        RequestStatus.waiting_inventory.value
+    )
+    canceled = make_request(session, first, 1_000)
+    canceled.status = RequestStatus.canceled.value
+    make_request(session, solo, 7_000).status = RequestStatus.approved.value
+    session.commit()
+
+    client = _admin_client(session, settings)
+    try:
+        directory = client.get("/api/admin/agencies/directory").json()
+        row = directory["agencies"][0]
+        assert row["currentMembers"] == 2
+        assert row["delivered30d"] == 50_000
+        assert row["openBatches"] == 2
+        members = {member["name"]: member for member in row["members"]}
+        assert members["Pinecrest"]["delivered30d"] == 50_000
+        assert members["Pinecrest"]["openBatches"] == 0
+        assert members["Harbor"]["openBatches"] == 2
+        assert directory["independent"][0]["openBatches"] == 1
+
+        details = client.get(f"/api/admin/agencies/{agency.id}/details").json()
+        by_name = {member["name"]: member for member in details["members"]}
+        assert by_name["Pinecrest"]["delivered30d"] == 50_000
+        assert by_name["Harbor"]["openBatches"] == 2
+    finally:
+        app.dependency_overrides.clear()

@@ -21,7 +21,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from svix.webhooks import Webhook, WebhookVerificationError
 
-from .activity import ACTIVITY_PAGE_SIZE, query_activity, record_activity
+from .activity import (
+    ACTIVITY_PAGE_SIZE,
+    activity_filters,
+    query_activity,
+    record_activity,
+)
 from .agency_management import (
     AgencyAssignmentConflict,
     agency_details,
@@ -43,6 +48,7 @@ from .billing import (
     start_credit_purchase,
     wallet_view,
 )
+from .checkout_return import checkout_return_urls
 from .config import Settings, get_settings
 from .stripe_client import StripeClientError, get_stripe_client
 from .customer_accounts import (
@@ -58,15 +64,30 @@ from .customer_directory import (
     build_customer_directory,
     customer_dependency_counts,
 )
+from .customer_billing import CustomerBilling, build_customer_billing
+from .customer_record import (
+    LeadDatabaseChangeError,
+    change_lead_database,
+    customer_lead_reports,
+    customer_summary,
+    operator_wallet,
+)
 from .customer_history import archived_customer_matches, remember_customer_name, request_history_scope
-from .customer_registration import complete_registration, decide_registration, lock_registration_identity, registration_next, registration_status, set_registration_states
-from .customer_overview import build_customer_overview
+from .customer_registration import CUSTOMER_HOME_PATH, complete_registration, decide_registration, lock_registration_identity, registration_next, registration_status, set_registration_states
+from .customer_overview import CustomerHome, build_customer_home, parse_month_start
 from .customer_requests import (
     RequestSubmissionError,
     build_request_workspace,
     cancel_request as withdraw_request,
-    request_detail,
+    customer_batch,
+    find_customer_batch,
     submit_request,
+)
+from .batch_copies import (
+    ArtifactRebuildError,
+    NewCopyRefused,
+    rebuild_expired_artifact,
+    request_new_copy,
 )
 from .database import get_db
 from .eligibility import (
@@ -87,7 +108,14 @@ from .exclusions import (
     exclusion_list_status,
 )
 from .frontend import register_frontend_shell
+from .inventory import (
+    exclusion_lists_overview,
+    inventory_overview,
+    suppressed_leads_page,
+    usable_by_state_csv,
+)
 from .jobs import enqueue_job
+from .lead_lookup import lead_lookup
 from .licensed_states import (
     LicensedStateApplyResult,
     LicensedStateConflict,
@@ -152,7 +180,12 @@ from .models import (
     WebhookReceipt,
     utcnow,
 )
+from .batches import describe_batch, find_batch, list_batches
 from .operations_overview import OperationsOverview, operations_overview
+from .search import search as operator_search
+from .today import today as operator_today
+from .insights import operator_insights
+from .operator_setup import operator_setup
 from .mfa_provider import MFAProviderError, get_mfa_provider
 from .schemas import (
     RegistrationDecision,
@@ -164,6 +197,7 @@ from .schemas import (
     CreditAdjustmentCreate,
     CreditPurchaseCreate,
     CustomerBillingUpdate,
+    CustomerLeadDatabaseChange,
     CooldownWindowUpdate,
     LeadCorrectionApply,
     LeadReportCreate,
@@ -186,7 +220,6 @@ from .schemas import (
     ProfileOut,
     ProfileUpdate,
     CustomerMappingUpdate,
-    CustomerOverviewOut,
     CustomerRequestCreate,
     CustomerRequestDetail,
     CustomerRequestReceipt,
@@ -202,6 +235,7 @@ from .schemas import (
 )
 from .scraper_proxy import (
     accept_scraper_handoff,
+    clear_scraper_grant,
     clear_scraper_session,
     forward_scraper_request,
     native_router as native_scraper_router,
@@ -291,6 +325,91 @@ def admin_operations_overview(
     return operations_overview(db)
 
 
+@app.get("/api/admin/today")
+def admin_today(
+    delivered_since: datetime | None = Query(default=None, alias="deliveredSince"),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """The Today page in one read: numbers, last night, decisions, batches.
+
+    ``deliveredSince`` is the operator's local midnight, so "delivered today"
+    follows their day rather than the server's.
+    """
+    return operator_today(db, delivered_since=delivered_since)
+
+
+@app.get("/api/admin/insights")
+def admin_insights(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """The Insights page in one read: money, deliveries, reports, trends,
+    Source Performance, and the Nightly Review history."""
+    return operator_insights(db)
+
+
+@app.get("/api/admin/setup")
+def admin_setup(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """The Setup index: each occasional tool's state and last change."""
+    return operator_setup(db, settings)
+
+
+@app.get("/api/admin/search")
+def admin_search(
+    q: str = Query(default="", max_length=200),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Grouped matches for the header search box."""
+    return operator_search(db, q)
+
+
+@app.get("/api/admin/batches")
+def admin_batches(
+    q: str = Query(default="", max_length=200),
+    status: str = "open",
+    database: str = "",
+    needs_decision: bool = Query(default=False, alias="needsDecision"),
+    customer: int | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100, alias="pageSize"),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """All batches, filtered and paged, oldest open batch first.
+
+    ``customer`` narrows to one Customer's batches, for the Customer page.
+    """
+    return list_batches(
+        db,
+        q=q,
+        status=status,
+        database=database,
+        needs_decision=needs_decision,
+        customer_id=customer,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@app.get("/api/admin/batches/{reference}")
+def admin_batch_detail(
+    reference: str,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """One Batch by number, or by the UUID older links carry."""
+    item = find_batch(db, reference)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Batch was not found.")
+    return describe_batch(db, item)
+
+
 @app.get("/api/admin/activity")
 def admin_activity(
     q: str | None = None,
@@ -300,6 +419,8 @@ def admin_activity(
     entity_id: str | None = Query(default=None, alias="entityId"),
     date_from: date | None = Query(default=None, alias="dateFrom"),
     date_to: date | None = Query(default=None, alias="dateTo"),
+    who: str | None = Query(default=None, max_length=160),
+    refused: bool = False,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(
         default=ACTIVITY_PAGE_SIZE,
@@ -310,19 +431,28 @@ def admin_activity(
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Global administrator Activity, filtered and paginated on the server."""
-    return query_activity(
-        db,
-        actor=actor,
-        action=action,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        date_from=date_from,
-        date_to=date_to,
-        page=page,
-        page_size=page_size,
-        query=q,
-    )
+    """Global administrator Activity, filtered and paginated on the server.
+
+    ``filters`` carries the choices the page offers: every recorded record
+    type and everyone who has acted.
+    """
+    return {
+        **query_activity(
+            db,
+            actor=actor,
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            date_from=date_from,
+            date_to=date_to,
+            page=page,
+            page_size=page_size,
+            query=q,
+            who=who,
+            refused=refused,
+        ),
+        "filters": activity_filters(db),
+    }
 
 
 @app.get("/api/admin/activity/{entity_type}/{entity_id}")
@@ -545,7 +675,7 @@ async def create_session(
     if payload.requested_next == "/admin.html" and role != "admin":
         raise HTTPException(status_code=403, detail="Sign in with noah@jawnix.com to access administration.")
     session_kwargs: dict = {}
-    admin_next = "/app/manager/uploads" if role == "manager" else "/app/admin/overview"
+    admin_next = "/app/manager/uploads" if role == "manager" else "/app/admin/today"
     if role == "admin":
         state = db.get(AdminMFAState, uuid.UUID(str(user["id"])))
         if state is None:
@@ -696,9 +826,9 @@ async def create_session(
             and not requested.startswith("/app/admin/")
             and not requested.startswith("/app/manager/")
             and not requested.startswith("//")
-            else "/app/overview"
+            else CUSTOMER_HOME_PATH
         )
-        if registration is not None and registration_next(registration) != "/app/overview":
+        if registration is not None and registration_next(registration) != CUSTOMER_HOME_PATH:
             next_path = registration_next(registration)
     return {
         "ok": True,
@@ -718,7 +848,7 @@ def signup_options():
 def my_registration(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
     item = db.get(CustomerRegistration, principal.user_id)
     if item is None:
-        return {"status": "active", "next": administration_home(principal) if principal.role in {"admin", "manager"} else "/app/overview"}
+        return {"status": "active", "next": administration_home(principal) if principal.role in {"admin", "manager"} else CUSTOMER_HOME_PATH}
     return registration_status(item)
 
 
@@ -758,7 +888,7 @@ def authentication_destination(principal: Principal = Depends(require_principal)
     registration = db.get(CustomerRegistration, principal.user_id)
     if principal.role == "customer" and registration is not None:
         return {"next": registration_next(registration)}
-    return {"next": administration_home(principal) if principal.role in {"admin", "manager"} else "/app/overview"}
+    return {"next": administration_home(principal) if principal.role in {"admin", "manager"} else CUSTOMER_HOME_PATH}
 
 
 @app.post("/api/auth/logout")
@@ -768,6 +898,8 @@ def logout(
     settings: Settings = Depends(get_settings),
 ):
     clear_session(response, settings)
+    # The Scraper Privileged Session belongs to this sign-in and ends with it.
+    clear_scraper_grant(response, settings)
     return {"ok": True}
 
 
@@ -999,6 +1131,16 @@ def upload_admin_exclusion_list(
     return exclusion_list_status(item, db)
 
 
+@app.get("/api/admin/exclusion-lists")
+def admin_exclusion_lists(
+    page: int = Query(default=1, ge=1),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Lists waiting for a global decision, then every list, newest first."""
+    return exclusion_lists_overview(db, page=page)
+
+
 @app.get("/api/admin/exclusion-lists/{exclusion_list_id}")
 def admin_exclusion_list_status(
     exclusion_list_id: uuid.UUID,
@@ -1070,6 +1212,26 @@ def get_my_billing(
     return wallet_view(db, profile.customer)
 
 
+@app.get("/api/me/billing/summary", response_model=CustomerBilling)
+def get_my_billing_summary(
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    """Account's Billing tab: balance, held, rate, spending, and history."""
+    profile = _current_customer_profile(db, principal)
+    summary = (
+        build_customer_billing(db, profile.customer)
+        if profile.customer is not None
+        else None
+    )
+    if summary is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Billing is not set up for this account.",
+        )
+    return summary
+
+
 @app.post("/api/me/billing/purchases", status_code=201)
 def create_credit_purchase(
     payload: CreditPurchaseCreate,
@@ -1084,7 +1246,9 @@ def create_credit_purchase(
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer was not found.")
     stripe = get_stripe_client(settings)
-    base = settings.public_base_url.rstrip("/")
+    success_url, cancel_url = checkout_return_urls(
+        settings.public_base_url, payload.return_to
+    )
     try:
         purchase, checkout_url = start_credit_purchase(
             db,
@@ -1092,8 +1256,8 @@ def create_credit_purchase(
             amount_dollars=payload.amount_dollars,
             customer_email=profile.email,
             stripe=stripe,
-            success_url=f"{base}/app/account?purchase=success",
-            cancel_url=f"{base}/app/account?purchase=cancelled",
+            success_url=success_url,
+            cancel_url=cancel_url,
         )
     except BillingError as exc:
         raise HTTPException(
@@ -1272,20 +1436,29 @@ def apply_licensed_state_changes(
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
-@app.get("/api/me/overview", response_model=CustomerOverviewOut)
-def get_customer_overview(
+@app.get("/api/me/overview", response_model=CustomerHome)
+def get_customer_home(
+    month_start: str | None = Query(default=None, max_length=64),
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
-    return build_customer_overview(
+    """The Customer's Home in one read, and the Customer shell's access check.
+
+    ``month_start`` is the start of the browser's local month, so "this month"
+    follows the Customer's calendar; without it the UTC month applies.
+    """
+
+    return build_customer_home(
         db,
         user_id=principal.user_id,
         profile=_current_customer_profile(db, principal),
+        month_start=parse_month_start(month_start),
     )
 
 
 @app.get("/api/me/batch-requests", response_model=CustomerRequestWorkspaceOut)
 def get_batch_request_workspace(
+    page: int = Query(default=1, ge=1, le=100_000),
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
@@ -1295,6 +1468,7 @@ def get_batch_request_workspace(
         db,
         user_id=principal.user_id,
         profile=_current_customer_profile(db, principal),
+        page=page,
     )
 
 
@@ -1316,17 +1490,60 @@ def customer_batch_request_events(
     return StreamingResponse(request_events(request, scope, authorize), media_type="text/event-stream", headers={"Cache-Control":"private, no-store", "X-Accel-Buffering":"no"})
 
 
-@app.get("/api/me/batch-requests/{request_id}", response_model=CustomerRequestDetail)
+@app.get("/api/me/batch-requests/{reference}", response_model=CustomerRequestDetail)
 def customer_batch_request_detail(
-    request_id: uuid.UUID,
+    reference: str,
     principal: Principal = Depends(require_principal),
     db: Session = Depends(get_db),
 ):
+    """One batch by number ("1042") or by the UUID older links carry."""
+
     profile = _current_customer_profile(db, principal)
-    item = db.scalar(select(LeadRequest).where(LeadRequest.id == request_id, request_history_scope(profile, principal.user_id)))
+    item = find_customer_batch(
+        db, reference, request_history_scope(profile, principal.user_id)
+    )
     if item is None:
         raise HTTPException(status_code=404, detail="Request was not found.")
-    return request_detail(item)
+    return customer_batch(db, item, with_states=True)
+
+
+@app.post(
+    "/api/me/batch-requests/{request_id}/new-copy",
+    response_model=CustomerRequestDetail,
+    status_code=202,
+)
+def request_batch_new_copy(
+    request_id: uuid.UUID,
+    response: Response,
+    principal: Principal = Depends(require_principal),
+    db: Session = Depends(get_db),
+):
+    """Ask for a new copy of an expired batch file.
+
+    The same leads, rebuilt byte for byte by the worker and emailed when
+    ready. Asking again while a copy is on the way answers 200 with it.
+    """
+
+    if principal.role != "customer" or principal.audience != "customer":
+        raise HTTPException(status_code=403, detail="Customer access required.")
+    profile = _current_customer_profile(db, principal)
+    item = find_customer_batch(
+        db,
+        str(request_id),
+        request_history_scope(profile, principal.user_id),
+        for_update=True,
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="Request was not found.")
+    try:
+        _, created = request_new_copy(db, item=item, actor_id=principal.user_id)
+    except NewCopyRefused as exc:
+        db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
+    db.commit()
+    if not created:
+        response.status_code = 200
+    return customer_batch(db, item, with_states=True)
 
 
 @app.post(
@@ -1364,7 +1581,7 @@ def submit_batch_request(
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     if not created:
         response.status_code = 200
-    return CustomerRequestReceipt(created=created, request=request_detail(item))
+    return CustomerRequestReceipt(created=created, request=customer_batch(db, item))
 
 
 @app.post(
@@ -1389,7 +1606,7 @@ def cancel_batch_request(
         )
     except RequestSubmissionError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
-    return request_detail(item)
+    return customer_batch(db, item)
 
 
 @app.get("/api/me/batch-requests/{request_id}/artifact")
@@ -1418,7 +1635,7 @@ def download_batch_artifact(
     if not artifact_available(artifact):
         raise HTTPException(
             status_code=410,
-            detail="Batch Artifact has expired. Contact Jawnix to regenerate it.",
+            detail="This file has expired. Get a new copy from the batch page.",
         )
 
     download_filename = artifact_download_filename(artifact)
@@ -1497,8 +1714,8 @@ def update_profile(
         raise HTTPException(
             status_code=409,
             detail=(
-                "Licensed State changes require an impact review. "
-                "Use Account to review and confirm them."
+                "Appointed state changes need a review. "
+                "Change them on Account."
             ),
         )
 
@@ -1574,6 +1791,11 @@ def lookup_feedback(
         .where(
             DistributionEvent.agent_id == profile.customer_id,
             DistributionEvent.phone == phone,
+            *(
+                [DistributionEvent.request_id == payload.request_id]
+                if payload.request_id is not None
+                else []
+            ),
         )
         .order_by(
             DistributionEvent.delivered_at.desc(),
@@ -1635,6 +1857,11 @@ def search_feedback(
                 LeadRequest.agent_id == profile.customer_id,
                 LeadRequest.status == RequestStatus.delivered.value,
                 or_(*conditions),
+                *(
+                    [LeadRequest.id == payload.request_id]
+                    if payload.request_id is not None
+                    else []
+                ),
             )
             .order_by(
                 DistributionEvent.delivered_at.desc(),
@@ -2562,6 +2789,7 @@ def cancel_request(
 def _request_dict(item: LeadRequest) -> dict:
     return {
         "id": str(item.id),
+        "number": item.number,
         "userId": str(item.user_id),
         "customer": " ".join(part for part in (item.profile.first_name, item.profile.last_name) if part).strip() or item.profile.email,
         "email": item.delivery_email,
@@ -2811,14 +3039,17 @@ def _configuration_dict(item: ScraperConfiguration) -> dict:
 @app.get("/api/admin/customers/directory", response_model=CustomerDirectoryOut)
 def admin_customer_directory(
     q: str = "",
-    status: str = "all",
+    status: str = "active",
     agency_id: int | None = None,
     state: str = "",
     problems_only: bool = False,
+    database: str = "",
+    billing: str = "",
+    needs_only: bool = False,
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Search Customers instead of navigating down the Agency hierarchy."""
+    """The Customers table: every match, the ones that need something first."""
     return build_customer_directory(
         db,
         query=q,
@@ -2826,6 +3057,9 @@ def admin_customer_directory(
         agency_id=agency_id,
         state=state,
         problems_only=problems_only,
+        database=database,
+        billing=billing,
+        needs_only=needs_only,
     )
 
 
@@ -2996,6 +3230,55 @@ def _allocation_customer(db: Session, customer_id: int) -> Customer:
     return customer
 
 
+@app.get("/api/admin/customers/{customer_id}/summary")
+def admin_customer_summary(
+    customer_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """The Customer page's numbers row and Needs list, in the table's terms."""
+    return customer_summary(db, _allocation_customer(db, customer_id))
+
+
+@app.get("/api/admin/customers/{customer_id}/lead-reports")
+def admin_customer_lead_reports(
+    customer_id: int,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Every Lead Report this Customer filed, newest first."""
+    return customer_lead_reports(db, _allocation_customer(db, customer_id))
+
+
+@app.put("/api/admin/customers/{customer_id}/lead-database")
+def admin_customer_lead_database(
+    customer_id: int,
+    payload: CustomerLeadDatabaseChange,
+    principal: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Point a Customer's future allocations at DB1 or DB2, with a reason."""
+    customer = db.scalar(
+        select(Customer)
+        .where(Customer.id == customer_id, Customer.deleted_at.is_(None))
+        .with_for_update()
+    )
+    if customer is None:
+        raise HTTPException(status_code=404, detail="Customer was not found.")
+    try:
+        changed = change_lead_database(
+            db,
+            customer=customer,
+            database=payload.lead_database,
+            actor_id=principal.user_id,
+            reason=payload.reason,
+        )
+    except LeadDatabaseChangeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    db.commit()
+    return {"customerId": customer.id, "leadDatabase": customer.lead_database, "changed": changed}
+
+
 @app.get("/api/admin/customers/{customer_id}/cooldown-window")
 def get_cooldown_window(
     customer_id: int,
@@ -3104,11 +3387,91 @@ def refresh_pool_breakdown_endpoint(
     _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    from .pool_analytics import refresh_pool_breakdown
+    """Queue the background recount; the response is the current snapshot.
 
-    payload = refresh_pool_breakdown(db)
+    The breakdown spans all of DB1, so it is never counted in a request.
+    """
+    from .inventory_snapshots import enqueue_inventory_refresh
+    from .pool_analytics import read_pool_breakdown
+
+    job = enqueue_inventory_refresh(db, reason="manual")
     db.commit()
-    return payload
+    return {**read_pool_breakdown(db), "refreshQueued": True, "jobId": job.id}
+
+
+@app.get("/api/admin/inventory-snapshots")
+def get_inventory_snapshots(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Latest usable DB1 and DB2 totals with their as-of times."""
+    from .inventory_snapshots import read_inventory_snapshots
+
+    return read_inventory_snapshots(db)
+
+
+@app.post("/api/admin/inventory-snapshots/refresh", status_code=202)
+def refresh_inventory_snapshots_endpoint(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Queue one background recount, reusing a refresh not yet started."""
+    from .inventory_snapshots import (
+        enqueue_inventory_refresh,
+        read_inventory_snapshots,
+    )
+
+    enqueue_inventory_refresh(db, reason="manual")
+    db.commit()
+    return read_inventory_snapshots(db)
+
+
+@app.get("/api/admin/inventory")
+def admin_inventory(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """The Inventory page: usable DB1 and DB2 snapshots and the tools beside them."""
+    return inventory_overview(db)
+
+
+@app.get("/api/admin/inventory/usable-by-state.csv")
+def admin_usable_by_state_csv(
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Usable Leads per state in DB1 and DB2, from the stored snapshots."""
+    return Response(
+        content=usable_by_state_csv(db),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": 'attachment; filename="usable-by-state.csv"',
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@app.get("/api/admin/suppressed-leads")
+def admin_suppressed_leads(
+    page: int = Query(default=1, ge=1),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    return suppressed_leads_page(db, page=page)
+
+
+@app.get("/api/admin/leads/lookup")
+def admin_lead_lookup(
+    phone: str | None = Query(default=None, max_length=40),
+    lead_id: int | None = Query(default=None, alias="lead", ge=1),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    """Everything about one phone number (or Lead id, from Activity links)."""
+    if phone is None and lead_id is None:
+        raise HTTPException(status_code=422, detail="Enter a phone number.")
+    return lead_lookup(db, settings, phone=phone, lead_id=lead_id)
 
 
 @app.get("/api/admin/customers/{customer_id}/availability")
@@ -3226,27 +3589,14 @@ def niche_assignment_status(
 @app.get("/api/admin/customers/{customer_id}/billing")
 def admin_customer_billing(
     customer_id: int,
-    principal: Principal = Depends(require_admin),
+    _: Principal = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     customer = db.get(Customer, customer_id)
     if customer is None or customer.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Customer was not found.")
-    result = wallet_view(db, customer)
-    record_activity(
-        db,
-        action="credit_wallet_viewed",
-        target_type="customer",
-        target_id=customer.id,
-        actor_id=principal.user_id,
-        reason="Administrator viewed the Credit Wallet and Credit Ledger.",
-        details={
-            "balanceCents": result["balanceCents"],
-            "ledgerEntries": len(result["ledger"]),
-        },
-    )
-    db.commit()
-    return result
+    # Reads are not Activity: only consequential actions are audited.
+    return operator_wallet(db, wallet_view(db, customer))
 
 
 @app.put("/api/admin/customers/{customer_id}/billing")
@@ -4990,7 +5340,11 @@ async def _dispatch_invitation(settings: Settings, payload) -> uuid.UUID:
 async def _send_password_reset(settings: Settings, email: str) -> None:
     if settings.auth_provider == "better-auth":
         try:
-            await get_mfa_provider(settings).request("reset-user", email=email)
+            # "reset" lands on the password reset page rather than the
+            # invitation page; an older identity service ignores it.
+            await get_mfa_provider(settings).request(
+                "reset-user", email=email, purpose="reset"
+            )
             return
         except MFAProviderError:
             raise HTTPException(status_code=502, detail="Password recovery could not be sent.") from None
@@ -5254,10 +5608,6 @@ def regenerate_batch_artifact(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    from pathlib import Path
-
-    from .allocation import generate_artifact
-
     item = db.scalar(
         select(LeadRequest)
         .where(LeadRequest.id == request_id)
@@ -5265,41 +5615,10 @@ def regenerate_batch_artifact(
     )
     if item is None:
         raise HTTPException(status_code=404, detail="Request was not found.")
-    events = list(
-        db.scalars(
-            select(DistributionEvent)
-            .where(DistributionEvent.request_id == item.id)
-            .order_by(DistributionEvent.id)
-        )
-    )
-    if len(events) != item.lead_count:
-        raise HTTPException(
-            status_code=409,
-            detail="Committed Distribution Events are incomplete.",
-        )
-    artifact = item.artifact
-    now = utcnow()
-    # Shares the offer surface's predicate: if these two ever disagreed the
-    # workspace would offer a regeneration this endpoint then refuses.
-    if artifact_available(artifact, now=now):
-        raise HTTPException(
-            status_code=409,
-            detail="Batch Artifact has not expired.",
-        )
-    previous_artifact = (
-        {
-            "artifactId": artifact.id,
-            "available": False,
-            "expiresAt": (
-                artifact.expires_at.isoformat()
-                if artifact.expires_at is not None
-                else None
-            ),
-        }
-        if artifact is not None
-        else None
-    )
-    artifact = generate_artifact(db, item, events, settings)
+    try:
+        artifact, previous_artifact = rebuild_expired_artifact(db, item, settings)
+    except ArtifactRebuildError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from None
     record_activity(
         db,
         action="batch_artifact_regenerated",

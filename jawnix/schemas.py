@@ -335,6 +335,21 @@ class CustomerDirectoryAgency(BaseModel):
     active: bool
 
 
+class CustomerNeedOut(BaseModel):
+    """One thing a Customer needs from the operator, worst first."""
+
+    kind: str
+    label: str
+    href: str
+
+
+class CustomerOpenBatchOut(BaseModel):
+    number: int
+    leadCount: int
+    stage: str
+    href: str
+
+
 class CustomerDirectoryRow(BaseModel):
     id: int
     slug: str
@@ -353,6 +368,24 @@ class CustomerDirectoryRow(BaseModel):
     lead_database: Literal["db1", "db2"] = "db1"
     allowed_manager_id: uuid.UUID | None = None
     manager_id: uuid.UUID | None = None
+    #: What the Customer needs from the operator, worst first. Empty when
+    #: nothing is waiting.
+    needs: list[CustomerNeedOut] = Field(default_factory=list)
+    #: Billing on and drawing from DB1. Unbilled Customers show no balance.
+    billed: bool = False
+    #: Available balance: the Credit Ledger less active Batch Holds.
+    balance_cents: int = 0
+    held_cents: int = 0
+    held_for: list[int] = Field(default_factory=list)
+    lead_rate_cents_per_thousand: int | None = None
+    open_batches: int = 0
+    open_batch: CustomerOpenBatchOut | None = None
+    delivered_30d: int = 0
+    delivered_30d_batches: int = 0
+    last_delivery_at: datetime | None = None
+    #: The Customer's last availability snapshot, never counted on read.
+    available: int | None = None
+    available_as_of: datetime | None = None
 
 
 class ManagedAdminRecord(BaseModel):
@@ -367,6 +400,14 @@ class CustomerDirectoryFilters(BaseModel):
     agency_id: int | None
     state: str
     problems_only: bool
+    database: Literal["", "db1", "db2"] = ""
+    billing: Literal["", "billed", "not_billed"] = ""
+    needs_only: bool = False
+
+
+class CustomerDirectoryCounts(BaseModel):
+    active: int = 0
+    deactivated: int = 0
 
 
 class CustomerDirectoryOut(BaseModel):
@@ -378,6 +419,7 @@ class CustomerDirectoryOut(BaseModel):
     total: int
     matched: int
     customers: list[CustomerDirectoryRow]
+    counts: CustomerDirectoryCounts = Field(default_factory=CustomerDirectoryCounts)
     managed_admins: list[ManagedAdminRecord] = Field(default_factory=list)
 
 
@@ -476,6 +518,7 @@ class ProfileOut(BaseModel):
 class RequestOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
+    number: int
     lead_count: int
     state_mode: str
     states_snapshot: list[str]
@@ -511,29 +554,6 @@ class CustomerOverviewAction(BaseModel):
     label: str
     description: str
     href: str
-
-
-class CustomerOverviewItem(BaseModel):
-    """One action that currently needs the Customer's attention."""
-
-    id: str
-    kind: Literal[
-        "batch_ready",
-        "artifact_expiring",
-        "waiting_inventory",
-        "feedback_nudge",
-        "setup_problem",
-    ]
-    title: str
-    description: str
-    tone: Literal["neutral", "info", "success", "warning", "danger"]
-    action: CustomerOverviewAction
-
-
-class CustomerOverviewOut(BaseModel):
-    """The Customer's strictly actionable attention queue."""
-
-    items: list[CustomerOverviewItem]
 
 
 CustomerMilestoneKey = Literal[
@@ -621,15 +641,77 @@ class CustomerBatchArtifact(BaseModel):
     filename: str
     row_count: int
     parts: list[CustomerBatchArtifactPart]
+    #: The CSV columns, in order ("phone", "title", "state").
+    columns: list[str] = Field(default_factory=list)
     expires_at: datetime | None
     available: bool
     download_href: str | None
+
+
+#: Where a batch is, in the Customer's words. ``expiring`` is a live file the
+#: Customer has not downloaded that expires within a week; ``file_expired``
+#: can be copied again, and ``copy_on_the_way`` is that copy being made.
+CustomerBatchStage = Literal[
+    "waiting_approval",
+    "preparing",
+    "ready",
+    "expiring",
+    "file_expired",
+    "copy_on_the_way",
+    "delivered",
+    "not_approved",
+    "canceled",
+    "needs_attention",
+]
+
+
+class CustomerBatchCost(BaseModel):
+    """What a billed batch costs the Customer, and where the money is.
+
+    ``state`` is ``held`` from submission until delivery, ``charged`` once
+    delivered, and ``released`` when the batch closed without delivery; ``at``
+    is when it got there.
+    """
+
+    rate_cents_per_thousand: int | None
+    amount_cents: int | None
+    state: Literal["held", "charged", "released"] | None
+    at: datetime | None
+
+
+class CustomerBatchEvent(BaseModel):
+    """One line of a batch's history: what happened, or what is still to come."""
+
+    key: Literal[
+        "submitted",
+        "approved",
+        "delivered",
+        "file_expired",
+        "copy_ready",
+        "copy_on_the_way",
+        "not_approved",
+        "canceled",
+        "needs_attention",
+    ]
+    label: str
+    at: datetime | None
+    done: bool
+
+
+class CustomerBatchStateCount(BaseModel):
+    """How many of a delivered batch's leads are in one state."""
+
+    state: str
+    name: str
+    lead_count: int
 
 
 class CustomerRequestDetail(BaseModel):
     """One Batch Request as the Customer application reads it."""
 
     id: uuid.UUID
+    #: "Batch #1042", the name the Customer and the operator share.
+    number: int
     lead_count: int
     rows_per_file: int
     states: list[str]
@@ -639,16 +721,28 @@ class CustomerRequestDetail(BaseModel):
     milestones: CustomerRequestMilestones
     can_cancel: bool
     next_action: CustomerRequestAction | None
+    #: The batch page ("/app/batches/1042"). ``receipt_href`` is the same page.
+    href: str
     receipt_href: str
     artifact: CustomerBatchArtifact | None
+    stage: CustomerBatchStage
+    #: The file expired and no copy is on the way, so one can be asked for.
+    can_request_copy: bool
+    #: Absent for batches that are not billed.
+    cost: CustomerBatchCost | None
+    history: list[CustomerBatchEvent]
+    #: Leads per state once delivered; read only for one batch's page.
+    leads_by_state: list[CustomerBatchStateCount] | None = None
 
 
 class CustomerRequestLimits(BaseModel):
-    """The domain bounds the guided stages validate against."""
+    """The domain bounds the request form validates against."""
 
     minimum_lead_count: int
     maximum_lead_count: int
     licensed_states: list[str]
+    #: Full names for the appointed states ("FL" -> "Florida").
+    state_names: dict[str, str] = Field(default_factory=dict)
 
 
 class CustomerRequestBlocker(BaseModel):
@@ -660,12 +754,21 @@ class CustomerRequestBlocker(BaseModel):
     action: CustomerOverviewAction
 
 
+class CustomerRequestHistoryPage(BaseModel):
+    """Where one page of request history sits in the Customer's whole history."""
+
+    page: int
+    page_size: int
+    total: int
+
+
 class CustomerRequestWorkspaceOut(BaseModel):
     """Stable read contract for the guided Batch Request screen."""
 
     limits: CustomerRequestLimits
     blocker: CustomerRequestBlocker | None
     requests: list[CustomerRequestDetail]
+    history: CustomerRequestHistoryPage
 
 
 class CustomerRequestCreate(BaseModel):
@@ -707,12 +810,17 @@ class FeedbackLookup(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     phone: str
+    # Finds the Lead within one of the Customer's own batches ("Report a bad
+    # lead" on the batch page) rather than their latest delivery of it.
+    request_id: uuid.UUID | None = None
 
 
 class FeedbackSearch(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     query: str = Field(min_length=2, max_length=100)
+    # Scopes the search to one of the Customer's own delivered batches.
+    request_id: uuid.UUID | None = None
 
     @field_validator("query")
     @classmethod
@@ -824,6 +932,15 @@ class ActionReason(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
 
 
+class CustomerLeadDatabaseChange(BaseModel):
+    """Which database a Customer's future allocations draw from."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    lead_database: Literal["db1", "db2"]
+    reason: str = Field(min_length=1, max_length=2000)
+
+
 class CustomerBillingUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -862,6 +979,9 @@ class CreditPurchaseCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     amount_dollars: int = Field(ge=1)
+    # The portal page the purchase started on. Validated against an allow-list
+    # before Stripe sees it; anything else returns the Customer to Account.
+    return_to: str | None = Field(default=None, max_length=500)
 
 
 class LeadCorrectionApply(BaseModel):

@@ -12,17 +12,52 @@ under ``jawnix``, keeps the dependency direction one-way.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .models import (
+    DatasetPublication,
     InventoryConflict,
+    InventorySnapshot,
     Lead,
     LeadRequest,
+    NightlyReview,
     RequestStatus,
     ScrapeSegmentResult,
     SourceRecommendation,
 )
+
+
+def _iso(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _parse_iso(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _usable_db1(snapshot: InventorySnapshot | None) -> dict:
+    """The stored usable DB1 count, never a fresh count of inventory.
+
+    The background refresh owns that count. Omitting the key when it has never
+    run lets the Nightly Review say so instead of showing a false zero.
+    """
+    if snapshot is None:
+        return {}
+    return {
+        "eligible": int(snapshot.usable),
+        "eligibleAsOf": _iso(snapshot.computed_at),
+    }
 
 
 def nightly_operational_snapshot(session: Session) -> dict:
@@ -41,6 +76,7 @@ def nightly_operational_snapshot(session: Session) -> dict:
                 session.scalar(select(func.count(Lead.id)).where(Lead.in_db1.is_(True))) or 0
             ),
             "byState": inventory_by_state,
+            **_usable_db1(session.get(InventorySnapshot, "db1")),
         },
         "waitingRequests": [
             {
@@ -121,3 +157,55 @@ def scrape_run_segment_summaries(
             .order_by(ScrapeSegmentResult.segment_key)
         )
     ]
+
+
+def settle_nightly_review_inventory(
+    session: Session,
+    snapshot: InventorySnapshot,
+) -> NightlyReview | None:
+    """Give the latest synchronized run's review the post-sync usable count.
+
+    An Inventory Sync writes its run's Nightly Review in the same transaction
+    that queues the usable-inventory refresh, so that review can only quote the
+    count from before the sync. Once a refresh computed after the sync lands,
+    copy it in. Reviews whose count already postdates their sync are left as
+    the durable record they are.
+    """
+    publication = session.scalar(
+        select(DatasetPublication)
+        .where(
+            DatasetPublication.sync_status == "complete",
+            DatasetPublication.synchronized_at.is_not(None),
+        )
+        .order_by(DatasetPublication.synchronized_at.desc())
+        .limit(1)
+    )
+    if publication is None:
+        return None
+    synchronized_at = publication.synchronized_at
+    if synchronized_at.tzinfo is None:
+        synchronized_at = synchronized_at.replace(tzinfo=timezone.utc)
+    computed_at = snapshot.computed_at
+    if computed_at.tzinfo is None:
+        computed_at = computed_at.replace(tzinfo=timezone.utc)
+    if computed_at < synchronized_at:
+        return None
+    review = session.scalar(
+        select(NightlyReview).where(
+            NightlyReview.scraper_run_id == publication.scraper_run_id
+        )
+    )
+    if review is None:
+        return None
+    inventory = (review.summary or {}).get("inventory")
+    if not isinstance(inventory, dict):
+        return None
+    recorded = _parse_iso(inventory.get("eligibleAsOf"))
+    if recorded is not None and recorded >= synchronized_at:
+        return None
+    review.summary = {
+        **review.summary,
+        "inventory": {**inventory, **_usable_db1(snapshot)},
+    }
+    session.flush()
+    return review

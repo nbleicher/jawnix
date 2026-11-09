@@ -2,6 +2,8 @@ import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
 import { clearReadPrefetch } from "../routeReadCache";
+import { customerHomePath } from "../customer/home";
+import type { CustomerHomeData } from "../customer/home";
 
 interface SessionExchangeResponse {
   ok: true;
@@ -12,48 +14,16 @@ interface SessionExchangeResponse {
 
 export interface SignInLoaderData {
   next: string;
+  /** True after a password reset or invitation set a new password. */
+  passwordUpdated: boolean;
 }
 
 export interface InvitationLoaderData {
   canAccept: boolean;
 }
 
-export type CustomerOverviewTone =
-  | "neutral"
-  | "info"
-  | "success"
-  | "warning"
-  | "danger";
-
-export interface CustomerOverviewAction {
-  kind:
-    | "download_artifact"
-    | "request_batch"
-    | "submit_feedback"
-    | "review_request"
-    | "review_account"
-    | "add_licensed_states";
-  label: string;
-  description: string;
-  href: string;
-}
-
-export interface CustomerOverviewItem {
-  id: string;
-  kind:
-    | "batch_ready"
-    | "artifact_expiring"
-    | "waiting_inventory"
-    | "feedback_nudge"
-    | "setup_problem";
-  title: string;
-  description: string;
-  tone: CustomerOverviewTone;
-  action: CustomerOverviewAction;
-}
-
-export interface CustomerOverviewData {
-  items: CustomerOverviewItem[];
+export interface PasswordResetLoaderData {
+  canReset: boolean;
 }
 
 function csrf(): string {
@@ -64,7 +34,7 @@ function csrf(): string {
   return decodeURIComponent(item?.split("=", 2)[1] ?? "");
 }
 
-function safeCustomerPath(value: string | null, fallback = "/app/overview"): string {
+function safeCustomerPath(value: string | null, fallback = "/app/home"): string {
   if (
     !value
     || !value.startsWith("/app/")
@@ -76,21 +46,49 @@ function safeCustomerPath(value: string | null, fallback = "/app/overview"): str
   return value;
 }
 
+/** The session exchange accepts a requested path of at most this length. */
+const MAX_NEXT_LENGTH = 200;
+
+/**
+ * Sign-in, returning to `url` afterwards. The query is kept, because emailed
+ * links name a request or batch with it; a query too long to carry through
+ * sign-in falls back to the page alone.
+ */
+export function signInPath(url: URL): string {
+  const full = url.pathname + url.search;
+  const requested = safeCustomerPath(
+    full.length <= MAX_NEXT_LENGTH ? full : url.pathname,
+  );
+  return `/sign-in?next=${encodeURIComponent(requested)}`;
+}
+
 export function routerPath(value: string): string {
   if (!value.startsWith("/app/") || value.startsWith("//")) {
-    return "/overview";
+    return "/home";
   }
   return value.replace(/^\/app/, "");
 }
 
 export function signInLoader({ request }: LoaderFunctionArgs): SignInLoaderData {
   const url = new URL(request.url);
-  return { next: safeCustomerPath(url.searchParams.get("next")) };
+  return {
+    next: safeCustomerPath(url.searchParams.get("next")),
+    passwordUpdated: url.searchParams.get("password") === "updated",
+  };
+}
+
+/** A one-time provider link is usable only with a token and no error. */
+function hasUsableToken(request: Request): boolean {
+  const params = new URL(request.url).searchParams;
+  return Boolean(params.get("token")) && !params.has("error");
 }
 
 export async function invitationLoader({ request }: LoaderFunctionArgs): Promise<InvitationLoaderData> {
-  const params = new URL(request.url).searchParams;
-  return { canAccept: Boolean(params.get("token")) && !params.has("error") };
+  return { canAccept: hasUsableToken(request) };
+}
+
+export async function passwordResetLoader({ request }: LoaderFunctionArgs): Promise<PasswordResetLoaderData> {
+  return { canReset: hasUsableToken(request) };
 }
 
 export async function exchangeJawnixSession(
@@ -113,15 +111,18 @@ export async function exchangeJawnixSession(
   return response.json() as Promise<SessionExchangeResponse>;
 }
 
+/**
+ * The Customer shell's access check, which is also Home's one read: every
+ * Customer page crosses it, and Home renders what it returns.
+ */
 export async function customerAccessLoader({
   request,
-}: LoaderFunctionArgs): Promise<CustomerOverviewData> {
-  const response = await fetch("/api/me/overview", {
+}: LoaderFunctionArgs): Promise<CustomerHomeData> {
+  const response = await fetch(customerHomePath(), {
     credentials: "same-origin",
   });
   if (response.status === 401 || response.status === 403) {
-    const requested = safeCustomerPath(new URL(request.url).pathname);
-    throw redirect(`/sign-in?next=${encodeURIComponent(requested)}`);
+    throw redirect(signInPath(new URL(request.url)));
   }
   if (response.status === 409) throw redirect("/registration-status");
   // 404 is an authenticated principal with no Customer profile — the
@@ -134,14 +135,14 @@ export async function customerAccessLoader({
       const value = await destination.json() as { next: string };
       throw redirect(routerPath(value.next));
     }
-    throw redirect("/admin/overview");
+    throw redirect("/admin/today");
   }
   if (!response.ok) {
     throw new Response("Customer access is temporarily unavailable.", {
       status: response.status,
     });
   }
-  return response.json() as Promise<CustomerOverviewData>;
+  return response.json() as Promise<CustomerHomeData>;
 }
 
 // Shared by the Customer and Administration shells: clears the Jawnix session

@@ -27,6 +27,7 @@ type Payload = {
   name?: string;
   role?: string;
   page?: number;
+  purpose?: string;
 };
 
 export async function bridge(auth: JawnixAuth, body: Payload) {
@@ -215,10 +216,12 @@ export async function bridge(auth: JawnixAuth, body: Payload) {
       return { url: capture.url, expiresIn: 3600 };
     }
     case "reset-user": {
+      // A reset has its own page and words; provisioning keeps the invitation.
+      const landing = body.purpose === "reset" ? "reset-password" : "accept-invitation";
       await auth.api.requestPasswordReset({
         body: {
           email: body.email!,
-          redirectTo: `${new URL(auth.options.baseURL as string).origin}/app/accept-invitation`,
+          redirectTo: `${new URL(auth.options.baseURL as string).origin}/app/${landing}`,
         },
       });
       return { ok: true };

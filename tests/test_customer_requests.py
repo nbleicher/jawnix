@@ -18,6 +18,7 @@ from jawnix.allocation import allocate_request
 from jawnix.auth import Principal, require_admin, require_principal
 from jawnix.config import get_settings
 from jawnix.customer_requests import build_milestones
+from jawnix.states import truncate_utf8
 from jawnix.database import get_db
 from jawnix.models import (
     Agency,
@@ -25,6 +26,7 @@ from jawnix.models import (
     AuditEntry,
     BatchArtifact,
     CustomerProfile,
+    DistributionEvent,
     Job,
     Lead,
     LeadRequest,
@@ -383,9 +385,108 @@ def test_workspace_publishes_the_bounds_the_stages_validate_against(session):
         "minimum_lead_count": 1,
         "maximum_lead_count": 100_000,
         "licensed_states": ["FL", "TX"],
+        "state_names": {"FL": "Florida", "TX": "Texas"},
     }
     assert body["blocker"] is None
     assert body["requests"] == []
+    assert body["history"] == {"page": 1, "page_size": 20, "total": 0}
+
+
+def _history(session, user_id, customer, count: int) -> list[LeadRequest]:
+    """``count`` requests, oldest first, one minute apart."""
+
+    items = []
+    for index in range(count):
+        item = _request(session, user_id, customer, status=RequestStatus.canceled.value)
+        item.created_at = SUBMITTED_AT + timedelta(minutes=index)
+        items.append(item)
+    session.flush()
+    return items
+
+
+@pytest.mark.parametrize("count", [20, 21, 45])
+def test_request_history_pages_reach_every_request(session, count):
+    user_id, customer, _ = _customer(session, licensed_states=["TX"])
+    newest_first = [str(item.id) for item in reversed(_history(session, user_id, customer, count))]
+    client = _authenticate(session, user_id)
+
+    first = client.get("/api/me/batch-requests").json()
+    pages = [first]
+    while len(pages) * 20 < count:
+        pages.append(
+            client.get(
+                "/api/me/batch-requests", params={"page": len(pages) + 1}
+            ).json()
+        )
+
+    assert first["history"] == {"page": 1, "page_size": 20, "total": count}
+    assert [page["history"]["page"] for page in pages] == list(
+        range(1, len(pages) + 1)
+    )
+    assert [
+        item["id"] for page in pages for item in page["requests"]
+    ] == newest_first
+    assert all(len(page["requests"]) <= 20 for page in pages)
+
+
+def test_a_page_past_the_end_answers_with_the_last_page(session):
+    user_id, customer, _ = _customer(session, licensed_states=["TX"])
+    oldest = _history(session, user_id, customer, 21)[0]
+    client = _authenticate(session, user_id)
+
+    body = client.get("/api/me/batch-requests", params={"page": 9}).json()
+    refused = client.get("/api/me/batch-requests", params={"page": 0})
+
+    assert body["history"] == {"page": 2, "page_size": 20, "total": 21}
+    assert [item["id"] for item in body["requests"]] == [str(oldest.id)]
+    assert refused.status_code == 422
+
+
+def test_request_detail_resolves_beyond_the_first_history_page(session):
+    """Email links open requests that are no longer among the newest 20."""
+
+    user_id, customer, _ = _customer(session, licensed_states=["TX"])
+    oldest = _history(session, user_id, customer, 25)[0]
+    other_user, other_customer, _ = _customer(session, licensed_states=["TX"])
+    foreign = _request(session, other_user, other_customer, status=RequestStatus.pending.value)
+    client = _authenticate(session, user_id)
+
+    first_page = client.get("/api/me/batch-requests").json()["requests"]
+    detail = client.get(f"/api/me/batch-requests/{oldest.id}")
+    by_number = client.get(f"/api/me/batch-requests/{oldest.number}")
+    hidden = client.get(f"/api/me/batch-requests/{foreign.id}")
+    hidden_number = client.get(f"/api/me/batch-requests/{foreign.number}")
+
+    assert str(oldest.id) not in {item["id"] for item in first_page}
+    assert detail.status_code == 200
+    assert detail.json()["id"] == str(oldest.id)
+    assert detail.json()["href"] == f"/app/batches/{oldest.number}"
+    assert detail.json()["receipt_href"] == f"/app/batches/{oldest.number}"
+    assert by_number.status_code == 200
+    assert by_number.json()["id"] == str(oldest.id)
+    assert hidden.status_code == 404
+    assert hidden_number.status_code == 404
+    for reference in ("not-a-batch", "1234567890", "-1"):
+        assert client.get(f"/api/me/batch-requests/{reference}").status_code == 404
+
+
+def test_a_delivered_request_needs_no_next_action_now_feedback_is_gone(session):
+    """Reporting a bad lead lives on the batch page itself."""
+
+    user_id, customer, _ = _customer(session, licensed_states=["TX"])
+    item = _request(
+        session,
+        user_id,
+        customer,
+        status=RequestStatus.delivered.value,
+        delivered_at=SUBMITTED_AT,
+    )
+    client = _authenticate(session, user_id)
+
+    body = client.get(f"/api/me/batch-requests/{item.id}").json()
+
+    assert body["next_action"] is None
+    assert "/app/feedback" not in str(body)
 
 
 @pytest.mark.parametrize(
@@ -413,7 +514,8 @@ def test_workspace_blocks_the_flow_with_the_fix_rather_than_the_stages(
 
     assert blocker["reason"] == reason
     assert blocker["action"]["kind"] == action_kind
-    assert blocker["action"]["href"] == "/app/account"
+    expected = "/app/account/states" if action_kind == "add_licensed_states" else "/app/account"
+    assert blocker["action"]["href"] == expected
 
 
 def test_workspace_never_leaks_the_fulfillment_state_machine(session):
@@ -466,7 +568,7 @@ def test_cancellation_is_offered_only_while_the_domain_allows_it(
 @pytest.mark.parametrize(
     ("status", "action_kind"),
     [
-        (RequestStatus.delivered.value, "submit_feedback"),
+        (RequestStatus.delivered.value, None),
         (RequestStatus.rejected.value, "request_batch"),
         (RequestStatus.canceled.value, "request_batch"),
         (RequestStatus.failed.value, "contact_support"),
@@ -535,6 +637,7 @@ def test_delivered_request_projects_only_customer_safe_artifact_metadata(
                 "row_count": 1,
             }
         ],
+        "columns": ["phone", "title", "state"],
         "expires_at": artifact["expires_at"],
         "available": True,
         "download_href": f"/api/me/batch-requests/{item.id}/artifact",
@@ -715,6 +818,137 @@ def test_download_and_regeneration_preserve_stored_and_downloaded_bytes(
     assert regenerated.json()["sha256"] == stored_hash
     assert redownload.content == first.content
     assert hashlib.sha256(redownload.content).hexdigest() == first_hash
+
+
+def _legacy_csv_bytes(rows) -> bytes:
+    """The writer every batch before the state column was delivered with."""
+
+    stream = io.StringIO(newline="")
+    writer = csv.DictWriter(
+        stream,
+        fieldnames=["phone", "title"],
+        lineterminator="\n",
+    )
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(
+            {"phone": row.phone, "title": truncate_utf8(row.title)}
+        )
+    return stream.getvalue().encode("utf-8")
+
+
+def _expire_and_regenerate(session, client, settings, item: LeadRequest):
+    artifact = item.artifact
+    artifact.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+    Path(artifact.path).unlink()
+    session.commit()
+    app.dependency_overrides[require_admin] = lambda: Principal(
+        user_id=uuid.uuid4(),
+        email="admin@example.com",
+        role="admin",
+        csrf="test",
+    )
+    app.dependency_overrides[get_settings] = lambda: settings
+    return client.post(
+        f"/api/admin/requests/{item.id}/artifact/regenerate",
+        json={"reason": "Customer requested the expired Batch Artifact."},
+    )
+
+
+def _delivered_batch(session, settings, *, rows_per_file: int):
+    user_id, customer, _ = _customer(session, licensed_states=["TX", "FL"])
+    item = _request(
+        session,
+        user_id,
+        customer,
+        status=RequestStatus.approved.value,
+        states=["FL", "TX"],
+        lead_count=3,
+        rows_per_file=rows_per_file,
+    )
+    session.add_all(
+        [
+            Lead(phone="2145550401", title='Owner, "Acme"', state="TX"),
+            Lead(phone="3055550402", title="Sunshine Roofing", state="FL"),
+            Lead(phone="2145550403", title="Lone Star Plumbing", state="TX"),
+        ]
+    )
+    return user_id, item
+
+
+@pytest.mark.parametrize("rows_per_file", [2, 3])
+def test_an_old_two_column_batch_regenerates_byte_identical(
+    session,
+    settings,
+    monkeypatch,
+    rows_per_file,
+):
+    user_id, item = _delivered_batch(session, settings, rows_per_file=rows_per_file)
+    # Deliver the batch exactly as the code before the state column did.
+    with monkeypatch.context() as patched:
+        patched.setattr(
+            "jawnix.allocation._csv_bytes",
+            lambda rows, _csv_format: _legacy_csv_bytes(rows),
+        )
+        allocate_request(session, item.id, settings)
+    artifact = item.artifact
+    # The migration stamps every artifact that already exists this way.
+    artifact.csv_format = "phone_title"
+    item.status = RequestStatus.delivered.value
+    item.delivered_at = datetime.now(timezone.utc)
+    session.commit()
+    original = Path(artifact.path).read_bytes()
+    stored_hash = artifact.sha256
+    client = _authenticate(session, user_id)
+
+    regenerated = _expire_and_regenerate(session, client, settings, item)
+
+    assert regenerated.status_code == 200, regenerated.text
+    assert regenerated.json()["sha256"] == stored_hash
+    assert Path(artifact.path).read_bytes() == original
+    assert hashlib.sha256(original).hexdigest() == stored_hash
+    with zipfile.ZipFile(artifact.path) as archive:
+        first_part = archive.read(artifact.parts[0]["filename"]).decode()
+    assert first_part.splitlines()[0] == "phone,title"
+
+
+def test_a_new_batch_carries_each_events_state_and_regenerates_identically(
+    session,
+    settings,
+):
+    user_id, item = _delivered_batch(session, settings, rows_per_file=3)
+    allocate_request(session, item.id, settings)
+    artifact = item.artifact
+    item.status = RequestStatus.delivered.value
+    item.delivered_at = datetime.now(timezone.utc)
+    session.commit()
+    stored_hash = artifact.sha256
+    with zipfile.ZipFile(artifact.path) as archive:
+        rows = list(
+            csv.DictReader(
+                io.StringIO(archive.read(artifact.parts[0]["filename"]).decode())
+            )
+        )
+    events = {
+        event.phone: event.state
+        for event in session.scalars(
+            select(DistributionEvent).where(DistributionEvent.request_id == item.id)
+        )
+    }
+    # Later listing changes never reach a delivered file.
+    for lead in session.scalars(select(Lead)):
+        lead.state = "NY"
+    session.commit()
+    client = _authenticate(session, user_id)
+
+    regenerated = _expire_and_regenerate(session, client, settings, item)
+
+    assert artifact.csv_format == "phone_title_state"
+    assert list(rows[0]) == ["phone", "title", "state"]
+    assert {row["phone"]: row["state"] for row in rows} == events
+    assert set(events.values()) == {"FL", "TX"}
+    assert regenerated.status_code == 200, regenerated.text
+    assert regenerated.json()["sha256"] == stored_hash
 
 
 # --- Customer Batch Artifact download --------------------------------------
@@ -902,7 +1136,7 @@ def test_a_reviewed_request_lands_on_a_receipt_linked_to_the_batch_request(
     assert body["request"]["lead_count"] == 500
     assert body["request"]["states"] == ["TX"]
     assert body["request"]["receipt_href"] == (
-        f"/app/requests?request={body['request']['id']}"
+        f"/app/batches/{body['request']['number']}"
     )
     assert body["request"]["milestones"]["current_key"] == "submitted"
     assert body["request"]["can_cancel"] is True

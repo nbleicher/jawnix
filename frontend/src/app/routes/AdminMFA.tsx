@@ -168,7 +168,7 @@ export function AdminMFAEnrollmentRoute() {
       setEnrollment(null);
       setCode("");
       if (result.complete) {
-        await navigate((result.next || "/app/admin/overview").replace(/^\/app/, ""), { replace: true });
+        await navigate((result.next || "/app/admin/today").replace(/^\/app/, ""), { replace: true });
       } else {
         await revalidator.revalidate();
       }
@@ -359,7 +359,7 @@ export function AdminMFAChallengeRoute() {
         },
       );
       await storeProviderSession(result.session);
-      await navigate((result.next || "/app/admin/overview").replace(/^\/app/, ""), { replace: true });
+      await navigate((result.next || "/app/admin/today").replace(/^\/app/, ""), { replace: true });
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {

@@ -5,42 +5,28 @@ import { useLoaderData, useLocation, useNavigate } from "react-router";
 
 import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { Dialog } from "../../design-system/primitives/Dialog";
-import {
-  EmptyState,
-  ErrorState,
-  Loading,
-} from "../../design-system/primitives/feedback";
+import { ErrorState, Loading } from "../../design-system/primitives/feedback";
 import { Field, Input, Select } from "../../design-system/primitives/form";
-import {
-  Card,
-  Cluster,
-  Grid,
-  Page,
-  Section,
-  Stack,
-} from "../../design-system/primitives/layout";
+import { Kpi, KpiRow } from "../../design-system/primitives/kpi";
+import { Cluster, Page, Section } from "../../design-system/primitives/layout";
 import { StatusBadge } from "../../design-system/primitives/status";
 import type { StatusTone } from "../../design-system/primitives/status";
-import { TerminalWorkspace } from "../../design-system/primitives/terminal";
-import type { TerminalDestination } from "../../design-system/primitives/terminal";
-import {
-  LabelText,
-  Mono,
-  Text,
-  VisuallyHidden,
-} from "../../design-system/primitives/typography";
+import { DataTable } from "../../design-system/primitives/table";
+import type { DataColumn } from "../../design-system/primitives/table";
+import { Text } from "../../design-system/primitives/typography";
 import { api } from "../auth/adminMFA";
+import { formatCount, formatDay } from "../operator/format";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import "./AdminSourcePerformance.css";
 
 /**
- * Source Performance (#173 A1): descriptive nightly outcomes by Source
- * Segment, restored as its own destination under Acquisition.
+ * Source Performance: descriptive nightly outcomes by Source Segment, the
+ * full table behind the Insights summary (moved from Acquisition in A5).
  *
  * This screen never re-derives Niche mappings or Source Recommendations —
- * those decisions live on Acquisition itself. It only reads the same
- * evidence Acquisition's optimizer reads and renders it, so an operator can
- * see the trend behind a recommendation without a second source of truth.
+ * those decisions live in Setup. It only reads the evidence the optimizer
+ * reads, so an operator can see the trend behind a segment without a second
+ * source of truth. A rate shows "—" until there are outcomes to divide by.
  */
 
 export interface SourcePerformanceRow {
@@ -95,18 +81,6 @@ export interface SourcePerformanceData {
   rows: SourcePerformanceRow[];
 }
 
-const DESTINATIONS: TerminalDestination[] = [
-  { label: "Acquisition review", href: "/app/admin/acquisition" },
-  {
-    label: "Source Performance",
-    href: "/app/admin/acquisition/performance",
-    current: true,
-  },
-  { label: "Scraper Operations", href: "/app/admin/acquisition/scraper" },
-  { label: "Administrator security", href: "/app/admin/security" },
-  { label: "Exit to Overview", href: "/app/admin/overview" },
-];
-
 const TEXT_FILTER_KEYS = [
   "start_date",
   "end_date",
@@ -118,7 +92,7 @@ const TEXT_FILTER_KEYS = [
 ] as const;
 
 const CONFIDENCE_OPTIONS = [
-  ["", "Every confidence"],
+  ["", "Any"],
   ["eligible", "Eligible"],
   ["eligible_no_action", "Eligible · no action"],
   ["unconfirmed_niche", "Unconfirmed Niche"],
@@ -128,7 +102,7 @@ const CONFIDENCE_OPTIONS = [
 ] as const;
 
 const ACTION_OPTIONS = [
-  ["", "Every action"],
+  ["", "Any"],
   ["expand", "Expand"],
   ["reduce", "Reduce"],
   ["pause", "Pause"],
@@ -136,22 +110,24 @@ const ACTION_OPTIONS = [
   ["prescriptive_dormant", "Prescriptive dormant"],
 ] as const;
 
+// Black is decided or in force; grey is not enough evidence yet. Red is
+// reserved for what needs the operator, and nothing here does (V4).
 const CONFIDENCE_TONES: Record<string, StatusTone> = {
   eligible: "success",
   eligible_no_action: "info",
-  unconfirmed_niche: "neutral",
-  insufficient_worked_leads: "warning",
-  insufficient_quality_ratings: "warning",
-  insufficient_peer_data: "warning",
 };
 
 const ACTION_TONES: Record<string, StatusTone> = {
   expand: "success",
-  reduce: "warning",
-  pause: "danger",
+  reduce: "success",
+  pause: "success",
   notes_only: "info",
-  prescriptive_dormant: "neutral",
 };
+
+function words(value: string): string {
+  const text = value.replaceAll("_", " ").trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Unknown";
+}
 
 /** Absence and `"true"` both mean the backend's own default: only the latest
  *  snapshot per Source Segment. Only an explicit `"false"` requests every
@@ -187,6 +163,12 @@ function formatPercent(value: number | null | undefined): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+/** A rate only when its denominator has something in it: a segment nobody
+ *  has reported on has no rate, not a 0% rate. */
+function rate(value: number | null | undefined, denominator: number | undefined): string {
+  return denominator ? formatPercent(value) : "—";
+}
+
 function trendLabel(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   const points = value * 100;
@@ -200,19 +182,6 @@ function errorMessage(error: unknown): string {
     : "The history could not be loaded.";
 }
 
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return (
-    <Card>
-      <Stack gap={1}>
-        <LabelText>{label}</LabelText>
-        <Text size="lg" weight="bold">
-          {typeof value === "number" ? value.toLocaleString() : value}
-        </Text>
-      </Stack>
-    </Card>
-  );
-}
-
 function SummaryStats({
   global,
   legacy,
@@ -221,30 +190,39 @@ function SummaryStats({
   legacy: SourcePerformanceLegacy;
 }) {
   return (
-    <Stack gap={3}>
-      <Grid minColumnWidth="11rem">
-        <Stat label="Delivered" value={global.delivered} />
-        <Stat label="Worked" value={global.worked} />
-        <Stat label="Rated" value={global.rated} />
-        <Stat label="Positive responses" value={global.positiveResponses} />
-        <Stat label="Appointments booked" value={global.appointmentsBooked} />
-        <Stat label="Good rate" value={formatPercent(global.rates.good)} />
-        <Stat
+    <>
+      <KpiRow label="All-time summary">
+        <Kpi
+          label="Delivered · all time"
+          value={formatCount(global.delivered)}
+          meta={
+            legacy.delivered > 0
+              ? `${formatCount(legacy.delivered)} legacy-source deliveries excluded`
+              : "Google Maps sources"
+          }
+        />
+        <Kpi
+          label="Outcomes reported"
+          value={formatCount(global.worked)}
+          meta={`${formatCount(global.rated)} quality ratings`}
+        />
+        <Kpi
           label="Positive rate"
-          value={formatPercent(global.rates.positiveResponse)}
+          value={rate(global.rates.positiveResponse, global.worked)}
+          meta={`${formatCount(global.positiveResponses)} positive · ${formatCount(global.appointmentsBooked)} booked`}
         />
-        <Stat
-          label="Booked rate"
-          value={formatPercent(global.rates.appointmentBooked)}
+        <Kpi
+          label="Good rate"
+          value={rate(global.rates.good, global.rated)}
+          meta={`${formatCount(global.good)} good · ${formatCount(global.poor)} poor`}
         />
-      </Grid>
-      {legacy.delivered > 0 ? (
+      </KpiRow>
+      {global.worked === 0 && global.rated === 0 ? (
         <Text size="sm" tone="muted">
-          {legacy.delivered.toLocaleString()} legacy-source deliveries are
-          excluded from these figures and from Source Recommendations.
+          Rates stay empty until customers report outcomes.
         </Text>
       ) : null}
-    </Stack>
+    </>
   );
 }
 
@@ -265,109 +243,69 @@ function FiltersForm({ search }: { search: URLSearchParams }) {
   }
 
   return (
-    <Card>
-      <form onSubmit={submit} aria-label="Source Performance filters">
-        <Stack gap={4}>
-          <Grid minColumnWidth="12rem" gap={3}>
-            <Field label="From date">
-              <Input
-                type="date"
-                name="start_date"
-                defaultValue={search.get("start_date") ?? ""}
-              />
-            </Field>
-            <Field label="Through date">
-              <Input
-                type="date"
-                name="end_date"
-                defaultValue={search.get("end_date") ?? ""}
-              />
-            </Field>
-            <Field label="State">
-              <Input
-                name="state"
-                defaultValue={search.get("state") ?? ""}
-                placeholder="TX"
-              />
-            </Field>
-            <Field label="Keyword">
-              <Input
-                name="keyword"
-                defaultValue={search.get("keyword") ?? ""}
-                placeholder="roofing contractor"
-              />
-            </Field>
-            <Field label="Niche">
-              <Input
-                name="niche"
-                defaultValue={search.get("niche") ?? ""}
-                placeholder="Roofing"
-              />
-            </Field>
-            <Field label="Confidence">
-              <Select
-                name="confidence"
-                defaultValue={search.get("confidence") ?? ""}
-              >
-                {CONFIDENCE_OPTIONS.map(([value, label]) => (
-                  <option value={value} key={value || "all"}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Action">
-              <Select
-                name="action_state"
-                defaultValue={search.get("action_state") ?? ""}
-              >
-                {ACTION_OPTIONS.map(([value, label]) => (
-                  <option value={value} key={value || "all"}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </Grid>
-          <label className="jx-source-performance-toggle">
-            <input
-              type="checkbox"
-              checked={latest}
-              onChange={(event) => setLatest(event.currentTarget.checked)}
-            />
-            Only the latest snapshot per Source Segment
-          </label>
-          <Cluster gap={2}>
-            <Button type="submit" variant="primary">
-              Apply filters
-            </Button>
-            <ActionLink
-              href="/app/admin/acquisition/performance"
-              variant="ghost"
-            >
-              Clear filters
-            </ActionLink>
-          </Cluster>
-        </Stack>
-      </form>
-    </Card>
+    <form onSubmit={submit} aria-label="Source Performance filters" className="jx-source-filters">
+      <Field label="From date">
+        <Input type="date" name="start_date" defaultValue={search.get("start_date") ?? ""} />
+      </Field>
+      <Field label="Through date">
+        <Input type="date" name="end_date" defaultValue={search.get("end_date") ?? ""} />
+      </Field>
+      <Field label="State">
+        <Input name="state" defaultValue={search.get("state") ?? ""} placeholder="TX" />
+      </Field>
+      <Field label="Keyword">
+        <Input name="keyword" defaultValue={search.get("keyword") ?? ""} placeholder="roofing contractor" />
+      </Field>
+      <Field label="Niche">
+        <Input name="niche" defaultValue={search.get("niche") ?? ""} placeholder="Roofing" />
+      </Field>
+      <Field label="Confidence">
+        <Select name="confidence" defaultValue={search.get("confidence") ?? ""}>
+          {CONFIDENCE_OPTIONS.map(([value, label]) => (
+            <option value={value} key={value || "all"}>
+              {label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Action">
+        <Select name="action_state" defaultValue={search.get("action_state") ?? ""}>
+          {ACTION_OPTIONS.map(([value, label]) => (
+            <option value={value} key={value || "all"}>
+              {label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <label className="jx-source-filters__check">
+        <input
+          type="checkbox"
+          checked={latest}
+          onChange={(event) => setLatest(event.currentTarget.checked)}
+        />
+        Latest snapshot only
+      </label>
+      <Cluster gap={2} className="jx-source-filters__actions">
+        <Button type="submit" variant="primary">
+          Apply filters
+        </Button>
+        <ActionLink href="/app/admin/insights/sources" variant="ghost">
+          Clear filters
+        </ActionLink>
+      </Cluster>
+    </form>
   );
 }
 
-function PerformanceRow({
-  row,
-  onSelect,
-}: {
-  row: SourcePerformanceRow;
-  onSelect: (segment: string) => void;
-}) {
-  return (
-    <tr>
-      <td data-label="Date">
-        <Mono>{row.date}</Mono>
-      </td>
-      <td data-label="State">{row.state}</td>
-      <th scope="row" data-label="Keyword">
+function performanceColumns(
+  onSelect: (segment: string) => void,
+  now: Date,
+): DataColumn<SourcePerformanceRow>[] {
+  return [
+    {
+      key: "segment",
+      header: "Segment",
+      cell: (row) => (
         <button
           type="button"
           className="jx-source-performance-keyword"
@@ -375,109 +313,98 @@ function PerformanceRow({
         >
           {row.keyword}
         </button>
-      </th>
-      <td data-label="Niche">
-        {row.niche || "—"}
-        {row.niche && !row.nicheConfirmed ? " (unconfirmed)" : ""}
-      </td>
-      <td data-label="Worked">{(row.counts.worked ?? 0).toLocaleString()}</td>
-      <td data-label="Rated">{(row.counts.rated ?? 0).toLocaleString()}</td>
-      <td data-label="Good rate">{formatPercent(row.rates.good)}</td>
-      <td data-label="Positive rate">
-        {formatPercent(row.rates.positiveResponse)}
-      </td>
-      <td data-label="Booked rate">
-        {formatPercent(row.rates.appointmentBooked)}
-      </td>
-      <td data-label="Trend">{trendLabel(row.trend.positiveResponse)}</td>
-      <td data-label="Confidence">
+      ),
+    },
+    { key: "state", header: "State", cell: (row) => row.state },
+    {
+      key: "niche",
+      header: "Niche",
+      cell: (row) =>
+        row.niche ? `${row.niche}${row.nicheConfirmed ? "" : " (unconfirmed)"}` : "—",
+    },
+    { key: "date", header: "Snapshot", cell: (row) => formatDay(`${row.date}T12:00:00`, now) },
+    {
+      key: "delivered",
+      header: "Delivered",
+      numeric: true,
+      cell: (row) => formatCount(row.counts.delivered ?? 0),
+    },
+    { key: "worked", header: "Worked", numeric: true, cell: (row) => formatCount(row.counts.worked ?? 0) },
+    { key: "rated", header: "Rated", numeric: true, cell: (row) => formatCount(row.counts.rated ?? 0) },
+    {
+      key: "positive",
+      header: "Positive",
+      numeric: true,
+      cell: (row) => rate(row.rates.positiveResponse, row.counts.worked),
+    },
+    {
+      key: "booked",
+      header: "Booked",
+      numeric: true,
+      cell: (row) => rate(row.rates.appointmentBooked, row.counts.worked),
+    },
+    { key: "good", header: "Good", numeric: true, cell: (row) => rate(row.rates.good, row.counts.rated) },
+    {
+      key: "trend",
+      header: "Trend",
+      numeric: true,
+      cell: (row) => (row.counts.worked ? trendLabel(row.trend.positiveResponse) : "—"),
+    },
+    {
+      key: "confidence",
+      header: "Confidence",
+      cell: (row) => (
         <StatusBadge tone={CONFIDENCE_TONES[row.confidence] ?? "neutral"}>
-          {row.confidence.replaceAll("_", " ")}
+          {words(row.confidence)}
         </StatusBadge>
-      </td>
-      <td data-label="Action">
+      ),
+    },
+    {
+      key: "action",
+      header: "Action",
+      cell: (row) => (
         <StatusBadge tone={ACTION_TONES[row.actionState] ?? "neutral"}>
-          {row.actionState.replaceAll("_", " ")}
+          {words(row.actionState)}
         </StatusBadge>
-      </td>
-    </tr>
-  );
+      ),
+    },
+  ];
 }
 
-function PerformanceTable({
-  rows,
-  onSelect,
-}: {
-  rows: SourcePerformanceRow[];
-  onSelect: (segment: string) => void;
-}) {
-  if (!rows.length) {
-    return (
-      <EmptyState
-        title="No nightly rows match these filters"
-        description="Widen the date range or clear a filter to see recorded Source Performance snapshots."
-      />
-    );
-  }
-  return (
-    <div className="jx-source-performance-table-wrap">
-      <table className="jx-source-performance-table">
-        <caption>
-          <VisuallyHidden>
-            Nightly Source Performance rows matching the current filters
-          </VisuallyHidden>
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">Date</th>
-            <th scope="col">State</th>
-            <th scope="col">Keyword</th>
-            <th scope="col">Niche</th>
-            <th scope="col">Worked</th>
-            <th scope="col">Rated</th>
-            <th scope="col">Good rate</th>
-            <th scope="col">Positive rate</th>
-            <th scope="col">Booked rate</th>
-            <th scope="col">Trend</th>
-            <th scope="col">Confidence</th>
-            <th scope="col">Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <PerformanceRow row={row} onSelect={onSelect} key={row.id} />
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function HistoryRow({ row }: { row: SourcePerformanceHistoryRow }) {
-  return (
-    <tr>
-      <td data-label="Date">
-        <Mono>{row.date}</Mono>
-      </td>
-      <td data-label="Worked">{(row.counts.worked ?? 0).toLocaleString()}</td>
-      <td data-label="Rated">{(row.counts.rated ?? 0).toLocaleString()}</td>
-      <td data-label="Good rate">{formatPercent(row.rates.good)}</td>
-      <td data-label="Positive rate">
-        {formatPercent(row.rates.positiveResponse)}
-      </td>
-      <td data-label="Confidence">
+function historyColumns(now: Date): DataColumn<SourcePerformanceHistoryRow>[] {
+  return [
+    { key: "date", header: "Snapshot", cell: (row) => formatDay(`${row.date}T12:00:00`, now) },
+    { key: "worked", header: "Worked", numeric: true, cell: (row) => formatCount(row.counts.worked ?? 0) },
+    { key: "rated", header: "Rated", numeric: true, cell: (row) => formatCount(row.counts.rated ?? 0) },
+    { key: "good", header: "Good", numeric: true, cell: (row) => rate(row.rates.good, row.counts.rated) },
+    {
+      key: "positive",
+      header: "Positive",
+      numeric: true,
+      cell: (row) => rate(row.rates.positiveResponse, row.counts.worked),
+    },
+    {
+      key: "confidence",
+      header: "Confidence",
+      cell: (row) => (
         <StatusBadge tone={CONFIDENCE_TONES[row.confidence] ?? "neutral"}>
-          {row.confidence.replaceAll("_", " ")}
+          {words(row.confidence)}
         </StatusBadge>
-      </td>
-      <td data-label="Note">{row.suggestionNote || "—"}</td>
-    </tr>
-  );
+      ),
+    },
+    { key: "note", header: "Note", cell: (row) => row.suggestionNote || "—" },
+  ];
+}
+
+/** "roofing contractor · TX" for the stored "TX::roofing contractor". */
+function segmentName(segment: string): string {
+  const [state, keyword] = segment.split("::");
+  return keyword ? `${keyword} · ${state}` : segment;
 }
 
 /** Loads a Source Segment's full snapshot history in a Dialog rather than an
  *  alert, so the evidence behind a keyword's current row stays inspectable
- *  and dismissible like every other consequential surface in Acquisition. */
+ *  and dismissible. */
 function HistoryDialog({
   segment,
   onClose,
@@ -521,41 +448,20 @@ function HistoryDialog({
     <Dialog
       open={segment !== null}
       onClose={onClose}
-      title={segment ? `History · ${segment}` : "History"}
+      title={segment ? `History · ${segmentName(segment)}` : "History"}
       description="Every nightly snapshot recorded for this Source Segment, most recent first."
     >
       {busy ? (
         <Loading label="Loading history…" />
       ) : failure ? (
         <ErrorState description={failure} />
-      ) : rows && rows.length ? (
-        <div className="jx-source-performance-table-wrap">
-          <table className="jx-source-performance-table">
-            <caption>
-              <VisuallyHidden>Snapshot history</VisuallyHidden>
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col">Date</th>
-                <th scope="col">Worked</th>
-                <th scope="col">Rated</th>
-                <th scope="col">Good rate</th>
-                <th scope="col">Positive rate</th>
-                <th scope="col">Confidence</th>
-                <th scope="col">Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <HistoryRow row={row} key={row.id} />
-              ))}
-            </tbody>
-          </table>
-        </div>
       ) : rows ? (
-        <EmptyState
-          title="No history recorded"
-          description="No nightly snapshot has been recorded for this Source Segment yet."
+        <DataTable
+          label="Snapshot history"
+          columns={historyColumns(new Date())}
+          rows={rows}
+          rowKey={(row) => row.id}
+          empty="No nightly snapshot has been recorded for this Source Segment yet."
         />
       ) : null}
     </Dialog>
@@ -566,58 +472,40 @@ export function AdminSourcePerformanceRoute() {
   const data = useLoaderData<SourcePerformanceData>();
   const search = new URLSearchParams(useLocation().search);
   const [historySegment, setHistorySegment] = useState<string | null>(null);
-  useDocumentTitle("Source Performance");
+  useDocumentTitle("Source performance");
 
   const csvHref = `/api/admin/source-performance.csv?${filteredQuery(search).toString()}`;
+  const now = new Date();
 
   return (
     <Page
-      title="Source Performance"
-      description="Descriptive nightly outcomes by Source Segment. Niche mappings and Source Recommendations stay decided on Acquisition."
+      title="Source performance"
+      width="data"
+      density="data"
+      description="Outcomes by Source Segment from each nightly snapshot. Select a keyword for its history."
+      actions={<ActionLink href="/app/admin/insights">Back to Insights</ActionLink>}
     >
-      <TerminalWorkspace
-        status="ONLINE / DESCRIPTIVE"
-        tone="online"
-        label="Source Performance workspace"
-        destinations={DESTINATIONS}
-      >
-        <Stack gap={6}>
-          <Section
-            title="All-time summary"
-            description="Totals across every delivered google_maps Lead, independent of the filters below."
-          >
-            <SummaryStats global={data.global} legacy={data.legacy} />
-          </Section>
+      <SummaryStats global={data.global} legacy={data.legacy} />
 
-          <Section
-            title="Filters"
-            description="Combined and applied on the server. Filters stay in the URL so this view can be shared."
-          >
-            <FiltersForm search={search} />
-          </Section>
+      <FiltersForm search={search} />
 
-          <Section
-            title="Nightly rows"
-            description="One row per recorded nightly snapshot. Click a keyword to see its full history."
-          >
-            <Stack gap={3}>
-              <Cluster justify="space-between">
-                <Text size="sm" tone="muted" role="status">
-                  {data.rows.length.toLocaleString()} row
-                  {data.rows.length === 1 ? "" : "s"} shown
-                </Text>
-                <ActionLink href={csvHref} variant="ghost">
-                  Export CSV
-                </ActionLink>
-              </Cluster>
-              <PerformanceTable
-                rows={data.rows}
-                onSelect={setHistorySegment}
-              />
-            </Stack>
-          </Section>
-        </Stack>
-      </TerminalWorkspace>
+      <Section title="Nightly rows">
+        <DataTable
+          label="Nightly Source Performance rows"
+          columns={performanceColumns(setHistorySegment, now)}
+          rows={data.rows}
+          rowKey={(row) => row.id}
+          empty="No nightly rows match these filters. Widen the date range or clear a filter."
+        />
+        <Cluster justify="space-between">
+          <Text size="sm" tone="muted" role="status">
+            {formatCount(data.rows.length)} row{data.rows.length === 1 ? "" : "s"} shown
+          </Text>
+          <ActionLink href={csvHref} variant="ghost">
+            Export CSV
+          </ActionLink>
+        </Cluster>
+      </Section>
 
       <HistoryDialog
         segment={historySegment}

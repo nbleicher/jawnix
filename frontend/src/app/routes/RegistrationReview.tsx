@@ -17,7 +17,8 @@ export interface PendingRegistration {
 }
 type Decision = { decision: "new" | "restore" | "reject"; restore_customer_id?: number };
 
-function RegistrationRow({ item }: { item: PendingRegistration }) {
+/** The three decisions on a registration, each behind its confirmation. */
+export function RegistrationDecisions({ item, onDecided }: { item: PendingRegistration; onDecided?: () => void }) {
   const revalidator = useRevalidator();
   const [decision, setDecision] = useState<Decision | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,13 +29,12 @@ function RegistrationRow({ item }: { item: PendingRegistration }) {
     try {
       await api(`/api/admin/registrations/${item.id}/decision`, { method: "POST", body: JSON.stringify(decision) });
       setDecision(null);
+      onDecided?.();
       await revalidator.revalidate();
     } catch (caught) { setError(caught instanceof Error ? caught.message : "This registration could not be updated."); }
     finally { setBusy(false); }
   }
-  return <Stack gap={3}>
-    <Text><strong>{item.firstName} {item.lastName}</strong> · {item.email} · {item.phone} · {item.states.join(", ")}</Text>
-    <Text size="sm">Compare the name and email before granting access to an archived Customer.</Text>
+  return <>
     <Cluster gap={3}>
       {item.matches.map(match => <Button key={match.id} onClick={() => setDecision({ decision: "restore", restore_customer_id: match.id })}>
         Restore {match.slug} ({match.email || "No previous email"})
@@ -48,12 +48,27 @@ function RegistrationRow({ item }: { item: PendingRegistration }) {
       footer={<Cluster gap={3}><Button disabled={busy} onClick={() => setDecision(null)}>Cancel</Button><Button variant="primary" busy={busy} onClick={() => { void confirm(); }}>Confirm decision</Button></Cluster>}>
       {error ? <p role="alert">{error}</p> : null}
     </Dialog>
+  </>;
+}
+
+function RegistrationRow({ item }: { item: PendingRegistration }) {
+  const name = `${item.firstName} ${item.lastName}`.trim() || item.email;
+  return <Stack as="li" gap={3} className="registration-review__item" aria-label={name}>
+    <Text><strong>{name}</strong> · {item.email} · {item.phone} · {item.states.join(", ") || "No states"}</Text>
+    <Text size="sm" tone="muted">
+      {item.matches.length
+        ? "Compare the name and email before granting access to an archived Customer."
+        : "No archived Customer matches this name."}
+    </Text>
+    <RegistrationDecisions item={item} />
   </Stack>;
 }
 
+/** Verified sign-ups waiting on the operator, reachable from Customers and
+ *  Today. Hidden when none are waiting. */
 export function RegistrationReview({ items }: { items: PendingRegistration[] }) {
   if (!items.length) return null;
-  return <Section title="Registrations awaiting review" description="These verified registrations match archived customer names. Only the operator can decide whether to restore history.">
-    <Stack gap={6}>{items.map(item => <RegistrationRow key={item.id} item={item} />)}</Stack>
+  return <Section id="registrations" title="Registrations awaiting review" description="These verified registrations match archived customer names. Only the operator can decide whether to restore history.">
+    <Stack as="ul" gap={5} className="registration-review">{items.map(item => <RegistrationRow key={item.id} item={item} />)}</Stack>
   </Section>;
 }

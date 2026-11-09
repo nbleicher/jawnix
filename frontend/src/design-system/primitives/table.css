@@ -1,0 +1,194 @@
+/* The operator data table (V3): one ruled box, mono caps headers on a quiet
+   band, hairline rows. */
+.jx-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+  border: var(--jx-rule) solid var(--jx-line-strong);
+  background: var(--jx-color-surface);
+}
+
+.jx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--jx-text-sm);
+}
+
+.jx-table th,
+.jx-table td {
+  padding: var(--jx-space-2) var(--jx-space-3);
+  border-bottom: var(--jx-rule) solid var(--jx-line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.jx-table td {
+  height: 2.75rem;
+}
+
+.jx-table thead th {
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-regular);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
+  color: var(--jx-ink-muted);
+  background: var(--jx-accent-soft);
+  white-space: nowrap;
+}
+
+.jx-table tbody tr:last-child > td {
+  border-bottom: 0;
+}
+
+.jx-table__numeric {
+  text-align: right !important;
+  font-feature-settings: var(--jx-font-features-numeral);
+  white-space: nowrap;
+}
+
+.jx-table a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+.jx-table__row--clickable {
+  cursor: pointer;
+}
+
+.jx-table__row--clickable:hover {
+  background: var(--jx-accent-soft);
+}
+
+/* The open side panel's row: a dark left bar and the quiet band (V3). */
+.jx-table__row--selected {
+  background: var(--jx-accent-soft);
+  box-shadow: inset 3px 0 0 var(--jx-ink);
+}
+
+.jx-table__row--selected .jx-table__record a {
+  font-weight: var(--jx-weight-semibold);
+}
+
+/* Rows in a table with a button column share one height. */
+.jx-table--actions tbody td {
+  height: 3.75rem;
+}
+
+.jx-table tfoot td {
+  font-weight: var(--jx-weight-semibold);
+  border-top: var(--jx-rule) solid var(--jx-line-strong);
+  border-bottom: 0;
+}
+
+/* A row's opened detail, read as part of the row above it. */
+.jx-table__expansion > td {
+  height: auto;
+  padding: var(--jx-space-3);
+  background: var(--jx-accent-soft);
+}
+
+.jx-table__empty td {
+  height: auto;
+  padding: var(--jx-space-5) var(--jx-space-4);
+  color: var(--jx-ink-muted);
+}
+
+/* Phones stack each row (V8): the record on top, the other values on a
+   labelled line beneath it, and a button column on the right. */
+@media (max-width: 40rem) {
+  .jx-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .jx-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--jx-space-1) var(--jx-space-3);
+    padding: var(--jx-space-3);
+    border-bottom: var(--jx-rule) solid var(--jx-line);
+  }
+
+  .jx-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  .jx-table th,
+  .jx-table td,
+  .jx-table--actions tbody td {
+    display: block;
+    height: auto;
+    padding: 0;
+    border: 0;
+  }
+
+  .jx-table td.jx-table__numeric {
+    text-align: left !important;
+  }
+
+  .jx-table td.jx-table__record {
+    flex: 1 0 60%;
+    font-weight: var(--jx-weight-medium);
+  }
+
+  .jx-table td[data-label] {
+    order: 2;
+  }
+
+  .jx-table td[data-label]::before {
+    content: attr(data-label) " ";
+    color: var(--jx-ink-muted);
+    font-size: var(--jx-text-xs);
+  }
+
+  .jx-table--actions td:last-child {
+    order: 1;
+    margin-left: auto;
+  }
+
+  .jx-table--actions td:last-child::before {
+    content: none;
+  }
+
+  .jx-table td.jx-table__cell--unstacked {
+    display: none;
+  }
+
+  /* A stacked row's links keep a 24px target (WCAG 2.5.8) wherever the row
+     scrolls, including beside the fixed bottom navigation. */
+  .jx-table a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.5rem;
+  }
+
+  .jx-table tr.jx-table__expansion {
+    display: block;
+    padding: var(--jx-space-3);
+    background: var(--jx-accent-soft);
+  }
+
+  .jx-table tr.jx-table__expansion > td {
+    padding: 0;
+  }
+
+  .jx-table tfoot tr {
+    border-top: var(--jx-rule) solid var(--jx-line-strong);
+  }
+
+  /* The row draws the footer's rule; its cells stack without their own. */
+  .jx-table tfoot td {
+    border-top: 0;
+  }
+
+  .jx-table tfoot td.jx-table__cell--blank {
+    display: none;
+  }
+}

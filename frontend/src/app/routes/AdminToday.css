@@ -1,0 +1,20 @@
+/* Last night's run in one ruled line under the numbers. */
+.jx-today-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--jx-space-2) var(--jx-space-4);
+  margin: 0;
+  padding: var(--jx-space-3) var(--jx-space-4);
+  border: var(--jx-rule) solid var(--jx-line-strong);
+  background: var(--jx-color-surface);
+  font-size: var(--jx-text-sm);
+  font-feature-settings: var(--jx-font-features-numeral);
+}
+
+.jx-today-line a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}

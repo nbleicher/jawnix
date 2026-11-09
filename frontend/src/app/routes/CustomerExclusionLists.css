@@ -1,0 +1,16 @@
+.exclusion-lists__upload {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+}
+
+.exclusion-lists__error {
+  display: block;
+  max-width: 28rem;
+  color: var(--jx-danger-ink);
+  font-size: var(--jx-text-sm);
+}
+
+.exclusion-lists__retry {
+  padding: var(--jx-space-3) 0;
+}

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Link, useLoaderData, useNavigate } from "react-router";
 
 import { exchangeJawnixSession, routerPath } from "../auth/customerAuth";
 import type {
   InvitationLoaderData,
+  PasswordResetLoaderData,
   SignInLoaderData,
 } from "../auth/customerAuth";
 import {
@@ -27,19 +28,25 @@ const SIGN_IN_ERROR =
   "We could not sign you in. Check your details, or email noah@jawnix.com — Noah answers it.";
 const INVITATION_ERROR =
   "This invitation cannot be used. Email noah@jawnix.com and I'll send a replacement, or sign in if you already set your password.";
+const RESET_LINK_ERROR =
+  "Password links work once and expire after an hour. Ask for a new one from sign-in.";
 
-export function AuthRouteFrame({ children }: { children: ReactNode }) {
+/** `wide` drops the brand plate for a step that needs the whole width, like
+ *  sign-up's appointed-states grid. */
+export function AuthRouteFrame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
-    <div className="jx-auth-route">
+    <div className={wide ? "jx-auth-route jx-auth-route--wide" : "jx-auth-route"}>
       <a className="jx-auth-route__skip-link" href="#jx-auth-main">
         Skip to main content
       </a>
       <header className="jx-auth-route__banner">
         <BrandLockup />
       </header>
-      <div className="jx-auth-route__plate" aria-hidden="true">
-        <RoutingPlate />
-      </div>
+      {wide ? null : (
+        <div className="jx-auth-route__plate" aria-hidden="true">
+          <RoutingPlate />
+        </div>
+      )}
       <main className="jx-auth-route__main" id="jx-auth-main" tabIndex={-1}>
         {children}
       </main>
@@ -68,9 +75,10 @@ export function FormError({
 
 export function SignInRoute() {
   useDocumentTitle("Sign in");
-  const { next } = useLoaderData() as SignInLoaderData;
+  const { next, passwordUpdated } = useLoaderData() as SignInLoaderData;
   const navigate = useNavigate();
   const errorRef = useRef<HTMLDivElement>(null);
+  const resetHintId = useId();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -127,6 +135,11 @@ export function SignInRoute() {
         footer={!mfa ? <Link className="jx-auth-route__link" to="/sign-up">Create an account</Link> : undefined}
       >
         <form className="jx-auth-form" onSubmit={submit} noValidate>
+          {passwordUpdated && !mfa ? (
+            <p className="jx-auth-form__notice" role="status">
+              Your password was changed. Sign in with your new password.
+            </p>
+          ) : null}
           {error ? <FormError errorRef={errorRef}>{error}</FormError> : null}
           {unverified ? <Button type="button" disabled={busy || !email.trim()} onClick={async () => {
             setBusy(true);
@@ -137,8 +150,8 @@ export function SignInRoute() {
           {verificationSent ? <p role="status">If your account needs verification, a new link is on its way.</p> : null}
           {resetSent ? (
             <p role="status">
-              If that address has a Jawnix account, a password link is on its
-              way.
+              If that address has a Jawnix account, a link to choose a new
+              password is on its way.
             </p>
           ) : null}
           {mfa ? (
@@ -204,9 +217,11 @@ export function SignInRoute() {
             {mfa ? "Verify and sign in" : "Sign in"}
           </Button>
           {!mfa ? (
+            <>
             <Button
               type="button"
               disabled={busy || !email.trim()}
+              {...(!email.trim() ? { "aria-describedby": resetHintId } : {})}
               onClick={async () => {
                 setBusy(true);
                 setError("");
@@ -222,6 +237,14 @@ export function SignInRoute() {
             >
               Set or reset password
             </Button>
+            {/* A disabled button says nothing on its own; this says why. */}
+            {!email.trim() ? (
+              <p className="jx-auth-form__hint" id={resetHintId}>
+                Enter your email address above to get a link for setting a new
+                password.
+              </p>
+            ) : null}
+            </>
           ) : null}
         </form>
       </AuthPanel>
@@ -229,7 +252,17 @@ export function SignInRoute() {
   );
 }
 
-function InvitationRecovery({ focus = false }: { focus?: boolean }) {
+function LinkRecovery({
+  title,
+  description,
+  focus = false,
+  children,
+}: {
+  title: string;
+  description: string;
+  focus?: boolean;
+  children: ReactNode;
+}) {
   const recoveryRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -245,38 +278,40 @@ function InvitationRecovery({ focus = false }: { focus?: boolean }) {
         tabIndex={-1}
       >
         <AuthPanel
-          title="Request a new invitation"
-          description={INVITATION_ERROR}
+          title={title}
+          description={description}
           footer={
             <Link className="jx-auth-route__link" to="/sign-in">
               Go to sign in
             </Link>
           }
         >
-          <p>
-            A replacement goes to the same address the invitation left from. I
-            never see your password.
-          </p>
+          {children}
         </AuthPanel>
       </div>
     </AuthRouteFrame>
   );
 }
 
-export function AcceptInvitationRoute() {
-  useDocumentTitle("Accept invitation");
-  const { canAccept } = useLoaderData() as InvitationLoaderData;
+/**
+ * Choose and confirm a password against a one-time provider link. Shared by
+ * invitation acceptance and password reset, which differ only in their words.
+ */
+function NewPasswordForm({
+  submitLabel,
+  busyLabel,
+  onFailed,
+}: {
+  submitLabel: string;
+  busyLabel: string;
+  onFailed: () => void;
+}) {
   const navigate = useNavigate();
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [confirmationError, setConfirmationError] = useState("");
-  const [invitationFailed, setInvitationFailed] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  if (!canAccept || invitationFailed) {
-    return <InvitationRecovery focus={invitationFailed} />;
-  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -298,10 +333,70 @@ export function AcceptInvitationRoute() {
       await updateProviderPassword(password);
       navigate("/sign-in?password=updated", { replace: true });
     } catch {
-      setInvitationFailed(true);
+      onFailed();
     } finally {
       setBusy(false);
     }
+  }
+
+  return (
+    <form className="jx-auth-form" onSubmit={submit} noValidate>
+      <Field
+        label="Password"
+        description="Use at least 8 characters."
+        error={passwordError}
+        required
+      >
+        <Input
+          name="password"
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(event) => setPassword(event.currentTarget.value)}
+          required
+        />
+      </Field>
+      <Field label="Confirm password" error={confirmationError} required>
+        <Input
+          name="password_confirmation"
+          type="password"
+          autoComplete="new-password"
+          value={confirmation}
+          onChange={(event) => setConfirmation(event.currentTarget.value)}
+          required
+        />
+      </Field>
+      <Button
+        type="submit"
+        variant="primary"
+        fullWidth
+        busy={busy}
+        busyLabel={busyLabel}
+      >
+        {submitLabel}
+      </Button>
+    </form>
+  );
+}
+
+export function AcceptInvitationRoute() {
+  useDocumentTitle("Accept invitation");
+  const { canAccept } = useLoaderData() as InvitationLoaderData;
+  const [invitationFailed, setInvitationFailed] = useState(false);
+
+  if (!canAccept || invitationFailed) {
+    return (
+      <LinkRecovery
+        title="Request a new invitation"
+        description={INVITATION_ERROR}
+        focus={invitationFailed}
+      >
+        <p>
+          A replacement goes to the same address the invitation left from. I
+          never see your password.
+        </p>
+      </LinkRecovery>
+    );
   }
 
   return (
@@ -310,42 +405,48 @@ export function AcceptInvitationRoute() {
         title="Create your password"
         description="Finish accepting your invitation. Your administrator cannot see or set this password."
       >
-        <form className="jx-auth-form" onSubmit={submit} noValidate>
-          <Field
-            label="Password"
-            description="Use at least 8 characters."
-            error={passwordError}
-            required
-          >
-            <Input
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              value={password}
-              onChange={(event) => setPassword(event.currentTarget.value)}
-              required
-            />
-          </Field>
-          <Field label="Confirm password" error={confirmationError} required>
-            <Input
-              name="password_confirmation"
-              type="password"
-              autoComplete="new-password"
-              value={confirmation}
-              onChange={(event) => setConfirmation(event.currentTarget.value)}
-              required
-            />
-          </Field>
-          <Button
-            type="submit"
-            variant="primary"
-            fullWidth
-            busy={busy}
-            busyLabel="Creating password…"
-          >
-            Create password
-          </Button>
-        </form>
+        <NewPasswordForm
+          submitLabel="Create password"
+          busyLabel="Creating password…"
+          onFailed={() => setInvitationFailed(true)}
+        />
+      </AuthPanel>
+    </AuthRouteFrame>
+  );
+}
+
+/** Where a password link from sign-in lands. Never invitation words. */
+export function ResetPasswordRoute() {
+  useDocumentTitle("Choose a new password");
+  const { canReset } = useLoaderData() as PasswordResetLoaderData;
+  const [resetFailed, setResetFailed] = useState(false);
+
+  if (!canReset || resetFailed) {
+    return (
+      <LinkRecovery
+        title="This password link has expired"
+        description={RESET_LINK_ERROR}
+        focus={resetFailed}
+      >
+        <p>
+          On sign-in, enter your email address and choose Set or reset
+          password. Your current password still works until you change it.
+        </p>
+      </LinkRecovery>
+    );
+  }
+
+  return (
+    <AuthRouteFrame>
+      <AuthPanel
+        title="Choose a new password"
+        description="This replaces the password for your Jawnix account. Nobody at Jawnix can see it."
+      >
+        <NewPasswordForm
+          submitLabel="Save new password"
+          busyLabel="Saving password…"
+          onFailed={() => setResetFailed(true)}
+        />
       </AuthPanel>
     </AuthRouteFrame>
   );

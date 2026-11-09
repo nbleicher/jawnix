@@ -19,7 +19,8 @@ from jawnix.database import Base
 from jawnix.db2_setup import db2_url, provision
 from jawnix.job_wakeup import postgres_dsn
 from jawnix.lead_uploads import ImportInterrupted, import_lead_upload
-from jawnix.models import Customer, DistributionEvent, Lead, LeadDatabaseMembership, LeadUpload, ManagedAdmin
+from jawnix.inventory_snapshots import REFRESH_INVENTORY_JOB, refresh_inventory_snapshots
+from jawnix.models import Customer, DistributionEvent, InventorySnapshot, Job, Lead, LeadDatabaseMembership, LeadUpload, ManagedAdmin
 
 DATABASE_URL = os.environ.get("JAWNIX_ACCEPTANCE_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="requires disposable PostgreSQL")
@@ -165,7 +166,15 @@ def test_operator_upload_publishes_into_the_shared_db2(stores, tmp_path):
     assert import_lead_upload(upload_id, settings, session_factory=factory)["status"] == "complete"
     with psycopg.connect(postgres_dsn(db2_url(settings)), autocommit=True) as source:
         assert source.execute("SELECT owner_id FROM published_inventory WHERE upload_id=%s", (upload_id,)).fetchone() == (operator_id,)
+    with factory.begin() as db:
+        # Publication queues the usable-inventory recount in its own commit.
+        refresh = db.scalar(select(Job).where(Job.kind == REFRESH_INVENTORY_JOB))
+        assert refresh is not None and refresh.status == "queued"
+        assert refresh.payload == {"reason": "db2_upload"}
+        refresh_inventory_snapshots(db)
     with factory() as db:
+        snapshot = db.get(InventorySnapshot, "db2")
+        assert (snapshot.all_rows, snapshot.usable, snapshot.usable_by_state) == (1, 1, {"TN": 1})
         assert db.scalar(select(LeadDatabaseMembership.upload_id).join(Lead, Lead.id == LeadDatabaseMembership.lead_id).where(Lead.phone == phone)) == upload_id
         with pytest.raises(Exception, match="ck_lead_upload_one_uploader"):
             db.add(LeadUpload(manager_id=manager_id, operator_id=operator_id, filename="both.csv", path="both", state="TN"))

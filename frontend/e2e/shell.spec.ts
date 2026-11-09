@@ -1,11 +1,16 @@
 import { expect, test } from "@playwright/test";
 
 import { mockAcquisition } from "./acquisition-fixtures";
-import { mockFeedback } from "./customer-feedback-fixtures";
+import { mockActivity } from "./activity-fixtures";
+import { mockInsights } from "./insights-fixtures";
+import { mockSetup } from "./setup-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockFulfillment } from "./fulfillment-fixtures";
+import { mockInventory } from "./inventory-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 import { mockCustomerAuth } from "./customer-auth-fixtures";
+import { mockOperatorDesk } from "./today-fixtures";
+import { mockBatchRequests } from "./customer-requests-fixtures";
 
 /**
  * Shell journeys against the compiled application.
@@ -20,76 +25,119 @@ test.beforeEach(async ({ page }) => {
   // Every administrator destination now reads a real contract:
   // Fulfillment since #57, Customers since #59, Acquisition since #68.
   await mockAcquisition(page);
+  await mockActivity(page);
+  await mockInsights(page);
+  await mockSetup(page);
   await mockAdminCustomers(page);
   await mockFulfillment(page);
-  // Feedback reads a real contract since #53.
-  await mockFeedback(page);
+  await mockInventory(page);
   await mockCustomerAuth(page);
 });
 
 test.describe("Customer shell", () => {
-  test("keeps email support in the shell chrome across destinations", async ({
+  test("keeps email support and sign-out reachable at both form factors", async ({
     page,
+    isMobile,
   }) => {
-    await page.goto("./overview");
+    await page.goto("./home");
 
-    const support = page.getByRole("banner").getByRole("link", {
-      name: "Support",
-    });
-    await expect(support).toBeVisible();
-    await expect(support).toHaveAttribute("href", "mailto:noah@jawnix.com");
+    // Desktop: Support and Sign out in the header. Phones (V8): the header
+    // keeps the balance and Buy credits, and Account carries the other two.
+    const banner = page.getByRole("banner");
+    const support = page.getByRole("link", { name: "Support" });
+    if (isMobile) {
+      await expect(banner.getByRole("link", { name: "Support" })).toHaveCount(0);
+      await expect(banner.getByRole("button", { name: "Sign out" })).toHaveCount(0);
+    } else {
+      await expect(banner.getByRole("link", { name: "Support" })).toBeVisible();
+      await expect(banner.getByRole("button", { name: "Sign out" })).toBeVisible();
+    }
 
     await page
       .getByRole("navigation", { name: "Customer" })
       .getByRole("link", { name: "Account" })
       .click();
-    await expect(support).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Account" })).toBeVisible();
+    await expect(support.first()).toBeVisible();
+    await expect(support.first()).toHaveAttribute("href", "mailto:noah@jawnix.com");
+    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   });
 
-  test("lands on Overview and reaches every primary destination", async ({ page }) => {
+  test("lands on Home and reaches every primary destination", async ({ page }) => {
     await page.goto("./");
 
-    // The index route redirects to Overview.
-    await expect(page).toHaveURL(/\/app\/overview$/);
-    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+    // The index route redirects to Home.
+    await expect(page).toHaveURL(/\/app\/home$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
 
     const nav = page.getByRole("navigation", { name: "Customer" });
-
-    for (const destination of ["Requests", "Feedback", "Account"]) {
+    const destinations: Array<[string, string]> = [
+      ["New request", "New request"],
+      ["Batches", "Batches"],
+      ["Account", "Account"],
+      ["Home", "Home"],
+    ];
+    for (const [destination, heading] of destinations) {
       await nav.getByRole("link", { name: destination }).click();
-      await expect(page.getByRole("heading", { level: 1, name: destination })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
       await expect(nav.getByRole("link", { name: destination })).toHaveAttribute("aria-current", "page");
+      await expect(nav.locator("[aria-current=page]")).toHaveCount(1);
     }
   });
 
-  test("exposes every destination at both form factors", async ({ page }) => {
+  test("a batch page belongs to Batches", async ({ page }) => {
+    await mockBatchRequests(page);
+    await page.goto("./batches");
+
+    await page.getByRole("link", { name: "Batch #1017", exact: true }).click();
+    await expect(page).toHaveURL(/\/app\/batches\/1017$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Batch #1017" })).toBeVisible();
+    const nav = page.getByRole("navigation", { name: "Customer" });
+    await expect(nav.getByRole("link", { name: "Batches" })).toHaveAttribute("aria-current", "page");
+    await expect(nav.locator("[aria-current=page]")).toHaveCount(1);
+  });
+
+  test("exposes every destination at both form factors without scrolling", async ({ page }) => {
     await page.goto("./");
 
     const nav = page.getByRole("navigation", { name: "Customer" });
-    // Mobile must not be a degraded experience: the same four links are present
-    // and visible whichever viewport the project runs at.
-    for (const destination of ["Overview", "Requests", "Feedback", "Account"]) {
-      await expect(nav.getByRole("link", { name: destination })).toBeVisible();
+    await expect(nav.getByRole("link")).toHaveCount(4);
+    // Mobile must not be a degraded experience: the same four links are
+    // present, visible, and inside the viewport without scrolling the bar.
+    for (const destination of ["Home", "New request", "Batches", "Account"]) {
+      await expect(nav.getByRole("link", { name: destination })).toBeInViewport({ ratio: 1 });
     }
+    // Feedback left the app; its old address opens Batches.
+    await expect(nav.getByRole("link", { name: "Feedback" })).toHaveCount(0);
+    await page.goto("./feedback");
+    await expect(page.getByRole("heading", { level: 1, name: "Batches" })).toBeVisible();
+  });
+
+  test("hides the tape strip on phones only", async ({ page, isMobile }) => {
+    await page.goto("./home");
+
+    const tape = page.locator(".jx-tape");
+    if (isMobile) await expect(tape).toBeHidden();
+    else await expect(tape).toBeVisible();
   });
 
   test("updates the document title on navigation", async ({ page }) => {
     await page.goto("./");
-    await expect(page).toHaveTitle("Overview · JAWNIX");
+    await expect(page).toHaveTitle("Home · JAWNIX");
 
-    await page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "Requests" }).click();
-    await expect(page).toHaveTitle("Requests · JAWNIX");
+    await page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "New request" }).click();
+    await expect(page).toHaveTitle("New request · JAWNIX");
   });
 });
 
 test.describe("Administration shell", () => {
   test("shares the scheme and the quiet register", async ({ page }) => {
-    await page.goto("./admin/overview");
+    await page.goto("./admin/today");
 
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
     // Headings are Inter in the fresh register; Archivo survives only in the
     // frozen wordmark.
-    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toHaveCSS(
+    await expect(page.getByRole("heading", { level: 1, name: "Today" })).toHaveCSS(
       "font-family",
       /Inter/,
     );
@@ -99,133 +147,110 @@ test.describe("Administration shell", () => {
     );
   });
 
-  test("keeps primary navigation to the domain-work destinations", async ({ page }) => {
-    await page.goto("./admin/overview");
+  test("navigates by how often each tool is used, with search in the header", async ({ page }) => {
+    await page.goto("./admin/today");
 
     const nav = page.getByRole("navigation", { name: "Administration" });
-    await expect(nav.getByRole("link")).toHaveCount(5);
-    for (const destination of ["Overview", "Fulfillment", "Acquisition", "Customers", "Activity"]) {
-      await expect(nav.getByRole("link", { name: destination })).toBeVisible();
+    // Each link also carries its decorative, hidden glyph.
+    await expect(nav.getByRole("link")).toHaveText([
+      /Today$/,
+      /Customers$/,
+      /Inventory$/,
+      /Insights$/,
+      /Setup$/,
+      /Activity$/,
+    ]);
+    // Every destination fits without scrolling, phones included (V8).
+    for (const link of await nav.getByRole("link").all()) {
+      await expect(link).toBeInViewport({ ratio: 1 });
     }
-    await expect(nav.getByRole("link", { name: "Security" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Fulfillment" })).toHaveCount(0);
+    await expect(
+      page.getByRole("banner").getByRole("combobox", { name: "Search customers, batches, uploads, and phones" }),
+    ).toBeVisible();
   });
 
-  test("Overview is the cross-domain work queue at both form factors", async ({ page }) => {
+  test("Insights and Setup reach their own pages", async ({ page }) => {
+    await page.goto("./admin/today");
+    const nav = page.getByRole("navigation", { name: "Administration" });
+    await expect(nav.getByRole("link", { name: "Inventory" })).toHaveAttribute("href", "/app/admin/inventory");
+    await expect(nav.getByRole("link", { name: "Insights" })).toHaveAttribute("href", "/app/admin/insights");
+
+    await nav.getByRole("link", { name: "Setup" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Setup" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Setup" })).toHaveAttribute("aria-current", "page");
+    await expect(nav.getByRole("link", { name: "Insights" })).not.toHaveAttribute("aria-current", "page");
+
+    await nav.getByRole("link", { name: "Insights" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Insights" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Insights" })).toHaveAttribute("aria-current", "page");
+  });
+
+  test("the old Overview address lands on Today", async ({ page }) => {
     await page.goto("./admin/overview");
+    await expect(page).toHaveURL(/\/app\/admin\/today$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Today" })).toBeVisible();
 
-    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
-    await expect(page.getByText("Not built yet")).toHaveCount(0);
-
-    for (const queue of [
-      "Pending Batch Requests",
-      "Inventory Conflicts",
-      "Lead Reports",
-      "Eligibility Holds",
-      "Delivery failures",
-      "Failed jobs",
-      "Scrape Anomalies",
-      "Nightly Reviews",
-    ]) {
-      await expect(page.getByRole("region", { name: queue })).toBeVisible();
-    }
-    await expect(page.getByRole("link", { name: "Open Fulfillment" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Open Acquisition" })).toBeVisible();
+    await page.goto("./admin");
+    await expect(page).toHaveURL(/\/app\/admin\/today$/);
   });
 
-  test("Fulfillment groups its operational work at both form factors", async ({ page }) => {
+  test("the old Fulfillment address lands on All batches, out of the navigation", async ({ page }) => {
+    await mockOperatorDesk(page);
     await page.goto("./admin/fulfillment");
 
-    await expect(page.getByRole("heading", { level: 1, name: "Fulfillment" })).toBeVisible();
-    await expect(page.getByText("Not built yet")).toHaveCount(0);
-
-    // #57 replaced the task map with the workspace itself: the three areas of
-    // outstanding work, each carrying the records it is responsible for.
-    for (const area of ["Batch Requests", "Inventory Conflicts", "Delivery failures"]) {
-      await expect(page.getByRole("region", { name: area })).toBeVisible();
-    }
-
-    await page
-      .getByRole("region", { name: "Batch Requests" })
-      .locator("summary")
-      .click();
-    await page
-      .getByRole("region", { name: "Batch Requests" })
-      .getByRole("link", { name: "Northstar Insurance" })
-      .click();
+    await expect(page).toHaveURL(/\/app\/admin\/batches$/);
+    await expect(page.getByRole("heading", { level: 1, name: "All batches" })).toBeVisible();
     await expect(
-      page.getByRole("heading", { level: 1, name: /^Batch Request — / }),
-    ).toBeVisible();
-
-    const back = page.getByRole("link", { name: "Back to Fulfillment" });
-    await expect(back).toBeVisible();
-    await back.click();
-    await expect(page.getByRole("heading", { level: 1, name: "Fulfillment" })).toBeVisible();
+      page.getByRole("navigation", { name: "Administration" }).getByRole("link", { name: "Fulfillment" }),
+    ).toHaveCount(0);
   });
 
-  test("Acquisition exposes its operating areas and security action at both form factors", async ({ page }) => {
+  test("Setup reaches every occasional tool, security included, at both form factors", async ({ page }) => {
     await page.goto("./admin/acquisition");
-
-    await expect(page.getByRole("heading", { level: 1, name: "Acquisition" })).toBeVisible();
+    await expect(page).toHaveURL(/\/app\/admin\/setup$/);
     await expect(page.getByText("Not built yet")).toHaveCount(0);
 
-    // #68 replaced the task map with the native terminal workspace: the areas
-    // are now the records themselves.
-    for (const area of [
-      "Held Scrape Anomalies",
-      "Source Recommendations",
-      "Scraper Configuration versions",
-      "Nightly Reviews",
-    ]) {
-      await expect(page.getByRole("region", { name: area })).toBeVisible();
-    }
-
-    // Administrator navigation omits Security, so this rail is its only route.
-    const rail = page.getByRole("navigation", {
-      name: "Acquisition workspace sections",
-    });
-    const security = rail.getByRole("link", { name: "Administrator security" });
-    await expect(security).toBeVisible();
-    await security.click();
+    const areas = page.getByRole("table", { name: "Setup areas" });
+    await areas.getByRole("link", { name: "Security" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Administrator security" })).toBeVisible();
+    const nav = page.getByRole("navigation", { name: "Administration" });
+    await expect(nav.getByRole("link", { name: "Setup" })).toHaveAttribute("aria-current", "page");
 
-    await page.goto("./admin/acquisition");
-    const back = rail.getByRole("link", { name: "Exit to Overview" });
-    await expect(back).toBeVisible();
-    await back.click();
-    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+    await nav.getByRole("link", { name: "Today" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Today" })).toBeVisible();
   });
 
-  test("Customers separates durable identity from account access at both form factors", async ({ page }) => {
+  test("Customers lists every customer with what it needs at both form factors", async ({ page }) => {
     await page.goto("./admin/customers");
 
     await expect(page.getByRole("heading", { level: 1, name: "Customers" })).toBeVisible();
     await expect(page.getByText("Not built yet")).toHaveCount(0);
 
-    // Each row carries two separately labelled standings: the durable Customer
-    // and the replaceable access.
-    const harbor = page.getByRole("article", { name: "Harbor Insurance" });
-    await expect(harbor.getByText("Customer", { exact: true })).toBeVisible();
-    await expect(harbor.getByText("User Account", { exact: true })).toBeVisible();
+    const table = page.getByRole("table", { name: "Customers" });
+    await expect(table.getByRole("link", { name: "Harbor Insurance" })).toBeVisible();
+    await expect(table.getByText("Conflict with Lakeside Brokers")).toBeVisible();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
 
     const nav = page.getByRole("navigation", { name: "Administration" });
-    await nav.getByRole("link", { name: "Overview" }).click();
-    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+    await nav.getByRole("link", { name: "Today" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Today" })).toBeVisible();
   });
 
   test("reaches every primary destination", async ({ page }) => {
     await page.goto("./admin");
 
-    await expect(page).toHaveURL(/\/app\/admin\/overview$/);
     const nav = page.getByRole("navigation", { name: "Administration" });
-
-    for (const destination of ["Fulfillment", "Acquisition", "Customers"]) {
+    for (const destination of ["Customers", "Setup", "Activity", "Today"]) {
       await nav.getByRole("link", { name: destination }).click();
       await expect(nav.getByRole("link", { name: destination })).toHaveAttribute("aria-current", "page");
     }
   });
 
   test("the Scraper workspace and administration share the scheme", async ({ page }) => {
-    await page.goto("./admin/overview");
+    await page.goto("./admin/today");
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
 
     await page.goto("./admin/acquisition/scraper");
@@ -236,12 +261,12 @@ test.describe("Administration shell", () => {
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
 
     const nav = page.getByRole("navigation", { name: "Administration" });
-    await nav.getByRole("link", { name: "Fulfillment" }).click();
+    await nav.getByRole("link", { name: "Customers" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");
   });
 
   test("signs the administrator out from the shell chrome", async ({ page }) => {
-    await page.goto("./admin/overview");
+    await page.goto("./admin/today");
 
     await page
       .getByRole("banner")
@@ -257,7 +282,7 @@ test.describe("Administration shell", () => {
 
 test.describe("Direct navigation", () => {
   // A hard load of a deep link must work, not just client-side routing.
-  for (const path of ["./requests", "./account", "./admin/fulfillment", "./design-system"]) {
+  for (const path of ["./home", "./new-request", "./batches", "./account", "./admin/inventory", "./design-system"]) {
     test(`serves the shell for a hard load of ${path}`, async ({ page }) => {
       const response = await page.goto(path);
       expect(response?.status()).toBe(200);
@@ -269,7 +294,7 @@ test.describe("Direct navigation", () => {
     await page.goto("./no-such-route");
 
     await expect(page.getByRole("heading", { level: 1, name: "Page not found" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Go to Overview" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Go to Home" })).toBeVisible();
   });
 });
 
@@ -282,7 +307,7 @@ test.describe("Assets", () => {
     });
 
     await page.goto("./");
-    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
 
     expect(assetUrls.length).toBeGreaterThan(0);
     // Vite emits `name-<hash>.ext`; the hash is what makes immutable caching safe.

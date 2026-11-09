@@ -175,8 +175,42 @@ test.describe("Scraper monitoring", () => {
     await expect(page.getByRole("alert")).toContainText("Last successful connection");
     await expect(page.getByRole("button", { name: /Pause/ })).toHaveCount(0);
     await expect(
-      page.getByRole("link", { name: "Back to Acquisition" }),
+      page.getByRole("link", { name: "Back to Setup" }),
     ).toBeVisible();
+  });
+});
+
+test.describe("Scraper session", () => {
+  test("a live grant opens the workspace again without another challenge", async ({ page }) => {
+    await openWorkspace(page);
+    let entries = 0;
+    await page.route(/\/api\/admin\/scraper\/entry$/, (route) => {
+      entries += 1;
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ granted: true, factors: [] }),
+      });
+    });
+
+    await page.goto("./admin/acquisition/scraper");
+
+    await expect(page).toHaveURL(/\/admin\/acquisition\/scraper\/workspace$/);
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Scraper Operations" }),
+    ).toBeVisible();
+    await expect(page.getByLabel(/authenticator code/i)).toHaveCount(0);
+    expect(entries).toBe(1);
+  });
+
+  test("without a grant the entry asks for one challenge per sign-in", async ({ page }) => {
+    await mockAdminMFA(page, { assurance: "aal2" });
+    await page.goto("./admin/acquisition/scraper");
+
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Verify access to Scraper Operations" }),
+    ).toBeVisible();
+    await expect(page.getByText(/lasts until\s+you sign out/i)).toBeVisible();
   });
 });
 

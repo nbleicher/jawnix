@@ -1,7 +1,7 @@
 import type { Page, Route } from "@playwright/test";
 
-import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
-import { OPERATIONS_OVERVIEW } from "./operations-overview-fixtures";
+import { CUSTOMER_HOME } from "./customer-home-fixtures";
+import { TODAY } from "./today-fixtures";
 import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
 import {
   coverageFeed,
@@ -138,7 +138,7 @@ export async function mockAdminMFA(
           verifiedCount < 1
             ? "/app/admin/mfa/enroll"
             : state.assurance === "aal2"
-              ? "/app/admin/overview"
+              ? "/app/admin/today"
               : "/app/admin/mfa/challenge",
       });
     }
@@ -181,7 +181,7 @@ export async function mockAdminMFA(
       return json(route, {
         ok: true,
         complete,
-        next: complete ? "/app/admin/overview" : "/app/admin/mfa/enroll",
+        next: complete ? "/app/admin/today" : "/app/admin/mfa/enroll",
         session: {
           accessToken: "provider-aal2-access-token-long-enough",
           refreshToken: "provider-refresh-token-long-enough",
@@ -215,7 +215,7 @@ export async function mockAdminMFA(
       state.assurance = "aal2";
       return json(route, {
         ok: true,
-        next: "/app/admin/overview",
+        next: "/app/admin/today",
         session: {
           accessToken: "provider-aal2-access-token-long-enough",
           refreshToken: "provider-refresh-token-long-enough",
@@ -258,19 +258,21 @@ export async function mockAdminMFA(
     const method = route.request().method();
     if (path.endsWith("/entry")) {
       return json(route, {
+        granted: false,
         factors: state.factors.map(({ id, name, type }) => ({
           id,
           name,
           type,
         })),
-        idleExpiresIn: 900,
       });
+    }
+    if (path.endsWith("/grant")) {
+      return json(route, { granted: false });
     }
     if (path.endsWith("/workspace")) {
       return json(route, {
         serviceState: "connected",
         lastSuccessfulAt: "2026-07-28T12:00:00Z",
-        idleExpiresIn: 900,
       });
     }
     if (path.endsWith("/coverage")) {
@@ -357,7 +359,6 @@ export async function mockAdminMFA(
     if (path.endsWith("/step-up")) {
       return json(route, {
         ok: true,
-        idleExpiresIn: 900,
         session: {
           accessToken: "provider-aal2-access-token-long-enough",
           refreshToken: "provider-refresh-token-long-enough",
@@ -368,12 +369,20 @@ export async function mockAdminMFA(
     return json(route, { detail: "Unexpected Scraper mock request" }, 500);
   });
 
-  await page.route(/\/api\/me\/overview$/, (route) =>
-    json(route, CUSTOMER_OVERVIEW),
+  await page.route(/\/api\/me\/overview(\?.*)?$/, (route) =>
+    json(route, CUSTOMER_HOME),
   );
 
-  await page.route(/\/api\/admin\/operations-overview$/, (route) =>
-    json(route, OPERATIONS_OVERVIEW),
+  await page.route(/\/api\/admin\/today(\?.*)?$/, (route) =>
+    json(route, TODAY),
+  );
+
+  // The header search box is on every operator page.
+  await page.route(/\/api\/admin\/search\?/, (route) =>
+    json(route, {
+      query: new URL(route.request().url()).searchParams.get("q") ?? "",
+      groups: [],
+    }),
   );
 
   await page.route(/\/api\/me\/batch-requests$/, (route) =>

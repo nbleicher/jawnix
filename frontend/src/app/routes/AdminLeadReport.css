@@ -1,0 +1,7 @@
+/* The right column groups the controls on the Lead as boxed panels. */
+.jx-report-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-4);
+  min-width: 0;
+}

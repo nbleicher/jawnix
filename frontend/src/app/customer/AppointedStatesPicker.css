@@ -1,0 +1,147 @@
+/* The appointed-states picker (V10). */
+.appointed-states {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-4);
+  min-width: 0;
+}
+
+.appointed-states__find {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--jx-space-3) var(--jx-space-5);
+}
+
+.appointed-states__find .jx-field {
+  flex: 1 1 100%;
+}
+
+/* Account: a short search box with the selection summary across from it. */
+.appointed-states--summary .appointed-states__find .jx-field {
+  flex: 0 1 14.5rem;
+}
+
+.appointed-states__summary {
+  margin: 0;
+  min-height: var(--jx-touch-target);
+  display: flex;
+  align-items: center;
+  font-size: var(--jx-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.appointed-states__set {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-4);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* The 50 states fill down each column: 5 columns of 10. Cells draw their own
+   hairlines (an inset top-left, an outset bottom-right) so the rules stay
+   single at every count, including a search that leaves a short grid. */
+.appointed-states__grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-rows: repeat(var(--appointed-rows, 10), auto);
+  grid-auto-flow: column;
+  padding: 0 var(--jx-rule) var(--jx-rule) 0;
+}
+
+.appointed-states__state {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-3);
+  min-width: 0;
+  min-height: var(--jx-touch-target);
+  padding: 0 var(--jx-space-4);
+  background: var(--jx-color-surface);
+  box-shadow:
+    var(--jx-rule) 0 0 0 var(--jx-line),
+    0 var(--jx-rule) 0 0 var(--jx-line),
+    var(--jx-rule) var(--jx-rule) 0 0 var(--jx-line),
+    inset var(--jx-rule) 0 0 0 var(--jx-line),
+    inset 0 var(--jx-rule) 0 0 var(--jx-line);
+  font-size: var(--jx-text-sm);
+  cursor: pointer;
+}
+
+.appointed-states__state > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.appointed-states__state--on {
+  background: var(--jx-accent-soft);
+  font-weight: var(--jx-weight-semibold);
+}
+
+.appointed-states__state:has(input:focus-visible),
+.appointed-states__district:has(input:focus-visible) {
+  outline: var(--jx-focus-width) solid var(--jx-focus);
+  outline-offset: calc(var(--jx-focus-width) * -1);
+}
+
+.appointed-states__state input,
+.appointed-states__district input {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--jx-ink);
+}
+
+.appointed-states__set:disabled .appointed-states__state,
+.appointed-states__set:disabled .appointed-states__district {
+  cursor: not-allowed;
+}
+
+.appointed-states__district {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-3);
+  align-self: flex-start;
+  min-height: var(--jx-touch-target);
+  padding: 0 var(--jx-space-1);
+  font-size: var(--jx-text-sm);
+  cursor: pointer;
+}
+
+.appointed-states__none {
+  margin: 0;
+  padding: var(--jx-space-4) 0;
+  color: var(--jx-ink-muted);
+  font-size: var(--jx-text-sm);
+}
+
+/* Phones: 2 columns of 25, still filled down each column. */
+@media (max-width: 40rem) {
+  .appointed-states__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(var(--appointed-rows-phone, 25), auto);
+  }
+
+  .appointed-states__state {
+    padding: 0 var(--jx-space-3);
+  }
+
+  .appointed-states__find {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--jx-space-2);
+  }
+
+  .appointed-states--summary .appointed-states__find .jx-field {
+    flex-basis: auto;
+    max-width: 14.5rem;
+  }
+
+  .appointed-states__summary {
+    min-height: 0;
+  }
+}

@@ -1,29 +1,37 @@
-import { useEffect, useState } from "react";
-import { Form, Link, useLoaderData, useNavigate } from "react-router";
-import type { LoaderFunctionArgs } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import {
+  Link,
+  useLoaderData,
+  useNavigate,
+  useNavigation,
+  useRevalidator,
+  useSearchParams,
+} from "react-router";
+import type { LoaderFunctionArgs, ShouldRevalidateFunctionArgs } from "react-router";
 
 import { api } from "../auth/adminMFA";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { Dialog } from "../../design-system/primitives/Dialog";
-import { EmptyState } from "../../design-system/primitives/feedback";
+import { FactList } from "../../design-system/primitives/facts";
 import { Field, Input, Select } from "../../design-system/primitives/form";
+import { Kpi, KpiRow } from "../../design-system/primitives/kpi";
+import { Cluster, Grid, Page, Stack } from "../../design-system/primitives/layout";
+import { PanelLayout, SidePanel } from "../../design-system/primitives/panel";
+import { DataTable } from "../../design-system/primitives/table";
+import type { DataColumn } from "../../design-system/primitives/table";
+import { Text } from "../../design-system/primitives/typography";
 import {
-  Card,
-  Cluster,
-  DisclosureSection,
-  Grid,
-  Page,
-  Section,
-  Stack,
-} from "../../design-system/primitives/layout";
-import { StatusBadge } from "../../design-system/primitives/status";
-import {
-  Heading,
-  LabelText,
-  Numeral,
-  Text,
-} from "../../design-system/primitives/typography";
+  formatCount,
+  formatDatabase,
+  formatDay,
+  formatRate,
+  formatStates,
+  plural,
+  stageLabel,
+} from "../operator/format";
+import { useSelectedRow } from "../operator/useSelectedRow";
+import { ChangeDatabaseAction, PostAdjustmentAction, formatUsdCents } from "./AdminCustomerControls";
 
 import "./AdminCustomers.css";
 import { RegistrationReview } from "./RegistrationReview";
@@ -50,6 +58,20 @@ export interface CustomerDirectoryAgency {
   active: boolean;
 }
 
+/** One thing a Customer needs from the operator, worst first. */
+export interface CustomerNeed {
+  kind: string;
+  label: string;
+  href: string;
+}
+
+export interface CustomerOpenBatch {
+  number: number;
+  leadCount: number;
+  stage: string;
+  href: string;
+}
+
 export interface CustomerDirectoryRow {
   id: number;
   slug: string;
@@ -66,11 +88,25 @@ export interface CustomerDirectoryRow {
   problems: string[];
   href: string;
   lead_database?: "db1" | "db2";
-  allowed_manager_id?: string | null;
-  manager_id?: string | null;
+  /** Computed server-side: approvals, failed deliveries, shortfalls,
+   *  conflicts, open reports, and setup problems, worst first. */
+  needs: CustomerNeed[];
+  /** Billing on and drawing from DB1. */
+  billed: boolean;
+  /** Available balance: the ledger less active holds. */
+  balance_cents: number;
+  held_cents: number;
+  held_for: number[];
+  lead_rate_cents_per_thousand: number | null;
+  open_batches: number;
+  open_batch: CustomerOpenBatch | null;
+  delivered_30d: number;
+  delivered_30d_batches: number;
+  last_delivery_at: string | null;
+  /** The last availability snapshot; never counted on read. */
+  available: number | null;
+  available_as_of: string | null;
 }
-
-interface ManagedAdminInfo { id: string; name: string; email: string }
 
 export interface CustomerDirectoryData {
   pending_registrations?: PendingRegistration[];
@@ -80,13 +116,16 @@ export interface CustomerDirectoryData {
     agency_id: number | null;
     state: string;
     problems_only: boolean;
+    database?: "" | "db1" | "db2";
+    billing?: "" | "billed" | "not_billed";
+    needs_only?: boolean;
   };
   agencies: CustomerDirectoryAgency[];
   states: string[];
   total: number;
   matched: number;
+  counts?: { active: number; deactivated: number };
   customers: CustomerDirectoryRow[];
-  managed_admins?: ManagedAdminInfo[];
 }
 
 interface CreatedCustomer {
@@ -111,19 +150,7 @@ interface CustomerInvitation {
   last_name: string | undefined;
 }
 
-interface NicheAssignmentUploadStatus {
-  id: string;
-  filename: string;
-  status: "queued" | "ingesting" | "complete" | "failed";
-  totalRows: number;
-  acceptedRows: number;
-  invalidRows: number;
-  duplicateRows: number;
-  skippedMappedRows: number;
-  error: string;
-}
-
-const FILTER_KEYS = ["q", "status", "agency_id", "state", "problems_only"] as const;
+const FILTER_KEYS = ["q", "status", "agency_id", "database", "billing", "needs_only"] as const;
 
 export function formatAdminDate(value: string | null): string {
   if (!value) return "Never";
@@ -145,8 +172,8 @@ export function errorMessage(error: unknown): string {
     : "The request could not be completed.";
 }
 
-/** Filters live in the URL so a directory view is shareable and the browser's
- *  back button restores the exact result set the operator was looking at. */
+/** Filters live in the URL so a view is shareable and the browser's back
+ *  button restores the exact result set the operator was looking at. */
 export async function adminCustomerDirectoryLoader({
   request,
 }: LoaderFunctionArgs): Promise<CustomerDirectoryData> {
@@ -164,151 +191,154 @@ export async function adminCustomerDirectoryLoader({
   return { ...directory, pending_registrations: registrations };
 }
 
-function Standing({
-  label,
-  status,
-  detail,
-}: {
-  label: string;
-  status: CustomerAdminStatus;
-  detail: string;
-}) {
+/** Opening or closing a row's side panel is not a new search: keep the
+ *  table as it is rather than reading it again. */
+export function adminCustomerDirectoryShouldRevalidate({
+  currentUrl,
+  nextUrl,
+  defaultShouldRevalidate,
+}: ShouldRevalidateFunctionArgs): boolean {
+  if (currentUrl.pathname !== nextUrl.pathname || currentUrl.href === nextUrl.href) {
+    return defaultShouldRevalidate;
+  }
+  const strip = (url: URL) => {
+    const params = new URLSearchParams(url.search);
+    params.delete("customer");
+    params.sort();
+    return params.toString();
+  };
+  return strip(currentUrl) === strip(nextUrl) ? false : defaultShouldRevalidate;
+}
+
+function SearchFilter({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const changed = useRef(onChange);
+  changed.current = onChange;
+  useEffect(() => setDraft(value), [value]);
+  useEffect(() => {
+    if (draft === value) return;
+    const timer = window.setTimeout(() => changed.current(draft), 300);
+    return () => window.clearTimeout(timer);
+  }, [draft, value]);
   return (
-    <Stack gap={2} align="flex-start">
-      <LabelText>{label}</LabelText>
-      <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
-      <Text size="xs" tone="muted">
-        {detail}
-      </Text>
-    </Stack>
+    <Field label="Search">
+      <Input
+        type="search"
+        placeholder="Name, slug, or email"
+        value={draft}
+        autoComplete="off"
+        onChange={(event) => setDraft(event.target.value)}
+      />
+    </Field>
   );
 }
 
-function CustomerScopeControls({ row, managers }: { row: CustomerDirectoryRow; managers: ManagedAdminInfo[] }) {
-  const [scope, setScope] = useState(row);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  useEffect(() => { setScope(row); setMessage(""); }, [row]);
-  const manager = managers.find(item => item.id === scope.allowed_manager_id) ?? managers[0];
-  const assignment = !manager || scope.allowed_manager_id !== manager.id ? "unavailable" : scope.manager_id === manager.id ? "assigned" : "available";
-  async function save(change: Partial<CustomerDirectoryRow>) {
-    if (busy) return;
-    setBusy(true); setError(""); setMessage("");
-    try {
-      const updated = await api<Partial<CustomerDirectoryRow>>(`/api/admin/customers/${row.id}/scope`, { method:"PATCH", body:JSON.stringify(change) });
-      setScope(current => ({ ...current, ...updated }));
-      setMessage("Saved");
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "The update could not be saved."); }
-    finally { setBusy(false); }
+function NeedCell({ row }: { row: CustomerDirectoryRow }) {
+  const [first, ...rest] = row.needs;
+  if (!first) {
+    return (
+      <Text as="span" size="sm" tone="muted">
+        Nothing
+      </Text>
+    );
   }
-  return <Stack gap={3}>
-    <Field label={`Lead database for ${row.name}`}>
-      <Select disabled={busy} value={scope.lead_database ?? "db1"} onChange={event => { void save({ lead_database:event.target.value as "db1" | "db2" }); }}>
-        <option value="db1">DB1 · Operator leads</option><option value="db2">DB2 · CSV uploads</option>
-      </Select>
-    </Field>
-    {manager ? <Field label={`${manager.name} management for ${row.name}`}>
-      <Select disabled={busy} value={assignment} onChange={event => {
-        const value = event.target.value;
-        void save({ allowed_manager_id:value === "unavailable" ? null : manager.id, manager_id:value === "assigned" ? manager.id : null });
-      }}>
-        <option value="unavailable">Not available to {manager.name}</option>
-        <option value="available">Available for {manager.name} to add</option>
-        <option value="assigned">Managed by {manager.name}</option>
-      </Select>
-    </Field> : null}
-    {message ? <Text size="sm" role="status">{message}</Text> : null}
-    {error ? <Text size="sm" role="alert" tone="danger">{error}</Text> : null}
-  </Stack>;
-}
-
-function ManagedAdminAccess({ manager }: { manager: ManagedAdminInfo }) {
-  const [link, setLink] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  async function generate() {
-    setBusy(true); setError(""); setLink("");
-    try {
-      const result = await api<{ url:string }>(`/api/admin/managed-admins/${manager.id}/access-link`, { method:"POST" });
-      setLink(result.url);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "The link could not be generated."); }
-    finally { setBusy(false); }
-  }
-  return <Card><Stack gap={3}>
-    <Heading level={3}>{manager.name} access</Heading><Text size="sm">{manager.email}</Text>
-    <Text size="sm" tone="muted">Generate a password setup link to share with {manager.name}. It expires in one hour. One authenticator is required after sign-in.</Text>
-    {link ? <Field label={`Password setup link for ${manager.name}`}><Input value={link} readOnly onFocus={event => event.currentTarget.select()} /></Field> : null}
-    {error ? <Text role="alert" tone="danger">{error}</Text> : null}
-    <Cluster><Button busy={busy} busyLabel="Generating…" onClick={() => { void generate(); }}>Generate access link</Button></Cluster>
-  </Stack></Card>;
-}
-
-function CustomerCard({ row, managers }: { row: CustomerDirectoryRow; managers: ManagedAdminInfo[] }) {
   return (
-    <Card as="article" aria-label={row.name}>
-      <Stack gap={4}>
-        <Stack gap={1}>
-          <Heading level={3}>
-            <Link className="admin-customers__name" to={routePath(row.href)}>
-              {row.name}
-            </Link>
-          </Heading>
-          <Text size="sm" tone="muted">
-            {row.agency_id === null ? "No Agency" : row.agency}
-          </Text>
-        </Stack>
+    <Text as="span" size="sm" tone="danger">
+      {first.label}
+      {rest.length ? ` · +${rest.length}` : ""}
+    </Text>
+  );
+}
 
-        {/* The two standings sit side by side and are labelled separately:
-            replacing access must never read as a change to the Customer. */}
-        <Grid minColumnWidth="11rem" gap={4}>
-          <Standing
-            label="Customer"
-            status={row.customer_status}
-            detail={row.customer_status.description}
-          />
-          <Standing
-            label="User Account"
-            status={row.account_status}
-            detail={row.account_email}
-          />
-        </Grid>
+function heldText(row: Pick<CustomerDirectoryRow, "held_cents" | "held_for">): string {
+  if (!row.held_cents) return "Nothing held";
+  const batches = row.held_for.map((number) => `#${number}`).join(", ");
+  return `${formatUsdCents(row.held_cents)} held for ${batches}`;
+}
 
-        <dl className="admin-customers__facts">
-          <div>
-            <dt>
-              <LabelText>Licensed States</LabelText>
-            </dt>
-            <dd>
-              {row.licensed_states.length
-                ? row.licensed_states.join(", ")
-                : "None yet"}
-            </dd>
-          </div>
-          <div>
-            <dt>
-              <LabelText>Last activity</LabelText>
-            </dt>
-            <dd>{formatAdminDate(row.last_activity_at)}</dd>
-          </div>
-        </dl>
-        <CustomerScopeControls row={row} managers={managers} />
+function openBatchText(batch: CustomerOpenBatch, count: number): string {
+  const text = `#${batch.number} · ${formatCount(batch.leadCount)} leads · ${stageLabel(batch.stage).toLowerCase()}`;
+  return count > 1 ? `${text} · ${formatCount(count - 1)} more` : text;
+}
 
-        {row.problems.length ? (
-          <Stack gap={2} align="flex-start">
-            <LabelText>Setup problems</LabelText>
-            <ul
-              className="admin-customers__problems"
-              aria-label={`Setup problems for ${row.name}`}
-            >
-              {row.problems.map((problem) => (
-                <li key={problem}>{problem}</li>
-              ))}
-            </ul>
-          </Stack>
-        ) : null}
-      </Stack>
-    </Card>
+function CustomerPanel({
+  row,
+  onClose,
+  onChanged,
+  autoFocus,
+  returnFocus,
+}: {
+  row: CustomerDirectoryRow;
+  onClose: () => void;
+  onChanged: () => Promise<void> | void;
+  autoFocus: boolean;
+  returnFocus: () => HTMLElement | null;
+}) {
+  const database = row.lead_database ?? "db1";
+  return (
+    <SidePanel
+      eyebrow={`Customer · ${row.agency_id === null || !row.agency ? "No agency" : row.agency}`}
+      title={row.name}
+      onClose={onClose}
+      fullHref={row.href}
+      autoFocus={autoFocus}
+      returnFocus={returnFocus}
+      actions={
+        <Cluster gap={3}>
+          <PostAdjustmentAction customerId={row.id} onChanged={onChanged} />
+          <ChangeDatabaseAction customerId={row.id} database={database} onChanged={onChanged} />
+        </Cluster>
+      }
+    >
+      <KpiRow label={`${row.name} numbers`} columns={2}>
+        <Kpi
+          label="Balance"
+          value={row.billed ? formatUsdCents(row.balance_cents) : "Not billed"}
+          meta={row.billed ? heldText(row) : database === "db2" ? "DB2 is not billed" : "Billing off"}
+        />
+        <Kpi
+          label="Available"
+          value={row.available === null ? "Not counted" : formatCount(row.available)}
+          meta={`${formatDatabase(database)} · ${formatStates(row.licensed_states)}`}
+        />
+      </KpiRow>
+      <FactList
+        label={`${row.name} summary`}
+        items={[
+          {
+            term: "Needs",
+            description: row.needs.length ? (
+              <span className="admin-customers__needs">
+                {row.needs.map((need) => (
+                  <Link key={`${need.kind}-${need.href}-${need.label}`} to={routePath(need.href)} className="admin-customers__need">
+                    {need.label}
+                  </Link>
+                ))}
+              </span>
+            ) : (
+              "Nothing"
+            ),
+          },
+          {
+            term: row.open_batches > 1 ? "Open batches" : "Open batch",
+            description: row.open_batch ? (
+              <Link to={routePath(row.open_batch.href)}>{openBatchText(row.open_batch, row.open_batches)}</Link>
+            ) : (
+              "None"
+            ),
+          },
+          { term: "Delivered · 30 days", description: formatCount(row.delivered_30d) },
+          {
+            term: "Rate",
+            description: row.billed ? formatRate(row.lead_rate_cents_per_thousand) : "Not billed",
+          },
+          {
+            term: "User account",
+            description: row.account_email || row.account_status.label,
+          },
+        ]}
+      />
+    </SidePanel>
   );
 }
 
@@ -422,250 +452,225 @@ function CreateCustomerDialog({
   );
 }
 
-function NicheAssignmentTransfer() {
-  const [file, setFile] = useState<File | null>(null);
-  const [upload, setUpload] = useState<NicheAssignmentUploadStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState("");
-  const [pollAttempt, setPollAttempt] = useState(0);
-
-  useEffect(() => {
-    if (!upload || !["queued", "ingesting"].includes(upload.status)) return;
-    const timer = window.setTimeout(() => {
-      void api<NicheAssignmentUploadStatus>(
-        `/api/admin/niche-assignments/${upload.id}`,
-      )
-        .then((next) => {
-          setFailure("");
-          setUpload(next);
-        })
-        .catch((caught: unknown) => {
-          setFailure(errorMessage(caught));
-          setPollAttempt((attempt) => attempt + 1);
-        });
-    }, 1000);
-    return () => window.clearTimeout(timer);
-  }, [upload, pollAttempt]);
-
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!file) {
-      setFailure("Choose a Niche Assignment CSV.");
-      return;
-    }
-    setBusy(true);
-    setFailure("");
-    const body = new FormData();
-    body.append("file", file);
-    try {
-      setUpload(
-        await api<NicheAssignmentUploadStatus>(
-          "/api/admin/niche-assignments",
-          { method: "POST", body },
-        ),
-      );
-    } catch (caught) {
-      setFailure(errorMessage(caught));
-    } finally {
-      setBusy(false);
-    }
+function describe(data: CustomerDirectoryData, deactivated: boolean): string {
+  const counts = data.counts ?? { active: data.total, deactivated: 0 };
+  if (deactivated) {
+    return `${formatCount(counts.deactivated)} deactivated. History is kept; reactivate one from its page.`;
   }
-
-  const tone = upload?.status === "complete"
-    ? "success"
-    : upload?.status === "failed"
-      ? "danger"
-      : "info";
-
-  return (
-    <DisclosureSection
-      title="Niche Assignment transfer"
-      description="Export inventory that has no source-derived Niche, assign a Niche in CSV, then import the reviewed assignments. Source mappings always retain precedence."
-      summary="Export / import CSV"
-    >
-      <Grid minColumnWidth="18rem">
-        <Card>
-          <Stack gap={3} align="flex-start">
-            <Heading level={3} size="sm">1. Export unmapped inventory</Heading>
-            <Text size="sm" tone="muted">
-              Downloads phone, title, and state so the working file can be reviewed outside Jawnix.
-            </Text>
-            <ActionLink
-              href="/api/admin/niche-assignments/export"
-              variant="primary"
-            >
-              Export unmapped inventory
-            </ActionLink>
-          </Stack>
-        </Card>
-        <Card>
-          <form onSubmit={(event) => void submit(event)}>
-            <Stack gap={3} align="flex-start">
-              <Heading level={3} size="sm">2. Import reviewed assignments</Heading>
-              <Field
-                label="Niche Assignment CSV"
-                description="CSV with phone and niche headers. Rows with a source-derived Niche are safely skipped."
-                required
-              >
-                <Input
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(event) => {
-                    setFile(event.currentTarget.files?.[0] ?? null);
-                    setFailure("");
-                  }}
-                />
-              </Field>
-              <Button type="submit" variant="primary" busy={busy} disabled={!file}>
-                Import assignments
-              </Button>
-            </Stack>
-          </form>
-        </Card>
-      </Grid>
-      {failure ? <Text role="alert" tone="danger">{failure}</Text> : null}
-      {upload ? (
-        <Card as="article" aria-label="Niche Assignment import status">
-          <Stack gap={3}>
-            <Cluster gap={2} justify="space-between">
-              <Heading level={3} size="sm">{upload.filename}</Heading>
-              <StatusBadge tone={tone}>{upload.status}</StatusBadge>
-            </Cluster>
-            {upload.error ? <Text tone="danger">{upload.error}</Text> : null}
-            <Grid minColumnWidth="9rem" gap={2}>
-              <Text size="sm"><strong>{upload.totalRows.toLocaleString()}</strong> rows</Text>
-              <Text size="sm"><strong>{upload.acceptedRows.toLocaleString()}</strong> assigned</Text>
-              <Text size="sm"><strong>{upload.skippedMappedRows.toLocaleString()}</strong> source-mapped skipped</Text>
-              <Text size="sm" tone="muted">{upload.invalidRows.toLocaleString()} invalid</Text>
-              <Text size="sm" tone="muted">{upload.duplicateRows.toLocaleString()} duplicates</Text>
-            </Grid>
-          </Stack>
-        </Card>
-      ) : null}
-    </DisclosureSection>
-  );
+  return `${formatCount(counts.active)} active, sorted by what each one needs. Select a row to see it beside the list.`;
 }
 
+/**
+ * Customers (P2): one table, the customers that need something first, with
+ * the selected row open beside it. Needs are computed on the server from the
+ * same rules as Today, so the two always agree.
+ */
 export function AdminCustomersRoute() {
   const data = useLoaderData<CustomerDirectoryData>();
+  const [params, setParams] = useSearchParams();
+  const revalidator = useRevalidator();
+  const selection = useSelectedRow("customer");
   const [createOpen, setCreateOpen] = useState(false);
   useDocumentTitle("Customers");
 
+  // Controls follow the address being loaded, so a filter reads as changed
+  // the moment it is picked rather than when its results arrive.
+  const navigation = useNavigation();
+  const shown =
+    navigation.location?.pathname === "/admin/customers"
+      ? new URLSearchParams(navigation.location.search)
+      : params;
+  const deactivated = (shown.get("status") ?? "active") === "deactivated";
+  const needsOnly = shown.get("needs_only") === "true";
+  const [needsChecked, setNeedsChecked] = useState(needsOnly);
+  useEffect(() => setNeedsChecked(needsOnly), [needsOnly]);
+
+  function setFilter(key: string, value: string | null) {
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        if (value) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true, preventScrollReset: true },
+    );
+  }
+
+  const rows = data.customers;
+  const selectedId = selection.selected ? Number(selection.selected) : null;
+  const selectedRow = rows.find((row) => row.id === selectedId) ?? null;
+  const needing = rows.filter((row) => row.needs.length).length;
+  const counts = data.counts ?? { active: data.total, deactivated: 0 };
+  const registrations = data.pending_registrations ?? [];
+
+  const columns: DataColumn<CustomerDirectoryRow>[] = [
+    {
+      key: "customer",
+      header: "Customer",
+      cell: (row) => (
+        <Link
+          to={routePath(row.href)}
+          data-panel-trigger={String(row.id)}
+          onClick={selection.openFromLink(String(row.id))}
+        >
+          {row.name}
+        </Link>
+      ),
+      footer: plural(rows.length, "customer"),
+    },
+    {
+      key: "needs",
+      header: "Needs",
+      cell: (row) => <NeedCell row={row} />,
+      footer: `${formatCount(needing)} need${needing === 1 ? "s" : ""} something`,
+    },
+    { key: "database", header: "DB", cell: (row) => formatDatabase(row.lead_database) },
+    {
+      key: "balance",
+      header: "Balance",
+      numeric: true,
+      cell: (row) =>
+        row.billed ? (
+          formatUsdCents(row.balance_cents)
+        ) : (
+          <Text as="span" size="sm" tone="muted">
+            Not billed
+          </Text>
+        ),
+      footer: formatUsdCents(
+        rows.reduce((sum, row) => sum + (row.billed ? row.balance_cents : 0), 0),
+      ),
+    },
+    {
+      key: "open",
+      header: "Open",
+      numeric: true,
+      cell: (row) => formatCount(row.open_batches),
+      footer: formatCount(rows.reduce((sum, row) => sum + row.open_batches, 0)),
+    },
+    {
+      key: "delivered",
+      header: "Delivered 30d",
+      numeric: true,
+      cell: (row) => formatCount(row.delivered_30d),
+      footer: formatCount(rows.reduce((sum, row) => sum + row.delivered_30d, 0)),
+    },
+    {
+      key: "last",
+      header: "Last delivery",
+      cell: (row) => (row.last_delivery_at ? formatDay(row.last_delivery_at) : "Never"),
+    },
+  ];
+
+  function statusHref(status: "active" | "deactivated") {
+    return status === "active" ? "/app/admin/customers" : "/app/admin/customers?status=deactivated";
+  }
+
   return (
     <Page
-      title="Customers"
+      title={deactivated ? "Deactivated customers" : "Customers"}
+      width="data"
       density="data"
-      description="A Customer is the durable party that owns Licensed States, Agency membership, and permanent distribution history. Its User Account is only replaceable access."
+      description={describe(data, deactivated)}
       actions={
-        <Cluster gap={3}>
-          <ActionLink href="/app/admin/agencies">View Agencies</ActionLink>
-          <ActionLink href="/app/admin/lead-uploads">Upload DB2 leads</ActionLink>
-          <Button variant="primary" onClick={() => setCreateOpen(true)}>
-            Create Customer
-          </Button>
-        </Cluster>
+        <Button variant="primary" onClick={() => setCreateOpen(true)}>
+          Create Customer
+        </Button>
       }
     >
-      <RegistrationReview items={data.pending_registrations ?? []} />
-      <Section
-        title="Find a Customer"
-        description="Search by Customer name, slug, or the email on the current User Account."
-      >
-        <Card>
-          <Form method="get" role="search">
-            <Stack gap={4}>
-              <Grid minColumnWidth="14rem" gap={4}>
-                <Field label="Search">
-                  <Input
-                    name="q"
-                    type="search"
-                    defaultValue={data.filters.query}
-                    autoComplete="off"
-                  />
-                </Field>
-                <Field label="Status">
-                  <Select name="status" defaultValue={data.filters.status}>
-                    <option value="all">All</option>
-                    <option value="active">Active</option>
-                    <option value="deactivated">Deactivated</option>
-                  </Select>
-                </Field>
-                <Field label="Agency">
-                  <Select
-                    name="agency_id"
-                    defaultValue={
-                      data.filters.agency_id === null
-                        ? ""
-                        : String(data.filters.agency_id)
-                    }
-                  >
-                    <option value="">All Agencies</option>
-                    {data.agencies.map((agency) => (
-                      <option key={agency.id} value={String(agency.id)}>
-                        {agency.active ? agency.name : `${agency.name} (inactive)`}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Licensed State">
-                  <Select name="state" defaultValue={data.filters.state}>
-                    <option value="">All Licensed States</option>
-                    {data.states.map((state) => (
-                      <option key={state} value={state}>
-                        {state}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              </Grid>
-              <Cluster gap={4}>
-                <label className="admin-customers__toggle">
-                  <input
-                    type="checkbox"
-                    name="problems_only"
-                    value="true"
-                    defaultChecked={data.filters.problems_only}
-                  />
-                  <span>Only show setup problems</span>
-                </label>
-                <Button type="submit" variant="primary">
-                  Search
-                </Button>
-              </Cluster>
-            </Stack>
-          </Form>
-        </Card>
-      </Section>
+      <div className="admin-customers__filters" role="search" aria-label="Filter customers">
+        <SearchFilter value={params.get("q") ?? ""} onChange={(value) => setFilter("q", value.trim() || null)} />
+        <Field label="Agency">
+          <Select
+            value={shown.get("agency_id") ?? ""}
+            onChange={(event) => setFilter("agency_id", event.target.value || null)}
+          >
+            <option value="">All agencies</option>
+            {data.agencies.map((agency) => (
+              <option key={agency.id} value={String(agency.id)}>
+                {agency.active ? agency.name : `${agency.name} (deactivated)`}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Database">
+          <Select
+            value={shown.get("database") ?? ""}
+            onChange={(event) => setFilter("database", event.target.value || null)}
+          >
+            <option value="">DB1 and DB2</option>
+            <option value="db1">DB1</option>
+            <option value="db2">DB2</option>
+          </Select>
+        </Field>
+        <Field label="Billing">
+          <Select
+            value={shown.get("billing") ?? ""}
+            onChange={(event) => setFilter("billing", event.target.value || null)}
+          >
+            <option value="">Billed and not billed</option>
+            <option value="billed">Billed</option>
+            <option value="not_billed">Not billed</option>
+          </Select>
+        </Field>
+        <label className="admin-customers__check">
+          <input
+            type="checkbox"
+            checked={needsChecked}
+            onChange={(event) => {
+              setNeedsChecked(event.target.checked);
+              setFilter("needs_only", event.target.checked ? "true" : null);
+            }}
+          />
+          Needs only
+        </label>
+      </div>
 
-      <Section
-        title="Customer directory"
-        description="Each Customer shows its durable standing and its replaceable access standing separately."
-      >
-        <Stack gap={4}>
-          <Text size="sm" tone="muted">
-            Showing <Numeral>{data.matched.toLocaleString()}</Numeral> of{" "}
-            <Numeral>{data.total.toLocaleString()}</Numeral> Customers.
-          </Text>
-          {data.customers.length ? (
-            <Grid minColumnWidth="22rem">
-              {data.customers.map((row) => (
-                <CustomerCard key={row.id} row={row} managers={data.managed_admins ?? []} />
-              ))}
-            </Grid>
-          ) : (
-            <EmptyState
-              title="No Customers match this search"
-              description="Nothing matched these filters. Widen the search, or create a Customer if this one does not exist yet."
+      <PanelLayout
+        panel={
+          selectedRow ? (
+            <CustomerPanel
+              key={selectedRow.id}
+              row={selectedRow}
+              onClose={selection.close}
+              onChanged={() => revalidator.revalidate()}
+              autoFocus={selection.autoFocus}
+              returnFocus={selection.returnFocus(String(selectedRow.id))}
             />
-          )}
-        </Stack>
-      </Section>
+          ) : null
+        }
+      >
+        <DataTable
+          label={deactivated ? "Deactivated customers" : "Customers"}
+          columns={columns}
+          rows={rows}
+          rowKey={(row) => String(row.id)}
+          selectedKey={selectedRow ? String(selectedRow.id) : null}
+          onRowClick={(row) => selection.select(String(row.id))}
+          empty="No customer matches these filters. Widen the search, or create the customer if it does not exist yet."
+        />
+      </PanelLayout>
 
-      {data.managed_admins?.length ? <Section title="Managed administrator access"><Grid minColumnWidth="22rem">
-        {data.managed_admins.map(manager => <ManagedAdminAccess key={manager.id} manager={manager} />)}
-      </Grid></Section> : null}
+      <Cluster gap={4}>
+        {deactivated ? (
+          <ActionLink href={statusHref("active")}>Active customers ({formatCount(counts.active)})</ActionLink>
+        ) : (
+          <ActionLink href={statusHref("deactivated")}>
+            Deactivated customers ({formatCount(counts.deactivated)})
+          </ActionLink>
+        )}
+        {registrations.length ? (
+          <ActionLink href="#registrations">Registrations ({formatCount(registrations.length)} waiting)</ActionLink>
+        ) : (
+          <Text as="span" size="sm" tone="muted">
+            Registrations (0 waiting)
+          </Text>
+        )}
+        <ActionLink href="/app/admin/agencies">Agencies ({formatCount(data.agencies.length)})</ActionLink>
+      </Cluster>
 
-      <NicheAssignmentTransfer />
+      <RegistrationReview items={registrations} />
 
       <CreateCustomerDialog
         open={createOpen}

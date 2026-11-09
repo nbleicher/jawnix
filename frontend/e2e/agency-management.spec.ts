@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+import { mockActivity } from "./activity-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
+import { mockAgencies } from "./setup-fixtures";
 
 test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
@@ -47,95 +49,69 @@ test("previews both directions before permanently changing an assignment", async
   ]);
 });
 
-test("Agency directory and details stay complete on mobile", async ({
-  page,
-}) => {
+test("Agencies are one table with members, deliveries, and open batches", async ({ page }) => {
   await mockAdminCustomers(page);
+  await mockAgencies(page);
+  await page.goto("./admin/agencies");
+
+  await expect(page.getByRole("heading", { level: 1, name: "Agencies" })).toBeVisible();
+  const agencies = page.getByRole("table", { name: "Agencies" });
+  const gulf = agencies.getByRole("row").filter({ hasText: "Gulf Coast Agency" });
+  await expect(gulf).toContainText("375,000");
+  await expect(gulf).toContainText("1,240,000");
+  const members = page.getByRole("table", { name: "Agency members" });
+  await expect(members.getByRole("link", { name: "Harbor Insurance" })).toHaveAttribute(
+    "href",
+    "/app/admin/customers/7",
+  );
+  await expect(
+    page.getByRole("table", { name: "Independent customers" }).getByRole("link", { name: "Summit Benefits Group" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Administration" }).getByRole("link", { name: "Setup" }),
+  ).toHaveAttribute("aria-current", "page");
+});
+
+test("search and status filter the table from the URL", async ({ page }) => {
+  await mockAdminCustomers(page);
+  await mockAgencies(page);
+  await page.goto("./admin/agencies");
+
+  await page.getByRole("searchbox", { name: "Search" }).fill("ridgeline");
+  await expect(page).toHaveURL(/q=ridgeline/);
+  const agencies = page.getByRole("table", { name: "Agencies" });
+  await expect(agencies.getByRole("row")).toHaveCount(2);
+  await expect(agencies).toContainText("Lakeside Agency");
+});
+
+test("an Agency's page links its members and keeps its history", async ({ page }) => {
+  await mockAdminCustomers(page);
+  await mockAgencies(page);
+  await mockActivity(page);
+  await page.goto("./admin/agencies");
+  await page.getByRole("table", { name: "Agencies" }).getByRole("link", { name: "Gulf Coast Agency" }).click();
+
+  await expect(page.getByRole("heading", { level: 1, name: "Gulf Coast Agency" })).toBeVisible();
+  await expect(page.getByLabel("Agency numbers")).toContainText("1,240,000");
+  await expect(
+    page.getByRole("table", { name: "Members", exact: true }).getByRole("link", { name: "Pinecrest Agency" }),
+  ).toHaveAttribute("href", "/app/admin/customers/8");
+  const history = page.getByRole("table", { name: "Membership history" });
+  await expect(history).toContainText("Consolidated servicing ownership.");
+  await expect(history).toContainText("System");
+  await expect(page.getByRole("table", { name: "Agency activity" })).toContainText("Agency updated");
+  await expect(page.getByRole("button", { name: "Delete Agency" })).toBeDisabled();
+});
+
+test("Agencies fit the phone without sideways scrolling", async ({ page }) => {
+  await mockAdminCustomers(page);
+  await mockAgencies(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("./admin/agencies");
+  await expect(page.getByRole("table", { name: "Agencies" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 
-  await expect(
-    page.getByRole("heading", { level: 1, name: "Agencies" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("article", { name: "Gulf Coast Agency" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: /Harbor Insurance/ }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("article", { name: "Independent Customers" }),
-  ).toBeVisible();
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(390);
-
-  await page.getByRole("link", { name: "Gulf Coast Agency" }).click();
-  await expect(
-    page.getByRole("region", { name: "Shared-history impact" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("region", { name: "Current members" }),
-  ).toBeVisible();
-  expect(
-    await page.evaluate(() => document.documentElement.scrollWidth),
-  ).toBeLessThanOrEqual(390);
-});
-
-test("opens and manages the floating Customer card", async ({ page }) => {
-  const state = await mockAdminCustomers(page);
-  await page.goto("./admin/agencies");
-
-  await page.getByRole("link", { name: /Harbor Insurance/ }).click();
-  await expect(page).toHaveURL(/\/admin\/agencies\?customer=7$/);
-  const customer = page.getByRole("dialog", { name: "Harbor Insurance" });
-  await expect(customer).toBeVisible();
-  await expect(
-    customer.getByRole("link", { name: "Open full record" }),
-  ).toBeVisible();
-
-  await customer.getByRole("button", { name: "Send password reset" }).click();
-  const reset = page.getByRole("dialog", { name: "Send password reset" });
-  await reset.getByRole("button", { name: "Send password reset" }).click();
-  await expect(reset).toBeHidden();
-  expect(state.passwordResetRequests).toHaveLength(1);
-
-  await customer.getByRole("button", { name: "Rename Customer" }).click();
-  const rename = page.getByRole("dialog", { name: "Rename Customer" });
-  await rename.getByLabel("Customer name").fill("Harbor Group");
-  await rename.getByLabel("Reason").fill("Legal name changed");
-  await rename.getByRole("button", { name: "Rename Customer" }).click();
-  await expect(rename).toBeHidden();
-  expect(state.customerPatchRequests).toContainEqual({
-    name: "Harbor Group",
-    agency_id: 4,
-    active: true,
-    reason: "Legal name changed",
-  });
-
-  await customer.getByRole("button", { name: "Close dialog" }).click();
-  await expect(page).toHaveURL(/\/admin\/agencies$/);
-});
-
-test("opens a floating Customer card from a deep link", async ({ page }) => {
-  await mockAdminCustomers(page);
-  await page.goto("./admin/agencies?customer=7");
-
-  await expect(
-    page.getByRole("dialog", { name: "Harbor Insurance" }),
-  ).toBeVisible();
-});
-
-test("Agency impact and members use the desktop workspace", async ({ page }) => {
-  await mockAdminCustomers(page);
-  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("./admin/agencies/4");
-
-  const impact = page.getByRole("region", { name: "Shared-history impact" });
-  await expect(impact.getByText("Permanent Customers")).toBeVisible();
-  await expect(impact.getByText("Merged Agencies")).toBeVisible();
-  await expect(impact.getByText("Blocked historical Leads")).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Harbor Insurance" }),
-  ).toBeVisible();
+  await expect(page.getByRole("table", { name: "Members", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });

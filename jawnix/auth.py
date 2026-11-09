@@ -153,7 +153,7 @@ def require_admin_identity(
 
 
 def administration_home(principal: Principal) -> str:
-    return "/app/manager/uploads" if principal.role == "manager" else "/app/admin/overview"
+    return "/app/manager/uploads" if principal.role == "manager" else "/app/admin/today"
 
 
 async def require_admin(

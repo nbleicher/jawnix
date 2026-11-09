@@ -2,7 +2,6 @@ export const KEYWORD_WORKSPACE = {
   current: ["plumbers", "electricians"],
   version: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   ai_enabled: true,
-  idle_expires_in: 900,
   rollover: {
     enabled: false,
     state: "off",

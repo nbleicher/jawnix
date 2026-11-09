@@ -71,6 +71,22 @@
   font-weight: var(--jx-weight-medium);
 }
 
+.jx-auth-form__notice {
+  margin: 0;
+  padding: var(--jx-space-3);
+  color: var(--jx-success-ink);
+  background: var(--jx-success-soft);
+  border-inline-start: var(--jx-rule-heavy) solid var(--jx-success);
+  font-size: var(--jx-text-sm);
+  font-weight: var(--jx-weight-medium);
+}
+
+.jx-auth-form__hint {
+  margin: calc(var(--jx-space-2) * -1) 0 0;
+  color: var(--jx-ink-muted);
+  font-size: var(--jx-text-sm);
+}
+
 .jx-auth-recovery {
   width: 100%;
   max-width: 30rem;
@@ -116,4 +132,15 @@
     grid-column: 2;
     grid-row: 2;
   }
+}
+
+/* A full-width step (sign-up's appointed states): no plate, one column. */
+.jx-auth-route--wide {
+  display: flex;
+}
+
+.jx-auth-route--wide .jx-auth-route__main {
+  display: block;
+  max-width: 60rem;
+  margin-inline: auto;
 }

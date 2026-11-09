@@ -1,54 +1,21 @@
-.admin-agencies__name {
-  color: var(--jx-color-text-strong);
-}
-
-.admin-agencies__facts {
+/* Agency filters: the search takes the room, status beside it. */
+.jx-agency-filters {
   display: grid;
-  gap: var(--jx-space-4);
-  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
-}
-
-.admin-agencies__facts > div {
-  display: flex;
-  flex-direction: column;
-  gap: var(--jx-space-1);
-}
-
-.admin-agencies__facts dd {
-  color: var(--jx-color-text-strong);
-  font-weight: var(--jx-weight-semibold);
-}
-
-.admin-agencies__list {
-  list-style: none;
-}
-
-.admin-agencies__member {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  grid-template-columns: minmax(14rem, 2fr) minmax(10rem, 1fr);
   gap: var(--jx-space-3);
-  min-height: var(--jx-touch-target);
-  padding: var(--jx-space-3);
-  color: var(--jx-color-text-strong);
-  background: var(--jx-color-surface-recessed);
-  border: 1px solid var(--jx-color-border);
-  border-radius: var(--jx-radius-md);
-  text-decoration: none;
-}
-
-.admin-agencies__member:hover {
-  border-color: var(--jx-color-border-strong);
-}
-
-.admin-agencies__dependencies {
-  padding-inline-start: var(--jx-space-4);
-  list-style: disc;
+  align-items: end;
+  max-width: 44rem;
 }
 
 .admin-agencies__toggle {
   display: flex;
   align-items: center;
-  gap: var(--jx-space-2);
+  gap: var(--jx-space-3);
   min-height: var(--jx-touch-target);
+}
+
+@media (max-width: 40rem) {
+  .jx-agency-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

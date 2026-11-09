@@ -7,11 +7,12 @@ import { Field, Input } from "../../design-system/primitives/form";
 import { exchangeJawnixSession, routerPath, signOut } from "../auth/customerAuth";
 import { getProviderSession, resendVerificationEmail, signUpWithPassword } from "../auth/providerSession";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
+import { AppointedStatesPicker, selectionSummary } from "../customer/AppointedStatesPicker";
+import type { StateOption } from "../customer/AppointedStatesPicker";
 import { AuthRouteFrame, FormError } from "./CustomerAuth";
 import "./CustomerSignup.css";
 
-interface StateOption { code: string; name: string }
-export interface RegistrationStatus { status: "active" | "awaiting_review" | "rejected"; next: string; states?: string[] }
+export interface RegistrationStatus { status: "active" | "awaiting_review" | "rejected"; next: string; states?: string[]; email?: string }
 
 export async function signupOptionsLoader(): Promise<{ states: StateOption[] }> {
   const response = await fetch("/api/auth/signup-options");
@@ -59,7 +60,7 @@ export function CustomerSignupRoute() {
     finally { setBusy(false); }
   }
   return <AuthRouteFrame><AuthPanel title={sent ? "Check your email" : "Create your account"}
-    description={sent ? "Open the verification link to finish creating your account." : "Enter your details to get started."}
+    description={sent ? "Open the verification link, then pick your appointed states to finish." : "Step 1 of 2. Enter your details; next you pick your appointed states."}
     footer={<Link className="jx-auth-route__link" to="/sign-in">Already registered? Sign in</Link>}>
     {sent ? <div className="jx-auth-form">
       <p role="status">We sent a verification link to {email}. The link expires in one hour.</p>
@@ -112,22 +113,21 @@ export function AppointedStatesRoute() {
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Please try again."); }
     finally { setBusy(false); }
   }
-  return <AuthRouteFrame><AuthPanel title="Select your appointed states" description="Choose the states where you are appointed to finish setting up your account."
-    footer={<Button type="button" onClick={async () => { await signOut(); navigate("/sign-in", { replace: true }); }}>Sign out</Button>}>
-    <form className="jx-auth-form" onSubmit={submit}>
-      {error ? <FormError errorRef={errorRef}>{error}</FormError> : null}
-      <fieldset className="jx-signup-states" disabled={busy}><legend>Appointed states (required)</legend>
-        <p className="jx-signup-states__count" aria-live="polite">{chosen.length ? chosen.join(", ") : "No states selected"}</p>
-        <div className="jx-signup-states__options">
-          {states.map(state => <label key={state.code} title={`${state.name} (${state.code})`}>
-            <input type="checkbox" name="appointed_states" value={state.code} aria-label={`${state.name} (${state.code})`} checked={chosen.includes(state.code)} onChange={event => setChosen(current => event.target.checked ? [...current, state.code].sort() : current.filter(code => code !== state.code))} />
-            {state.code}
-          </label>)}
-        </div>
-      </fieldset>
-      <Button type="submit" variant="primary" fullWidth busy={busy} busyLabel="Saving states…">Continue</Button>
-    </form>
-  </AuthPanel></AuthRouteFrame>;
+  // Step 2 of sign-up (cu-07): the shared picker, wide enough for 5 columns.
+  return <AuthRouteFrame wide><form className="jx-signup-step" onSubmit={submit} aria-labelledby="jx-signup-states-title">
+    <p className="jx-signup-step__step">Step 2 of 2</p>
+    <h1 className="jx-signup-step__title" id="jx-signup-states-title">Where are you appointed?</h1>
+    <p className="jx-signup-step__lead">Pick every state where you are appointed. You can change this later in Account.</p>
+    {error ? <FormError errorRef={errorRef}>{error}</FormError> : null}
+    <AppointedStatesPicker options={states} selected={chosen} onChange={next => { setError(""); setChosen(next); }} disabled={busy} summary="none" />
+    <div className="jx-signup-step__finish">
+      <p aria-live="polite">{selectionSummary(states, chosen)}</p>
+      <Button type="submit" variant="primary" busy={busy} busyLabel="Saving states…">Finish sign-up</Button>
+    </div>
+    <div className="jx-signup-step__exit">
+      <Button type="button" variant="ghost" onClick={async () => { await signOut(); navigate("/sign-in", { replace: true }); }}>Sign out</Button>
+    </div>
+  </form></AuthRouteFrame>;
 }
 
 export function CompleteSignupRoute() {
@@ -139,7 +139,7 @@ export function CompleteSignupRoute() {
     if (started.current) return;
     started.current = true;
     if (new URLSearchParams(window.location.search).has("error")) { setError("This verification link is invalid or expired. Sign in to request a new link."); return; }
-    void getProviderSession(true).then(provider => exchangeJawnixSession(provider.access_token, "/app/overview"))
+    void getProviderSession(true).then(provider => exchangeJawnixSession(provider.access_token, "/app/home"))
       .then(session => navigate(routerPath(session.next), { replace: true }))
       .catch(() => setError("We could not finish signup. Sign in to continue, or request a new verification link."));
   }, [navigate]);
@@ -154,7 +154,7 @@ export function RegistrationStatusRoute() {
   const revalidator = useRevalidator();
   const navigate = useNavigate();
   return <AuthRouteFrame><AuthPanel title={data.status === "rejected" ? "Registration not approved" : "Account awaiting review"}
-    description={data.status === "rejected" ? "Email noah@jawnix.com if you need help with your registration." : "Noah will review your registration before granting access to previous customer history."}>
+    description={data.status === "rejected" ? "Email noah@jawnix.com if you need help with your registration." : `Noah reviews your registration before your account opens. We will email ${data.email || "you"} when it is decided.`}>
     <div className="jx-auth-form"><Button type="button" busy={revalidator.state !== "idle"} onClick={() => { void revalidator.revalidate(); }}>Check status</Button>
       <Button type="button" onClick={async () => { await signOut(); navigate("/sign-in", { replace: true }); }}>Sign out</Button></div>
   </AuthPanel></AuthRouteFrame>;

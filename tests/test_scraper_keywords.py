@@ -827,5 +827,4 @@ def test_keyword_workspace_degrades_in_place_when_upstream_is_unavailable(
         "winners": [],
         "performance": [],
         "prescriptive_mode": "dormant_worked_leads",
-        "idle_expires_in": 900,
     }

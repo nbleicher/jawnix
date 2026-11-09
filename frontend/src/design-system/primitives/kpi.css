@@ -1,0 +1,85 @@
+/* One ruled block: the row draws the top and left rules, each tile its right
+   and bottom, so shared edges stay a single hairline at any column count. */
+.jx-kpis {
+  --jx-kpi-columns: 4;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--jx-kpi-columns), minmax(0, 1fr));
+  border-top: var(--jx-rule) solid var(--jx-line-strong);
+  border-left: var(--jx-rule) solid var(--jx-line-strong);
+}
+
+.jx-kpis--2 {
+  --jx-kpi-columns: 2;
+}
+.jx-kpis--4 {
+  --jx-kpi-columns: 4;
+}
+.jx-kpis--6 {
+  --jx-kpi-columns: 6;
+}
+
+.jx-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+  min-width: 0;
+  padding: var(--jx-space-4);
+  border-right: var(--jx-rule) solid var(--jx-line-strong);
+  border-bottom: var(--jx-rule) solid var(--jx-line-strong);
+  background: var(--jx-color-surface);
+}
+
+/* Labels are system metadata: uppercase mono on the label tracking. */
+.jx-kpi__label {
+  color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  font-weight: var(--jx-weight-medium);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
+}
+
+/* Figures are full numbers with tabular digits, never abbreviated (V5). */
+.jx-kpi__value {
+  margin: 0;
+  color: var(--jx-ink);
+  font-size: var(--jx-text-2xl);
+  line-height: var(--jx-leading-display);
+  font-feature-settings: var(--jx-font-features-numeral);
+  overflow-wrap: anywhere;
+}
+
+.jx-kpi__meta {
+  margin: 0;
+  color: var(--jx-ink-muted);
+  font-size: var(--jx-text-xs);
+  line-height: var(--jx-leading-body);
+}
+
+.jx-kpi--alert .jx-kpi__value {
+  color: var(--jx-danger);
+}
+
+@media (max-width: 64rem) {
+  .jx-kpis--4 {
+    --jx-kpi-columns: 2;
+  }
+  .jx-kpis--6 {
+    --jx-kpi-columns: 3;
+  }
+}
+
+/* Phones keep two tiles per row; the figure steps down so money with cents
+   still fits on one line. */
+@media (max-width: 36rem) {
+  .jx-kpis--6 {
+    --jx-kpi-columns: 2;
+  }
+  .jx-kpi {
+    padding: var(--jx-space-3);
+  }
+  .jx-kpi__value {
+    font-size: var(--jx-text-xl);
+  }
+}

@@ -380,9 +380,7 @@ export function ScraperOverviewRoute() {
     void navigate("/admin/acquisition/scraper", { replace: true });
   }, [navigate]);
 
-  const { watching, resume } = useOperatorPresence(
-    snapshot.idle_expires_in * 1000,
-  );
+  const { watching, resume } = useOperatorPresence();
   const [feeds, patch] = useRegionFeeds(snapshot.regions, watching, expire);
 
   const overall = feeds["overall"]?.region.data?.stack_status ?? null;
@@ -418,8 +416,8 @@ export function ScraperOverviewRoute() {
               onRetry={() => window.location.reload()}
             />
             <div>
-              <ActionLink href="/app/admin/acquisition">
-                Back to Acquisition
+              <ActionLink href="/app/admin/setup">
+                Back to Setup
               </ActionLink>
             </div>
           </Stack>
@@ -428,7 +426,7 @@ export function ScraperOverviewRoute() {
             {!watching ? (
               <div className="ops-idle" role="status">
                 <Text as="span" size="sm">
-                  Monitoring paused so the privileged session can expire.
+                  Monitoring paused while this tab sat unattended.
                 </Text>
                 <Button onClick={resume}>Resume monitoring</Button>
               </div>

@@ -8,12 +8,17 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, text
 
 from .allocation import allocate_request, fulfill_round_robin
+from .batch_copies import NEW_COPY_JOB, make_new_copy
 from .config import get_settings
 from .database import SessionLocal
 from .delivery import deliver_request, mark_delivery_failed
 from .billing import release_batch_hold
 from .jobs import FULFILLMENT_JOB_KINDS, claim_next_job, enqueue_job
 from .job_wakeup import JobWakeup
+from .inventory_snapshots import (
+    REFRESH_INVENTORY_JOB,
+    refresh_inventory_snapshots,
+)
 from .lead_uploads import IMPORT_JOB, ImportInterrupted, import_lead_upload
 from .models import LeadUpload
 from .metrics_emit import (
@@ -28,7 +33,12 @@ from .milestone_emails import (
     enqueue_milestone_email,
     send_milestone_email,
 )
+from .registration_emails import (
+    REGISTRATION_EMAIL_JOB,
+    send_registration_email,
+)
 from .models import (
+    CustomerRegistration,
     ExclusionList,
     Job,
     JobStatus,
@@ -462,6 +472,8 @@ def process_job(job_id: int) -> None:
                     settings,
                     int(job.payload["dataset_version"]),
                 )
+            elif job.kind == REFRESH_INVENTORY_JOB:
+                refresh_inventory_snapshots(session)
             elif job.kind == "ingest_exclusion_list":
                 from .exclusions import ingest_exclusion_list
 
@@ -633,6 +645,13 @@ def process_job(job_id: int) -> None:
                                    session_factory=SessionLocal, job_id=job.id)
             elif job.kind == "deliver_request":
                 deliver_request(session, uuid.UUID(str(job.request_id)), settings)
+            elif job.kind == NEW_COPY_JOB:
+                make_new_copy(
+                    session,
+                    uuid.UUID(str(job.request_id)),
+                    settings,
+                    job_id=job.id,
+                )
             elif job.kind == EMIT_LEAD_ASSIGNED_JOB:
                 after_raw = job.payload.get("after_id")
                 after_id = int(after_raw) if after_raw is not None else None
@@ -665,6 +684,25 @@ def process_job(job_id: int) -> None:
                     request,
                     milestone,
                     settings,
+                    idempotency_key=job.payload.get("idempotency_key") or None,
+                )
+                job.payload = {
+                    **job.payload,
+                    "message_id": message_id,
+                }
+            elif job.kind == REGISTRATION_EMAIL_JOB:
+                if job.status == JobStatus.complete.value:
+                    return
+                registration = session.get(
+                    CustomerRegistration,
+                    uuid.UUID(str(job.payload["user_id"])),
+                )
+                if registration is None:
+                    raise LookupError("Registration was not found.")
+                message_id = send_registration_email(
+                    registration,
+                    settings,
+                    restored=bool(job.payload.get("restored")),
                 )
                 job.payload = {
                     **job.payload,

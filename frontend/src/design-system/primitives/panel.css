@@ -1,0 +1,186 @@
+/* Boxed panels belong to the right column (V2); the main column holds open
+   sections. */
+.jx-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+  min-width: 0;
+  padding: var(--jx-space-4);
+  border: var(--jx-rule) solid var(--jx-line-strong);
+  background: var(--jx-color-surface);
+}
+
+.jx-panel__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--jx-space-3);
+}
+
+.jx-record-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(19rem, 1fr);
+  gap: var(--jx-space-5);
+  align-items: start;
+}
+
+.jx-record-columns__main,
+.jx-record-columns__aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-5);
+  min-width: 0;
+}
+
+.jx-record-columns__aside {
+  gap: var(--jx-space-4);
+}
+
+.jx-panel-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--jx-space-5);
+  align-items: start;
+}
+
+.jx-panel-layout__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-5);
+  min-width: 0;
+}
+
+@media (min-width: 64rem) {
+  .jx-panel-layout--open {
+    grid-template-columns: minmax(0, 1fr) 27rem;
+  }
+
+  /* The panel rides beside the list while it scrolls, under the sticky top
+     bar. */
+  .jx-panel-layout__panel {
+    position: sticky;
+    top: 5rem;
+    max-height: calc(100dvh - 6rem);
+    overflow-y: auto;
+  }
+}
+
+@media (max-width: 64rem) {
+  .jx-record-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The side panel: a boxed panel with a heavier border (V2). */
+.jx-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-4);
+  min-width: 0;
+  padding: var(--jx-space-4);
+  border: var(--jx-rule) solid var(--jx-ink);
+  background: var(--jx-paper);
+}
+
+.jx-side-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--jx-space-3);
+}
+
+.jx-side-panel__heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+  min-width: 0;
+}
+
+.jx-side-panel__title:focus {
+  outline: none;
+}
+
+.jx-side-panel__title:focus-visible {
+  outline: var(--jx-rule-heavy) solid var(--jx-focus);
+  outline-offset: var(--jx-rule-heavy);
+}
+
+.jx-side-panel__close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--jx-touch-target);
+  height: var(--jx-touch-target);
+  margin: calc(-1 * var(--jx-space-3)) calc(-1 * var(--jx-space-3)) 0 0;
+  border: 0;
+  background: none;
+  color: var(--jx-ink-muted);
+  font-size: var(--jx-text-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.jx-side-panel__close:hover {
+  color: var(--jx-ink);
+}
+
+.jx-side-panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-4);
+  min-width: 0;
+}
+
+.jx-side-panel__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+}
+
+.jx-side-panel__full {
+  padding-top: var(--jx-space-2);
+}
+
+/* A progress list: filled squares for reached steps, open ones for the
+   rest. */
+.jx-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+  font-size: var(--jx-text-sm);
+}
+
+.jx-steps__step {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr) max-content;
+  gap: var(--jx-space-2);
+  align-items: baseline;
+}
+
+.jx-steps__mark {
+  width: 0.6rem;
+  height: 0.6rem;
+  border: var(--jx-rule-heavy) solid var(--jx-ink);
+}
+
+.jx-steps__step--done .jx-steps__mark {
+  background: var(--jx-ink);
+}
+
+.jx-steps__step--todo {
+  color: var(--jx-ink-muted);
+}
+
+.jx-steps__step--todo .jx-steps__mark {
+  border-color: var(--jx-line-control);
+}
+
+.jx-steps__time {
+  color: var(--jx-ink-muted);
+  font-size: var(--jx-text-xs);
+  font-feature-settings: var(--jx-font-features-numeral);
+}

@@ -1,0 +1,126 @@
+/* New request (CP2): the form in the main column, the live summary in a
+   boxed panel on the right (V2). */
+.customer-request {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-5);
+  min-width: 0;
+}
+
+.customer-request__failure {
+  padding: var(--jx-space-3) var(--jx-space-4);
+  border-inline-start: var(--jx-rule-heavy) solid var(--jx-danger);
+  background: var(--jx-danger-soft);
+}
+
+.customer-request__failure:focus {
+  outline: none;
+}
+
+.customer-request__failure:focus-visible {
+  outline: var(--jx-focus-width) solid var(--jx-focus);
+  outline-offset: var(--jx-focus-offset);
+}
+
+.customer-request__quantity {
+  font-size: var(--jx-text-md);
+  font-feature-settings: var(--jx-font-features-numeral);
+}
+
+/* Appointed states: one checkbox per state, full names, wrapping in a row. */
+.customer-request__states {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jx-space-2) var(--jx-space-5);
+}
+
+.customer-request__state,
+.customer-request__choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jx-space-2);
+  min-height: var(--jx-touch-target);
+  cursor: pointer;
+}
+
+.customer-request__state input,
+.customer-request__choice input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  accent-color: var(--jx-ink);
+}
+
+.customer-request__edit {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--jx-touch-target);
+  color: var(--jx-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+/* Options: file splitting, closed until wanted; the summary line says what
+   is chosen. */
+.customer-request__options {
+  border: var(--jx-rule) solid var(--jx-line);
+  background: var(--jx-color-surface);
+}
+
+.customer-request__options > summary {
+  display: flex;
+  list-style: none;
+  align-items: center;
+  gap: var(--jx-space-2);
+  min-height: var(--jx-touch-target);
+  padding: var(--jx-space-2) var(--jx-space-4);
+  font-size: var(--jx-text-sm);
+  cursor: pointer;
+}
+
+.customer-request__options > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* The disclosure triangle, turned down while Options is open. */
+.customer-request__options > summary::before {
+  content: "";
+  flex: none;
+  width: 0;
+  height: 0;
+  border-block: 0.3rem solid transparent;
+  border-inline-start: 0.45rem solid currentColor;
+  transition: transform var(--jx-duration-fast, 120ms) ease;
+}
+
+.customer-request__options[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.customer-request__options > summary:focus-visible {
+  outline: var(--jx-focus-width) solid var(--jx-focus);
+  outline-offset: var(--jx-focus-offset);
+}
+
+.customer-request__options-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-4);
+  padding: 0 var(--jx-space-4) var(--jx-space-4);
+}
+
+/* The summary rides beside the form while it scrolls, under the top bar. */
+@media (min-width: 64rem) {
+  .customer-request__summary {
+    position: sticky;
+    top: 5rem;
+  }
+}
+
+.customer-request__buy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-2);
+}

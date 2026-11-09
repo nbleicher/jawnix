@@ -42,7 +42,6 @@ export interface StoredExport {
 export interface DatabaseWorkspace {
   service_state: "connected" | "unavailable";
   last_successful_at: string | null;
-  idle_expires_in: number;
   totals: DatabaseTotals | null;
   states: DatabaseStateSummary[];
   browse: DatabaseBrowsePage | null;
@@ -57,7 +56,6 @@ export interface DatabaseNiche extends DatabaseTotals {
 export interface DatabaseStateDetail {
   service_state: "connected" | "unavailable";
   last_successful_at: string | null;
-  idle_expires_in: number;
   state: string;
   totals: DatabaseStateSummary | null;
   niches: DatabaseNiche[];

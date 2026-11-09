@@ -416,8 +416,8 @@ def test_general_profile_patch_refuses_to_bypass_licensed_state_impact_review(se
         assert response.status_code == 409
         assert response.json() == {
             "detail": (
-                "Licensed State changes require an impact review. "
-                "Use Account to review and confirm them."
+                "Appointed state changes need a review. "
+                "Change them on Account."
             )
         }
 
@@ -2956,7 +2956,7 @@ def test_active_customer_session_uses_safe_react_destination_when_enabled(
             },
         )
         assert refused_admin_path.status_code == 200
-        assert refused_admin_path.json()["next"] == "/app/overview"
+        assert refused_admin_path.json()["next"] == "/app/home"
     finally:
         app.dependency_overrides.clear()
 
@@ -3143,3 +3143,25 @@ def test_telegram_webhook_authorization_replay_and_async_queue(session, settings
         assert anomaly_job.payload["action"] == "confirm"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_an_operator_sent_reset_lands_on_the_reset_page(settings, monkeypatch):
+    import asyncio
+
+    from jawnix.api import _send_password_reset
+
+    calls: list[tuple[str, dict]] = []
+
+    class Provider:
+        async def request(self, action, **payload):
+            calls.append((action, payload))
+            return {"ok": True}
+
+    monkeypatch.setattr("jawnix.api.get_mfa_provider", lambda _settings: Provider())
+    settings = settings.model_copy(update={"auth_provider": "better-auth"})
+
+    asyncio.run(_send_password_reset(settings, "customer@example.com"))
+
+    assert calls == [
+        ("reset-user", {"email": "customer@example.com", "purpose": "reset"})
+    ]

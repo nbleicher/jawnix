@@ -51,6 +51,18 @@ async function provision(role = "customer") {
   return { id, email };
 }
 
+test("invitations and resets land on their own pages", async () => {
+  const id = randomUUID();
+  const email = `${id}@example.test`;
+  await bridge(auth, { action: "provision-user", userId: id, email, role: "customer" });
+  await bridge(auth, { action: "reset-user", email });
+  const invitation = new URL(emails.at(-1)!.url).searchParams.get("callbackURL");
+  await bridge(auth, { action: "reset-user", email, purpose: "reset" });
+  const reset = new URL(emails.at(-1)!.url).searchParams.get("callbackURL");
+  assert.equal(invitation, "http://localhost:3001/app/accept-invitation");
+  assert.equal(reset, "http://localhost:3001/app/reset-password");
+});
+
 test("bridge authorization uses a separate secret", () => {
   const secret = "bridge-test-secret-longer-than-thirty-two-characters";
   assert.equal(bridgeAuthorized(`Bearer ${secret}`, secret), true);

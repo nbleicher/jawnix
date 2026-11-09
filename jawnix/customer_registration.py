@@ -12,7 +12,11 @@ from .config import Settings
 from .customer_accounts import activate_registered_user_account, UserAccountConflict
 from .customer_history import archived_customer_matches
 from .models import Customer, CustomerProfile, CustomerRegistration, CustomerTombstone, LeadRequest, UserAccount, utcnow
+from .registration_emails import enqueue_registration_email
 from .schemas import RegistrationDecision, SignupProfile
+
+#: Where an active Customer lands. /app/overview still redirects here.
+CUSTOMER_HOME_PATH = "/app/home"
 
 
 def lock_registration_identity(db: Session, user_id: uuid.UUID) -> None:
@@ -139,6 +143,8 @@ def decide_registration(db: Session, user_id: uuid.UUID, decision: RegistrationD
     record_activity(db, action="customer_registration_decided", target_type="user_account", target_id=user_id,
                     actor_id=actor_id, reason="Operator reviewed a matching-name registration.",
                     details={"decision":decision.decision,"customerId":registration.customer_id,"operatorApproved":True})
+    # The person is waiting on "Account awaiting review"; tell them either way.
+    enqueue_registration_email(db, registration, restored=decision.decision == "restore")
     return registration
 
 
@@ -151,4 +157,4 @@ def registration_status(registration: CustomerRegistration) -> dict:
 def registration_next(registration: CustomerRegistration) -> str:
     if registration.status != "rejected" and not registration.licensed_states:
         return "/app/appointed-states"
-    return "/app/overview" if registration.status == "active" else "/app/registration-status"
+    return CUSTOMER_HOME_PATH if registration.status == "active" else "/app/registration-status"

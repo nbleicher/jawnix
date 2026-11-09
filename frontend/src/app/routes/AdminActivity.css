@@ -6,9 +6,94 @@
   list-style: none;
 }
 
+/* Activity filters in one row: the search takes the room (V1). */
 .jx-activity-filters {
   display: grid;
-  gap: var(--jx-space-4);
+  grid-template-columns: minmax(14rem, 2fr) repeat(4, minmax(9rem, 1fr)) auto;
+  gap: var(--jx-space-3);
+  align-items: end;
+}
+
+.jx-activity-filters__check {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-2);
+  min-height: var(--jx-touch-target);
+  font-size: var(--jx-text-sm);
+  white-space: nowrap;
+}
+
+.jx-activity-pages {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-3);
+}
+
+/* The When cell opens the row's before and after. */
+.jx-activity-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jx-space-2);
+  /* A 24px target (WCAG 2.5.8) keeps the row one line tall. */
+  min-height: 1.5rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-feature-settings: var(--jx-font-features-numeral);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.jx-activity-toggle__mark {
+  display: inline-block;
+  width: 0.75rem;
+  color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
+}
+
+.jx-activity-change {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--jx-space-3);
+}
+
+.jx-activity-change--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.jx-activity-change pre {
+  margin: var(--jx-space-1) 0 0;
+  padding: var(--jx-space-2) var(--jx-space-3);
+  overflow-x: auto;
+  background: var(--jx-color-surface);
+  border: var(--jx-rule) solid var(--jx-line);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 64rem) {
+  .jx-activity-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .jx-activity-filters > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 40rem) {
+  .jx-activity-change {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* On a stacked row the time leads the line. */
+  .jx-activity-table td.jx-table__record {
+    flex-basis: 100%;
+  }
 }
 
 .jx-activity-list .jx-mono {

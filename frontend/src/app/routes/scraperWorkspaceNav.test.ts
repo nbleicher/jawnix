@@ -62,7 +62,7 @@ describe("the Scraper workspace rail", () => {
 
   it("always offers a way out", () => {
     for (const from of WORKSPACE_ROUTES) {
-      expect(workspaceRail(from).map((item) => item.label)).toContain("Exit to Acquisition");
+      expect(workspaceRail(from).map((item) => item.label)).toContain("Exit to Setup");
     }
   });
 

@@ -105,6 +105,7 @@ const DENY_CONFLICT = {
 function requestSummary(overrides: Record<string, unknown> = {}) {
   return {
     id: PENDING_REQUEST_ID,
+    number: 1042,
     customer: "Dana Reed",
     customerIdentity: "Northstar Insurance",
     agency: "Northstar Agency",
@@ -126,6 +127,7 @@ const CONFLICT = {
   status: "pending",
   olderRequest: {
     id: "66666666-6666-4666-8666-666666666666",
+    number: 1036,
     customerIdentity: "Older Customer",
     agency: "Northstar Agency",
     leadCount: 2,
@@ -137,6 +139,7 @@ const CONFLICT = {
   },
   newerRequest: {
     id: "77777777-7777-4777-8777-777777777777",
+    number: 1037,
     customerIdentity: "Newer Customer",
     agency: "Southstar Agency",
     leadCount: 1,
@@ -180,6 +183,7 @@ const DETAILS: Record<string, Record<string, unknown>> = {
   [FAILED_WITH_ARTIFACT_ID]: {
     ...requestSummary({
       id: FAILED_WITH_ARTIFACT_ID,
+      number: 1040,
       customerIdentity: "Gulfshore Advisors",
       status: "failed",
       statusMessage:
@@ -206,6 +210,7 @@ const DETAILS: Record<string, Record<string, unknown>> = {
   [FAILED_WITHOUT_ARTIFACT_ID]: {
     ...requestSummary({
       id: FAILED_WITHOUT_ARTIFACT_ID,
+      number: 1044,
       customerIdentity: "Lakeside Group",
       status: "failed",
       statusMessage: "Allocation failed before a batch was generated.",
@@ -221,6 +226,7 @@ const DETAILS: Record<string, Record<string, unknown>> = {
   [EXPIRED_ARTIFACT_ID]: {
     ...requestSummary({
       id: EXPIRED_ARTIFACT_ID,
+      number: 1031,
       customerIdentity: "Harbor Point",
       status: "delivered",
       statusMessage:
@@ -247,6 +253,7 @@ const DETAILS: Record<string, Record<string, unknown>> = {
   [DELIVERED_REQUEST_ID]: {
     ...requestSummary({
       id: DELIVERED_REQUEST_ID,
+      number: 1043,
       customerIdentity: "Harbor Point",
       status: "delivered",
       statusMessage:
@@ -271,6 +278,60 @@ const DETAILS: Record<string, Record<string, unknown>> = {
     history: [],
   },
 };
+
+function stageOf(detail: Record<string, unknown>): string {
+  const artifact = detail.artifact as { available?: boolean } | null;
+  switch (detail.status) {
+    case "pending":
+      return "awaiting_approval";
+    case "failed":
+      return artifact ? "delivery_failed" : "failed";
+    case "delivered":
+      return artifact && artifact.available === false ? "file_expired" : "delivered";
+    default:
+      return String(detail.status);
+  }
+}
+
+/** The Batch page contract (GET /api/admin/batches/{number or id}) for one of
+ *  the Batch Requests above. */
+export function asBatch(detail: Record<string, unknown>) {
+  const artifact = detail.artifact as { rowCount: number } | null;
+  return {
+    ...detail,
+    href: `/app/admin/batches/${detail.number}`,
+    stage: stageOf(detail),
+    needsDecision: detail.status === "pending" || detail.status === "failed",
+    database: "db1",
+    customerRecord: {
+      id: 7,
+      name: detail.customerIdentity,
+      href: "/app/admin/customers/7",
+    },
+    agencyRecord: { id: 3, name: detail.agency, href: "/app/admin/agencies/3" },
+    fill: artifact
+      ? { needed: detail.leadCount, kind: "committed", committed: artifact.rowCount, olderOpen: null }
+      : { needed: detail.leadCount, kind: "unknown", olderOpen: null },
+    cost: { billed: false },
+    progress: [
+      { key: "submitted", label: "Submitted", done: true, at: detail.createdAt },
+      { key: "approved", label: "Approved", done: Boolean(detail.approvedAt), at: detail.approvedAt ?? null },
+      { key: "allocated", label: "Allocated", done: Boolean(artifact), at: null },
+      { key: "generated", label: "File generated", done: Boolean(artifact), at: null },
+      { key: "delivered", label: "Delivered", done: Boolean(detail.deliveredAt), at: detail.deliveredAt ?? null },
+    ],
+    recentBatches: [],
+    openLeadReports: 0,
+    live: detail.live ?? { settled: true, refreshSeconds: 10, jobs: [], log: [] },
+  };
+}
+
+export function batchDetailFor(reference: string): Record<string, unknown> | null {
+  const detail =
+    DETAILS[reference] ??
+    Object.values(DETAILS).find((item) => String(item.number) === reference);
+  return detail ? asBatch(detail) : null;
+}
 
 export async function mockFulfillment(page: Page): Promise<RecordedCall[]> {
   const calls: RecordedCall[] = [];
@@ -323,6 +384,9 @@ export async function mockFulfillment(page: Page): Promise<RecordedCall[]> {
 
   await page.route(/\/api\/admin\/pool-breakdown(?:\/refresh)?$/, (route) => {
     if (route.request().method() === "POST") {
+      // The server only queues the background recount and answers with the
+      // current snapshot. The next read stands in for the finished recount.
+      const current = poolBreakdown;
       poolBreakdown = {
         asOf: "2026-08-03T15:00:00Z",
         cells: [
@@ -331,7 +395,7 @@ export async function mockFulfillment(page: Page): Promise<RecordedCall[]> {
           { state: "TX", niche: "unmapped", count: 18 },
         ],
       };
-      return json(route, poolBreakdown);
+      return json(route, { ...current, refreshQueued: true, jobId: 41 });
     }
     return json(route, poolBreakdown);
   });
@@ -370,6 +434,14 @@ export async function mockFulfillment(page: Page): Promise<RecordedCall[]> {
     },
   );
 
+  await page.route(/\/api\/admin\/batches\/[^/?]+$/, (route) => {
+    const reference = new URL(route.request().url()).pathname.split("/").pop() ?? "";
+    const batch = batchDetailFor(reference);
+    return batch
+      ? json(route, batch)
+      : json(route, { detail: "Batch was not found." }, 404);
+  });
+
   await page.route(/\/api\/admin\/activity(?:\?.*)?$/, (route) => {
     const url = new URL(route.request().url());
     if (url.searchParams.get("entityType") !== "batch_request") {
@@ -391,7 +463,7 @@ export async function mockFulfillment(page: Page): Promise<RecordedCall[]> {
         action: entry.action,
         entityType: "batch_request",
         entityId: id,
-        entityHref: `/app/admin/fulfillment/requests/${id}`,
+        entityHref: `/app/admin/batches/${id}`,
         actor: entry.actor,
         reason: entry.reason,
         details: {

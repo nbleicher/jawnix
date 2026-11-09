@@ -443,7 +443,7 @@ class TelegramClient:
         failures = review.summary.get("failures") or []
         review_url = (
             f"{self.settings.public_base_url}"
-            "/app/admin/acquisition#nightly-reviews"
+            "/app/admin/insights#nightly-reviews"
         )
         # Filtering before the slice is what makes the "…and N more" count
         # true: slicing first lists fewer than the cap and then counts lists

@@ -106,7 +106,6 @@ class KeywordWorkspace(BaseModel):
     winners: list[KeywordWinner]
     performance: list[KeywordOutcomePerformance] = Field(default_factory=list)
     prescriptive_mode: Literal["dormant_worked_leads"] = "dormant_worked_leads"
-    idle_expires_in: int = Field(gt=0)
 
 
 class KeywordTextRequest(BaseModel):

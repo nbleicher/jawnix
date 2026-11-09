@@ -34,8 +34,8 @@ A single-use credential stored separately from the Authenticator Factor that res
 _Avoid_: Backup authenticator, reusable recovery password
 
 **Scraper Privileged Session**:
-A short-lived grant to Scraper Operations established by fresh Authenticator Factor or Recovery Code verification on every entry, independent of an existing Administrator Session's assurance.
-_Avoid_: Administrator session, trusted Scraper access, persistent elevation
+A grant to Scraper Operations established by a fresh Authenticator Factor or Recovery Code verification, independent of the Administrator Session's own assurance. It is verified once per sign-in: re-entering the workspace reuses the live grant, which lasts until sign-out or Administrator Session expiry and never carries over to a later sign-in.
+_Avoid_: Administrator session, trusted Scraper access, idle timeout
 
 **Break-glass Recovery**:
 A two-person, explicitly authorized operator procedure that revokes Administrator Sessions and restores access only to Authenticator Factor enrollment after the authenticator and all Recovery Codes are lost.
@@ -97,6 +97,10 @@ _Avoid_: Automatic scraper optimization, source ranking
 Jawnix's authoritative set of validated, deduplicated leads available for allocation.
 _Avoid_: Scraper dataset, leads database
 
+**Usable Inventory**:
+The Leads in one Lead Database (DB1 or DB2) that are not suppressed, have no active Eligibility Hold, and are not globally excluded; the same rule for both databases. It is a background snapshot with an as-of time, recounted after every Inventory Sync, DB2 upload publication, nightly, and on request. Per-Customer rules (Licensed States, Niche Policy, no-repeat, Cooldown Window) narrow it further on the Customer page.
+_Avoid_: Eligible inventory, available now, raw row count
+
 **Legacy Inventory**:
 Previously acquired Leads, including existing NPPES-derived Leads, that remain eligible with provenance preserved even though their acquisition source is no longer active. Their outcomes remain visible overall but do not affect Google Maps Source Segment rankings or recommendations.
 _Avoid_: Suppressed leads, active source
@@ -138,7 +142,7 @@ A Customer removed from active use whose name and history remain available for o
 _Avoid_: New customer, automatic account recovery
 
 **Licensed States**:
-The Customer-maintained set of states where the Customer is authorized to operate. Removing a state automatically narrows unallocated requests with notification, while additions apply only to future requests and historical distributions never change.
+The Customer-maintained set of states where the Customer is authorized to operate. Removing a state automatically narrows unallocated requests with notification, while additions apply only to future requests and historical distributions never change. Customers see them as "appointed states"; a change that narrows or cancels no open request saves without a review.
 _Avoid_: Preferred states, administrator-assigned states
 
 **Niche Policy**:
@@ -157,7 +161,7 @@ _Avoid_: Customer, agent
 An outstanding offer of access to one durable Customer, addressed to an email the provider owns the credential for. A Customer has at most one outstanding invitation, and the Customer's existing User Account stays active until the invitation is accepted; acceptance is the invited person signing in, which activates the new User Account and deactivates the former one in one step without touching the Customer or its history. Canceling an invitation leaves current access exactly as it was.
 
 **Customer Registration**:
-A public signup with first name, last name, phone number, and a verified email address, followed by appointed state setup. Once states are selected, a registration with no exact archived name match creates a new Customer. An exact archived first-and-last-name match waits for an operator decision to restore one matching Customer, create a separate Customer, or reject access. Registration never grants a privileged role or automatically restores history.
+A public signup with first name, last name, phone number, and a verified email address, followed by appointed state setup. Once states are selected, a registration with no exact archived name match creates a new Customer. An exact archived first-and-last-name match waits for an operator decision to restore one matching Customer, create a separate Customer, or reject access, and the person is emailed the outcome. Registration never grants a privileged role or automatically restores history.
 _Avoid_: Password reset, account replacement, pending user
 
 **Setup Problem**:
@@ -193,7 +197,7 @@ The pool-wide standing effect of an Exclusion List once an administrator confirm
 _Avoid_: Lead Suppression, automatic suppression, customer-triggered suppression
 
 **Lead Report**:
-A Customer's immutable quality report about a Lead received in a specific Distribution Event. It has one reason—invalid phone, wrong business or title, wrong state, duplicate received, do-not-contact or legal concern, or other—plus an optional note. Invalid Phone, Wrong Business, and Do Not Contact dispositions create a non-duplicated matching report automatically.
+A Customer's immutable quality report about a Lead received in a specific Distribution Event. It has one reason—invalid phone, wrong business or title, wrong state, duplicate received, do-not-contact or legal concern, or other—plus an optional note. Customers file one from a delivered batch's page ("Report a bad lead"), which finds the phone within that batch only. Invalid Phone, Wrong Business, and Do Not Contact dispositions create a non-duplicated matching report automatically.
 The report is immutable and closes as Dismissed, Corrected, or Suppressed with a required administrator resolution note.
 _Avoid_: Lead suppression, CRM outcome
 
@@ -206,7 +210,7 @@ A legacy-compatible append-only Customer feedback record attached to a specific 
 _Avoid_: Lead status, CRM record
 
 **Customer Feedback**:
-The Customer workflow for recording one Lead Disposition and an optional independent Quality Rating against the Customer's most recent Distribution Event for a delivered phone, after confirming the business, phone, delivery date, and Batch. Entry is a typed phone lookup or a scoped search within one of the Customer's own delivered batches. A failed lookup always returns the same response whether the phone is invalid, absent, or belongs to another Customer, and the workflow does not support bulk entry.
+The Customer workflow for recording one Lead Disposition and an optional independent Quality Rating against the Customer's most recent Distribution Event for a delivered phone, after confirming the business, phone, delivery date, and Batch. Its portal page was retired unused (old links open Batches); the disposition and rating history and their endpoints remain, and Lead Reports are filed from each batch's page. A failed lookup always returns the same response whether the phone is invalid, absent, or belongs to another Customer, and the workflow does not support bulk entry.
 _Avoid_: Inventory search, bulk feedback, CRM workflow
 
 **Lead Disposition**:
@@ -230,8 +234,8 @@ A reversible, audited administrator override of a Lead's delivered title or stat
 _Avoid_: Source edit, listing deletion
 
 **Batch Request**:
-A Customer's request for an exact quantity of 1 to 100,000 eligible Leads within a specified Licensed State scope. A Customer may have multiple active requests, ordered by approval time within that Customer's queue.
-_Avoid_: Partial order, batch artifact
+A Customer's request for an exact quantity of 1 to 100,000 eligible Leads within a specified Licensed State scope. A Customer may have multiple active requests, ordered by approval time within that Customer's queue. Both the Customer and the operator name it by its Batch number ("Batch #1042"), assigned in submission order from 1001, unique, and never changed.
+_Avoid_: Partial order, batch artifact, REQ- codes
 
 **Request Approval**:
 An explicit operator authorization for a Batch Request's first allocation attempt. It survives automatic removal of unlicensed states, but any Customer-requested scope change requires a new request and losing every requested state cancels it.
@@ -250,7 +254,7 @@ A Batch Request withdrawn before any Distribution Event commits. Cancellation is
 _Avoid_: Voided batch, delivery failure
 
 **Batch Artifact**:
-The exact materialization of a fulfilled Batch Request: one download containing one or more CSV parts sized by the rows-per-file choice frozen at submission. A single part downloads directly as CSV; multiple parts download together as a ZIP. The Customer retrieves the live file self-serve from the portal, while email notifies of delivery rather than carrying it. Its file expires after 30 days while its internal history remains permanent; an administrator may regenerate the identical file through an audited action, starting a new 30-day retention period.
+The exact materialization of a fulfilled Batch Request: one download containing one or more CSV parts sized by the rows-per-file choice frozen at submission. A single part downloads directly as CSV; multiple parts download together as a ZIP. Each artifact records its CSV column layout: new batches carry phone, title, and state from each Distribution Event's snapshot, while batches delivered before the state column keep phone and title. The Customer retrieves the live file self-serve from the portal, while email notifies of delivery rather than carrying it. Its file expires after 30 days while its internal history remains permanent; an administrator may regenerate the identical file through an audited action, starting a new 30-day retention period. The Customer may also ask for a new copy of an expired file from the batch page: the worker rebuilds the identical file through the same path and emails them. Each ask is audited, one copy per batch is in flight at a time, and a Customer may ask five times in 24 hours.
 _Avoid_: Batch request, distribution history, email delivery
 
 **Inventory Conflict**:

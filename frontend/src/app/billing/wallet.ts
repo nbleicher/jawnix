@@ -86,9 +86,15 @@ export async function loadCreditWallet(): Promise<CreditWallet | null> {
   return response.json() as Promise<CreditWallet>;
 }
 
-/** Open a Stripe Checkout session for a whole-dollar Credit Purchase. */
+/**
+ * Open a Stripe Checkout session for a whole-dollar Credit Purchase.
+ *
+ * `returnTo` is the portal path Checkout should bring the Customer back to.
+ * The backend rebuilds it from an allow-list and falls back to Account.
+ */
 export async function startCreditPurchase(
   amountDollars: number,
+  returnTo?: string,
 ): Promise<CreditPurchaseStart> {
   const response = await fetch(PURCHASES_PATH, {
     method: "POST",
@@ -97,7 +103,10 @@ export async function startCreditPurchase(
       "X-CSRF-Token": csrf(),
     },
     credentials: "same-origin",
-    body: JSON.stringify({ amount_dollars: amountDollars }),
+    body: JSON.stringify({
+      amount_dollars: amountDollars,
+      ...(returnTo ? { return_to: returnTo } : {}),
+    }),
   });
   const parsed = (await response.json().catch(() => ({}))) as ErrorBody &
     Partial<CreditPurchaseStart>;

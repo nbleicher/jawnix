@@ -9,6 +9,7 @@ import type { CustomerDetailsData } from "./AdminCustomerDetails";
 import {
   AdminCustomerDetailsRoute,
   adminCustomerDetailsLoader,
+  adminCustomerDetailsShouldRevalidate,
 } from "./AdminCustomerDetails";
 
 vi.mock("../auth/adminMFA", () => ({ api: vi.fn() }));
@@ -48,6 +49,7 @@ function details(
         tone: "success",
       },
       last_activity_at: "2026-07-20T12:00:00Z",
+      lead_database: "db1",
     },
     history: {
       requests: 18,
@@ -83,22 +85,52 @@ function details(
     },
     cooldown: { days: 7 },
     nichePolicy: { rows: [] },
+    exclusionLists: [],
+    leadReports: [],
+    summary: {
+      customerId: 7,
+      database: "db1",
+      states: ["FL", "TX"],
+      customerSince: "2026-01-05T12:00:00Z",
+      needs: [
+        {
+          kind: "conflict",
+          label: "Conflict with Lakeside Brokers",
+          href: "/app/admin/fulfillment/conflicts/c-1",
+        },
+      ],
+      balance: {
+        billed: true,
+        availableCents: 123_200,
+        heldCents: 25_000,
+        heldFor: [1041],
+        rateCentsPerThousand: 500,
+      },
+      available: { count: 412_880, asOf: "2026-07-21T06:00:00Z" },
+      openBatches: {
+        count: 1,
+        first: { number: 1041, leadCount: 50_000, stage: "generating", href: "/app/admin/batches/1041" },
+      },
+      delivered: { windowDays: 30, leads: 300_000, batches: 5 },
+      lastDeliveryAt: "2026-07-20T12:00:00Z",
+      leadReports: { open: 0, total: 0 },
+    },
     ...overrides,
   };
 }
 
-function renderDetails(data: CustomerDetailsData) {
+function renderDetails(data: CustomerDetailsData, path = "/admin/customers/7") {
   const router = createMemoryRouter(
     [
       {
         id: "customer",
-        path: "/admin/customers/:customerId",
+        path: "/admin/customers/:customerId/:tab?",
         loader: () => data,
         element: <AdminCustomerDetailsRoute />,
       },
     ],
     {
-      initialEntries: ["/admin/customers/7"],
+      initialEntries: [path],
       hydrationData: { loaderData: { customer: data } },
     },
   );
@@ -121,6 +153,8 @@ describe("administrator Customer details", () => {
       nichePolicy: _nichePolicy,
       availability: _availability,
       exclusionLists: _exclusionLists,
+      leadReports: _leadReports,
+      summary: _summary,
       ...core
     } = full;
     vi.mocked(api)
@@ -136,12 +170,15 @@ describe("administrator Customer details", () => {
     expect(loaded.activityTimeline.entries).toEqual([]);
     expect(loaded.availability).toBeUndefined();
     // A missing section and a broken one must not look the same.
+    expect(loaded.summary).toBeUndefined();
     expect(loaded.unavailableSections).toEqual([
+      "Numbers",
       "Billing",
-      "Cooldown Window",
+      "Cooldown window",
       "Availability",
-      "Niche Policy",
-      "Customer Exclusion Lists",
+      "Niche policy",
+      "Exclusion lists",
+      "Lead reports",
       "Activity",
       "Agency directory",
     ]);
@@ -163,19 +200,48 @@ describe("administrator Customer details", () => {
     expect(screen.queryByRole("button", { name: "Retry loading" })).toBeNull();
   });
 
-  it("separates the durable Customer from its permanent history", () => {
+  it("leads with the numbers row and the record's tabs", () => {
     renderDetails(details());
 
     expect(
       screen.getByRole("heading", { level: 1, name: "Harbor Insurance" }),
     ).toBeVisible();
-    expect(
-      screen.getByRole("link", { name: "Back to Customers" }),
-    ).toHaveAttribute("href", "/app/admin/customers");
+    expect(screen.getByText(/^Gulf Coast Agency · FL, TX · DB1 · customer since Jan 5/)).toBeVisible();
+
+    const numbers = document.querySelector<HTMLElement>('dl[aria-label="Customer numbers"]')!;
+    expect(numbers).not.toBeNull();
+    expect(within(numbers).getByText("$1,232.00")).toBeVisible();
+    expect(within(numbers).getByText("$250.00 held for #1041")).toBeVisible();
+    expect(within(numbers).getByText("412,880")).toBeVisible();
+    expect(within(numbers).getByText("#1041 generating")).toBeVisible();
+    expect(within(numbers).getByText("300,000")).toBeVisible();
+    expect(within(numbers).getByText("5 batches")).toBeVisible();
+    expect(within(numbers).getByText("Conflict with Lakeside Brokers")).toBeVisible();
+
+    const tabs = screen.getByRole("navigation", { name: "Customer sections" });
+    const links = within(tabs).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Summary", "Batches", "Billing", "Rules", "Reports", "Access", "Activity",
+    ]);
+    expect(within(tabs).getByRole("link", { name: "Summary" })).toHaveAttribute("aria-current", "page");
+    expect(within(tabs).getByRole("link", { name: "Billing" })).toHaveAttribute("href", "/app/admin/customers/7/billing");
+  });
+
+  it("puts the customer's identity, needs, and permanent history on Summary", () => {
+    renderDetails(details());
+
+    expect(screen.getByRole("button", { name: "Rename" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Replace user account" })).toBeVisible();
+
+    const needs = screen.getByRole("region", { name: "Needs" });
+    expect(within(needs).getByRole("link", { name: "Conflict with Lakeside Brokers" })).toHaveAttribute(
+      "href",
+      "/admin/fulfillment/conflicts/c-1",
+    );
 
     const identity = screen.getByRole("region", { name: "Customer" });
     expect(within(identity).getByText("harbor-insurance")).toBeVisible();
-    expect(within(identity).getByText("Gulf Coast Agency")).toBeVisible();
+    expect(within(identity).getByRole("link", { name: "Gulf Coast Agency" })).toHaveAttribute("href", "/admin/agencies/4");
     expect(within(identity).getByText("FL, TX")).toBeVisible();
     expect(
       within(identity).getByText(/do not change when access is replaced/),
@@ -189,14 +255,8 @@ describe("administrator Customer details", () => {
         /Replacing a User Account never resets any of it/,
       ),
     ).toBeVisible();
-    // The history counts belong to the Customer, not to the identity block.
     expect(within(identity).queryByText("240")).not.toBeInTheDocument();
-    expect(
-      within(identity).getByRole("button", { name: "Rename Customer" }),
-    ).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: "Send password reset" }),
-    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Change Agency assignment" })).toBeVisible();
   });
 
   it("keeps the current User Account active while a replacement is pending", () => {
@@ -214,9 +274,10 @@ describe("administrator Customer details", () => {
           },
         },
       }),
+      "/admin/customers/7/access",
     );
 
-    const access = screen.getByRole("region", { name: "User Account" });
+    const access = screen.getByRole("region", { name: "User account" });
     const current = within(access).getByRole("article", {
       name: "Current User Account",
     });
@@ -238,7 +299,7 @@ describe("administrator Customer details", () => {
     ).toBeVisible();
     // A pending replacement must not offer to start a second one.
     expect(
-      screen.queryByRole("button", { name: "Replace User Account" }),
+      screen.queryByRole("button", { name: /Replace user account/i }),
     ).not.toBeInTheDocument();
     // Nor act on an account that is about to be replaced.
     expect(
@@ -247,25 +308,18 @@ describe("administrator Customer details", () => {
   });
 
   it("offers an invitation, not a password, when there is no User Account", () => {
-    renderDetails(details({ user_account: null }));
+    renderDetails(details({ user_account: null }), "/admin/customers/7/access");
 
-    const access = screen.getByRole("region", { name: "User Account" });
-    expect(
-      within(access).getByRole("heading", {
-        level: 2,
-        name: "No User Account yet",
-      }),
-    ).toBeVisible();
-    expect(
-      within(access).getByRole("button", { name: "Invite User Account" }),
-    ).toBeVisible();
+    const access = screen.getByRole("region", { name: "User account" });
+    expect(within(access).getByText("No user account yet")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Invite user account" })).toBeVisible();
     expect(document.querySelector('input[type="password"]')).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Send password reset" }),
     ).not.toBeInTheDocument();
   });
 
-  it("shows that identity and history survived every replacement", () => {
+  it("lists former User Accounts on Access", () => {
     renderDetails(
       details({
         former_accounts: [
@@ -278,14 +332,13 @@ describe("administrator Customer details", () => {
           },
         ],
       }),
+      "/admin/customers/7/access",
     );
 
-    const former = screen.getByRole("region", { name: "Former User Accounts" });
+    const former = screen.getByRole("table", { name: "Former user accounts" });
     expect(within(former).getByText("previous@harbor.example")).toBeVisible();
-    expect(within(former).getByText(/Replaced/)).toBeVisible();
-    expect(
-      within(former).getByText(/survived every one of them/),
-    ).toBeVisible();
+    expect(within(former).getByText("Jun 1")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Send password reset" })).toBeVisible();
   });
 
   it("guards deletion behind deactivation and names what blocks it", () => {
@@ -330,6 +383,56 @@ describe("administrator Customer details", () => {
     expect(
       within(lifecycle).getByRole("button", { name: "Reactivate Customer" }),
     ).toBeVisible();
+    expect(screen.getByText("Deactivated", { selector: ".jx-status" })).toBeVisible();
+  });
+
+  it("gathers the allocation rules on Rules", () => {
+    renderDetails(
+      details({ nichePolicy: { rows: [{ state: "TX", mode: "only", niches: ["solar"] }] } }),
+      "/admin/customers/7/rules",
+    );
+
+    expect(screen.getByRole("navigation", { name: "Customer sections" }))
+      .toHaveTextContent("Rules");
+    expect(screen.getByRole("region", { name: "Database" })).toHaveTextContent("DB1 · Operator leads");
+    expect(screen.getByRole("region", { name: "Cooldown window" })).toHaveTextContent("7 days");
+    const policy = screen.getByRole("table", { name: "Current Niche Policy" });
+    expect(within(policy).getByText("TX")).toBeVisible();
+    expect(within(policy).getByText("Only")).toBeVisible();
+    expect(within(policy).getByText("solar")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Exclusion lists" })).toHaveTextContent(
+      "This customer has not uploaded an exclusion list.",
+    );
+  });
+
+  it("lists the customer's lead reports with their batch on Reports", () => {
+    renderDetails(
+      details({
+        leadReports: [
+          {
+            id: "r-1",
+            href: "/app/admin/fulfillment/reports/r-1",
+            reason: "invalid_phone",
+            reasonLabel: "Invalid phone",
+            details: "Disconnected",
+            status: "open",
+            statusLabel: "Open",
+            createdAt: "2026-07-22T12:00:00Z",
+            lead: { phone: "2155550101", title: "Buckeye Dental", state: "FL" },
+            batch: { number: 1033, href: "/app/admin/batches/1033" },
+            eligibilityHeld: true,
+          },
+        ],
+      }),
+      "/admin/customers/7/reports",
+    );
+
+    const table = screen.getByRole("table", { name: "Lead reports" });
+    expect(within(table).getByRole("link", { name: "Jul 22" })).toHaveAttribute("href", "/admin/fulfillment/reports/r-1");
+    expect(within(table).getByRole("link", { name: "#1033" })).toHaveAttribute("href", "/admin/batches/1033");
+    expect(within(table).getByText("(215) 555-0101 · Buckeye Dental")).toBeVisible();
+    expect(within(table).getByText("Open")).toHaveClass("jx-status--danger");
+    expect(within(table).getByText("Held from allocation")).toBeVisible();
   });
 
   it("renders no password input anywhere", () => {
@@ -359,5 +462,26 @@ describe("administrator Customer details", () => {
         }),
       }),
     );
+  });
+});
+
+describe("Customer page revalidation", () => {
+  const args = (from: string, to: string, fromId = "7", toId = "7") =>
+    ({
+      currentUrl: new URL(`http://x${from}`),
+      nextUrl: new URL(`http://x${to}`),
+      currentParams: { customerId: fromId },
+      nextParams: { customerId: toId },
+      defaultShouldRevalidate: true,
+    }) as unknown as Parameters<typeof adminCustomerDetailsShouldRevalidate>[0];
+
+  it("keeps what it read when the operator switches tabs or opens a batch", () => {
+    expect(adminCustomerDetailsShouldRevalidate(args("/admin/customers/7", "/admin/customers/7/billing"))).toBe(false);
+    expect(adminCustomerDetailsShouldRevalidate(args("/admin/customers/7/batches", "/admin/customers/7/batches?batch=1041"))).toBe(false);
+  });
+
+  it("reads again for an explicit refresh or another customer", () => {
+    expect(adminCustomerDetailsShouldRevalidate(args("/admin/customers/7/rules", "/admin/customers/7/rules"))).toBe(true);
+    expect(adminCustomerDetailsShouldRevalidate(args("/admin/customers/7", "/admin/customers/8", "7", "8"))).toBe(true);
   });
 });

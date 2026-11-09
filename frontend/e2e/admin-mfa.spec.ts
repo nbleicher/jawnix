@@ -28,7 +28,7 @@ test.describe("Administrator MFA", () => {
       .getByLabel("Six-digit authenticator code (required)")
       .fill("123-456");
     await page.getByRole("button", { name: "Verify and continue" }).click();
-    await expect(page).toHaveURL(/\/app\/admin\/overview$/);
+    await expect(page).toHaveURL(/\/app\/admin\/today$/);
   });
 
   test("enrolls one authenticator and requires recovery codes to be saved", async ({
@@ -59,7 +59,7 @@ test.describe("Administrator MFA", () => {
       .fill("123 456");
     await page.getByRole("button", { name: "Verify authenticator" }).click();
 
-    await expect(page).toHaveURL(/\/app\/admin\/overview$/);
+    await expect(page).toHaveURL(/\/app\/admin\/today$/);
     expect(
       state.factors.filter((factor) => factor.status === "verified"),
     ).toHaveLength(1);

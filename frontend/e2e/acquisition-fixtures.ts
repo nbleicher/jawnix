@@ -50,7 +50,14 @@ export function acquisitionPayload(overrides: Record<string, unknown> = {}) {
         scraperRunId: SCRAPE_RUN_ID,
         reviewDate: "2026-07-28",
         status: "attention",
-        summary: {},
+        summary: {
+          inventory: {
+            total: 9_241_870,
+            byState: {},
+            eligible: 9_183_402,
+            eligibleAsOf: "2026-07-28T06:00:00Z",
+          },
+        },
         telegramDeliveryState: "unknown",
         telegramMessageId: "",
         telegramDeliveryError: "Delivery outcome could not be confirmed.",

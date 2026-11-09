@@ -2,24 +2,25 @@ import type { LoaderFunctionArgs } from "react-router";
 import { Link, useLoaderData } from "react-router";
 
 import { ActionLink } from "../../design-system/primitives/Button";
-import { DetailList } from "../../design-system/primitives/detail";
-import { EmptyState } from "../../design-system/primitives/feedback";
-import {
-  Card,
-  Grid,
-  Page,
-  Section,
-  Stack,
-} from "../../design-system/primitives/layout";
+import { FactList } from "../../design-system/primitives/facts";
+import { Page, Section } from "../../design-system/primitives/layout";
+import { Panel, RecordColumns } from "../../design-system/primitives/panel";
 import { StatusBadge } from "../../design-system/primitives/status";
-import { Heading, Mono, Text } from "../../design-system/primitives/typography";
+import type { StatusTone } from "../../design-system/primitives/status";
+import { DataTable } from "../../design-system/primitives/table";
+import type { DataColumn } from "../../design-system/primitives/table";
+import { Mono, Text } from "../../design-system/primitives/typography";
 import { api } from "../auth/adminMFA";
+import { formatCount, formatDateTime } from "../operator/format";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
-import {
-  ActivityTimeline,
-  loadEntityActivity,
-} from "./AdminActivity";
+import { ActivityTable, loadEntityActivity, recordActivityHref } from "./AdminActivity";
 import type { ActivityPage } from "./AdminActivity";
+
+/**
+ * A Scraper Configuration version and a Scrape Run, each with its segments
+ * and Activity. Linked from Setup's Configuration versions, Today, Insights'
+ * Nightly reviews, and Telegram, so their addresses stay where they were.
+ */
 
 interface ConfigurationSegment {
   key: string;
@@ -76,12 +77,65 @@ interface RunDetail {
   activityTimeline: ActivityPage;
 }
 
-function formatDate(value: string | null): string {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return `${parsed.toISOString().replace("T", " ").slice(0, 16)} UTC`;
+function words(value: string): string {
+  const text = value.replaceAll("_", " ").trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "Unknown";
 }
+
+// Black is in force or done; red failed or held; grey is history (V4).
+const STATUS_TONES: Record<string, StatusTone> = {
+  active: "success",
+  scheduled: "info",
+  restored: "info",
+  committed: "success",
+  complete: "success",
+  completed: "success",
+  running: "info",
+  staged: "info",
+  failed: "danger",
+  held: "danger",
+  held_anomaly: "danger",
+};
+
+function statusBadge(status: string) {
+  return <StatusBadge tone={STATUS_TONES[status] ?? "neutral"}>{words(status)}</StatusBadge>;
+}
+
+const SEGMENT_COLUMNS: DataColumn<ConfigurationSegment>[] = [
+  { key: "query", header: "Keyword", cell: (segment) => segment.query || segment.key },
+  { key: "geography", header: "Geography", cell: (segment) => segment.geography },
+  { key: "niche", header: "Niche", cell: (segment) => segment.niche || "—" },
+];
+
+const RESULT_COLUMNS: DataColumn<RunSegment>[] = [
+  { key: "segment", header: "Segment", cell: (segment) => segment.key },
+  { key: "valid", header: "Valid", numeric: true, cell: (segment) => formatCount(segment.valid) },
+  { key: "new", header: "New", numeric: true, cell: (segment) => formatCount(segment.new) },
+  {
+    key: "duplicates",
+    header: "Duplicates",
+    numeric: true,
+    cell: (segment) => formatCount(segment.duplicates),
+  },
+  {
+    key: "quarantined",
+    header: "Quarantined",
+    numeric: true,
+    cell: (segment) => formatCount(segment.quarantined),
+  },
+  {
+    key: "anomaly",
+    header: "Anomaly",
+    cell: (segment) =>
+      segment.anomalous ? (
+        <Text as="span" size="sm" tone="danger">
+          {segment.anomalyReasons.map(words).join(", ") || "Flagged"}
+        </Text>
+      ) : (
+        "None"
+      ),
+  },
+];
 
 export async function scraperConfigurationDetailsLoader({
   params,
@@ -109,187 +163,140 @@ export async function scrapeRunDetailsLoader({
 
 export function ScraperConfigurationDetailsRoute() {
   const item = useLoaderData<ConfigurationDetail>();
-  useDocumentTitle(`Scraper Configuration · v${item.version}`);
+  const now = new Date();
+  useDocumentTitle(`Configuration v${item.version}`);
   return (
     <Page
-      title={`Scraper Configuration v${item.version}`}
-      description="An immutable acquisition configuration and its consequential Activity."
+      title={`Configuration v${item.version}`}
+      width="data"
+      density="data"
+      description="An immutable Scraper Configuration version: its Source Segments and Activity."
       actions={
-        <ActionLink href="/app/admin/acquisition">Back to Acquisition</ActionLink>
+        <ActionLink href="/app/admin/setup/configurations">All versions</ActionLink>
       }
     >
-      <Stack gap={6}>
-        <Section title="Configuration" description="Version identity and lifecycle.">
-          <Card>
-            <DetailList
+      <RecordColumns
+        main={
+          <>
+            <Section title={`Source segments · ${formatCount(item.segments.length)}`}>
+              <DataTable
+                label="Source segments"
+                columns={SEGMENT_COLUMNS}
+                rows={item.segments}
+                rowKey={(segment) => segment.key}
+                empty="This version contains no acquisition queries."
+              />
+            </Section>
+            <Section title="Activity">
+              <ActivityTable
+                activity={item.activityTimeline}
+                label="Configuration activity"
+                showRecord={false}
+                moreHref={recordActivityHref("scraper_configuration", item.id)}
+                empty="No consequential action has been recorded for this Scraper Configuration."
+              />
+            </Section>
+          </>
+        }
+        aside={
+          <Panel title="Version">
+            <FactList
               label="Scraper Configuration"
               items={[
-                {
-                  term: "Status",
-                  description: (
-                    <StatusBadge>{item.status.replaceAll("_", " ")}</StatusBadge>
-                  ),
-                },
+                { term: "Status", description: statusBadge(item.status) },
                 { term: "Reason", description: item.reason },
-                { term: "Created by", description: <Mono>{item.createdBy}</Mono> },
-                { term: "Created", description: formatDate(item.createdAt) },
-                { term: "Scheduled", description: formatDate(item.scheduledAt) },
-                { term: "Activated", description: formatDate(item.activatedAt) },
-                { term: "Checksum", description: <Mono>{item.checksum}</Mono> },
+                { term: "Created", description: formatDateTime(item.createdAt, now) },
+                { term: "Scheduled", description: formatDateTime(item.scheduledAt, now) },
+                { term: "Activated", description: formatDateTime(item.activatedAt, now) },
                 {
                   term: "Based on",
                   description: item.basedOnConfigurationId ? (
-                    <Link
-                      to={`/admin/acquisition/configurations/${item.basedOnConfigurationId}`}
-                    >
-                      Earlier Scraper Configuration
+                    <Link to={`/admin/acquisition/configurations/${item.basedOnConfigurationId}`}>
+                      Earlier version
                     </Link>
                   ) : (
                     "Original version"
                   ),
                 },
+                { term: "Checksum", description: <Mono>{item.checksum.slice(0, 12)}</Mono> },
               ]}
             />
-          </Card>
-        </Section>
-
-        <Section
-          title="Source Segments"
-          description="Queries and geography preserved with this version."
-        >
-          {item.segments.length ? (
-            <Grid minColumnWidth="18rem">
-              {item.segments.map((segment) => (
-                <Card as="article" key={segment.key}>
-                  <Stack gap={2}>
-                    <Heading level={3} size="sm">
-                      {segment.key}
-                    </Heading>
-                    <Text size="sm">{segment.niche}</Text>
-                    <Text size="sm" tone="muted">
-                      {segment.query} · {segment.geography}
-                    </Text>
-                  </Stack>
-                </Card>
-              ))}
-            </Grid>
-          ) : (
-            <EmptyState
-              title="No Source Segments"
-              description="This version contains no acquisition queries."
-            />
-          )}
-        </Section>
-
-        <Section
-          title="Activity"
-          description="Consequential changes to this Scraper Configuration, most recent first."
-        >
-          <ActivityTimeline
-            activity={item.activityTimeline}
-            emptyDescription="No consequential action has been recorded for this Scraper Configuration."
-          />
-        </Section>
-      </Stack>
+          </Panel>
+        }
+      />
     </Page>
   );
 }
 
 export function ScrapeRunDetailsRoute() {
   const item = useLoaderData<RunDetail>();
-  useDocumentTitle(`Scrape Run · ${item.id}`);
+  const now = new Date();
+  useDocumentTitle(`Run ${item.id}`);
+  const held = item.segments.filter((segment) => segment.anomalous).length;
   return (
     <Page
-      title={`Scrape Run ${item.id}`}
-      description="One acquisition run, its segment results, and its read-only Activity."
-      actions={
-        <ActionLink href="/app/admin/acquisition">Back to Acquisition</ActionLink>
-      }
+      title={`Scrape run ${item.id}`}
+      width="data"
+      density="data"
+      description="One acquisition run: what each Source Segment returned, and its Activity."
+      actions={<ActionLink href="/app/admin/insights#nightly-reviews">Nightly reviews</ActionLink>}
     >
-      <Stack gap={6}>
-        <Section title="Run" description="Execution identity and result.">
-          <Card>
-            <DetailList
+      <RecordColumns
+        main={
+          <>
+            <Section
+              title={`Segment results · ${formatCount(item.segments.length)}`}
+              {...(held ? { description: `${formatCount(held)} flagged as anomalous.` } : {})}
+            >
+              <DataTable
+                label="Segment results"
+                columns={RESULT_COLUMNS}
+                rows={item.segments}
+                rowKey={(segment) => segment.key}
+                empty="This Scrape Run has no recorded Source Segment output."
+              />
+            </Section>
+            <Section title="Activity">
+              <ActivityTable
+                activity={item.activityTimeline}
+                label="Scrape run activity"
+                showRecord={false}
+                moreHref={recordActivityHref("scrape_run", item.id)}
+                empty="No consequential action has been recorded for this Scrape Run."
+              />
+            </Section>
+          </>
+        }
+        aside={
+          <Panel title="Run">
+            <FactList
               label="Scrape Run"
               items={[
-                {
-                  term: "Status",
-                  description: <StatusBadge>{item.status}</StatusBadge>,
-                },
+                { term: "Status", description: statusBadge(item.status) },
                 {
                   term: "Configuration",
                   description: item.configurationId ? (
-                    <Link
-                      to={`/admin/acquisition/configurations/${item.configurationId}`}
-                    >
-                      View Scraper Configuration
+                    <Link to={`/admin/acquisition/configurations/${item.configurationId}`}>
+                      View version
                     </Link>
                   ) : (
-                    "No configuration linked"
+                    "None linked"
                   ),
                 },
                 { term: "Source", description: item.source },
-                { term: "Source version", description: item.sourceVersion },
                 { term: "Manual", description: item.manual ? "Yes" : "No" },
                 {
                   term: "Rows",
-                  description: `${item.rowsImported.toLocaleString()} imported of ${item.rowsSeen.toLocaleString()} seen`,
+                  description: `${formatCount(item.rowsImported)} of ${formatCount(item.rowsSeen)}`,
                 },
-                {
-                  term: "Dataset version",
-                  description: item.datasetVersion ?? "Not published",
-                },
-                { term: "Started", description: formatDate(item.startedAt) },
-                { term: "Finished", description: formatDate(item.finishedAt) },
-                {
-                  term: "Checksum",
-                  description: item.checksum ? <Mono>{item.checksum}</Mono> : "—",
-                },
+                { term: "Dataset", description: item.datasetVersion ? `v${item.datasetVersion}` : "Not published" },
+                { term: "Started", description: formatDateTime(item.startedAt, now) },
+                { term: "Finished", description: formatDateTime(item.finishedAt, now) },
               ]}
             />
-          </Card>
-        </Section>
-
-        <Section title="Segment results" description="Counts and anomaly evidence.">
-          {item.segments.length ? (
-            <Grid minColumnWidth="18rem">
-              {item.segments.map((segment) => (
-                <Card as="article" key={segment.key}>
-                  <Stack gap={2}>
-                    <Heading level={3} size="sm">
-                      {segment.key}
-                    </Heading>
-                    <Text size="sm">
-                      {segment.valid.toLocaleString()} valid ·{" "}
-                      {segment.new.toLocaleString()} new
-                    </Text>
-                    <Text size="sm" tone={segment.anomalous ? "warning" : "muted"}>
-                      {segment.anomalous
-                        ? segment.anomalyReasons.join(", ").replaceAll("_", " ")
-                        : "No anomaly recorded"}
-                    </Text>
-                  </Stack>
-                </Card>
-              ))}
-            </Grid>
-          ) : (
-            <EmptyState
-              title="No segment results"
-              description="This Scrape Run has no recorded Source Segment output."
-            />
-          )}
-        </Section>
-
-        <Section
-          title="Activity"
-          description="Consequential decisions on this Scrape Run, most recent first."
-        >
-          <ActivityTimeline
-            activity={item.activityTimeline}
-            emptyDescription="No consequential action has been recorded for this Scrape Run."
-          />
-        </Section>
-      </Stack>
+          </Panel>
+        }
+      />
     </Page>
   );
 }

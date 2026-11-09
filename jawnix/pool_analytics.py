@@ -1,8 +1,9 @@
 """Admin-only pool analytics: breakdown, per-Customer availability, cooldown forecast.
 
 Counts are persisted with an as-of timestamp and served from that snapshot on
-GET. Computation runs only on explicit refresh (or draft projection), never as
-a side effect of loading an admin page.
+GET. The pool breakdown is recounted by the background inventory refresh job
+(``inventory_snapshots``); per-Customer figures on explicit refresh or draft
+projection. Nothing is computed as a side effect of loading an admin page.
 """
 
 from __future__ import annotations

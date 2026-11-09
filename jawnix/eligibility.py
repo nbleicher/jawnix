@@ -43,6 +43,7 @@ from .models import (
     LeadCorrectionEvent,
     LeadReport,
     LeadReportResolution,
+    LeadRequest,
     ListingObservation,
     LeadDatabaseMembership,
     LeadUpload,
@@ -172,6 +173,26 @@ REMOVE_CORRECTION = ControlAction(
         "or to its Legacy Listing Snapshot when it has none. Deliveries "
         "already made keep the values they were sent with."
     ),
+    destructive=True,
+)
+
+#: The same two Lead-level controls offered from lead lookup, where there is
+#: no Lead Report and so no Eligibility Hold for a decision to release.
+CORRECT_LEAD = ControlAction(
+    name="correct",
+    label="Correct title or state",
+    consequence=(
+        "Overrides the Lead's title or state for every future delivery. The "
+        "override outranks the Current Listing until an administrator "
+        "removes it; deliveries already made keep the values they were sent "
+        "with."
+    ),
+    requires_override=True,
+)
+SUPPRESS_LEAD = ControlAction(
+    name="suppress",
+    label="Suppress",
+    consequence=SUPPRESS.consequence,
     destructive=True,
 )
 
@@ -443,7 +464,14 @@ def describe_report(db: Session, report: LeadReport) -> dict[str, object]:
                 else ""
             ),
         },
-        "distributionEvent": _describe_event(event),
+        "distributionEvent": _describe_event(
+            event,
+            request=(
+                db.get(LeadRequest, event.request_id)
+                if event is not None and event.request_id is not None
+                else None
+            ),
+        ),
         "lead": _describe_lead(lead, active_correction),
         "evidence": evidence.as_dict(),
         "controls": {
@@ -610,7 +638,11 @@ _HOLD_REASONS = {
 }
 
 
-def _describe_event(event: DistributionEvent | None) -> dict[str, object]:
+def _describe_event(
+    event: DistributionEvent | None,
+    *,
+    request: LeadRequest | None = None,
+) -> dict[str, object]:
     """The delivered record, exactly as it was committed."""
     if event is None:
         return {}
@@ -624,6 +656,7 @@ def _describe_event(event: DistributionEvent | None) -> dict[str, object]:
         "deliveredAt": event.delivered_at,
         "listingProvenance": event.listing_provenance,
         "requestId": str(event.request_id) if event.request_id else None,
+        "requestNumber": request.number if request is not None else None,
     }
 
 
@@ -662,6 +695,7 @@ def _describe_lead(
 
 
 __all__ = [
+    "CORRECT_LEAD",
     "ControlAction",
     "ControlConflict",
     "HOLD_RELEASE_RULE",
@@ -670,6 +704,7 @@ __all__ = [
     "REPORT_ACTIONS",
     "RESTORE_LEAD",
     "RESTORE_NOTICE",
+    "SUPPRESS_LEAD",
     "active_holds",
     "correct_from_report",
     "describe_report",

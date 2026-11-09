@@ -1,0 +1,43 @@
+/* The operator's top bar holds the global search beside Sign out. */
+.jx-shell--operator .jx-shell__header-actions {
+  flex: 0 1 30rem;
+  flex-wrap: nowrap;
+}
+
+/* Phones (V8): no tape strip, and every destination fits without
+   scrolling. */
+@media (max-width: 40rem) {
+  .jx-shell--operator .jx-tape {
+    display: none;
+  }
+
+  .jx-shell--operator .jx-shell__header-actions {
+    flex: 1 1 0;
+  }
+
+  .jx-shell--operator .jx-lockup__wordmark {
+    display: none;
+  }
+
+  .jx-shell--operator .jx-nav__list {
+    justify-content: space-between;
+  }
+
+  .jx-shell--operator .jx-nav__link {
+    gap: 0;
+    padding: 0 var(--jx-space-1);
+    font-size: var(--jx-text-xs);
+  }
+
+  /* No room for the witness square on a phone: the current page is
+     underlined instead, so it is still never colour alone. */
+  .jx-shell--operator .jx-nav__link::before {
+    display: none;
+  }
+
+  .jx-shell--operator .jx-nav__link--active {
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 5px;
+  }
+}

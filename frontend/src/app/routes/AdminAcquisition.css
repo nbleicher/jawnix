@@ -1,0 +1,20 @@
+/* Niche mapping filters: the search takes the room, status beside it. */
+.jx-niche-filters {
+  display: grid;
+  grid-template-columns: minmax(14rem, 2fr) minmax(12rem, 1fr);
+  gap: var(--jx-space-3);
+  align-items: end;
+  max-width: 48rem;
+}
+
+.jx-niche-pages {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-3);
+}
+
+@media (max-width: 40rem) {
+  .jx-niche-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -3,24 +3,23 @@ import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
 import {
+  ANOMALY_ID,
   CONFIGURATION_ID,
+  RECOMMENDATION_ID,
   SCRAPE_RUN_ID,
   mockAcquisition,
 } from "./acquisition-fixtures";
 import { mockActivity } from "./activity-fixtures";
+import { mockInsights } from "./insights-fixtures";
+import { mockAgencies, mockSetup } from "./setup-fixtures";
 import {
   CUSTOMER_ACCOUNT_IDENTITY,
   LICENSED_STATE_ACCOUNT,
+  mockLicensedStates,
 } from "./customer-account-fixtures";
 import { BILLED_CUSTOMER_WALLET } from "./customer-billing-fixtures";
-import { mockFeedback } from "./customer-feedback-fixtures";
 import { mockCustomerAuth } from "./customer-auth-fixtures";
-import {
-  BATCH_REQUEST_WORKSPACE,
-  DELIVERED_REQUEST,
-  WAITING_REQUEST,
-  mockBatchRequests,
-} from "./customer-requests-fixtures";
+import { mockBatchRequests } from "./customer-requests-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import {
   CONFLICT_ID,
@@ -28,7 +27,9 @@ import {
   mockFulfillment,
 } from "./fulfillment-fixtures";
 import { OPEN_REPORT_ID, mockLeadReports } from "./lead-report-fixtures";
+import { WAITING_LIST_ID, mockInventory } from "./inventory-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
+import { BATCH_IDS, mockOperatorDesk } from "./today-fixtures";
 
 /**
  * WCAG 2.2 AA foundations, verified in a real browser.
@@ -41,19 +42,53 @@ const WCAG_AA_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 const ROUTES = [
   "./sign-in",
+  "./sign-in?password=updated",
   "./accept-invitation",
-  "./overview",
-  "./requests",
-  `./requests?request=${WAITING_REQUEST.id}`,
-  `./requests?request=${DELIVERED_REQUEST.id}`,
-  "./feedback",
+  "./reset-password",
+  "./reset-password?token=fixture-one-time-password-token",
+  "./home",
+  "./new-request",
+  "./new-request?quantity=100000&states=FL&rows_per_file=10000&purchase=success",
+  "./batches",
+  "./batches/1042",
+  "./batches/1038",
+  "./batches/1017",
+  "./batches/9999",
   "./account",
-  "./admin/overview",
-  "./admin/fulfillment",
+  "./account/states",
+  "./account/billing",
+  "./account/exclusion-lists",
+  "./account/password",
+  "./admin/today",
+  `./admin/today?decision=approval%3A${BATCH_IDS[1042]}`,
+  `./admin/today?decision=inventoryConflict%3A${CONFLICT_ID}`,
+  `./admin/today?decision=scrapeAnomaly%3A${ANOMALY_ID}`,
+  `./admin/today?decision=leadReport%3A${OPEN_REPORT_ID}`,
+  "./admin/batches",
+  "./admin/batches?batch=1042",
+  "./admin/batches/1042",
+  "./admin/batches/1040",
+  "./admin/inventory",
+  "./admin/inventory/lookup",
+  "./admin/inventory/lookup?phone=6155550142",
+  "./admin/inventory/lookup?phone=2125550100",
+  "./admin/inventory/uploads",
+  "./admin/inventory/exclusions",
+  `./admin/inventory/exclusions?list=${WAITING_LIST_ID}`,
+  "./admin/inventory/suppressed",
+  "./admin/inventory/niche-assignment",
+  "./admin/inventory/pool",
   `./admin/fulfillment/requests/${PENDING_REQUEST_ID}`,
   `./admin/fulfillment/conflicts/${CONFLICT_ID}`,
   `./admin/fulfillment/reports/${OPEN_REPORT_ID}`,
-  "./admin/acquisition",
+  "./admin/insights",
+  "./admin/insights/sources",
+  "./admin/setup",
+  "./admin/setup?area=billing",
+  "./admin/setup/configurations",
+  `./admin/setup/configurations?recommendation=${RECOMMENDATION_ID}`,
+  "./admin/setup/niche-mappings",
+  "./admin/setup/niche-mappings?segment=TX%3A%3Aroofing%20contractor",
   `./admin/acquisition/configurations/${CONFIGURATION_ID}`,
   `./admin/acquisition/runs/${SCRAPE_RUN_ID}`,
   "./admin/acquisition/scraper",
@@ -66,8 +101,16 @@ const ROUTES = [
   "./admin/acquisition/scraper/workspace/database",
   "./admin/acquisition/scraper/workspace/database/states/OH",
   "./admin/customers",
+  "./admin/customers?customer=7",
+  "./admin/customers?status=deactivated",
   "./admin/activity",
   "./admin/customers/7",
+  "./admin/customers/7/batches?batch=1041",
+  "./admin/customers/7/billing",
+  "./admin/customers/7/rules",
+  "./admin/customers/7/reports",
+  "./admin/customers/7/access",
+  "./admin/customers/7/activity",
   "./admin/agencies",
   "./admin/agencies/4",
   "./admin/security",
@@ -80,18 +123,17 @@ const ROUTES = [
 test.beforeEach(async ({ page }) => {
   await mockAdminMFA(page, { assurance: "aal2" });
   await mockAcquisition(page);
-  await mockFeedback(page);
   await mockCustomerAuth(page);
-  await mockBatchRequests(page, {
-    workspace: {
-      ...BATCH_REQUEST_WORKSPACE,
-      requests: [...BATCH_REQUEST_WORKSPACE.requests, DELIVERED_REQUEST],
-    },
-  });
+  await mockBatchRequests(page);
   await mockAdminCustomers(page, { pendingInvitation: true });
   await mockFulfillment(page);
   await mockLeadReports(page);
   await mockActivity(page);
+  await mockOperatorDesk(page);
+  await mockInventory(page);
+  await mockInsights(page);
+  await mockSetup(page);
+  await mockAgencies(page);
 });
 
 test.describe("Automated WCAG 2.2 AA sweep", () => {
@@ -154,6 +196,41 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
     expect(results.violations).toEqual([]);
   });
 
+  test("the open global search results have no accessibility violations", async ({ page }) => {
+    await page.goto("./admin/today");
+    await page.getByRole("combobox", { name: "Search customers, batches, uploads, and phones" }).fill("north");
+    await expect(page.getByRole("listbox", { name: "Search results" }).getByRole("option")).toHaveCount(3);
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("Today with a side panel is clean in the dark scheme", async ({ page }) => {
+    await page.goto(`./admin/today?decision=approval%3A${BATCH_IDS[1042]}`);
+    await expect(page.getByRole("complementary", { name: "#1042 · Northstar Insurance" })).toBeVisible();
+    await page.getByRole("button", { name: "Switch to dark desk" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "dark");
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("Activity with an opened entry has no accessibility violations", async ({ page }) => {
+    await page.goto("./admin/activity");
+    await page.getByRole("button", { name: /Lead database changed: show what changed/ }).click();
+    await expect(page.getByText("lead_database: db2")).toBeVisible();
+    // Opening scrolls the row to the viewport edge, where the phone's fixed
+    // bottom navigation overlaps whichever link happens to sit there; check
+    // from the same resting position as the page sweep.
+    await page.evaluate(() => window.scrollTo(0, 0));
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
   test("the Account Setup Problems state has no accessibility violations", async ({
     page,
   }) => {
@@ -167,9 +244,7 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
     });
     await page.goto("./account");
     await expect(
-      page.getByRole("heading", {
-        name: "Customer mapping needs confirmation",
-      }),
+      page.getByRole("heading", { name: "Before you can request batches" }),
     ).toBeVisible();
 
     const results = await new AxeBuilder({ page })
@@ -179,17 +254,69 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
     expect(results.violations).toEqual([]);
   });
 
-  test("Billed Customer Account with Credit Wallet has no accessibility violations", async ({
+  test("Billed Customer Account Billing has no accessibility violations", async ({
     page,
   }) => {
     await mockCustomerAuth(page, {
       billing: { wallet: BILLED_CUSTOMER_WALLET },
     });
-    await page.goto("./account");
+    await page.goto("./account/billing");
     await expect(
-      page.getByRole("heading", { level: 2, name: "Credit Ledger" }),
+      page.getByRole("table", { name: "Billing history" }),
     ).toBeVisible();
     await expect(page.getByLabel("Credit Wallet summary")).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_AA_TAGS)
+      .analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("the appointed-states review dialog has no accessibility violations", async ({
+    page,
+  }) => {
+    await mockLicensedStates(page);
+    await page.goto("./account/states");
+    await page.getByRole("checkbox", { name: "Texas" }).uncheck();
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(
+      page.getByRole("dialog", { name: "Confirm appointed states" }),
+    ).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_AA_TAGS)
+      .analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("New request short on credits has no accessibility violations", async ({
+    page,
+  }) => {
+    await mockCustomerAuth(page, {
+      billing: { wallet: BILLED_CUSTOMER_WALLET },
+    });
+    await mockBatchRequests(page);
+    await page.goto("./new-request");
+    await page.getByRole("textbox", { name: "How many leads?" }).fill("100000");
+    await page.getByText(/^Options/).click();
+    await expect(page.getByText("Short by")).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .withTags(WCAG_AA_TAGS)
+      .analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("the batch page's report form with an error has no accessibility violations", async ({
+    page,
+  }) => {
+    await page.goto("./batches/1017");
+    const form = page.getByRole("region", { name: "Report a bad lead" });
+    await form.getByRole("button", { name: "Send report" }).click();
+    await expect(form.getByText("Enter the lead's 10-digit phone number.")).toBeVisible();
 
     const results = await new AxeBuilder({ page })
       .withTags(WCAG_AA_TAGS)
@@ -204,7 +331,7 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
     await mockCustomerAuth(page, {
       billing: { wallet: BILLED_CUSTOMER_WALLET },
     });
-    await page.goto("./overview");
+    await page.goto("./home");
     await page.getByRole("button", { name: "Buy credits" }).click();
     await expect(
       page.getByRole("dialog", { name: "Buy credits" }),
@@ -220,7 +347,7 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
 
 test.describe("Landmarks", () => {
   test("exposes banner, navigation, and main exactly once", async ({ page }) => {
-    await page.goto("./overview");
+    await page.goto("./home");
 
     await expect(page.getByRole("banner")).toHaveCount(1);
     await expect(page.getByRole("navigation")).toHaveCount(1);
@@ -231,7 +358,7 @@ test.describe("Landmarks", () => {
 
 test.describe("Keyboard operation", () => {
   test("the skip link is the first stop and moves focus to main", async ({ page }) => {
-    await page.goto("./overview");
+    await page.goto("./home");
     await page.locator("body").press("Tab");
 
     const skipLink = page.getByRole("link", { name: "Skip to main content" });
@@ -244,14 +371,14 @@ test.describe("Keyboard operation", () => {
   });
 
   test("every primary destination is reachable by keyboard alone", async ({ page }) => {
-    await page.goto("./overview");
+    await page.goto("./home");
 
-    const requests = page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "Requests" });
+    const requests = page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "New request" });
     await requests.focus();
     await expect(requests).toBeFocused();
     await page.keyboard.press("Enter");
 
-    await expect(page.getByRole("heading", { level: 1, name: "Requests" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "New request" })).toBeVisible();
   });
 
   test("focus is visible on interactive controls", async ({ page }) => {
@@ -336,19 +463,22 @@ test.describe("Touch targets", () => {
 
   test("gallery controls meet the 44px minimum", async ({ page }) => {
     await page.goto("./design-system");
+    // The gallery renders its sections after load; measure once they are there.
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.locator("button").first()).toBeVisible();
 
     expect(await undersizedTargets(page, "button")).toEqual([]);
   });
 
   test("navigation links meet the 44px minimum", async ({ page }) => {
     // The real mobile targets: measured on a shell route, not the gallery.
-    await page.goto("./overview");
+    await page.goto("./home");
 
     expect(await undersizedTargets(page, "nav a")).toEqual([]);
   });
 
   test("the skip link meets the 44px minimum once focused", async ({ page }) => {
-    await page.goto("./overview");
+    await page.goto("./home");
     await page.getByRole("link", { name: "Skip to main content" }).focus();
 
     const box = await page.getByRole("link", { name: "Skip to main content" }).boundingBox();
@@ -384,7 +514,7 @@ test.describe("Reduced motion", () => {
   });
 
   test("the shell is still fully navigable", async ({ page }) => {
-    await page.goto("./overview");
+    await page.goto("./home");
 
     await page.getByRole("navigation", { name: "Customer" }).getByRole("link", { name: "Account" }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Account" })).toBeVisible();

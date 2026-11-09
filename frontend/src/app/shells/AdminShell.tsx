@@ -5,13 +5,36 @@ import { AppShell } from "../shell/AppShell";
 import type { NavigationDestination } from "../shell/Navigation";
 import { signOut } from "../auth/customerAuth";
 import { Button } from "../../design-system/primitives/Button";
+import { GlobalSearch } from "../operator/GlobalSearch";
+import "./AdminShell.css";
 
-/** Administrator navigation follows domain work, not the record hierarchy. */
+function within(pathname: string, path: string): boolean {
+  return pathname === path || pathname.startsWith(`${path}/`);
+}
+
+/**
+ * Operator navigation, split by how often each tool is used: Today for the
+ * daily work, records next, occasional tools last (V1, V8).
+ *
+ * Inventory owns lead lookup and its tools under /admin/inventory.
+ */
 const DESTINATIONS: NavigationDestination[] = [
-  { to: "/admin/overview", label: "Overview", icon: "◆" },
-  { to: "/admin/fulfillment", label: "Fulfillment", icon: "▤" },
-  { to: "/admin/acquisition", label: "Acquisition", icon: "▚" },
+  { to: "/admin/today", label: "Today", icon: "◆" },
   { to: "/admin/customers", label: "Customers", icon: "◑" },
+  { to: "/admin/inventory", label: "Inventory", icon: "▦" },
+  { to: "/admin/insights", label: "Insights", icon: "▲" },
+  {
+    to: "/admin/setup",
+    label: "Setup",
+    icon: "▚",
+    // Setup owns the occasional tools, wherever their pages live: the
+    // Scraper workspace and acquisition records, Agencies, and security.
+    match: (pathname) =>
+      within(pathname, "/admin/setup") ||
+      within(pathname, "/admin/acquisition") ||
+      within(pathname, "/admin/agencies") ||
+      within(pathname, "/admin/security"),
+  },
   { to: "/admin/activity", label: "Activity", icon: "◷" },
 ];
 
@@ -32,16 +55,20 @@ export function AdminShell() {
   return (
     <AppShell
       audience="Administration"
+      className="jx-shell--operator"
       destinations={DESTINATIONS}
       headerActions={
-        <Button
-          variant="ghost"
-          busy={signingOut}
-          busyLabel="Signing out…"
-          onClick={handleSignOut}
-        >
-          Sign out
-        </Button>
+        <>
+          <GlobalSearch />
+          <Button
+            variant="ghost"
+            busy={signingOut}
+            busyLabel="Signing out…"
+            onClick={handleSignOut}
+          >
+            Sign out
+          </Button>
+        </>
       }
     />
   );

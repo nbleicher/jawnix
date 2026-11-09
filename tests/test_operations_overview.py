@@ -224,8 +224,22 @@ def test_endpoint_exposes_the_stable_camel_case_contract(session):
         "generatedAt",
         "availableCount",
         "degraded",
+        "numbers",
         "sources",
     }
+    assert set(body["numbers"]) == {
+        "generatedAt",
+        "windowDays",
+        "inventory",
+        "openBatches",
+        "delivered",
+        "customers",
+        "creditBalance",
+        "creditsUsed",
+        "decisions",
+    }
+    assert body["numbers"]["inventory"] == {"db1": None, "db2": None}
+    assert body["numbers"]["decisions"]["waiting"] == 1
     assert body["availableCount"] == 1
     jobs = next(
         source
@@ -338,5 +352,5 @@ def test_unnotified_stale_request_appears_in_jobs_queue(session):
     assert queue.items[0].tone == "danger"
     assert (
         queue.items[0].action.href
-        == f"/app/admin/fulfillment/requests/{stale.id}"
+        == f"/app/admin/batches/{stale.number}"
     )

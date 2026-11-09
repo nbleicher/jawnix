@@ -57,7 +57,8 @@ export function useActionDialog(onChanged: ChangedActionProps["onChanged"]) {
 export function RenameCustomerAction({
   customer,
   onChanged,
-}: ChangedActionProps & { customer: CustomerCore }) {
+  label = "Rename Customer",
+}: ChangedActionProps & { customer: CustomerCore; label?: string }) {
   const dialog = useActionDialog(onChanged);
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -78,7 +79,7 @@ export function RenameCustomerAction({
 
   return (
     <>
-      <Button onClick={dialog.show}>Rename Customer</Button>
+      <Button onClick={dialog.show}>{label}</Button>
       <Dialog
         open={dialog.open}
         onClose={dialog.close}

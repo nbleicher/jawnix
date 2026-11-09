@@ -83,6 +83,11 @@ def _wallet_totals(db: Session, customer_id: int) -> tuple[int, int, int]:
     return balance, active_holds, balance - active_holds
 
 
+def available_balance_cents(db: Session, customer_id: int) -> int:
+    """The Credit Wallet balance less active Batch Holds."""
+    return _wallet_totals(db, customer_id)[2]
+
+
 def _purchase_view(purchase: CreditPurchase) -> dict[str, object]:
     return {
         "id": str(purchase.id),

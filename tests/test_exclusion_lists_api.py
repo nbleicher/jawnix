@@ -598,7 +598,7 @@ def test_nightly_telegram_payload_is_bounded_for_many_pending_lists(settings):
 
     assert len(text) <= 4096
     assert len(keyboard["inline_keyboard"]) <= 50
-    assert "/app/admin/acquisition#nightly-reviews" in text
+    assert "/app/admin/insights#nightly-reviews" in text
 
 
 def test_telegram_confirmation_applies_global_exclusion_and_updates_review(

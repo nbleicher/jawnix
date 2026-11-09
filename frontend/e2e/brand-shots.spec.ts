@@ -7,56 +7,25 @@ import type { Page, TestInfo } from "@playwright/test";
 
 import { mockCustomerAuth } from "./customer-auth-fixtures";
 import {
-  CUSTOMER_OVERVIEW,
-  EMPTY_CUSTOMER_OVERVIEW,
-} from "./customer-overview-fixtures";
+  CUSTOMER_HOME,
+  NEW_CUSTOMER_HOME,
+  NORTHSTAR_WALLET,
+} from "./customer-home-fixtures";
 import {
-  BATCH_REQUEST_WORKSPACE,
-  DELIVERED_REQUEST,
+  BATCHES_DAY,
   EMPTY_BATCH_REQUEST_WORKSPACE,
-  WAITING_REQUEST,
   mockBatchRequests,
 } from "./customer-requests-fixtures";
-import { mockFeedback } from "./customer-feedback-fixtures";
 import {
   BILLED_CUSTOMER_WALLET,
   UNDERFUNDED_WALLET,
 } from "./customer-billing-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
-import { mockFulfillment } from "./fulfillment-fixtures";
-import { mockLeadReports } from "./lead-report-fixtures";
+import { mockInventory } from "./inventory-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockAcquisition } from "./acquisition-fixtures";
 import { mockActivity } from "./activity-fixtures";
-
-/** Delivered request whose artifact retention has already lapsed. */
-const EXPIRED_ARTIFACT_REQUEST = {
-  ...DELIVERED_REQUEST,
-  artifact: {
-    ...DELIVERED_REQUEST.artifact,
-    expires_at: "2026-07-01T16:00:00Z",
-  },
-};
-
-/** Drive the feedback flow to a looked-up Lead, then select the disposition
- *  that carries the strongest consequence card. Tolerant of the disposition
- *  control being a toggle button or a radio (DR-P5 migration). */
-async function selectDispositionWithConsequence(page: Page) {
-  await page
-    .getByLabel("Delivered phone number (required)")
-    .fill("2145550001");
-  await page.getByRole("button", { name: "Look up" }).click();
-  await page
-    .getByRole("region", { name: "What happened?" })
-    .waitFor({ state: "visible" });
-  const invalidPhone = page
-    .getByRole("radio", { name: /Invalid Phone/ })
-    .or(page.getByRole("button", { name: /Invalid Phone/ }));
-  await invalidPhone.click();
-  await page
-    .getByRole("region", { name: "Your answer: Invalid Phone" })
-    .waitFor({ state: "visible" });
-}
+import { mockSetup } from "./setup-fixtures";
 
 /**
  * Brand screenshot harness. Renders the customer-facing surfaces against the
@@ -91,16 +60,6 @@ async function shoot(page: Page, testInfo: TestInfo, name: string) {
   });
 }
 
-async function openGuidedFlowToReview(page: Page) {
-  await page.getByRole("spinbutton", { name: /How many leads/ }).fill("750");
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page
-    .getByRole("heading", { name: "Review your request" })
-    .waitFor({ state: "visible" });
-}
-
 for (const scheme of SCHEMES) {
   test.describe(`brand shots (${scheme})`, () => {
     test.describe.configure({ mode: "serial" });
@@ -109,50 +68,61 @@ for (const scheme of SCHEMES) {
       await setScheme(page, scheme);
     });
 
-    test(`overview queue (${scheme})`, async ({ page }, testInfo) => {
-      await mockCustomerAuth(page, { overview: CUSTOMER_OVERVIEW });
-      await page.goto("./overview");
-      await page
-        .getByRole("list", { name: "Attention queue" })
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `overview-queue-${scheme}`);
-    });
-
-    test(`overview empty (${scheme})`, async ({ page }, testInfo) => {
-      await mockCustomerAuth(page, { overview: EMPTY_CUSTOMER_OVERVIEW });
-      await page.goto("./overview");
-      await page
-        .getByRole("heading", { level: 1, name: "Overview" })
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `overview-empty-${scheme}`);
-    });
-
-    test(`requests list (${scheme})`, async ({ page }, testInfo) => {
-      await mockCustomerAuth(page);
-      await mockBatchRequests(page, {
-        workspace: {
-          ...BATCH_REQUEST_WORKSPACE,
-          requests: [WAITING_REQUEST, DELIVERED_REQUEST],
-        },
+    test(`home (${scheme})`, async ({ page }, testInfo) => {
+      await mockCustomerAuth(page, {
+        overview: CUSTOMER_HOME,
+        billing: { wallet: NORTHSTAR_WALLET },
       });
-      await page.goto("./requests");
+      await page.goto("./home");
       await page
-        .getByRole("heading", { level: 1, name: "Requests" })
+        .getByRole("table", { name: "Recent batches" })
         .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `requests-list-${scheme}`);
+      await shoot(page, testInfo, `home-${scheme}`);
     });
 
-    test(`requests review stage (${scheme})`, async ({ page }, testInfo) => {
-      await mockCustomerAuth(page);
-      await mockBatchRequests(page, {
-        workspace: EMPTY_BATCH_REQUEST_WORKSPACE,
-      });
-      await page.goto("./requests");
-      await openGuidedFlowToReview(page);
-      await shoot(page, testInfo, `requests-review-${scheme}`);
+    test(`home empty (${scheme})`, async ({ page }, testInfo) => {
+      await mockCustomerAuth(page, { overview: NEW_CUSTOMER_HOME });
+      await page.goto("./home");
+      await page
+        .getByRole("heading", { level: 1, name: "Home" })
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `home-empty-${scheme}`);
     });
 
-    test(`requests insufficient funds (${scheme})`, async ({
+    test(`batches (${scheme})`, async ({ page }, testInfo) => {
+      await page.clock.install({ time: BATCHES_DAY });
+      await mockCustomerAuth(page, { billing: { wallet: NORTHSTAR_WALLET } });
+      await mockBatchRequests(page);
+      await page.goto("./batches");
+      await page
+        .getByRole("table", { name: "Batches" })
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `batches-${scheme}`);
+    });
+
+    test(`batch page (${scheme})`, async ({ page }, testInfo) => {
+      await page.clock.install({ time: BATCHES_DAY });
+      await mockCustomerAuth(page, { billing: { wallet: NORTHSTAR_WALLET } });
+      await mockBatchRequests(page);
+      await page.goto("./batches/1017");
+      await page
+        .getByRole("table", { name: "Leads by state" })
+        .waitFor({ state: "visible" });
+      await shoot(page, testInfo, `batch-page-${scheme}`);
+    });
+
+    test(`new request (${scheme})`, async ({ page }, testInfo) => {
+      await mockCustomerAuth(page, { billing: { wallet: NORTHSTAR_WALLET } });
+      await mockBatchRequests(page);
+      await page.goto("./new-request");
+      await page
+        .getByRole("textbox", { name: "How many leads?" })
+        .fill("100000");
+      await page.getByText("Short by").waitFor({ state: "visible" });
+      await shoot(page, testInfo, `new-request-${scheme}`);
+    });
+
+    test(`new request insufficient funds (${scheme})`, async ({
       page,
     }, testInfo) => {
       await mockCustomerAuth(page, {
@@ -161,131 +131,24 @@ for (const scheme of SCHEMES) {
       await mockBatchRequests(page, {
         workspace: EMPTY_BATCH_REQUEST_WORKSPACE,
       });
-      await page.goto("./requests");
-      await openGuidedFlowToReview(page);
+      await page.goto("./new-request");
       await page
-        .getByRole("button", { name: "Submit request" })
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `requests-insufficient-funds-${scheme}`);
-    });
-
-    test(`request detail live artifact (${scheme})`, async ({
-      page,
-    }, testInfo) => {
-      await page.clock.install({ time: new Date("2026-07-31T16:00:00Z") });
-      await mockCustomerAuth(page);
-      await mockBatchRequests(page, {
-        workspace: {
-          ...BATCH_REQUEST_WORKSPACE,
-          requests: [DELIVERED_REQUEST],
-        },
-      });
-      await page.goto(`./requests?request=${DELIVERED_REQUEST.id}`);
-      await page
-        .getByRole("region", { name: "Batch Artifact" })
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `requests-detail-artifact-${scheme}`);
-    });
-
-    test(`feedback find the lead (${scheme})`, async ({ page }, testInfo) => {
-      await mockCustomerAuth(page);
-      await mockFeedback(page);
-      await page.goto("./feedback");
-      await page
-        .getByRole("region", { name: "Find the Lead" })
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `feedback-initial-${scheme}`);
-    });
-
-    test(`feedback dead number (${scheme})`, async ({ page }, testInfo) => {
-      await mockCustomerAuth(page);
-      await mockFeedback(page, { lookupSucceeds: false });
-      await page.goto("./feedback");
-      await page
-        .getByLabel("Delivered phone number (required)")
-        .fill("2145559999");
-      await page.getByRole("button", { name: "Look up" }).click();
-      await page
-        .getByText(
-          "No delivered Lead was found for that phone number. Check the number and try again.",
-        )
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `feedback-dead-number-${scheme}`);
-    });
-
-    test(`feedback confirm the lead (${scheme})`, async ({ page }, testInfo) => {
-      await mockCustomerAuth(page);
-      await mockFeedback(page);
-      await page.goto("./feedback");
-      await page
-        .getByLabel("Delivered phone number (required)")
-        .fill("2145550001");
-      await page.getByRole("button", { name: "Look up" }).click();
-      await page
-        .getByRole("region", { name: "Confirm the Lead" })
-        .waitFor({ state: "visible" });
-      await page
-        .getByRole("region", { name: "What happened?" })
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `feedback-confirm-${scheme}`);
-    });
-
-    test(`feedback disposition consequence (${scheme})`, async ({
-      page,
-    }, testInfo) => {
-      await mockCustomerAuth(page);
-      await mockFeedback(page);
-      await page.goto("./feedback");
-      await selectDispositionWithConsequence(page);
-      await page
-        .getByText(/files a Lead Report and places an Eligibility Hold/)
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `feedback-disposition-${scheme}`);
-    });
-
-    test(`feedback receipt (${scheme})`, async ({ page }, testInfo) => {
-      await mockCustomerAuth(page);
-      await mockFeedback(page);
-      await page.goto("./feedback");
-      await selectDispositionWithConsequence(page);
-      await page.getByRole("button", { name: "Submit feedback" }).click();
-      await page
-        .getByRole("region", { name: "Recorded" })
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `feedback-receipt-${scheme}`);
-    });
-
-    test(`request detail artifact expired (${scheme})`, async ({
-      page,
-    }, testInfo) => {
-      await page.clock.install({ time: new Date("2026-07-31T16:00:00Z") });
-      await mockCustomerAuth(page);
-      await mockBatchRequests(page, {
-        workspace: {
-          ...BATCH_REQUEST_WORKSPACE,
-          requests: [EXPIRED_ARTIFACT_REQUEST],
-        },
-      });
-      await page.goto(`./requests?request=${DELIVERED_REQUEST.id}`);
-      await page
-        .getByRole("region", { name: "Batch Artifact" })
-        .waitFor({ state: "visible" });
-      await page
-        .getByText(/I'll regenerate the exact file/)
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `requests-detail-artifact-expired-${scheme}`);
+        .getByRole("textbox", { name: "How many leads?" })
+        .fill("750");
+      await page.getByText("Short by").waitFor({ state: "visible" });
+      await shoot(page, testInfo, `new-request-insufficient-funds-${scheme}`);
     });
 
     test(`account billed (${scheme})`, async ({ page }, testInfo) => {
       await mockCustomerAuth(page, {
         billing: { wallet: BILLED_CUSTOMER_WALLET },
       });
-      await page.goto("./account");
+      await page.goto("./account/billing");
       await page
         .getByRole("heading", { level: 1, name: "Account" })
         .waitFor({ state: "visible" });
       await page
-        .getByRole("heading", { level: 2, name: "Credit Wallet" })
+        .getByRole("table", { name: "Billing history" })
         .waitFor({ state: "visible" });
       await shoot(page, testInfo, `account-billed-${scheme}`);
     });
@@ -357,25 +220,21 @@ for (const scheme of SCHEMES) {
       await mockAdminMFA(page, { assurance: "aal2" });
     });
 
-    test(`admin overview (${scheme})`, async ({ page }, testInfo) => {
-      await page.goto("./admin/overview");
+    test(`admin today (${scheme})`, async ({ page }, testInfo) => {
+      await page.goto("./admin/today");
       await page
-        .getByText("8 pending operations identified")
+        .getByRole("table", { name: "Decisions" })
         .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `admin-overview-${scheme}`);
+      await shoot(page, testInfo, `admin-today-${scheme}`);
     });
 
-    test(`admin fulfillment (${scheme})`, async ({ page }, testInfo) => {
-      await mockFulfillment(page);
-      await mockLeadReports(page);
-      await page.goto("./admin/fulfillment");
+    test(`admin inventory (${scheme})`, async ({ page }, testInfo) => {
+      await mockInventory(page);
+      await page.goto("./admin/inventory");
       await page
-        .getByRole("heading", { level: 1, name: "Fulfillment" })
+        .getByRole("table", { name: "Usable by state" })
         .waitFor({ state: "visible" });
-      await page
-        .getByRole("region", { name: "Batch Requests" })
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `admin-fulfillment-${scheme}`);
+      await shoot(page, testInfo, `admin-inventory-${scheme}`);
     });
 
     test(`admin customers (${scheme})`, async ({ page }, testInfo) => {
@@ -385,7 +244,8 @@ for (const scheme of SCHEMES) {
         .getByRole("heading", { level: 1, name: "Customers" })
         .waitFor({ state: "visible" });
       await page
-        .getByRole("article", { name: "Harbor Insurance" })
+        .getByRole("table", { name: "Customers" })
+        .getByRole("link", { name: "Harbor Insurance" })
         .waitFor({ state: "visible" });
       await shoot(page, testInfo, `admin-customers-${scheme}`);
     });
@@ -401,13 +261,14 @@ for (const scheme of SCHEMES) {
       await shoot(page, testInfo, `admin-activity-${scheme}`);
     });
 
-    test(`admin acquisition (${scheme})`, async ({ page }, testInfo) => {
+    test(`admin setup (${scheme})`, async ({ page }, testInfo) => {
       await mockAcquisition(page);
-      await page.goto("./admin/acquisition");
+      await mockSetup(page);
+      await page.goto("./admin/setup");
       await page
-        .getByRole("region", { name: "Acquisition workspace" })
+        .getByRole("table", { name: "Setup areas" })
         .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `admin-acquisition-${scheme}`);
+      await shoot(page, testInfo, `admin-setup-${scheme}`);
     });
   });
 }

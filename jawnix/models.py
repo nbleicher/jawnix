@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, event, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, Numeric, Sequence, String, Text, UniqueConstraint, event, inspect as inspect_object, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -450,6 +450,43 @@ class CustomerProfile(Base):
         self.agent = value
 
 
+#: Batch numbers start here: the first Batch Request ever submitted is #1001.
+BATCH_NUMBER_START = 1001
+
+#: Hands out Batch numbers on PostgreSQL. A sequence never gives two
+#: concurrent submissions the same value, unlike reading the current maximum.
+#: Bound to the metadata so the fresh-schema bootstrap (revision 0001) creates
+#: it; the batch-number migration creates it for existing databases.
+BATCH_NUMBER_SEQUENCE = Sequence(
+    "lead_requests_number_seq",
+    start=BATCH_NUMBER_START,
+    metadata=Base.metadata,
+)
+
+
+def _next_batch_number(context) -> int:
+    """The next Batch number for an inserted Batch Request.
+
+    PostgreSQL draws from the sequence. SQLite (tests and local development)
+    has no sequences but serializes writers, so the next number after the
+    current maximum cannot race there; rows inserted together by one
+    statement count on from the first.
+    """
+    connection = context.connection
+    if connection.dialect.name == "postgresql":
+        return int(connection.scalar(BATCH_NUMBER_SEQUENCE.next_value()))
+    issued = getattr(context, "_jawnix_batch_number", None)
+    if issued is None:
+        issued = connection.scalar(
+            text(
+                "SELECT COALESCE(MAX(number), :floor) FROM lead_requests"
+            ),
+            {"floor": BATCH_NUMBER_START - 1},
+        )
+    context._jawnix_batch_number = int(issued) + 1
+    return context._jawnix_batch_number
+
+
 class LeadRequest(Base):
     __tablename__ = "lead_requests"
     __table_args__ = (
@@ -473,8 +510,16 @@ class LeadRequest(Base):
             ),
             name="ck_lead_request_frozen_billing",
         ),
+        Index("uq_lead_request_number", "number", unique=True),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    #: "Batch #1042" on both sides. Sequential in submission order, unique,
+    #: and never changed once assigned.
+    number: Mapped[int] = mapped_column(
+        Integer,
+        default=_next_batch_number,
+        nullable=False,
+    )
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("customer_profiles.user_id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="RESTRICT"), index=True)
     lead_count: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -531,6 +576,14 @@ class LeadRequest(Base):
     @customer.setter
     def customer(self, value: Customer) -> None:
         self.agent = value
+
+
+@event.listens_for(LeadRequest, "before_update", propagate=True)
+def _batch_number_is_immutable(_mapper, _connection, target: LeadRequest) -> None:
+    # Any write to a persisted row's number is a change, including one made
+    # while the loaded value was expired and so cannot be compared.
+    if inspect_object(target).attrs.number.history.has_changes():
+        raise ValueError("A Batch number never changes once assigned.")
 
 
 class CreditLedgerEntry(Base):
@@ -1253,6 +1306,15 @@ class BatchArtifact(Base):
     parts: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     byte_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    # The CSV column layout this artifact was written with. Regeneration reuses
+    # it so an expired file rebuilds byte for byte; artifacts from before the
+    # state column existed default to the original phone,title layout.
+    csv_format: Mapped[str] = mapped_column(
+        String(32),
+        default="phone_title_state",
+        server_default="phone_title",
+        nullable=False,
+    )
     delivery_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
     delivery_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     resend_message_id: Mapped[str] = mapped_column(String(160), default="", nullable=False)
@@ -2168,11 +2230,48 @@ class SharedHistoryLeadCount(Base):
     )
 
 
+class InventorySnapshot(Base):
+    """Usable inventory totals for one Lead Database (DB1 or DB2).
+
+    Usable means not suppressed, no active Eligibility Hold, and not globally
+    excluded. The breakdown buckets are exclusive, in that order of
+    precedence, so ``usable + suppressed + held + excluded == all_rows``.
+    Written only by the ``refresh_inventory_snapshots`` background job; request
+    handlers read the latest row and show its as-of time.
+    """
+
+    __tablename__ = "inventory_snapshots"
+    database: Mapped[str] = mapped_column(String(4), primary_key=True)
+    all_rows: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    suppressed: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    held: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    excluded: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    usable: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    usable_by_state: Mapped[dict] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "database IN ('db1', 'db2')",
+            name="ck_inventory_snapshot_database",
+        ),
+    )
+
+
 class PoolBreakdownSnapshot(Base):
     """Cached eligible-inventory composition by state × Niche for Fulfillment.
 
-    A single row (id=1) holds the latest cells. Administrators refresh on
-    demand; page loads only read this snapshot and its as-of timestamp.
+    A single row (id=1) holds the latest cells. The same background job that
+    writes ``InventorySnapshot`` rewrites it; page loads only read this
+    snapshot and its as-of timestamp.
     """
 
     __tablename__ = "pool_breakdown_snapshots"

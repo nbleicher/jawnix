@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from jawnix.activity import record_activity
 from jawnix.config import Settings
+from jawnix.inventory_snapshots import enqueue_inventory_refresh
 from jawnix.jobs import enqueue_job
 from jawnix.models import (
     DatasetPublication,
@@ -315,6 +316,9 @@ def sync_dataset_version(
         publication.sync_status = "complete"
         publication.synchronized_at = attempt.finished_at
         enqueue_job(session, "fulfill_round_robin")
+        # Queued in the sync's own transaction, so a worker can only claim it
+        # once the synchronized inventory has committed.
+        enqueue_inventory_refresh(session, reason="inventory_sync")
         run = session.get(ScraperRun, publication.scraper_run_id)
         if run is not None:
             run.status = "complete"

@@ -99,6 +99,7 @@ const OPEN_REPORT = {
     deliveredAt: "2026-06-28T12:00:00Z",
     listingProvenance: { scraped_from: "directory.example" },
     requestId: "11111111-1111-4111-8111-111111111111",
+    requestNumber: 1031,
   },
   lead: {
     id: REPORTED_LEAD_ID,

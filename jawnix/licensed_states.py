@@ -23,12 +23,16 @@ from sqlalchemy.orm import Session
 from .billing import release_batch_hold
 from .activity import record_activity
 from .config import Settings
-from .customer_overview import build_customer_overview, customer_request_status
+from .customer_overview import (
+    CustomerHome,
+    build_customer_home,
+    customer_request_status,
+)
 from .customer_requests import CANCELABLE_STATUSES, build_request_workspace
 from .jobs import enqueue_job
 from .milestone_emails import enqueue_milestone_email
 from .models import CustomerProfile, LeadRequest, RequestStatus, utcnow
-from .schemas import CustomerOverviewOut, CustomerRequestWorkspaceOut
+from .schemas import CustomerRequestWorkspaceOut
 from .states import US_STATE_OPTIONS, normalize_states
 
 
@@ -68,6 +72,8 @@ class LicensedStateSelection(BaseModel):
 
 class LicensedStateImpact(BaseModel):
     request_id: uuid.UUID
+    #: "Batch #1042", the name the Customer knows the batch by.
+    number: int | None = None
     lead_count: int
     status: str
     current_states: list[str]
@@ -93,7 +99,7 @@ class LicensedStateConfirmation(BaseModel):
 
 class LicensedStateApplyResult(BaseModel):
     account: LicensedStateWorkspace
-    overview: CustomerOverviewOut
+    overview: CustomerHome
     requests: CustomerRequestWorkspaceOut
 
 
@@ -173,6 +179,7 @@ def _affected_requests(
         impacts.append(
             LicensedStateImpact(
                 request_id=item.id,
+                number=item.number,
                 lead_count=item.lead_count,
                 status=customer_request_status(item.status).label,
                 current_states=current_states,
@@ -214,18 +221,17 @@ def preview(
     current_states = normalize_states(profile.licensed_states)
     if selection.expected_version != _version(profile):
         raise LicensedStateConflict(
-            "Licensed States changed in another session. "
-            "Review the latest impact before saving."
+            "Your appointed states changed in another session. "
+            "Review the latest changes before saving."
         )
     proposed_states = selection.states
     if proposed_states == current_states:
         raise LicensedStateReviewError(
-            "Choose a different set of Licensed States before reviewing."
+            "Choose a different set of appointed states before saving."
         )
     if profile.customer_id is None:
         raise LicensedStateReviewError(
-            "Licensed States cannot change until this User Account is "
-            "mapped to a Customer."
+            "Appointed states cannot change until your account is set up."
         )
     _, impacts = _affected_requests(
         db,
@@ -331,13 +337,12 @@ def apply_review(
         raise LookupError("Profile was not found.")
     if profile.customer_id is None:
         raise LicensedStateReviewError(
-            "Licensed States cannot change until this User Account is "
-            "mapped to a Customer."
+            "Appointed states cannot change until your account is set up."
         )
     if _version(profile) != claims.version:
         raise LicensedStateConflict(
-            "Licensed States changed in another session. "
-            "Review the latest impact before saving."
+            "Your appointed states changed in another session. "
+            "Review the latest changes before saving."
         )
 
     requests, impacts = _affected_requests(
@@ -348,8 +353,8 @@ def apply_review(
     )
     if _impact_checksum(impacts) != claims.impact_checksum:
         raise LicensedStateConflict(
-            "A Batch Request changed after this review. "
-            "Review the latest impact before saving."
+            "A batch in progress changed after this review. "
+            "Review the latest changes before saving."
         )
 
     current_states = normalize_states(profile.licensed_states)
@@ -399,7 +404,7 @@ def apply_review(
 
     result = LicensedStateApplyResult(
         account=workspace(profile),
-        overview=build_customer_overview(
+        overview=build_customer_home(
             db,
             user_id=user_id,
             profile=profile,

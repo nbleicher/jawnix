@@ -403,6 +403,7 @@ def _summarize_request(
 ) -> dict[str, object]:
     return {
         "id": str(item.id),
+        "number": item.number,
         "customer": " ".join(
             part
             for part in (item.profile.first_name, item.profile.last_name)
@@ -560,6 +561,7 @@ _JOB_LABELS: dict[str, str] = {
     "fulfill_round_robin": "Running round-robin fulfillment",
     "emit_lead_assigned": "Emitting lead.assigned metrics",
     "send_request_milestone_email": "Sending a milestone email",
+    "make_new_copy": "Making the Customer's new copy of the file",
 }
 
 _LOG_JOB_TONES: dict[str, str] = {
@@ -817,6 +819,7 @@ def describe_conflict(
             return {"id": "", "available": False}
         return {
             "id": str(item.id),
+            "number": item.number,
             "customerIdentity": item.customer.name,
             "agency": item.customer.agency.name if item.customer.agency else "",
             "leadCount": item.lead_count,

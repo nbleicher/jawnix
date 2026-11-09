@@ -1,6 +1,6 @@
 import type { Page, Route } from "@playwright/test";
 
-import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
+import { CUSTOMER_HOME } from "./customer-home-fixtures";
 import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
 import {
   CUSTOMER_ACCOUNT_IDENTITY,
@@ -15,6 +15,8 @@ import type { CustomerBillingMockOptions } from "./customer-billing-fixtures";
 export interface CustomerAuthMockOptions {
   signInAccepted?: boolean;
   passwordUpdateAccepted?: boolean;
+  /** Account's Password tab: what the provider says to a change. */
+  passwordChange?: "accepted" | "wrong_password" | "expired";
   sessionExchangeStatus?: number;
   overviewStatus?: number;
   overview?: unknown | (() => unknown);
@@ -90,9 +92,10 @@ export async function mockCustomerAuth(
   const settings = {
     signInAccepted: true,
     passwordUpdateAccepted: true,
+    passwordChange: "accepted",
     sessionExchangeStatus: 200,
     overviewStatus: 200,
-    overview: CUSTOMER_OVERVIEW,
+    overview: CUSTOMER_HOME,
     batchRequests: BATCH_REQUEST_WORKSPACE,
     licensedStates: LICENSED_STATE_ACCOUNT,
     exclusionLists: [] as unknown[],
@@ -142,6 +145,18 @@ export async function mockCustomerAuth(
       }
       return json(route, { status: true });
     }
+    if (url.pathname.endsWith("/change-password")) {
+      if (settings.passwordChange === "wrong_password") {
+        return json(route, { code: "INVALID_PASSWORD", message: "Invalid password" }, 400);
+      }
+      if (settings.passwordChange === "expired") {
+        return json(route, { code: "UNAUTHORIZED", message: "Unauthorized" }, 401);
+      }
+      return json(route, { token: "customer-provider-rotated-token", user: USER });
+    }
+    if (url.pathname.endsWith("/request-password-reset")) {
+      return json(route, { status: true });
+    }
     if (url.pathname.endsWith("/get-session")) {
       return json(route, providerSession());
     }
@@ -167,11 +182,12 @@ export async function mockCustomerAuth(
       role: "customer",
       assurance: "aal1",
       next:
-        (body as { requested_next?: string }).requested_next ?? "/app/overview",
+        (body as { requested_next?: string }).requested_next ?? "/app/home",
     });
   });
 
-  await page.route(/\/api\/me\/overview$/, (route) => {
+  // Home's one read, which is also the shell's access check.
+  await page.route(/\/api\/me\/overview(\?.*)?$/, (route) => {
     state.overviewRequests += 1;
     if (settings.overviewStatus !== 200) {
       return json(
@@ -183,10 +199,15 @@ export async function mockCustomerAuth(
     return json(route, current(settings.overview));
   });
 
-  // Enough for a customer journey to arrive at /app/requests. Specs that
-  // exercise the guided flow itself layer mockBatchRequests over this.
-  await page.route(/\/api\/me\/batch-requests$/, (route) =>
+  // Enough for a customer journey to arrive at New request or Batches.
+  // Specs that exercise those pages layer mockBatchRequests over this.
+  await page.route(/\/api\/me\/batch-requests(\?[^/]*)?$/, (route) =>
     json(route, current(settings.batchRequests)),
+  );
+
+  // Home watches batches in progress; without push it polls instead.
+  await page.route(/\/api\/me\/batch-requests\/events$/, (route) =>
+    route.fulfill({ status: 503, contentType: "text/plain", body: "Push unavailable in this fixture" }),
   );
 
   await page.route(/\/api\/me\/licensed-states$/, (route) =>

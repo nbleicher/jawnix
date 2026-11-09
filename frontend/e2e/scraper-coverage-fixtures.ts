@@ -32,7 +32,6 @@ interface StateGridCoverage {
 interface StateCoverageSnapshot {
   service_state: "connected" | "unavailable";
   last_successful_at: string | null;
-  idle_expires_in: number;
   states: CoverageFeed<
     {
       state: string;
@@ -50,7 +49,6 @@ interface StateCoverageDetail {
   state: string;
   service_state: "connected" | "degraded" | "unavailable";
   last_successful_at: string | null;
-  idle_expires_in: number;
   keywords: CoverageFeed<StateKeywordActivity[]>;
   cells: CoverageFeed<StateGridCoverage>;
 }
@@ -124,7 +122,6 @@ export function stateCoverageSnapshot(
   return {
     service_state: "connected",
     last_successful_at: "2026-07-29T12:00:00Z",
-    idle_expires_in: 900,
     states: coverageFeed(
       [
         {
@@ -158,7 +155,6 @@ export function stateCoverageDetail(
     state: "PA",
     service_state: "connected",
     last_successful_at: "2026-07-29T12:00:00Z",
-    idle_expires_in: 900,
     keywords: coverageFeed(coverageKeywords, refreshSeconds.keywords),
     cells: coverageFeed(coverageGrid, refreshSeconds.cells),
   };

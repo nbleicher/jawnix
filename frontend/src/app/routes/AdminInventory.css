@@ -1,0 +1,118 @@
+/* Inventory (P4) and lead lookup (P5). */
+
+/* DB1 and DB2 side by side; one above the other on narrow screens. */
+.jx-inventory-databases {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--jx-space-5);
+  align-items: stretch;
+}
+
+.jx-inventory-usable {
+  margin: 0;
+  color: var(--jx-ink);
+  font-size: var(--jx-text-xl);
+  line-height: var(--jx-leading-display);
+  font-feature-settings: var(--jx-font-features-numeral);
+}
+
+/* The live region stays in the page so a recount is announced, but takes no
+   room until it has something to say. */
+.jx-inventory-status:empty {
+  margin-block-end: calc(-1 * var(--jx-space-4));
+}
+
+.jx-inventory-as-of {
+  color: var(--jx-ink-muted);
+  font-size: var(--jx-text-xs);
+  font-feature-settings: var(--jx-font-features-numeral);
+  white-space: nowrap;
+}
+
+/* The phone box takes the row; the button keeps its own width. */
+.jx-lookup-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--jx-space-3);
+  align-items: end;
+}
+
+/* A phone number never breaks across lines. */
+.jx-lookup-phone {
+  white-space: nowrap;
+}
+
+/* Recipient values break only between their " · " parts, never mid-date. */
+.jx-lookup-recipients .jx-facts__value {
+  min-width: min-content;
+  overflow-wrap: normal;
+}
+
+.jx-inventory-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jx-space-2) var(--jx-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.jx-inventory-table-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jx-space-3);
+}
+
+.jx-inventory-filters {
+  display: grid;
+  grid-template-columns: minmax(10rem, 16rem);
+  gap: var(--jx-space-3);
+}
+
+/* DB2 upload drop zone. */
+.jx-upload-drop {
+  display: grid;
+  gap: var(--jx-space-3);
+  padding: var(--jx-space-5);
+  border: var(--jx-rule) dashed var(--jx-line-strong);
+}
+
+.jx-upload-drop[data-dragging] {
+  border-color: var(--jx-ink);
+}
+
+.jx-upload-form {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(12rem, 1fr);
+  gap: var(--jx-space-4);
+  align-items: start;
+}
+
+.jx-pages {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-3);
+}
+
+@media (max-width: 36rem) {
+  .jx-lookup-phone {
+    font-size: var(--jx-text-lg);
+  }
+}
+
+@media (max-width: 48rem) {
+  .jx-inventory-databases,
+  .jx-upload-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .jx-lookup-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .jx-inventory-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
