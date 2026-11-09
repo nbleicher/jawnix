@@ -1,4 +1,4 @@
-"""Operator global search: Customers, Batches, and DB2 uploads, grouped.
+"""Operator global search: Customers, Batches, DB2 uploads, and phones, grouped.
 
 Seam: seeded records in; ``search()`` and ``GET /api/admin/search`` out.
 """
@@ -16,6 +16,11 @@ from jawnix.database import get_db
 from jawnix.models import (
     Agent,
     CustomerProfile,
+    DistributionEvent,
+    EligibilityHold,
+    Lead,
+    LeadDatabaseMembership,
+    LeadReport,
     LeadRequest,
     LeadUpload,
     ManagedAdmin,
@@ -120,6 +125,9 @@ def test_uploads_match_by_file_name_and_escape_wildcards(session):
     assert groups(result) == {"uploads": ["fl_100%_agents.csv", "tn-agents-nov.csv"]}
     details = [item["detail"] for item in result["groups"][0]["results"]]
     assert details == ["Operator · FL · Nov 7 · Published", "Alex · TN · Nov 6 · Published"]
+    assert {item["href"] for item in result["groups"][0]["results"]} == {
+        "/app/admin/inventory/uploads"
+    }
     assert groups(search(session, "100%")) == {"uploads": ["fl_100%_agents.csv"]}
     # Unescaped, "_" would match the "-" in tn-agents.
     assert groups(search(session, "n_a")) == {}
@@ -147,3 +155,77 @@ def test_search_endpoint_groups_results_in_display_order(session):
     finally:
         app.dependency_overrides.clear()
     assert [group["label"] for group in body["groups"]] == ["Batches"]
+
+
+def seed_phone(session) -> dict:
+    records = seed(session)
+    lead = Lead(phone="6155550142", title="Nashville Family Dental", state="TN")
+    session.add(lead)
+    session.flush()
+    upload = session.query(LeadUpload).filter_by(filename="tn-agents-nov.csv").one()
+    session.add(LeadDatabaseMembership(lead_id=lead.id, upload_id=upload.id, state="TN"))
+    batch = records["batches"][0]
+    session.add(
+        DistributionEvent(
+            lead_id=lead.id,
+            customer_id=records["northstar"].id,
+            customer_name="Northstar Insurance",
+            request_id=batch.id,
+            phone=lead.phone,
+            inventory_database="db2",
+            delivered_at=datetime(2026, 11, 6, 12, tzinfo=timezone.utc),
+        )
+    )
+    session.commit()
+    return {**records, "lead": lead}
+
+
+def test_a_phone_number_finds_the_lead_its_batches_and_its_upload(session):
+    records = seed_phone(session)
+    result = search(session, "615 555 0142")
+    assert [group["label"] for group in result["groups"]] == ["Lead", "Delivered in", "Uploaded in"]
+    lead, delivered, uploaded = (group["results"] for group in result["groups"])
+    assert lead == [
+        {
+            "kind": "lead",
+            "id": str(records["lead"].id),
+            "title": "(615) 555-0142 · Nashville Family Dental · TN",
+            "detail": "DB1 and DB2 · usable",
+            "href": "/app/admin/inventory/lookup?phone=6155550142",
+        }
+    ]
+    batch = records["batches"][0]
+    assert delivered[0]["title"] == f"Batch #{batch.number} · Northstar Insurance"
+    assert delivered[0]["detail"] == "Nov 6 · DB2"
+    assert delivered[0]["href"] == f"/app/admin/batches/{batch.number}"
+    assert uploaded[0]["title"] == "tn-agents-nov.csv"
+    assert uploaded[0]["href"] == "/app/admin/inventory/uploads"
+
+
+def test_a_held_lead_reads_as_on_hold(session):
+    records = seed_phone(session)
+    event = session.query(DistributionEvent).one()
+    report = LeadReport(
+        distribution_event_id=event.id, customer_id=records["northstar"].id,
+        reason="invalid_phone",
+    )
+    session.add(report)
+    session.flush()
+    session.add(
+        EligibilityHold(
+            lead_id=records["lead"].id, distribution_event_id=event.id,
+            report_id=report.id, reason="invalid_phone",
+        )
+    )
+    session.commit()
+    lead = search(session, "(615) 555-0142")["groups"][0]["results"][0]
+    assert lead["detail"] == "DB1 and DB2 · on hold"
+
+
+def test_an_unknown_phone_number_still_opens_lead_lookup(session):
+    seed(session)
+    result = search(session, "212-555-0100")
+    assert groups(result) == {"lead": ["(212) 555-0100"]}
+    lead = result["groups"][0]["results"][0]
+    assert lead["detail"] == "Not in DB1 or DB2"
+    assert lead["href"] == "/app/admin/inventory/lookup?phone=2125550100"

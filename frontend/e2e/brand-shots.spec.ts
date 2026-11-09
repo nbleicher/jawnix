@@ -23,8 +23,7 @@ import {
   UNDERFUNDED_WALLET,
 } from "./customer-billing-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
-import { mockFulfillment } from "./fulfillment-fixtures";
-import { mockLeadReports } from "./lead-report-fixtures";
+import { mockInventory } from "./inventory-fixtures";
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockAcquisition } from "./acquisition-fixtures";
 import { mockActivity } from "./activity-fixtures";
@@ -365,17 +364,13 @@ for (const scheme of SCHEMES) {
       await shoot(page, testInfo, `admin-today-${scheme}`);
     });
 
-    test(`admin fulfillment (${scheme})`, async ({ page }, testInfo) => {
-      await mockFulfillment(page);
-      await mockLeadReports(page);
-      await page.goto("./admin/fulfillment");
+    test(`admin inventory (${scheme})`, async ({ page }, testInfo) => {
+      await mockInventory(page);
+      await page.goto("./admin/inventory");
       await page
-        .getByRole("heading", { level: 1, name: "Fulfillment" })
+        .getByRole("table", { name: "Usable by state" })
         .waitFor({ state: "visible" });
-      await page
-        .getByRole("region", { name: "Batch Requests" })
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `admin-fulfillment-${scheme}`);
+      await shoot(page, testInfo, `admin-inventory-${scheme}`);
     });
 
     test(`admin customers (${scheme})`, async ({ page }, testInfo) => {

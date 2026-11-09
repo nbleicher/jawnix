@@ -43,6 +43,7 @@ function renderSearch() {
       { path: "/admin/today", element: <GlobalSearch /> },
       { path: "/admin/customers/:id", element: <p>Customer page</p> },
       { path: "/admin/batches/:id", element: <p>Batch page</p> },
+      { path: "/admin/inventory/lookup", element: <p>Lead lookup</p> },
     ],
     { initialEntries: ["/admin/today"] },
   );
@@ -70,7 +71,7 @@ describe("GlobalSearch", () => {
     renderSearch();
 
     expect(screen.getByRole("search")).toBeInTheDocument();
-    const box = screen.getByRole("combobox", { name: "Search customers, batches, and uploads" });
+    const box = screen.getByRole("combobox", { name: "Search customers, batches, uploads, and phones" });
     expect(box).toHaveAttribute("aria-expanded", "false");
     await user.type(box, "north");
 
@@ -142,8 +143,55 @@ describe("GlobalSearch", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     await user.type(box, "z");
     // Shown in the list and announced through the status line.
-    const message = "No customers, batches, or uploads match “zz”.";
+    const message = "No customers, batches, uploads, or phones match “zz”.";
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(message));
     expect(screen.getAllByText(message)[0]).toBeVisible();
+  });
+
+  it("opens lead lookup for a phone number's Lead result", async () => {
+    const user = userEvent.setup();
+    respond({
+      query: "615 555 0142",
+      groups: [
+        {
+          key: "lead",
+          label: "Lead",
+          results: [
+            {
+              kind: "lead",
+              id: "77",
+              title: "(615) 555-0142 · Nashville Family Dental · TN",
+              detail: "DB1 and DB2 · usable",
+              href: "/app/admin/inventory/lookup?phone=6155550142",
+            },
+          ],
+        },
+        {
+          key: "leadBatches",
+          label: "Delivered in",
+          results: [
+            {
+              kind: "batch",
+              id: "b",
+              title: "Batch #1028 · Keystone Medicare",
+              detail: "Nov 6 · DB2",
+              href: "/app/admin/batches/1028",
+            },
+          ],
+        },
+      ],
+    });
+    const router = renderSearch();
+
+    await user.type(screen.getByRole("combobox"), "615 555 0142");
+    const listbox = await screen.findByRole("listbox", { name: "Search results" });
+    await waitFor(() => expect(within(listbox).getAllByRole("option")).toHaveLength(2));
+    expect(within(listbox).getByRole("group", { name: "Lead" })).toBeInTheDocument();
+    expect(within(listbox).getByRole("group", { name: "Delivered in" })).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+
+    expect(await screen.findByText("Lead lookup")).toBeVisible();
+    expect(router.state.location.pathname).toBe("/admin/inventory/lookup");
+    expect(router.state.location.search).toBe("?phone=6155550142");
   });
 });

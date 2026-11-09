@@ -77,6 +77,13 @@ export function plural(count: number, one: string, many: string = `${one}s`): st
   return `${formatCount(count)} ${count === 1 ? one : many}`;
 }
 
+/** "6155550142" reads as "(615) 555-0142". Anything else is left as is. */
+export function formatPhone(phone: string): string {
+  return /^\d{10}$/.test(phone)
+    ? `(${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6)}`
+    : phone;
+}
+
 export function formatDatabase(value: string | null | undefined): string {
   return value === "db2" ? "DB2" : "DB1";
 }

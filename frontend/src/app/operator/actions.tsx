@@ -243,7 +243,17 @@ export function ControlActionBar<Result = unknown>({
 /** Lead-level controls. They change the Lead's eligibility; they never touch
  *  the Lead Report's text or the Distribution Event that was delivered. */
 export function leadControlRequest(leadId: number): ControlResolver {
-  return (action, reason) => {
+  return (action, reason, values) => {
+    if (action.requiresOverride) {
+      const title = (values.title ?? "").trim();
+      const state = (values.state ?? "").trim();
+      return {
+        url: `/api/admin/leads/${leadId}/correction`,
+        method: "PUT",
+        // Only what was typed is sent: an empty field keeps that value.
+        body: { reason, ...(title ? { title } : {}), ...(state ? { state } : {}) },
+      };
+    }
     if (action.name === "remove-correction") {
       return {
         url: `/api/admin/leads/${leadId}/correction`,

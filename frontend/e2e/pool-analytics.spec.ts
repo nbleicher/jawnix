@@ -2,40 +2,31 @@ import { expect, test } from "@playwright/test";
 
 import { mockAdminCustomers } from "./admin-customers-fixtures";
 import { mockFulfillment } from "./fulfillment-fixtures";
-import { mockLeadReports } from "./lead-report-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 
 /**
- * Smoke for #155 pool analytics surfaces: Fulfillment breakdown and
- * per-Customer availability / cooldown forecast.
+ * Smoke for #155 pool analytics surfaces: the breakdown (on Inventory since
+ * A4) and per-Customer availability / cooldown forecast.
  */
 
 test.describe("Pool analytics surfaces", () => {
-  test("Fulfillment shows the cached pool breakdown and queues a recount on demand", async ({
+  test("Inventory's pool analytics shows the cached breakdown and queues a recount on demand", async ({
     page,
   }) => {
     await mockAdminMFA(page, { assurance: "aal2" });
     await mockFulfillment(page);
-    await mockLeadReports(page);
 
-    await page.goto("./admin/fulfillment");
+    await page.goto("./admin/inventory/pool");
 
-    const section = page.getByRole("region", {
-      name: "Pool analytics",
-    });
-    const dental = section.getByRole("article").filter({ hasText: "TX" })
-      .filter({ hasText: "Dental" });
-    const unmapped = section.getByRole("article").filter({ hasText: "TX" })
-      .filter({ hasText: "unmapped" });
-    await expect(dental).toContainText("340 eligible");
-    await expect(unmapped).toContainText("18 eligible");
-    await expect(section.getByText(/As of:/)).toBeVisible();
+    const table = page.getByRole("table", { name: "Pool breakdown" });
+    await expect(table.locator("tbody tr").first()).toContainText("TX");
+    await expect(table.locator("tbody tr").first()).toContainText("Dental");
+    await expect(table.locator("tbody tr").first()).toContainText("340");
+    await expect(table.getByRole("row").filter({ hasText: "Unmapped" })).toContainText("18");
+    await expect(page.getByText(/^As of /)).toBeVisible();
 
-    await section.getByRole("button", { name: "Refresh pool breakdown" }).click();
-    await expect(
-      section.getByText(/Refresh queued/),
-    ).toBeVisible();
-    await expect(dental).toContainText("341 eligible");
+    await page.getByRole("button", { name: "Refresh breakdown" }).click();
+    await expect(page.getByText(/Recount queued/)).toBeVisible();
   });
 
   test("Customer details shows availability, forecast, and refresh", async ({

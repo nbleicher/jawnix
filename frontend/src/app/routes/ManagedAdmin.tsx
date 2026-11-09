@@ -17,9 +17,7 @@ interface UploadWorkspace {
   inventory: { total: number; states: Record<string, number>; asOf: string | null };
 }
 const MANAGER_UPLOADS = "/api/manager/uploads";
-const OPERATOR_UPLOADS = "/api/admin/lead-uploads";
 export const managedUploadsLoader = () => api<UploadWorkspace>(MANAGER_UPLOADS);
-export const adminLeadUploadsLoader = () => api<UploadWorkspace>(OPERATOR_UPLOADS);
 
 interface ManagedCustomer {
   id: number;
@@ -37,10 +35,6 @@ function active(item: LeadUploadStatus) { return item.status === "queued" || ite
 
 export function ManagedUploadsRoute() {
   return <LeadUploadsWorkspace endpoint={MANAGER_UPLOADS} title="Upload leads" description="Add your CSV leads to DB2. Choose the state for the entire file, then upload." />;
-}
-
-export function AdminLeadUploadsRoute() {
-  return <LeadUploadsWorkspace endpoint={OPERATOR_UPLOADS} title="DB2 uploads" description="Add CSV leads to DB2. Your uploads and managed administrator uploads share one inventory. Choose the state for the entire file, then upload." />;
 }
 
 function LeadUploadsWorkspace({ endpoint, title, description }: { endpoint: string; title: string; description: string }) {

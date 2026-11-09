@@ -29,6 +29,7 @@ import {
   mockFulfillment,
 } from "./fulfillment-fixtures";
 import { OPEN_REPORT_ID, mockLeadReports } from "./lead-report-fixtures";
+import { WAITING_LIST_ID, mockInventory } from "./inventory-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
 import { BATCH_IDS, mockOperatorDesk } from "./today-fixtures";
 
@@ -64,7 +65,16 @@ const ROUTES = [
   "./admin/batches?batch=1042",
   "./admin/batches/1042",
   "./admin/batches/1040",
-  "./admin/fulfillment",
+  "./admin/inventory",
+  "./admin/inventory/lookup",
+  "./admin/inventory/lookup?phone=6155550142",
+  "./admin/inventory/lookup?phone=2125550100",
+  "./admin/inventory/uploads",
+  "./admin/inventory/exclusions",
+  `./admin/inventory/exclusions?list=${WAITING_LIST_ID}`,
+  "./admin/inventory/suppressed",
+  "./admin/inventory/niche-assignment",
+  "./admin/inventory/pool",
   `./admin/fulfillment/requests/${PENDING_REQUEST_ID}`,
   `./admin/fulfillment/conflicts/${CONFLICT_ID}`,
   `./admin/fulfillment/reports/${OPEN_REPORT_ID}`,
@@ -108,6 +118,7 @@ test.beforeEach(async ({ page }) => {
   await mockLeadReports(page);
   await mockActivity(page);
   await mockOperatorDesk(page);
+  await mockInventory(page);
 });
 
 test.describe("Automated WCAG 2.2 AA sweep", () => {
@@ -172,7 +183,7 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
 
   test("the open global search results have no accessibility violations", async ({ page }) => {
     await page.goto("./admin/today");
-    await page.getByRole("combobox", { name: "Search customers, batches, and uploads" }).fill("north");
+    await page.getByRole("combobox", { name: "Search customers, batches, uploads, and phones" }).fill("north");
     await expect(page.getByRole("listbox", { name: "Search results" }).getByRole("option")).toHaveCount(3);
 
     const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
