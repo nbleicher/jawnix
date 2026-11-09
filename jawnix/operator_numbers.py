@@ -1,6 +1,6 @@
 """The operator's headline numbers: inventory, batches, customers, money, work.
 
-Read by the Overview numbers row today and by the Today page next. Every
+Read by the Today page's numbers row (and the Operations overview). Every
 figure is a small aggregate over operational tables or a stored snapshot; the
 usable DB1 and DB2 totals come from ``inventory_snapshots`` because counting
 nine million inventory rows never happens in a request.

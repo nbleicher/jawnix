@@ -175,7 +175,7 @@ def read_fulfillment_source(db: Session) -> OperationSource:
             recorded_at=item["createdAt"],
             action=OperationAction(
                 label="Open Batch Request",
-                href=f"/app/admin/fulfillment/requests/{item['id']}",
+                href=f"/app/admin/batches/{item.get('number') or item['id']}",
             ),
         )
         for item in batch_requests[:OVERVIEW_ITEM_LIMIT]
@@ -281,7 +281,7 @@ def read_fulfillment_source(db: Session) -> OperationSource:
             recorded_at=item["createdAt"],
             action=OperationAction(
                 label="Recover Delivery",
-                href=f"/app/admin/fulfillment/requests/{item['id']}",
+                href=f"/app/admin/batches/{item.get('number') or item['id']}",
             ),
         )
         for item in delivery_failures[:OVERVIEW_ITEM_LIMIT]
@@ -412,7 +412,7 @@ def _job_destination(
     if job.request_id is not None:
         return OperationAction(
             label="Open Batch Request",
-            href=f"/app/admin/fulfillment/requests/{job.request_id}",
+            href=f"/app/admin/batches/{job.request_id}",
         )
     payload = job.payload or {}
     if failed_job_id := payload.get("failed_job_id"):
@@ -579,7 +579,7 @@ def read_jobs_source(db: Session) -> OperationSource:
             recorded_at=item.created_at,
             action=OperationAction(
                 label="Open Batch Request",
-                href=f"/app/admin/fulfillment/requests/{item.id}",
+                href=f"/app/admin/batches/{item.number}",
             ),
         )
         for item in unnotified

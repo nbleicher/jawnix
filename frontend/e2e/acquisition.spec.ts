@@ -46,7 +46,7 @@ test.describe("The Operations identity is consistent", () => {
       rail.getByRole("link", { name: "Scraper Operations" }),
     ).toHaveAttribute("href", "/app/admin/acquisition/scraper");
     await expect(
-      rail.getByRole("link", { name: "Exit to Overview" }),
+      rail.getByRole("link", { name: "Exit to Today" }),
     ).toBeVisible();
   });
 
@@ -56,7 +56,7 @@ test.describe("The Operations identity is consistent", () => {
 
     await page
       .getByRole("navigation", { name: "Administration" })
-      .getByRole("link", { name: "Overview" })
+      .getByRole("link", { name: "Today" })
       .click();
 
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "light");

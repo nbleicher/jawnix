@@ -60,3 +60,36 @@ describe("Navigation", () => {
     expect(screen.getByRole("link", { name: "Requests" })).not.toHaveAttribute("aria-current");
   });
 });
+
+describe("Navigation with a destination that decides its own current page", () => {
+  const OPERATOR: NavigationDestination[] = [
+    { to: "/admin/acquisition/performance", label: "Insights" },
+    {
+      to: "/admin/acquisition",
+      label: "Setup",
+      match: (pathname) =>
+        pathname.startsWith("/admin/acquisition") &&
+        !pathname.startsWith("/admin/acquisition/performance"),
+    },
+  ];
+
+  function renderOperator(path: string) {
+    const router = createMemoryRouter(
+      [{ path: "*", element: <Navigation label="Administration" destinations={OPERATOR} /> }],
+      { initialEntries: [path] },
+    );
+    render(<RouterProvider router={router} />);
+  }
+
+  it("marks only the destination its rule claims", () => {
+    renderOperator("/admin/acquisition/performance");
+    expect(screen.getByRole("link", { name: "Insights" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Setup" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("keeps a section current across its own path trees", () => {
+    renderOperator("/admin/acquisition/runs/42");
+    expect(screen.getByRole("link", { name: "Setup" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Insights" })).not.toHaveAttribute("aria-current");
+  });
+});

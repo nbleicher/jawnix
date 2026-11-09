@@ -91,6 +91,7 @@ function report(overrides: Partial<LeadReportDetail> = {}): LeadReportDetail {
       deliveredAt: "2026-06-28T12:00:00Z",
       listingProvenance: { scraped_from: "directory.example" },
       requestId: "11111111-1111-4111-8111-111111111111",
+      requestNumber: 1031,
     },
     lead: {
       id: 91,
@@ -186,6 +187,21 @@ describe("the Lead Report is evidence, not a form", () => {
     expect(
       screen.getByRole("link", { name: "Northstar Insurance" }),
     ).toHaveAttribute("href", "/admin/customers/7");
+  });
+
+  it("puts the decision first and links the batch it was delivered in", () => {
+    renderReport(report());
+
+    const names = screen
+      .getAllByRole("region")
+      .map((region) => region.getAttribute("aria-label"));
+    expect(names.indexOf("Decision")).toBeLessThan(names.indexOf("Report"));
+    expect(names.indexOf("Decision")).toBeLessThan(names.indexOf("What was delivered"));
+    const delivered = screen.getByRole("region", { name: "What was delivered" });
+    expect(within(delivered).getByRole("link", { name: "Batch #1031" })).toHaveAttribute(
+      "href",
+      "/admin/batches/1031",
+    );
   });
 
   it("says the delivered Distribution Event is never rewritten", () => {
@@ -575,7 +591,10 @@ describe("a decided Lead Report", () => {
 
     const decision = screen.getByRole("region", { name: "Decision" });
     expect(within(decision).getByText("Number verified as correct.")).toBeVisible();
-    expect(within(decision).getByText("admin-1")).toBeVisible();
+    // Readable words, not raw codes or identities (P3).
+    expect(within(decision).getByText("Dismissed")).toBeVisible();
+    expect(within(decision).getByText("Operator")).toBeVisible();
+    expect(within(decision).queryByText("admin-1")).toBeNull();
     expect(
       within(decision).getByText(
         "This Lead Report is closed and cannot be decided again.",

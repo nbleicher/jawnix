@@ -43,6 +43,7 @@ from .models import (
     LeadCorrectionEvent,
     LeadReport,
     LeadReportResolution,
+    LeadRequest,
     ListingObservation,
     LeadDatabaseMembership,
     LeadUpload,
@@ -443,7 +444,14 @@ def describe_report(db: Session, report: LeadReport) -> dict[str, object]:
                 else ""
             ),
         },
-        "distributionEvent": _describe_event(event),
+        "distributionEvent": _describe_event(
+            event,
+            request=(
+                db.get(LeadRequest, event.request_id)
+                if event is not None and event.request_id is not None
+                else None
+            ),
+        ),
         "lead": _describe_lead(lead, active_correction),
         "evidence": evidence.as_dict(),
         "controls": {
@@ -610,7 +618,11 @@ _HOLD_REASONS = {
 }
 
 
-def _describe_event(event: DistributionEvent | None) -> dict[str, object]:
+def _describe_event(
+    event: DistributionEvent | None,
+    *,
+    request: LeadRequest | None = None,
+) -> dict[str, object]:
     """The delivered record, exactly as it was committed."""
     if event is None:
         return {}
@@ -624,6 +636,7 @@ def _describe_event(event: DistributionEvent | None) -> dict[str, object]:
         "deliveredAt": event.delivered_at,
         "listingProvenance": event.listing_provenance,
         "requestId": str(event.request_id) if event.request_id else None,
+        "requestNumber": request.number if request is not None else None,
     }
 
 

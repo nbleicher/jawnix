@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
 import {
+  ANOMALY_ID,
   CONFIGURATION_ID,
   SCRAPE_RUN_ID,
   mockAcquisition,
@@ -29,6 +30,7 @@ import {
 } from "./fulfillment-fixtures";
 import { OPEN_REPORT_ID, mockLeadReports } from "./lead-report-fixtures";
 import { mockAdminMFA } from "./mfa-fixtures";
+import { BATCH_IDS, mockOperatorDesk } from "./today-fixtures";
 
 /**
  * WCAG 2.2 AA foundations, verified in a real browser.
@@ -53,7 +55,15 @@ const ROUTES = [
   "./feedback",
   `./feedback?request=${DELIVERED_REQUEST.id}`,
   "./account",
-  "./admin/overview",
+  "./admin/today",
+  `./admin/today?decision=approval%3A${BATCH_IDS[1042]}`,
+  `./admin/today?decision=inventoryConflict%3A${CONFLICT_ID}`,
+  `./admin/today?decision=scrapeAnomaly%3A${ANOMALY_ID}`,
+  `./admin/today?decision=leadReport%3A${OPEN_REPORT_ID}`,
+  "./admin/batches",
+  "./admin/batches?batch=1042",
+  "./admin/batches/1042",
+  "./admin/batches/1040",
   "./admin/fulfillment",
   `./admin/fulfillment/requests/${PENDING_REQUEST_ID}`,
   `./admin/fulfillment/conflicts/${CONFLICT_ID}`,
@@ -97,6 +107,7 @@ test.beforeEach(async ({ page }) => {
   await mockFulfillment(page);
   await mockLeadReports(page);
   await mockActivity(page);
+  await mockOperatorDesk(page);
 });
 
 test.describe("Automated WCAG 2.2 AA sweep", () => {
@@ -151,6 +162,27 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
 
   test("the design-system gallery is clean in the dark scheme", async ({ page }) => {
     await page.goto("./design-system");
+    await page.getByRole("button", { name: "Switch to dark desk" }).click();
+    await expect(page.locator("html")).toHaveAttribute("data-scheme", "dark");
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("the open global search results have no accessibility violations", async ({ page }) => {
+    await page.goto("./admin/today");
+    await page.getByRole("combobox", { name: "Search customers, batches, and uploads" }).fill("north");
+    await expect(page.getByRole("listbox", { name: "Search results" }).getByRole("option")).toHaveCount(3);
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
+
+    expect(results.violations).toEqual([]);
+  });
+
+  test("Today with a side panel is clean in the dark scheme", async ({ page }) => {
+    await page.goto(`./admin/today?decision=approval%3A${BATCH_IDS[1042]}`);
+    await expect(page.getByRole("complementary", { name: "#1042 · Northstar Insurance" })).toBeVisible();
     await page.getByRole("button", { name: "Switch to dark desk" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-scheme", "dark");
 

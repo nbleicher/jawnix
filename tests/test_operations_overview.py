@@ -352,5 +352,5 @@ def test_unnotified_stale_request_appears_in_jobs_queue(session):
     assert queue.items[0].tone == "danger"
     assert (
         queue.items[0].action.href
-        == f"/app/admin/fulfillment/requests/{stale.id}"
+        == f"/app/admin/batches/{stale.number}"
     )

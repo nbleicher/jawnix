@@ -403,6 +403,7 @@ def _summarize_request(
 ) -> dict[str, object]:
     return {
         "id": str(item.id),
+        "number": item.number,
         "customer": " ".join(
             part
             for part in (item.profile.first_name, item.profile.last_name)
@@ -817,6 +818,7 @@ def describe_conflict(
             return {"id": "", "available": False}
         return {
             "id": str(item.id),
+            "number": item.number,
             "customerIdentity": item.customer.name,
             "agency": item.customer.agency.name if item.customer.agency else "",
             "leadCount": item.lead_count,

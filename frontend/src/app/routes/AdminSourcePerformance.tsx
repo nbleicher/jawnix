@@ -104,7 +104,7 @@ const DESTINATIONS: TerminalDestination[] = [
   },
   { label: "Scraper Operations", href: "/app/admin/acquisition/scraper" },
   { label: "Administrator security", href: "/app/admin/security" },
-  { label: "Exit to Overview", href: "/app/admin/overview" },
+  { label: "Exit to Today", href: "/app/admin/today" },
 ];
 
 const TEXT_FILTER_KEYS = [

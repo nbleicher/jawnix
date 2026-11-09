@@ -34,7 +34,8 @@ test.describe("Customer administration", () => {
       lakeside.getByText("Invitation has not been accepted yet"),
     ).toBeVisible();
 
-    await page.getByLabel("Search").fill("harbor");
+    // Exact: the header's global search is labelled "Search customers, …".
+    await page.getByLabel("Search", { exact: true }).fill("harbor");
     await page.getByRole("button", { name: "Search" }).click();
 
     await expect(page).toHaveURL(/q=harbor/);

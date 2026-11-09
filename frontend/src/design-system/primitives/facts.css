@@ -1,0 +1,34 @@
+.jx-facts {
+  margin: 0;
+  display: grid;
+  gap: var(--jx-space-2);
+  font-size: var(--jx-text-sm);
+}
+
+.jx-facts__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--jx-space-4);
+  min-height: 1.75rem;
+}
+
+.jx-facts__term {
+  flex: 0 1 auto;
+  color: var(--jx-ink-muted);
+}
+
+.jx-facts__value {
+  margin: 0;
+  min-width: 0;
+  text-align: right;
+  font-feature-settings: var(--jx-font-features-numeral);
+  overflow-wrap: anywhere;
+}
+
+.jx-facts__value a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}

@@ -1,7 +1,7 @@
 import type { Page, Route } from "@playwright/test";
 
 import { CUSTOMER_OVERVIEW } from "./customer-overview-fixtures";
-import { OPERATIONS_OVERVIEW } from "./operations-overview-fixtures";
+import { TODAY } from "./today-fixtures";
 import { BATCH_REQUEST_WORKSPACE } from "./customer-requests-fixtures";
 import {
   coverageFeed,
@@ -138,7 +138,7 @@ export async function mockAdminMFA(
           verifiedCount < 1
             ? "/app/admin/mfa/enroll"
             : state.assurance === "aal2"
-              ? "/app/admin/overview"
+              ? "/app/admin/today"
               : "/app/admin/mfa/challenge",
       });
     }
@@ -181,7 +181,7 @@ export async function mockAdminMFA(
       return json(route, {
         ok: true,
         complete,
-        next: complete ? "/app/admin/overview" : "/app/admin/mfa/enroll",
+        next: complete ? "/app/admin/today" : "/app/admin/mfa/enroll",
         session: {
           accessToken: "provider-aal2-access-token-long-enough",
           refreshToken: "provider-refresh-token-long-enough",
@@ -215,7 +215,7 @@ export async function mockAdminMFA(
       state.assurance = "aal2";
       return json(route, {
         ok: true,
-        next: "/app/admin/overview",
+        next: "/app/admin/today",
         session: {
           accessToken: "provider-aal2-access-token-long-enough",
           refreshToken: "provider-refresh-token-long-enough",
@@ -372,8 +372,16 @@ export async function mockAdminMFA(
     json(route, CUSTOMER_OVERVIEW),
   );
 
-  await page.route(/\/api\/admin\/operations-overview$/, (route) =>
-    json(route, OPERATIONS_OVERVIEW),
+  await page.route(/\/api\/admin\/today(\?.*)?$/, (route) =>
+    json(route, TODAY),
+  );
+
+  // The header search box is on every operator page.
+  await page.route(/\/api\/admin\/search\?/, (route) =>
+    json(route, {
+      query: new URL(route.request().url()).searchParams.get("q") ?? "",
+      groups: [],
+    }),
   );
 
   await page.route(/\/api\/me\/batch-requests$/, (route) =>

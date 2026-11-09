@@ -1,0 +1,134 @@
+.jx-global-search {
+  position: relative;
+  flex: 0 1 23rem;
+  min-width: 0;
+}
+
+.jx-global-search__input {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0 var(--jx-space-3);
+  border: var(--jx-rule) solid var(--jx-line-control);
+  border-radius: var(--jx-radius-none);
+  background: var(--jx-paper);
+  color: var(--jx-ink);
+  font: inherit;
+  font-size: var(--jx-text-sm);
+}
+
+.jx-global-search__input::placeholder {
+  color: var(--jx-ink-muted);
+}
+
+.jx-global-search__popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: var(--jx-z-overlay);
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+  width: min(36rem, calc(100vw - 2 * var(--jx-space-4)));
+  max-height: min(32rem, calc(100dvh - 8rem));
+  overflow-y: auto;
+  padding: var(--jx-space-3);
+  border: var(--jx-rule) solid var(--jx-ink);
+  background: var(--jx-paper);
+}
+
+.jx-global-search__popup[hidden] {
+  display: none;
+}
+
+.jx-global-search__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-3);
+}
+
+.jx-global-search__list:empty {
+  display: none;
+}
+
+.jx-global-search__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--jx-space-1);
+}
+
+.jx-global-search__group-label {
+  color: var(--jx-ink-muted);
+  font-family: var(--jx-font-mono);
+  font-size: var(--jx-text-xs);
+  letter-spacing: var(--jx-tracking-label);
+  text-transform: uppercase;
+}
+
+.jx-global-search__option {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--jx-space-3);
+  min-height: var(--jx-touch-target);
+  padding: var(--jx-space-2);
+  font-size: var(--jx-text-sm);
+  cursor: pointer;
+}
+
+.jx-global-search__option--active {
+  background: var(--jx-accent-soft);
+  box-shadow: inset 3px 0 0 var(--jx-ink);
+}
+
+.jx-global-search__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.jx-global-search__detail {
+  flex: none;
+  max-width: 50%;
+  color: var(--jx-ink-muted);
+  text-align: right;
+  font-feature-settings: var(--jx-font-features-numeral);
+}
+
+.jx-global-search__empty {
+  font-size: var(--jx-text-sm);
+}
+
+.jx-global-search__hint {
+  color: var(--jx-ink-muted);
+  font-size: var(--jx-text-xs);
+}
+
+@media (max-width: 40rem) {
+  .jx-global-search {
+    flex: 1 1 8rem;
+  }
+
+  .jx-global-search__popup {
+    position: fixed;
+    top: auto;
+    right: var(--jx-space-4);
+    left: var(--jx-space-4);
+    width: auto;
+    margin-top: 6px;
+  }
+
+  .jx-global-search__option {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .jx-global-search__detail {
+    max-width: none;
+    text-align: left;
+  }
+}
+
+/* Escape clears the box; the engine's own clear control is off-palette. */
+.jx-global-search__input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}

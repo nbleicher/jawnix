@@ -122,6 +122,7 @@
   --jx-touch-target: 44px;
   --jx-shell-max: 90rem;
   --jx-content-max: 72rem;
+  --jx-data-max: 88rem;
   --jx-sidebar: 16rem;
   /* Legacy aliases */
   --jx-shell-max-width: var(--jx-shell-max);

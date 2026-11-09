@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, event, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, JSON, Numeric, Sequence, String, Text, UniqueConstraint, event, inspect as inspect_object, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -450,6 +450,43 @@ class CustomerProfile(Base):
         self.agent = value
 
 
+#: Batch numbers start here: the first Batch Request ever submitted is #1001.
+BATCH_NUMBER_START = 1001
+
+#: Hands out Batch numbers on PostgreSQL. A sequence never gives two
+#: concurrent submissions the same value, unlike reading the current maximum.
+#: Bound to the metadata so the fresh-schema bootstrap (revision 0001) creates
+#: it; the batch-number migration creates it for existing databases.
+BATCH_NUMBER_SEQUENCE = Sequence(
+    "lead_requests_number_seq",
+    start=BATCH_NUMBER_START,
+    metadata=Base.metadata,
+)
+
+
+def _next_batch_number(context) -> int:
+    """The next Batch number for an inserted Batch Request.
+
+    PostgreSQL draws from the sequence. SQLite (tests and local development)
+    has no sequences but serializes writers, so the next number after the
+    current maximum cannot race there; rows inserted together by one
+    statement count on from the first.
+    """
+    connection = context.connection
+    if connection.dialect.name == "postgresql":
+        return int(connection.scalar(BATCH_NUMBER_SEQUENCE.next_value()))
+    issued = getattr(context, "_jawnix_batch_number", None)
+    if issued is None:
+        issued = connection.scalar(
+            text(
+                "SELECT COALESCE(MAX(number), :floor) FROM lead_requests"
+            ),
+            {"floor": BATCH_NUMBER_START - 1},
+        )
+    context._jawnix_batch_number = int(issued) + 1
+    return context._jawnix_batch_number
+
+
 class LeadRequest(Base):
     __tablename__ = "lead_requests"
     __table_args__ = (
@@ -473,8 +510,16 @@ class LeadRequest(Base):
             ),
             name="ck_lead_request_frozen_billing",
         ),
+        Index("uq_lead_request_number", "number", unique=True),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    #: "Batch #1042" on both sides. Sequential in submission order, unique,
+    #: and never changed once assigned.
+    number: Mapped[int] = mapped_column(
+        Integer,
+        default=_next_batch_number,
+        nullable=False,
+    )
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("customer_profiles.user_id", ondelete="CASCADE"), index=True)
     agent_id: Mapped[int] = mapped_column(ForeignKey("agents.id", ondelete="RESTRICT"), index=True)
     lead_count: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -531,6 +576,14 @@ class LeadRequest(Base):
     @customer.setter
     def customer(self, value: Customer) -> None:
         self.agent = value
+
+
+@event.listens_for(LeadRequest, "before_update", propagate=True)
+def _batch_number_is_immutable(_mapper, _connection, target: LeadRequest) -> None:
+    # Any write to a persisted row's number is a change, including one made
+    # while the loaded value was expired and so cannot be compared.
+    if inspect_object(target).attrs.number.history.has_changes():
+        raise ValueError("A Batch number never changes once assigned.")
 
 
 class CreditLedgerEntry(Base):

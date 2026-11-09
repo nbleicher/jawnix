@@ -167,7 +167,7 @@ export async function customerAccessLoader({
       const value = await destination.json() as { next: string };
       throw redirect(routerPath(value.next));
     }
-    throw redirect("/admin/overview");
+    throw redirect("/admin/today");
   }
   if (!response.ok) {
     throw new Response("Customer access is temporarily unavailable.", {

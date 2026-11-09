@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { Link, useLoaderData, useRevalidator } from "react-router";
 
 import { ActionLink, Button } from "../../design-system/primitives/Button";
-import { ConfirmDialog } from "../../design-system/primitives/Dialog";
-import { DetailList } from "../../design-system/primitives/detail";
+import { FactList } from "../../design-system/primitives/facts";
+import { Panel, RecordColumns } from "../../design-system/primitives/panel";
+import { DataTable } from "../../design-system/primitives/table";
+import type { DataColumn } from "../../design-system/primitives/table";
 import { EmptyState } from "../../design-system/primitives/feedback";
-import { Field, Textarea } from "../../design-system/primitives/form";
 import {
   Card,
   Cluster,
@@ -23,15 +24,20 @@ import { Heading, Mono, Text } from "../../design-system/primitives/typography";
 import { api } from "../auth/adminMFA";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import {
-  ActivityTimeline,
-  loadEntityActivity,
-} from "./AdminActivity";
+  ControlActionBar,
+  RenotifyAction,
+  conflictEndpoint,
+  errorMessage,
+  leadControlRequest,
+  postReason,
+  requestEndpoint,
+} from "../operator/actions";
+import type { ControlAction } from "../operator/actions";
+import { formatDateTime } from "../operator/format";
+import { loadEntityActivity } from "./AdminActivity";
 import type { ActivityPage } from "./AdminActivity";
 import type { MilestoneGraphData } from "./batchRequests";
-import { MilestoneGraph } from "./MilestoneGraph";
 import { useLiveRequests } from "./useLiveRequests";
-
-import "./AdminFulfillmentProgressLog.css";
 
 /**
  * The administrator Fulfillment workspace (#57).
@@ -44,6 +50,18 @@ import "./AdminFulfillmentProgressLog.css";
  * disagree with the domain.
  */
 
+export {
+  ControlActionBar,
+  leadControlRequest,
+  RenotifyAction,
+} from "../operator/actions";
+export type {
+  ControlAction,
+  ControlExtras,
+  ControlRequest,
+  ControlResolver,
+} from "../operator/actions";
+
 export interface FulfillmentAction {
   name: string;
   label: string;
@@ -54,6 +72,8 @@ export interface FulfillmentAction {
 
 export interface RequestSummary {
   id: string;
+  /** "Batch #1042". */
+  number?: number;
   customer: string;
   customerIdentity: string;
   agency: string;
@@ -76,6 +96,8 @@ export interface DeliveryFailure extends RequestSummary {
 
 export interface ConflictSide {
   id: string;
+  /** "Batch #1042". Absent only when the Batch Request is gone. */
+  number?: number;
   customerIdentity?: string;
   agency?: string;
   leadCount?: number;
@@ -109,17 +131,6 @@ export interface ConflictDetail {
  * is never edited here: every control below acts on the *Lead*, and the
  * Distribution Event that was delivered stays exactly as delivered.
  */
-export interface ControlAction {
-  name: string;
-  label: string;
-  consequence: string;
-  destructive: boolean;
-  requiresReason: boolean;
-  /** True only for a Lead Correction, which needs a typed title or state on top
-   *  of the reason. The screen reads this rather than checking for `correct`,
-   *  so the override surface follows the domain instead of a name. */
-  requiresOverride?: boolean;
-}
 
 /** What the Lead looked like underneath the report — the thing a Lead
  *  Correction overrides. `kind: "none"` means there is nothing underneath. */
@@ -166,6 +177,7 @@ export interface LeadReportDetail {
     deliveredAt: string;
     listingProvenance: Record<string, unknown>;
     requestId: string | null;
+    requestNumber?: number | null;
   };
   lead: {
     id: number;
@@ -387,118 +399,6 @@ function statusTone(status: string): StatusTone {
   return STATUS_TONES[status] ?? "neutral";
 }
 
-const LIVE_JOB_TONES: Record<string, StatusTone> = {
-  queued: "info",
-  running: "info",
-  failed: "danger",
-};
-
-const LOG_VISIBLE_ROWS = 5;
-
-function ProgressActivityLog({ live }: { live: LiveActivity | undefined }) {
-  const rows = live?.log ?? [];
-  if (!rows.length) {
-    return (
-      <div className="jx-progress-log jx-progress-log__empty" role="status">
-        <Text size="sm" tone="muted">
-          {live?.settled
-            ? "This request is settled; nothing is running."
-            : "Nothing has been recorded for this request yet."}
-        </Text>
-      </div>
-    );
-  }
-  return (
-    <ol
-      className="jx-progress-log"
-      aria-label="Live activity log, most recent first"
-      // Hint assistive tech that ~5 rows are in view; the rest scroll.
-      style={{ maxHeight: `calc(${LOG_VISIBLE_ROWS} * 2.5rem)` }}
-    >
-      {rows.map((row) => (
-        <li className="jx-progress-log__row" key={row.id}>
-          <time className="jx-progress-log__at" dateTime={row.at ?? undefined}>
-            {formatLogTime(row.at)}
-          </time>
-          <div className="jx-progress-log__body">
-            <span className="jx-progress-log__label">{row.label}</span>
-            {row.detail ? (
-              <span className="jx-progress-log__detail">{row.detail}</span>
-            ) : null}
-          </div>
-          <StatusBadge tone={row.tone || "neutral"}>
-            {logBadge(row)}
-          </StatusBadge>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function formatLogTime(value: string | null): string {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toISOString().replace("T", " ").slice(11, 19) + " UTC";
-}
-
-function logBadge(row: ProgressLogEntry): string {
-  if (row.kind === "job") {
-    return row.detail?.split(" · ")[0] || "job";
-  }
-  if (row.kind === "status") {
-    return row.detail || "status";
-  }
-  return "decision";
-}
-
-function LiveActivityStrip({ live }: { live: LiveActivity | undefined }) {
-  if (live == null) {
-    return null;
-  }
-  if (!live.jobs.length && live.blocker == null) {
-    return null;
-  }
-  return (
-    <Stack gap={2} aria-label="Active jobs">
-      {live.blocker ? (
-        <Text size="sm" tone="warning" role="status">
-          {live.blocker.detail}
-        </Text>
-      ) : null}
-      {live.jobs.map((job) => (
-        <Cluster key={`${job.kind}-${job.status}-${job.attempts}`} gap={2}>
-          <StatusBadge tone={LIVE_JOB_TONES[job.status] ?? "neutral"}>
-            {job.status}
-          </StatusBadge>
-          <Text size="sm">{job.label}</Text>
-          {job.attempts > 1 ? (
-            <Text size="sm" tone="muted">
-              attempt {job.attempts}
-            </Text>
-          ) : null}
-          {job.lastError ? (
-            <Text size="sm" tone="danger">
-              {job.lastError}
-            </Text>
-          ) : null}
-          {job.status === "queued" && job.runAfter ? (
-            <Text size="sm" tone="muted">
-              after {formatDate(job.runAfter)}
-            </Text>
-          ) : null}
-        </Cluster>
-      ))}
-    </Stack>
-  );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error
-    ? error.message
-    : "The action could not be completed.";
-}
-
 export function formatDate(value: string | null): string {
   if (!value) return "—";
   const parsed = new Date(value);
@@ -543,13 +443,7 @@ export async function fulfillmentLoader(): Promise<WorkspaceData> {
   return { ...workspace, poolBreakdown };
 }
 
-export async function fulfillmentRequestLoader({
-  params,
-}: LoaderFunctionArgs): Promise<RequestDetail> {
-  return loadFulfillmentRequest(params.requestId!);
-}
-
-async function loadFulfillmentRequest(requestId: string): Promise<RequestDetail> {
+export async function loadFulfillmentRequest(requestId: string): Promise<RequestDetail> {
   const [details, activityTimeline] = await Promise.all([
     api<Omit<RequestDetail, "activityTimeline">>(
       `/api/admin/requests/${requestId}`,
@@ -567,327 +461,6 @@ export async function fulfillmentConflictLoader({
   );
 }
 
-export interface ControlRequest {
-  url: string;
-  method: "POST" | "PUT" | "DELETE";
-  body: Record<string, unknown>;
-}
-
-/** Builds the call one control action makes. Callers own it because the two
- *  families disagree on the wire: a Lead Report decision records the operator's
- *  words as `note`, while a Lead-level suppression or correction takes a
- *  `reason`. Guessing that from the action name here would hide the split. */
-export type ControlResolver = (
-  action: ControlAction,
-  reason: string,
-  values: Record<string, string>,
-) => ControlRequest;
-
-export interface ControlExtras {
-  values: Record<string, string>;
-  set: (name: string, value: string) => void;
-}
-
-interface ControlActionBarProps {
-  actions: ControlAction[];
-  resolve: ControlResolver;
-  /** Rendered when the record has nothing left to decide. */
-  settled: string;
-  /** Inputs an action needs beyond the reason, rendered above it. A Lead
-   *  Correction uses this to sit the evidence next to the override being
-   *  typed, so the operator sees what they are overriding while they type. */
-  extras?: (action: ControlAction, control: ControlExtras) => ReactNode;
-  /** Checked before anything is sent. Returns the message to show, or "". */
-  validate?: (action: ControlAction, values: Record<string, string>) => string;
-  onConfirmed?: ((result: Partial<RequestDetail>) => void) | undefined;
-  refresh?: (() => void) | undefined;
-}
-
-/**
- * Renders exactly the control actions the server offered, each behind its own
- * confirmation stating its own consequence.
- *
- * Three decisions on a Lead Report are three buttons, not one control with a
- * mode: Dismissed, Corrected, and Suppressed do different things to the Lead
- * and a chooser would let one be taken while reading another's consequence.
- */
-export function ControlActionBar({
-  actions,
-  resolve,
-  settled,
-  extras,
-  validate,
-  onConfirmed,
-  refresh,
-}: ControlActionBarProps) {
-  const [pending, setPending] = useState<ControlAction | null>(null);
-  const [reason, setReason] = useState("");
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const revalidator = useRevalidator();
-
-  function open(action: ControlAction) {
-    setPending(action);
-    // Nothing is pre-filled: an override must be typed, never defaulted into
-    // agreement with the evidence it is supposed to replace.
-    setReason("");
-    setValues({});
-    setError("");
-  }
-
-  function close() {
-    setPending(null);
-    setReason("");
-    setValues({});
-  }
-
-  async function confirm() {
-    if (!pending) return;
-    if (pending.requiresReason && !reason.trim()) {
-      setError("A reason is required.");
-      return;
-    }
-    const invalid = validate?.(pending, values) ?? "";
-    if (invalid) {
-      setError(invalid);
-      return;
-    }
-    const request = resolve(pending, reason.trim(), values);
-    setBusy(true);
-    setError("");
-    try {
-      const result = await api<Partial<RequestDetail>>(request.url, {
-        method: request.method,
-        body: JSON.stringify(request.body),
-      });
-      close();
-      if (onConfirmed) onConfirmed(result);
-      else revalidator.revalidate();
-    } catch (caught) {
-      setError(errorMessage(caught));
-      // A 409 means this report was already decided somewhere else. Re-read it
-      // so the screen stops offering a decision that has already been taken.
-      if (refresh) refresh();
-      else revalidator.revalidate();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // A refused action re-reads the record, which can empty `actions` while the
-  // dialog is still open. Unmounting here would destroy the refusal message in
-  // the same tick it was written, so the operator would never learn why — the
-  // faster the re-read, the less chance they have of reading it. Keep the open
-  // dialog mounted; the action buttons still disappear, which is the part that
-  // must not survive.
-  if (!actions.length && pending === null) {
-    return (
-      <Text size="sm" tone="muted">
-        {settled}
-      </Text>
-    );
-  }
-
-  return (
-    <>
-      {actions.length ? (
-        <Cluster gap={2}>
-          {actions.map((action) => (
-            <Button
-              key={action.name}
-              variant={action.destructive ? "danger" : "secondary"}
-              onClick={() => open(action)}
-            >
-              {action.label}
-            </Button>
-          ))}
-        </Cluster>
-      ) : (
-        <Text size="sm" tone="muted">
-          {settled}
-        </Text>
-      )}
-      <ConfirmDialog
-        open={pending !== null}
-        onClose={close}
-        onConfirm={() => void confirm()}
-        title={pending?.label ?? ""}
-        consequence={pending?.consequence ?? ""}
-        confirmLabel={pending?.label ?? "Confirm"}
-        destructive={pending?.destructive ?? false}
-        busy={busy}
-      >
-        <Stack gap={4}>
-          {pending && extras
-            ? extras(pending, {
-                values,
-                set: (name, value) =>
-                  setValues((current) => ({ ...current, [name]: value })),
-              })
-            : null}
-          <Field
-            label="Reason"
-            description="Recorded in Activity so this decision can be explained later."
-            required={pending?.requiresReason ?? true}
-          >
-            <Textarea
-              name="reason"
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
-          </Field>
-          {error ? (
-            <Text size="sm" tone="danger" role="alert">
-              {error}
-            </Text>
-          ) : null}
-        </Stack>
-      </ConfirmDialog>
-    </>
-  );
-}
-
-/** Lead-level controls. They change the Lead's eligibility; they never touch
- *  the Lead Report's text or the Distribution Event that was delivered. */
-export function leadControlRequest(leadId: number): ControlResolver {
-  return (action, reason) => {
-    if (action.name === "remove-correction") {
-      return {
-        url: `/api/admin/leads/${leadId}/correction`,
-        method: "DELETE",
-        body: { reason },
-      };
-    }
-    return {
-      url: `/api/admin/leads/${leadId}/suppression`,
-      method: action.name === "restore" ? "DELETE" : "PUT",
-      body: { reason },
-    };
-  };
-}
-
-/** Adapts the Batch Request and Inventory Conflict surfaces, which all POST
- *  `{reason}` to a per-action endpoint, onto the one confirm flow. */
-function postReason(
-  endpoint: (action: ControlAction) => string,
-): ControlResolver {
-  return (action, reason) => ({
-    url: endpoint(action),
-    method: "POST",
-    body: { reason },
-  });
-}
-
-function requestEndpoint(id: string) {
-  return (action: ControlAction) =>
-    action.name === "regenerate"
-      ? `/api/admin/requests/${id}/artifact/regenerate`
-      : `/api/admin/requests/${id}/${action.name}`;
-}
-
-function conflictEndpoint(id: string) {
-  return (action: ControlAction) =>
-    `/api/admin/inventory-conflicts/${id}/${action.name}`;
-}
-
-const RENOTIFY_CONSEQUENCE =
-  "Queues a Telegram post for this Batch Request, or an edit of its existing message. The Batch Request itself does not change.";
-
-/**
- * Re-posts or refreshes a Batch Request's Telegram message (B5).
- *
- * Deliberately outside the server's `actions` array: it repairs the Telegram
- * surface and never moves the Batch Request's status, so it cannot be a
- * transition the domain table offers or refuses.
- */
-export function RenotifyAction({
-  requestId,
-  onQueued,
-}: {
-  requestId: string;
-  onQueued?: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [queued, setQueued] = useState(false);
-
-  function show() {
-    setOpen(true);
-    setReason("");
-    setError("");
-  }
-
-  function close() {
-    setOpen(false);
-    setReason("");
-  }
-
-  async function confirm() {
-    if (!reason.trim()) {
-      setError("A reason is required.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      await api(`/api/admin/requests/${requestId}/notify`, {
-        method: "POST",
-        body: JSON.stringify({ reason: reason.trim() }),
-      });
-      close();
-      setQueued(true);
-      onQueued?.();
-    } catch (caught) {
-      setError(errorMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Stack gap={2} align="flex-start">
-      <Button variant="secondary" onClick={show}>
-        Re-notify in Telegram
-      </Button>
-      <Text size="sm" tone="muted" role="status">
-        {queued ? "Telegram re-notification queued." : ""}
-      </Text>
-      <ConfirmDialog
-        open={open}
-        onClose={close}
-        onConfirm={() => void confirm()}
-        title="Re-notify in Telegram"
-        consequence={RENOTIFY_CONSEQUENCE}
-        confirmLabel="Re-notify"
-        destructive={false}
-        busy={busy}
-      >
-        <Stack gap={4}>
-          <Field
-            label="Reason"
-            description="Recorded in Activity so this decision can be explained later."
-            required
-          >
-            <Textarea
-              name="reason"
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-            />
-          </Field>
-          {error ? (
-            <Text size="sm" tone="danger" role="alert">
-              {error}
-            </Text>
-          ) : null}
-        </Stack>
-      </ConfirmDialog>
-    </Stack>
-  );
-}
-
 function RequestCard({ item, onConfirmed, refresh }: { item: RequestSummary; onConfirmed?: (result: Partial<RequestDetail>) => void; refresh?: () => void }) {
   return (
     <Card as="article">
@@ -895,7 +468,7 @@ function RequestCard({ item, onConfirmed, refresh }: { item: RequestSummary; onC
         <Stack gap={2}>
           <Cluster gap={2} justify="space-between">
             <Heading level={3} size="sm">
-              <Link to={`/admin/fulfillment/requests/${item.id}`}>
+              <Link to={`/admin/batches/${item.number ?? item.id}`}>
                 {item.customerIdentity}
               </Link>
             </Heading>
@@ -1155,6 +728,7 @@ export function AdminFulfillmentRoute() {
   return (
     <Page
       title="Fulfillment"
+      width="data"
       description="Review Batch Requests, Inventory Conflicts, and delivery failures, and take the actions each one currently allows."
     >
       <Stack gap={6}>
@@ -1267,7 +841,7 @@ export function AdminFulfillmentRoute() {
                   <Stack gap={4}>
                     <Stack gap={2}>
                       <Heading level={3} size="sm">
-                        <Link to={`/admin/fulfillment/requests/${item.id}`}>
+                        <Link to={`/admin/batches/${item.number ?? item.id}`}>
                           {item.customerIdentity}
                         </Link>
                       </Heading>
@@ -1320,374 +894,169 @@ export function AdminFulfillmentRoute() {
   );
 }
 
-/** Open Batch Requests, the ones whose Telegram message can still matter. */
-const RENOTIFY_STATUSES = new Set([
-  "pending",
-  "approved",
-  "waiting_inventory",
-  "processing",
-  "generated",
-  "failed",
-]);
 
-export function AdminFulfillmentRequestRoute() {
-  const initial = useLoaderData<RequestDetail>();
-  const [item, setItem] = useState(initial);
-  const revision = useRef(0);
-  const mounted = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; revision.current += 1; };
-  }, []);
-  useEffect(() => { revision.current += 1; setItem(initial); }, [initial]);
-  const revalidator = useRevalidator();
-  useDocumentTitle(`Batch Request · ${item.customerIdentity}`);
+const CONFLICT_STATUSES: Record<string, { label: string; tone: StatusTone }> = {
+  pending: { label: "Awaiting decision", tone: "danger" },
+  confirmed: { label: "Confirmed once", tone: "info" },
+  denied: { label: "Denied", tone: "neutral" },
+  consumed: { label: "Attempt used", tone: "neutral" },
+};
 
-  const live = item.live;
-  const refresh = useCallback(async () => {
-    const version = revision.current;
-    const updated = await loadFulfillmentRequest(initial.id);
-    if (mounted.current && revision.current === version) setItem(updated);
-  }, [initial.id]);
-  useLiveRequests(`/api/admin/requests/${item.id}/events`, live && !live.settled ? [item.id] : [], refresh, () => { void revalidator.revalidate(); });
+function conflictStatus(status: string) {
+  return CONFLICT_STATUSES[status] ?? { label: status, tone: "neutral" as StatusTone };
+}
 
-  function confirmed(result: Partial<RequestDetail>) {
-    revision.current += 1;
-    if (result.id === item.id && result.status) setItem((current) => ({ ...current, ...result }));
-    void refresh().catch(() => undefined);
-  }
+/** Who decided, in words: Activity keeps identities, not names. */
+function deciderName(actor: string): string {
+  if (!actor) return "—";
+  if (actor.startsWith("telegram:")) return "Operator in Telegram";
+  if (actor.startsWith("system")) return "System";
+  return "Operator";
+}
 
-  const byState = item.distribution.byState ?? [];
-
+function conflictBatchLink(side: ConflictSide): ReactNode {
+  if (!side.available) return "No longer available";
   return (
-    <Page
-      title={`Batch Request — ${item.customerIdentity}`}
-      description={item.statusMessage || "Review this Batch Request and act on it."}
-      actions={
-        <ActionLink href="/app/admin/fulfillment">Back to Fulfillment</ActionLink>
-      }
-    >
-      <Stack gap={6}>
-        {item.milestones ? (
-          <Section
-            title="Progress"
-            description="Live trail of jobs and decisions for this Batch Request. Five rows show; scroll for earlier activity."
-          >
-            <Card>
-              <Stack gap={4}>
-                <MilestoneGraph
-                  graph={item.milestones}
-                  label="Batch Request progress"
-                />
-                <ProgressActivityLog live={live} />
-                <LiveActivityStrip live={live} />
-              </Stack>
-            </Card>
-          </Section>
-        ) : null}
-
-        <Section
-          title="Request"
-          description="The Customer, scope, and current state this decision applies to."
-        >
-          <Card>
-            <DetailList
-              label="Batch Request"
-              items={[
-                // CONTEXT.md: the Customer is the durable party; the
-                // person-with-a-login is a replaceable User Account.
-                { term: "Customer", description: item.customerIdentity },
-                { term: "User Account", description: item.customer },
-                { term: "Agency", description: item.agency || "Standalone Customer" },
-                { term: "Delivery email", description: item.email },
-                {
-                  term: "Quantity",
-                  description: `${item.leadCount.toLocaleString()} Leads`,
-                },
-                {
-                  term: "Licensed State scope",
-                  description: item.states.join(", ") || "None",
-                },
-                {
-                  term: "Status",
-                  description: (
-                    <StatusBadge tone={statusTone(item.status)}>
-                      {statusLabel(item.status)}
-                    </StatusBadge>
-                  ),
-                },
-                {
-                  term: "Availability",
-                  description:
-                    item.availableCount === null
-                      ? "Not yet evaluated"
-                      : `${item.availableCount.toLocaleString()} eligible Leads at the last attempt`,
-                },
-                {
-                  term: "Distribution",
-                  description: `${item.distribution.committed.toLocaleString()} of ${item.distribution.expected.toLocaleString()} committed`,
-                },
-                { term: "Submitted", description: formatDate(item.createdAt) },
-              ]}
-            />
-          </Card>
-        </Section>
-
-        {byState.length ? (
-          <Section
-            title="Distribution"
-            description="Committed Distribution Events by state and Niche for this Batch Request."
-          >
-            <Grid minColumnWidth="12rem" gap={3} aria-label="Distribution by state">
-              {byState.map((cell) => (
-                <Card as="article" padding={3} key={`${cell.state}-${cell.niche}`}>
-                  <Stack gap={1}>
-                    <Text size="sm" tone="muted">{cell.state}</Text>
-                    <Heading level={3} size="sm">{cell.niche}</Heading>
-                    <Text weight="bold">{cell.count.toLocaleString()} committed</Text>
-                  </Stack>
-                </Card>
-              ))}
-            </Grid>
-          </Section>
-        ) : null}
-
-        <Section
-          title="Actions"
-          description="Only the actions this Batch Request's current state allows."
-        >
-          <Stack gap={3}>
-            {item.telegram.decisionPending ? (
-              /* Provenance, not a second action surface: the same decision is
-                 live in Telegram, and taking it in either place settles it. */
-              <Text size="sm" tone="muted">
-                This decision is also open in Telegram. Acting here settles it in
-                both places.
-              </Text>
-            ) : null}
-            <ControlActionBar
-              actions={item.actions}
-              resolve={postReason(requestEndpoint(item.id))}
-              settled="This Batch Request has reached a state with no valid actions."
-              onConfirmed={confirmed}
-              refresh={() => { void refresh().catch(() => undefined); }}
-            />
-            {RENOTIFY_STATUSES.has(item.status) ? (
-              <Stack gap={2}>
-                <Text size="sm" tone="muted">
-                  If Telegram never received this Batch Request, or its message
-                  is out of date, re-notify. The request itself is unchanged.
-                </Text>
-                <RenotifyAction
-                  requestId={item.id}
-                  onQueued={() => { void refresh().catch(() => undefined); }}
-                />
-              </Stack>
-            ) : null}
-          </Stack>
-        </Section>
-
-        <Section
-          title="Batch Artifact"
-          description="The exact CSV materialization of this request."
-        >
-          {item.artifact ? (
-            <Card>
-              <DetailList
-                label="Batch Artifact"
-                items={[
-                  { term: "Filename", description: item.artifact.filename },
-                  {
-                    term: "Rows",
-                    description: item.artifact.rowCount.toLocaleString(),
-                  },
-                  {
-                    term: "Checksum",
-                    description: <Mono>{item.artifact.sha256}</Mono>,
-                  },
-                  {
-                    term: "Notification status",
-                    description: item.artifact.deliveryStatus,
-                  },
-                  {
-                    term: "Delivery attempts",
-                    description: String(item.artifact.deliveryAttempts),
-                  },
-                  {
-                    term: "File",
-                    description: item.artifact.available
-                      ? "Available"
-                      : "Expired — it can be regenerated from committed Distribution Events",
-                  },
-                  {
-                    term: "Expires",
-                    description: formatDate(item.artifact.expiresAt),
-                  },
-                  ...(item.artifact.lastError
-                    ? [
-                        {
-                          term: "Last error",
-                          description: item.artifact.lastError,
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-            </Card>
-          ) : (
-            <EmptyState
-              title="No Batch Artifact yet"
-              description="A Batch Artifact is created when allocation commits. Until then there is nothing to deliver or regenerate."
-            />
-          )}
-        </Section>
-
-        <Section
-          title="Activity"
-          description="Every recorded decision, most recent first."
-        >
-          <ActivityTimeline
-            activity={item.activityTimeline}
-            emptyTitle="Nothing has been recorded yet"
-            emptyDescription="Consequential actions on this Batch Request will appear here as they are taken."
-          />
-        </Section>
-      </Stack>
-    </Page>
+    <Link to={`/admin/batches/${side.number ?? side.id}`}>
+      {side.number ? `Batch #${side.number}` : "Batch"}
+    </Link>
   );
 }
 
+/**
+ * One Inventory Conflict (P3): the decision first, in plain words, then the
+ * two batches it is about, each linked.
+ */
 export function AdminFulfillmentConflictRoute() {
   const item = useLoaderData<ConflictDetail>();
-  useDocumentTitle("Inventory Conflict");
+  const older = item.olderRequest;
+  const newer = item.newerRequest;
+  const status = conflictStatus(item.status);
+  const olderName = older.number ? `Batch #${older.number}` : "the older batch";
+  const newerName = newer.number ? `Batch #${newer.number}` : "the newer batch";
+  const sentence = `${olderName.charAt(0).toUpperCase()}${olderName.slice(1)} cannot be filled yet, and ${newerName} could use leads both need.`;
+  useDocumentTitle("Inventory conflict");
 
-  function side(request: ConflictSide, role: string) {
-    return (
-      <Card as="article">
-        <Stack gap={3}>
-          <Heading level={3} size="sm">
-            {role}
-          </Heading>
-          {request.available ? (
-            <DetailList
-              label={role}
-              items={[
-                { term: "Customer", description: request.customerIdentity ?? "—" },
-                { term: "Agency", description: request.agency || "Standalone Customer" },
-                {
-                  term: "Quantity",
-                  description: `${(request.leadCount ?? 0).toLocaleString()} Leads`,
-                },
-                {
-                  term: "Licensed State scope",
-                  description: (request.states ?? []).join(", ") || "None",
-                },
-                {
-                  term: "Status",
-                  description: (
-                    <StatusBadge tone={statusTone(request.status ?? "")}>
-                      {statusLabel(request.status ?? "")}
-                    </StatusBadge>
-                  ),
-                },
-                {
-                  term: "Eligible at snapshot",
-                  description:
-                    request.eligibleCount === null ||
-                    request.eligibleCount === undefined
-                      ? "—"
-                      : request.eligibleCount.toLocaleString(),
-                },
-                { term: "Submitted", description: formatDate(request.createdAt ?? null) },
-              ]}
-            />
-          ) : (
-            <Text size="sm" tone="muted">
-              This Batch Request is no longer available.
-            </Text>
-          )}
-        </Stack>
-      </Card>
-    );
-  }
+  const sides: { role: string; side: ConflictSide }[] = [
+    { role: "Older, waiting", side: older },
+    { role: "Newer", side: newer },
+  ];
+  const columns: DataColumn<{ role: string; side: ConflictSide }>[] = [
+    { key: "batch", header: "Batch", cell: ({ side }) => conflictBatchLink(side) },
+    { key: "role", header: "Order", cell: ({ role }) => role },
+    { key: "customer", header: "Customer", cell: ({ side }) => side.customerIdentity ?? "—" },
+    {
+      key: "leads",
+      header: "Leads",
+      numeric: true,
+      cell: ({ side }) => (side.leadCount ?? 0).toLocaleString(),
+    },
+    { key: "states", header: "States", cell: ({ side }) => (side.states ?? []).join(", ") || "—" },
+    {
+      key: "canGet",
+      header: "Can get now",
+      numeric: true,
+      cell: ({ side }) =>
+        side.eligibleCount === null || side.eligibleCount === undefined
+          ? "—"
+          : side.eligibleCount.toLocaleString(),
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: ({ side }) =>
+        side.status ? (
+          <StatusBadge tone={statusTone(side.status)}>{statusLabel(side.status)}</StatusBadge>
+        ) : (
+          "—"
+        ),
+    },
+  ];
 
   return (
     <Page
-      title="Inventory Conflict"
-      description="An older Batch Request cannot be fulfilled while a newer one could consume Leads eligible for both."
+      title="Inventory conflict"
+      width="data"
+      density="data"
+      description={sentence}
       actions={
-        <ActionLink href="/app/admin/fulfillment">Back to Fulfillment</ActionLink>
-      }
-    >
-      <Stack gap={6}>
-        <Section
-          title="Competing requests"
-          description="The older request holds priority unless this attempt is authorized."
-        >
-          <Grid minColumnWidth="20rem">
-            {side(item.olderRequest, "Older Batch Request")}
-            {side(item.newerRequest, "Newer Batch Request")}
-          </Grid>
-        </Section>
-
-        <Section
-          title="Decision scope"
-          description="What this decision covers, and what it does not."
-        >
-          <Card>
-            <DetailList
-              label="Decision scope"
-              items={[
-                {
-                  term: "Overlapping inventory",
-                  description: `${item.overlappingLeadCount.toLocaleString()} Leads eligible for both requests`,
-                },
-                {
-                  term: "Snapshot",
-                  description: <Mono>{item.snapshotChecksum}</Mono>,
-                },
-                { term: "Recurrence", description: item.recurrenceRule },
-                {
-                  term: "Status",
-                  description: (
-                    <StatusBadge
-                      tone={item.status === "pending" ? "warning" : "neutral"}
-                    >
-                      {item.status}
-                    </StatusBadge>
-                  ),
-                },
-                ...(item.decidedAt
-                  ? [
-                      { term: "Decided", description: formatDate(item.decidedAt) },
-                      { term: "Decided by", description: item.decisionBy },
-                      { term: "Reason", description: item.decisionReason },
-                    ]
-                  : []),
-                ...(item.consumedAt
-                  ? [
-                      {
-                        term: "Authorization spent",
-                        description: formatDate(item.consumedAt),
-                      },
-                    ]
-                  : []),
-              ]}
-            />
-          </Card>
-        </Section>
-
-        <Section
-          title="Decision"
-          description="One decision authorizes one attempt against this exact snapshot."
-        >
+        <>
+          <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
           <ControlActionBar
             actions={item.actions}
             resolve={postReason(conflictEndpoint(item.id))}
-            settled="This Inventory Conflict has already been decided and cannot be decided again."
+            settled=""
+            primaryAction="confirm"
           />
-        </Section>
-      </Stack>
+        </>
+      }
+    >
+      <RecordColumns
+        main={
+          <>
+            <Section title="The decision">
+              <FactList
+                label="The decision"
+                items={[
+                  {
+                    term: "Confirm once",
+                    description: `Gives ${newerName} one allocation attempt against this inventory snapshot.`,
+                  },
+                  {
+                    term: "Deny",
+                    description: `Keeps ${newerName} waiting behind ${olderName}.`,
+                  },
+                  {
+                    term: "Leads both batches need",
+                    description: item.overlappingLeadCount.toLocaleString(),
+                  },
+                  ...(item.decidedAt
+                    ? [
+                        { term: "Decision", description: status.label },
+                        { term: "Decided by", description: deciderName(item.decisionBy) },
+                        { term: "Reason", description: item.decisionReason || "—" },
+                        { term: "Decided", description: formatDateTime(item.decidedAt) },
+                      ]
+                    : []),
+                  ...(item.consumedAt
+                    ? [{ term: "Attempt used", description: formatDateTime(item.consumedAt) }]
+                    : []),
+                ]}
+              />
+              {item.actions.length === 0 ? (
+                <Text size="sm" tone="muted">
+                  This conflict has been decided and cannot be decided again.
+                </Text>
+              ) : null}
+            </Section>
+            <Section title="The two batches">
+              <DataTable
+                label="The two batches"
+                columns={columns}
+                rows={sides}
+                rowKey={({ role }) => role}
+              />
+            </Section>
+          </>
+        }
+        aside={
+          <>
+            <Panel title="How this works">
+              <Text size="sm">{item.recurrenceRule}</Text>
+            </Panel>
+            <Panel title="Inventory snapshot">
+              <FactList
+                label="Inventory snapshot"
+                items={[
+                  { term: "Found", description: formatDateTime(item.createdAt) },
+                  { term: "Snapshot", description: <Mono>{item.snapshotChecksum.slice(0, 16)}…</Mono> },
+                ]}
+              />
+            </Panel>
+            <ActionLink href="/app/admin/today">Back to Today</ActionLink>
+          </>
+        }
+      />
     </Page>
   );
 }

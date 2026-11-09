@@ -357,12 +357,12 @@ for (const scheme of SCHEMES) {
       await mockAdminMFA(page, { assurance: "aal2" });
     });
 
-    test(`admin overview (${scheme})`, async ({ page }, testInfo) => {
-      await page.goto("./admin/overview");
+    test(`admin today (${scheme})`, async ({ page }, testInfo) => {
+      await page.goto("./admin/today");
       await page
-        .getByText("8 pending operations identified")
+        .getByRole("table", { name: "Decisions" })
         .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `admin-overview-${scheme}`);
+      await shoot(page, testInfo, `admin-today-${scheme}`);
     });
 
     test(`admin fulfillment (${scheme})`, async ({ page }, testInfo) => {

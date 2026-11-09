@@ -234,8 +234,8 @@ A reversible, audited administrator override of a Lead's delivered title or stat
 _Avoid_: Source edit, listing deletion
 
 **Batch Request**:
-A Customer's request for an exact quantity of 1 to 100,000 eligible Leads within a specified Licensed State scope. A Customer may have multiple active requests, ordered by approval time within that Customer's queue.
-_Avoid_: Partial order, batch artifact
+A Customer's request for an exact quantity of 1 to 100,000 eligible Leads within a specified Licensed State scope. A Customer may have multiple active requests, ordered by approval time within that Customer's queue. Both the Customer and the operator name it by its Batch number ("Batch #1042"), assigned in submission order from 1001, unique, and never changed.
+_Avoid_: Partial order, batch artifact, REQ- codes
 
 **Request Approval**:
 An explicit operator authorization for a Batch Request's first allocation attempt. It survives automatic removal of unlicensed states, but any Customer-requested scope change requires a new request and losing every requested state cancels it.

@@ -63,7 +63,7 @@ test.describe("Reaching a Lead Report from the workspace", () => {
       .click();
 
     await expect(
-      page.getByRole("heading", { level: 1, name: "Lead Report — Wrong number" }),
+      page.getByRole("heading", { level: 1, name: "Lead report · Wrong number" }),
     ).toBeVisible();
     await expect(
       page.getByText(
@@ -95,6 +95,17 @@ test.describe("The report is evidence", () => {
     await expect(
       delivered.getByText(/never rewrites this Distribution Event/),
     ).toBeVisible();
+  });
+
+  test("the decision comes first and the batch it came from is linked", async ({ page }) => {
+    await page.goto(`./admin/fulfillment/reports/${OPEN_REPORT_ID}`);
+
+    const decisionBox = await page.getByRole("region", { name: "Decision" }).boundingBox();
+    const reportBox = await page.getByRole("region", { name: "Report" }).boundingBox();
+    expect(decisionBox!.y).toBeLessThan(reportBox!.y);
+    await expect(
+      page.getByRole("region", { name: "What was delivered" }).getByRole("link", { name: "Batch #1031" }),
+    ).toHaveAttribute("href", "/app/admin/batches/1031");
   });
 });
 

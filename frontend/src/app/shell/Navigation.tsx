@@ -1,4 +1,4 @@
-import { NavLink } from "react-router";
+import { Link, NavLink, useLocation } from "react-router";
 import type { ReactNode } from "react";
 
 import "./Navigation.css";
@@ -11,6 +11,10 @@ export interface NavigationDestination {
   /** Decorative glyph. Never the only label — every destination keeps its text
    *  so the bar is readable at any width and by screen readers. */
   icon?: ReactNode;
+  /** Decides "current page" when the destination's path prefix is not the
+   *  right test — e.g. a section that owns several path trees, or one whose
+   *  path contains another destination's. */
+  match?: (pathname: string) => boolean;
 }
 
 export interface NavigationProps {
@@ -27,29 +31,54 @@ export interface NavigationProps {
  * landmarks in the accessibility tree and let the two copies drift.
  */
 export function Navigation({ label, destinations }: NavigationProps) {
+  const { pathname } = useLocation();
   return (
     <nav className="jx-nav" aria-label={label}>
       <ul className="jx-nav__list">
-        {destinations.map((destination) => (
-          <li key={destination.to} className="jx-nav__item">
-            <NavLink
-              to={destination.to}
-              onMouseEnter={() => prefetchDestination(destination.to)}
-              onFocus={() => prefetchDestination(destination.to)}
-              // `end` is deliberately off: a nested route such as
-              // /app/requests/1234 still belongs to Requests. React Router
-              // matches on path segments, so /app/requests-archive does not.
-              className={({ isActive }) => cx("jx-nav__link", isActive ? "jx-nav__link--active" : null)}
-            >
+        {destinations.map((destination) => {
+          const content = (
+            <>
               {destination.icon ? (
                 <span className="jx-nav__icon" aria-hidden="true">
                   {destination.icon}
                 </span>
               ) : null}
               <span className="jx-nav__label">{destination.label}</span>
-            </NavLink>
-          </li>
-        ))}
+            </>
+          );
+          const prefetch = () => prefetchDestination(destination.to);
+          if (destination.match) {
+            const active = destination.match(pathname);
+            return (
+              <li key={destination.to} className="jx-nav__item">
+                <Link
+                  to={destination.to}
+                  onMouseEnter={prefetch}
+                  onFocus={prefetch}
+                  aria-current={active ? "page" : undefined}
+                  className={cx("jx-nav__link", active ? "jx-nav__link--active" : null)}
+                >
+                  {content}
+                </Link>
+              </li>
+            );
+          }
+          return (
+            <li key={destination.to} className="jx-nav__item">
+              <NavLink
+                to={destination.to}
+                onMouseEnter={prefetch}
+                onFocus={prefetch}
+                // `end` is deliberately off: a nested route such as
+                // /app/requests/1234 still belongs to Requests. React Router
+                // matches on path segments, so /app/requests-archive does not.
+                className={({ isActive }) => cx("jx-nav__link", isActive ? "jx-nav__link--active" : null)}
+              >
+                {content}
+              </NavLink>
+            </li>
+          );
+        })}
       </ul>
     </nav>
   );

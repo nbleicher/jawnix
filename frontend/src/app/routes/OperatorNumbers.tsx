@@ -2,7 +2,7 @@ import { Kpi, KpiRow } from "../../design-system/primitives/kpi";
 import { formatCents } from "../billing/money";
 
 /**
- * The operator's eight headline numbers (Overview now, Today next).
+ * The operator's eight headline numbers, at the top of Today.
  *
  * Mirrors `OperatorNumbers` in jawnix/operator_numbers.py. The usable DB1 and
  * DB2 totals are background snapshots, so each carries its own as-of time.

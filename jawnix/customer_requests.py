@@ -190,6 +190,7 @@ def request_detail(item: LeadRequest) -> CustomerRequestDetail:
 
     return CustomerRequestDetail(
         id=item.id,
+        number=item.number,
         lead_count=item.lead_count,
         rows_per_file=item.rows_per_file,
         states=normalize_states(item.states_snapshot),

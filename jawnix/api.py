@@ -153,7 +153,10 @@ from .models import (
     WebhookReceipt,
     utcnow,
 )
+from .batches import describe_batch, find_batch, list_batches
 from .operations_overview import OperationsOverview, operations_overview
+from .search import search as operator_search
+from .today import today as operator_today
 from .mfa_provider import MFAProviderError, get_mfa_provider
 from .schemas import (
     RegistrationDecision,
@@ -290,6 +293,66 @@ def admin_operations_overview(
 ):
     """One resilient aggregate for the administrator Operations overview."""
     return operations_overview(db)
+
+
+@app.get("/api/admin/today")
+def admin_today(
+    delivered_since: datetime | None = Query(default=None, alias="deliveredSince"),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """The Today page in one read: numbers, last night, decisions, batches.
+
+    ``deliveredSince`` is the operator's local midnight, so "delivered today"
+    follows their day rather than the server's.
+    """
+    return operator_today(db, delivered_since=delivered_since)
+
+
+@app.get("/api/admin/search")
+def admin_search(
+    q: str = Query(default="", max_length=200),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Grouped matches for the header search box."""
+    return operator_search(db, q)
+
+
+@app.get("/api/admin/batches")
+def admin_batches(
+    q: str = Query(default="", max_length=200),
+    status: str = "open",
+    database: str = "",
+    needs_decision: bool = Query(default=False, alias="needsDecision"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100, alias="pageSize"),
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """All batches, filtered and paged, oldest open batch first."""
+    return list_batches(
+        db,
+        q=q,
+        status=status,
+        database=database,
+        needs_decision=needs_decision,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@app.get("/api/admin/batches/{reference}")
+def admin_batch_detail(
+    reference: str,
+    _: Principal = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """One Batch by number, or by the UUID older links carry."""
+    item = find_batch(db, reference)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Batch was not found.")
+    return describe_batch(db, item)
 
 
 @app.get("/api/admin/activity")
@@ -546,7 +609,7 @@ async def create_session(
     if payload.requested_next == "/admin.html" and role != "admin":
         raise HTTPException(status_code=403, detail="Sign in with noah@jawnix.com to access administration.")
     session_kwargs: dict = {}
-    admin_next = "/app/manager/uploads" if role == "manager" else "/app/admin/overview"
+    admin_next = "/app/manager/uploads" if role == "manager" else "/app/admin/today"
     if role == "admin":
         state = db.get(AdminMFAState, uuid.UUID(str(user["id"])))
         if state is None:
@@ -2572,6 +2635,7 @@ def cancel_request(
 def _request_dict(item: LeadRequest) -> dict:
     return {
         "id": str(item.id),
+        "number": item.number,
         "userId": str(item.user_id),
         "customer": " ".join(part for part in (item.profile.first_name, item.profile.last_name) if part).strip() or item.profile.email,
         "email": item.delivery_email,

@@ -74,7 +74,7 @@ describe("customerAccessLoader", () => {
     const thrown = (await thrownBy(
       customerAccessLoader(loaderArgs()),
     )) as Response;
-    expect(thrown.headers.get("Location")).toBe("/admin/overview");
+    expect(thrown.headers.get("Location")).toBe("/admin/today");
   });
 
   it("returns the overview payload for a Customer", async () => {

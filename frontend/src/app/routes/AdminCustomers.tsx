@@ -554,6 +554,7 @@ export function AdminCustomersRoute() {
   return (
     <Page
       title="Customers"
+      width="data"
       density="data"
       description="A Customer is the durable party that owns Licensed States, Agency membership, and permanent distribution history. Its User Account is only replaceable access."
       actions={

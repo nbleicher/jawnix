@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   AdminFulfillmentConflictRoute,
-  AdminFulfillmentRequestRoute,
   AdminFulfillmentRoute,
 } from "./AdminFulfillment";
 import type {
@@ -14,7 +13,6 @@ import type {
   EligibilityHold,
   FulfillmentAction,
   LeadReportSummary,
-  RequestDetail,
   RequestSummary,
   SuppressedLead,
   WorkspaceData,
@@ -56,63 +54,6 @@ function workspace(overrides: Partial<WorkspaceData> = {}): WorkspaceData {
     inventoryConflicts: [],
     deliveryFailures: [],
     expiredArtifacts: [],
-    ...overrides,
-  };
-}
-
-function detail(overrides: Partial<RequestDetail> = {}): RequestDetail {
-  return {
-    ...summary(),
-    approvedAt: null,
-    deliveredAt: null,
-    artifact: null,
-    distribution: { committed: 0, expected: 250, complete: false },
-    // Settled by default so existing detail tests do not start a poll loop.
-    live: { settled: true, refreshSeconds: 10, jobs: [], log: [] },
-    milestones: {
-      milestones: [
-        {
-          key: "submitted",
-          label: "Submitted",
-          description: "We have your request.",
-          state: "current",
-          occurred_at: "2026-07-01T10:00:00Z",
-        },
-        {
-          key: "approved",
-          label: "Approved",
-          description: "Your request was approved — the Batch is being prepared.",
-          state: "upcoming",
-          occurred_at: null,
-        },
-        {
-          key: "preparing_batch",
-          label: "Preparing Batch",
-          description: "Selecting leads.",
-          state: "upcoming",
-          occurred_at: null,
-        },
-        {
-          key: "delivered",
-          label: "Delivered",
-          description: "Available in the portal.",
-          state: "upcoming",
-          occurred_at: null,
-        },
-      ],
-      current_key: "submitted",
-      pause: null,
-      outcome: null,
-    },
-    telegram: { decisionPending: false },
-    history: [],
-    activityTimeline: {
-      entries: [],
-      page: 1,
-      pageSize: 25,
-      total: 0,
-      pages: 1,
-    },
     ...overrides,
   };
 }
@@ -534,379 +475,6 @@ describe("re-notifying Telegram", () => {
     );
     expect(fetchSpy).not.toHaveBeenCalled();
   });
-
-  it("is offered on an open Batch Request's detail page", () => {
-    renderRoute(<AdminFulfillmentRequestRoute />, detail());
-    expect(
-      screen.getByRole("button", { name: "Re-notify in Telegram" }),
-    ).toBeVisible();
-  });
-
-  it("is not offered once a Batch Request is delivered", () => {
-    renderRoute(
-      <AdminFulfillmentRequestRoute />,
-      detail({ status: "delivered", actions: [] }),
-    );
-    expect(
-      screen.queryByRole("button", { name: "Re-notify in Telegram" }),
-    ).toBeNull();
-  });
-});
-
-describe("the Batch Request detail", () => {
-  it("shows the context an administrator decides on", () => {
-    renderRoute(<AdminFulfillmentRequestRoute />, detail());
-
-    expect(screen.getByText("Northstar Agency")).toBeVisible();
-    // CONTEXT.md: Customer is the durable party, User Account the login.
-    expect(screen.getByText("Northstar Insurance")).toBeVisible();
-    expect(screen.getByText("Dana Reed")).toBeVisible();
-    expect(screen.getByText("250 Leads")).toBeVisible();
-    expect(screen.getByText("TX")).toBeVisible();
-    expect(screen.getByText("0 of 250 committed")).toBeVisible();
-  });
-
-  it("names a live Telegram decision without offering it twice", () => {
-    renderRoute(
-      <AdminFulfillmentRequestRoute />,
-      detail({ telegram: { decisionPending: true } }),
-    );
-
-    expect(
-      screen.getByText(
-        "This decision is also open in Telegram. Acting here settles it in both places.",
-      ),
-    ).toBeVisible();
-    // One Approve, not one per channel.
-    expect(screen.getAllByRole("button", { name: "Approve" })).toHaveLength(1);
-  });
-
-  it("distinguishes an expired artifact from a missing one", () => {
-    renderRoute(
-      <AdminFulfillmentRequestRoute />,
-      detail({
-        artifact: {
-          filename: "batch.csv",
-          rowCount: 250,
-          sha256: "b".repeat(64),
-          deliveryStatus: "sent",
-          deliveryAttempts: 1,
-          lastError: "",
-          expiresAt: "2026-06-01T00:00:00Z",
-          sentAt: "2026-05-02T00:00:00Z",
-          available: false,
-        },
-      }),
-    );
-
-    expect(
-      screen.getByText(
-        "Expired — it can be regenerated from committed Distribution Events",
-      ),
-    ).toBeVisible();
-  });
-
-  it("says plainly when nothing has been recorded yet", () => {
-    renderRoute(<AdminFulfillmentRequestRoute />, detail());
-
-    expect(
-      screen.getByRole("heading", {
-        level: 2,
-        name: "Nothing has been recorded yet",
-      }),
-    ).toBeVisible();
-  });
-
-  it("renders recorded history with actor, reason, and transition", () => {
-    renderRoute(
-      <AdminFulfillmentRequestRoute />,
-      detail({
-        activityTimeline: {
-          entries: [{
-            id: "activity-1",
-            action: "batch_request_approve",
-            actor: "admin-1",
-            reason: "Inventory verified.",
-            entityType: "batch_request",
-            entityId: "11111111-1111-4111-8111-111111111111",
-            entityHref:
-              "/app/admin/fulfillment/requests/11111111-1111-4111-8111-111111111111",
-            recordedAt: "2026-07-02T12:00:00Z",
-            details: {
-              before: { status: "pending" },
-              after: { status: "approved" },
-            },
-          }],
-          page: 1,
-          pageSize: 25,
-          total: 1,
-          pages: 1,
-        },
-      }),
-    );
-
-    expect(screen.getByText("Inventory verified.")).toBeVisible();
-    expect(screen.getByText("admin-1")).toBeVisible();
-    expect(screen.getByText("pending")).toBeVisible();
-    expect(screen.getByText("approved")).toBeVisible();
-  });
-
-  it("renders the Progress milestone status line", () => {
-    renderRoute(<AdminFulfillmentRequestRoute />, detail());
-
-    expect(
-      screen.getByRole("heading", { level: 2, name: "Progress" }),
-    ).toBeVisible();
-    const line = screen.getByRole("status", { name: "Batch Request progress" });
-    expect(line).toBeVisible();
-    expect(line).toHaveTextContent("Submitted — We have your request.");
-  });
-
-  it("shows a running job in the live activity strip", () => {
-    renderRoute(
-      <AdminFulfillmentRequestRoute />,
-      detail({
-        live: {
-          settled: false,
-          refreshSeconds: 10,
-          jobs: [
-            {
-              kind: "allocate_request",
-              label: "Allocating inventory",
-              status: "running",
-              attempts: 1,
-              runAfter: null,
-              lastError: null,
-            },
-          ],
-          log: [
-            {
-              id: "job:1",
-              at: "2026-07-01T10:05:00Z",
-              kind: "job",
-              label: "Allocating inventory",
-              detail: "running",
-              tone: "info",
-            },
-            {
-              id: "audit:1",
-              at: "2026-07-01T10:01:00Z",
-              kind: "decision",
-              label: "Batch request approve",
-              detail: "Inventory verified.",
-              tone: "neutral",
-            },
-            {
-              id: "status:1",
-              at: "2026-07-01T10:00:00Z",
-              kind: "status",
-              label: "Approved; allocation is queued.",
-              detail: "Approved",
-              tone: "info",
-            },
-          ],
-        },
-      }),
-    );
-
-    const log = screen.getByLabelText("Live activity log, most recent first");
-    expect(log).toBeVisible();
-    expect(within(log).getByText("Allocating inventory")).toBeVisible();
-    expect(within(log).getByText("Batch request approve")).toBeVisible();
-    expect(within(log).getByText("Inventory verified.")).toBeVisible();
-    expect(screen.getByLabelText("Active jobs")).toBeVisible();
-    expect(
-      within(screen.getByLabelText("Active jobs")).getByText("running"),
-    ).toBeVisible();
-  });
-
-  it("explains when queued jobs are blocked behind another request", () => {
-    renderRoute(
-      <AdminFulfillmentRequestRoute />,
-      detail({
-        live: {
-          settled: false,
-          refreshSeconds: 10,
-          blocker: {
-            kind: "emit_lead_assigned",
-            label: "Emitting lead.assigned metrics",
-            status: "running",
-            jobId: 41,
-            requestId: "e79977ec-4e01-4943-96fb-27c2ecceedc8",
-            detail:
-              "The worker is busy with Emitting lead.assigned metrics for another batch (e79977ec-4e01-4943-96fb-27c2ecceedc8). Jobs for this request stay queued until that finishes.",
-          },
-          jobs: [
-            {
-              kind: "notify_request",
-              label: "Sending the Telegram approval message",
-              status: "queued",
-              attempts: 0,
-              runAfter: null,
-              lastError: null,
-            },
-          ],
-          log: [],
-        },
-      }),
-    );
-
-    const strip = screen.getByLabelText("Active jobs");
-    expect(
-      within(strip).getByText(/worker is busy with Emitting lead\.assigned metrics/),
-    ).toBeVisible();
-    expect(within(strip).getByText("queued")).toBeVisible();
-  });
-
-  it("surfaces a failed job error in the live strip", () => {
-    renderRoute(
-      <AdminFulfillmentRequestRoute />,
-      detail({
-        live: {
-          settled: false,
-          refreshSeconds: 10,
-          jobs: [
-            {
-              kind: "notify_request",
-              label: "Sending the Telegram approval message",
-              status: "failed",
-              attempts: 3,
-              runAfter: null,
-              lastError: "Telegram sendMessage failed: 503",
-            },
-          ],
-          log: [
-            {
-              id: "job:9",
-              at: "2026-07-01T10:05:00Z",
-              kind: "job",
-              label: "Sending the Telegram approval message",
-              detail: "failed · attempt 3 · Telegram sendMessage failed: 503",
-              tone: "danger",
-            },
-          ],
-        },
-      }),
-    );
-
-    const log = screen.getByLabelText("Live activity log, most recent first");
-    expect(
-      within(log).getByText("Sending the Telegram approval message"),
-    ).toBeVisible();
-    expect(
-      within(log).getByText(/Telegram sendMessage failed: 503/),
-    ).toBeVisible();
-  });
-
-  it("keeps the activity log to five visible rows with overflow scroll", () => {
-    const log = Array.from({ length: 8 }, (_, index) => ({
-      id: `job:${index}`,
-      at: `2026-07-01T10:0${index}:00Z`,
-      kind: "job" as const,
-      label: `Step ${index}`,
-      detail: "complete",
-      tone: "success" as const,
-    }));
-    renderRoute(
-      <AdminFulfillmentRequestRoute />,
-      detail({
-        live: { settled: true, refreshSeconds: 10, jobs: [], log },
-      }),
-    );
-
-    const panel = screen.getByLabelText("Live activity log, most recent first");
-    expect(panel).toHaveStyle({ maxHeight: "calc(5 * 2.5rem)" });
-    expect(within(panel).getByText("Step 0")).toBeVisible();
-    expect(within(panel).getByText("Step 7")).toBeVisible();
-  });
-
-  it("renders Distribution composition cells when byState is present", () => {
-    renderRoute(
-      <AdminFulfillmentRequestRoute />,
-      detail({
-        distribution: {
-          committed: 3,
-          expected: 3,
-          complete: true,
-          byState: [
-            { state: "TX", niche: "Roofing", count: 2 },
-            { state: "TX", niche: "Unmapped", count: 1 },
-          ],
-        },
-      }),
-    );
-
-    const section = screen.getByRole("region", { name: "Distribution" });
-    expect(within(section).getByText("Roofing")).toBeVisible();
-    expect(within(section).getByText("Unmapped")).toBeVisible();
-    expect(within(section).getByText("2 committed")).toBeVisible();
-  });
-
-  it("omits the Distribution section when nothing is committed", () => {
-    renderRoute(<AdminFulfillmentRequestRoute />, detail());
-
-    expect(
-      screen.queryByRole("region", { name: "Distribution" }),
-    ).toBeNull();
-  });
-
-  it("tolerates a payload without Progress fields", () => {
-    const payload = detail();
-    delete payload.milestones;
-    delete payload.live;
-    renderRoute(<AdminFulfillmentRequestRoute />, payload);
-
-    expect(
-      screen.queryByRole("heading", { level: 2, name: "Progress" }),
-    ).toBeNull();
-    expect(screen.getByText("Northstar Insurance")).toBeVisible();
-  });
-
-  it("starts a refresh interval only while unsettled", async () => {
-    const setIntervalSpy = vi.spyOn(window, "setInterval");
-    const clearIntervalSpy = vi.spyOn(window, "clearInterval");
-
-    const unsettled = detail({
-      live: { settled: false, refreshSeconds: 10, jobs: [] },
-    });
-    const router = createMemoryRouter(
-      [
-        {
-          id: "request",
-          path: "/admin/fulfillment/requests/:requestId",
-          loader: () => unsettled,
-          element: <AdminFulfillmentRequestRoute />,
-        },
-      ],
-      {
-        initialEntries: [
-          "/admin/fulfillment/requests/11111111-1111-1111-1111-111111111111",
-        ],
-        hydrationData: { loaderData: { request: unsettled } },
-      },
-    );
-    const view = render(<RouterProvider router={router} />);
-
-    await waitFor(() => {
-      expect(
-        setIntervalSpy.mock.calls.some((call) => call[1] === 10_000),
-      ).toBe(true);
-    });
-    view.unmount();
-    expect(clearIntervalSpy).toHaveBeenCalled();
-
-    setIntervalSpy.mockClear();
-    renderRoute(
-      <AdminFulfillmentRequestRoute />,
-      detail({ live: { settled: true, refreshSeconds: 10, jobs: [] } }),
-    );
-    expect(
-      setIntervalSpy.mock.calls.some((call) => call[1] === 10_000),
-    ).toBe(false);
-
-    setIntervalSpy.mockRestore();
-    clearIntervalSpy.mockRestore();
-  });
 });
 
 describe("the Lead Report control sections", () => {
@@ -1022,18 +590,29 @@ describe("the Lead Report control sections", () => {
 });
 
 describe("the Inventory Conflict detail", () => {
-  it("explains both competing requests and the decision scope", () => {
-    renderRoute(<AdminFulfillmentConflictRoute />, conflict());
+  it("puts the decision first and links both batches", () => {
+    renderRoute(
+      <AdminFulfillmentConflictRoute />,
+      conflict({
+        olderRequest: { ...conflict().olderRequest, number: 1036 },
+        newerRequest: { ...conflict().newerRequest, number: 1037 },
+      }),
+    );
 
-    expect(
-      screen.getByRole("heading", { level: 3, name: "Older Batch Request" }),
-    ).toBeVisible();
-    expect(
-      screen.getByRole("heading", { level: 3, name: "Newer Batch Request" }),
-    ).toBeVisible();
-    expect(
-      screen.getByText("1 Leads eligible for both requests"),
-    ).toBeVisible();
+    const regions = screen.getAllByRole("region").map((region) => region.getAttribute("aria-label"));
+    expect(regions.indexOf("The decision")).toBeLessThan(regions.indexOf("The two batches"));
+    expect(screen.getByText("Batch #1036 cannot be filled yet, and Batch #1037 could use leads both need.")).toBeVisible();
+    const batches = screen.getByRole("table", { name: "The two batches" });
+    expect(within(batches).getByRole("link", { name: "Batch #1036" })).toHaveAttribute(
+      "href",
+      "/admin/batches/1036",
+    );
+    expect(within(batches).getByRole("link", { name: "Batch #1037" })).toHaveAttribute(
+      "href",
+      "/admin/batches/1037",
+    );
+    expect(within(batches).getAllByText("Waiting for inventory")).toHaveLength(2);
+    expect(screen.getByText("Awaiting decision")).toBeVisible();
     expect(screen.getByText(/may recur only after a material change/)).toBeVisible();
   });
 
@@ -1044,7 +623,7 @@ describe("the Inventory Conflict detail", () => {
     expect(screen.getByRole("button", { name: "Deny" })).toBeVisible();
   });
 
-  it("offers no second decision once one has been made", () => {
+  it("offers no second decision once one has been made, in plain words", () => {
     renderRoute(
       <AdminFulfillmentConflictRoute />,
       conflict({
@@ -1059,9 +638,11 @@ describe("the Inventory Conflict detail", () => {
     expect(screen.queryByRole("button", { name: "Confirm once" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
     expect(
-      screen.getByText(
-        "This Inventory Conflict has already been decided and cannot be decided again.",
-      ),
+      screen.getByText("This conflict has been decided and cannot be decided again."),
     ).toBeVisible();
+    expect(screen.getAllByText("Denied").length).toBeGreaterThan(0);
+    // Identities read as roles, not raw ids.
+    expect(screen.getByText("Operator")).toBeVisible();
+    expect(screen.queryByText("admin-1")).toBeNull();
   });
 });

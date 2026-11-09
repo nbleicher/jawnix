@@ -1,0 +1,31 @@
+/* All batches filters: search takes the room, the selects share the rest. */
+.jx-batch-filters {
+  display: grid;
+  grid-template-columns: minmax(14rem, 2fr) repeat(2, minmax(10rem, 1fr)) auto;
+  gap: var(--jx-space-3);
+  align-items: end;
+}
+
+.jx-batch-filters__check {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-2);
+  min-height: var(--jx-touch-target);
+  font-size: var(--jx-text-sm);
+}
+
+.jx-batch-pages {
+  display: flex;
+  align-items: center;
+  gap: var(--jx-space-3);
+}
+
+@media (max-width: 48rem) {
+  .jx-batch-filters {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .jx-batch-filters > :first-child {
+    grid-column: 1 / -1;
+  }
+}

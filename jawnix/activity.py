@@ -41,7 +41,7 @@ MAX_ACTIVITY_PAGE_SIZE = 100
 
 _ENTITY_PATHS = {
     "agency": "/app/admin/agencies/{id}",
-    "batch_request": "/app/admin/fulfillment/requests/{id}",
+    "batch_request": "/app/admin/batches/{id}",
     "customer": "/app/admin/customers/{id}",
     "inventory_conflict": "/app/admin/fulfillment/conflicts/{id}",
     "lead_report": "/app/admin/fulfillment/reports/{id}",

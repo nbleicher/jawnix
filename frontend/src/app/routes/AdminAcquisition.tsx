@@ -24,6 +24,14 @@ import { TerminalWorkspace } from "../../design-system/primitives/terminal";
 import type { TerminalDestination } from "../../design-system/primitives/terminal";
 import { Heading, Mono, Text } from "../../design-system/primitives/typography";
 import { api } from "../auth/adminMFA";
+import {
+  ANOMALY_CONFIRM,
+  ANOMALY_DENY,
+  EXCLUSION_CONFIRM,
+  EXCLUSION_DENY,
+  NICHE_CONFIRM,
+  NICHE_DENY,
+} from "../operator/decisionActions";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { EXCLUSION_TYPES, INGESTING_STATUSES } from "./exclusionLists";
 import type { ExclusionListStatus } from "./exclusionLists";
@@ -235,13 +243,13 @@ function ExclusionReviewCard({ item }: { item: ExclusionReviewRow }) {
         <Text size="xs" tone="muted">Uploaded {formatDate(item.createdAt)}</Text>
         <Cluster gap={2}>
           <Decision
-            label="Confirm globally"
-            consequence="Makes every accepted phone in this Customer upload globally ineligible. The current pool impact is recalculated at decision time."
+            label={EXCLUSION_CONFIRM.label}
+            consequence={EXCLUSION_CONFIRM.consequence}
             endpoint={`/api/admin/exclusion-lists/${item.id}/confirm`}
           />
           <Decision
-            label="Deny global effect"
-            consequence="Keeps this list scoped to the uploading Customer. Its phones will not become globally ineligible."
+            label={EXCLUSION_DENY.label}
+            consequence={EXCLUSION_DENY.consequence}
             endpoint={`/api/admin/exclusion-lists/${item.id}/deny`}
             destructive
           />
@@ -401,7 +409,7 @@ const DESTINATIONS: TerminalDestination[] = [
   // The administrator navigation deliberately omits Security, so this rail is
   // the only way to reach it. Dropping it here would strand the route.
   { label: "Administrator security", href: "/app/admin/security" },
-  { label: "Exit to Overview", href: "/app/admin/overview" },
+  { label: "Exit to Today", href: "/app/admin/today" },
 ];
 
 const REVIEW_TONES: Record<string, StatusTone> = {
@@ -596,8 +604,8 @@ function NicheCard({ item }: { item: NicheRow }) {
             Review and confirm
           </Button>
           <Decision
-            label="Deny proposal"
-            consequence="Removes this proposal from the review queue without confirming a Niche. The Source Segment remains ineligible for automated recommendations until a later proposal is reviewed."
+            label={NICHE_DENY.label}
+            consequence={NICHE_DENY.consequence}
             endpoint={`/api/admin/source-niches/${encodeURIComponent(item.segment)}/deny`}
             destructive
           />
@@ -607,8 +615,8 @@ function NicheCard({ item }: { item: NicheRow }) {
           onClose={() => setOpen(false)}
           onConfirm={() => void confirm()}
           title={`Confirm Niche for ${item.segment}`}
-          consequence="Confirming a Niche makes this Source Segment comparable against its same-niche peers, which is what lets Source Recommendations become eligible. Correct the Niche here if the proposal is wrong."
-          confirmLabel="Confirm Niche"
+          consequence={NICHE_CONFIRM.consequence}
+          confirmLabel={NICHE_CONFIRM.label}
           destructive={false}
           busy={busy}
         >
@@ -741,13 +749,13 @@ function AnomalyCard({ item }: { item: ScrapeAnomalyRow }) {
         {item.decidable ? (
           <Cluster gap={2}>
             <Decision
-              label="Confirm"
-              consequence="Publishes the held staged dataset over the active Scraper Dataset and queues an Inventory Sync. The exact same command Telegram uses runs this."
+              label={ANOMALY_CONFIRM.label}
+              consequence={ANOMALY_CONFIRM.consequence}
               endpoint={`/api/admin/scrape-anomalies/${item.id}/confirm`}
             />
             <Decision
-              label="Deny"
-              consequence="Discards the held staged dataset. The last successful Scraper Dataset stays authoritative and nothing is published."
+              label={ANOMALY_DENY.label}
+              consequence={ANOMALY_DENY.consequence}
               endpoint={`/api/admin/scrape-anomalies/${item.id}/deny`}
               destructive
             />

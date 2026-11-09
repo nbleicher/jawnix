@@ -476,6 +476,7 @@ class ProfileOut(BaseModel):
 class RequestOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
+    number: int
     lead_count: int
     state_mode: str
     states_snapshot: list[str]
@@ -630,6 +631,8 @@ class CustomerRequestDetail(BaseModel):
     """One Batch Request as the Customer application reads it."""
 
     id: uuid.UUID
+    #: "Batch #1042", the name the Customer and the operator share.
+    number: int
     lead_count: int
     rows_per_file: int
     states: list[str]

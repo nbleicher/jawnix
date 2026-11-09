@@ -218,6 +218,7 @@ export function AdminActivityRoute() {
   return (
     <Page
       title="Activity"
+      width="data"
       description="Investigate consequential changes across Jawnix. Filters and page state stay in the URL so this view can be shared."
     >
       <Stack gap={6}>

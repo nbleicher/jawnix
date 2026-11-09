@@ -4,7 +4,8 @@ import { prefetchRead } from "./routeReadCache";
 
 const pages = {
   AdminMFA: () => import("./routes/AdminMFA"),
-  AdminDestinations: () => import("./routes/AdminDestinations"),
+  AdminToday: () => import("./routes/AdminToday"),
+  AdminBatches: () => import("./routes/AdminBatches"),
   AdminAcquisition: () => import("./routes/AdminAcquisition"),
   AdminAcquisitionDetails: () => import("./routes/AdminAcquisitionDetails"),
   AdminSourcePerformance: () => import("./routes/AdminSourcePerformance"),
@@ -55,7 +56,8 @@ export function lazyPage(name: PageName, component: string, loader?: string) {
 }
 
 const destinations: Record<string, { page: PageName; reads?: string[] }> = {
-  "/admin/overview": { page:"AdminDestinations", reads:["/api/admin/operations-overview"] },
+  "/admin/today": { page:"AdminToday" },
+  "/admin/batches": { page:"AdminBatches" },
   "/admin/fulfillment": { page:"AdminFulfillment", reads:["/api/admin/fulfillment", "/api/admin/pool-breakdown"] },
   "/admin/acquisition": { page:"AdminAcquisition", reads:["/api/admin/acquisition"] },
   "/admin/customers": { page:"AdminCustomers", reads:["/api/admin/customers/directory"] },

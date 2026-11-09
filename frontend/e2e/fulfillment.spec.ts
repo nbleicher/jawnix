@@ -7,6 +7,7 @@ import {
   FAILED_WITHOUT_ARTIFACT_ID,
   FAILED_WITH_ARTIFACT_ID,
   PENDING_REQUEST_ID,
+  asBatch,
   mockFulfillment,
 } from "./fulfillment-fixtures";
 import { mockLeadReports } from "./lead-report-fixtures";
@@ -54,13 +55,23 @@ test.beforeEach(async ({ page }) => {
   await mockLeadReports(page);
 });
 
+test.describe("The Batch page replaced the Fulfillment request detail", () => {
+  test("old request links land on the Batch page, named by number", async ({ page }) => {
+    await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
+    await expect(page).toHaveURL(/\/app\/admin\/batches\/1042$/);
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Batch #1042 · Northstar Insurance" }),
+    ).toBeVisible();
+  });
+});
+
 test.describe("Only domain-valid actions are offered", () => {
   test("a pending Batch Request offers approve, reject, and cancel", async ({
     page,
   }) => {
     await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
 
-    const actions = page.getByRole("region", { name: "Actions" });
+    const actions = page.getByRole("main");
     await expect(actions.getByRole("button", { name: "Approve" })).toBeVisible();
     await expect(actions.getByRole("button", { name: "Reject" })).toBeVisible();
     await expect(actions.getByRole("button", { name: "Cancel" })).toBeVisible();
@@ -77,12 +88,8 @@ test.describe("Only domain-valid actions are offered", () => {
   }) => {
     await page.goto(`./admin/fulfillment/requests/${DELIVERED_REQUEST_ID}`);
 
-    const actions = page.getByRole("region", { name: "Actions" });
-    await expect(
-      actions.getByText(
-        "This Batch Request has reached a state with no valid actions.",
-      ),
-    ).toBeVisible();
+    const actions = page.getByRole("main");
+    await expect(page.getByRole("heading", { level: 1, name: "Batch #1043 · Harbor Point" })).toBeVisible();
     for (const label of ["Approve", "Reject", "Cancel", "Retry notification"]) {
       await expect(actions.getByRole("button", { name: label })).toHaveCount(0);
     }
@@ -95,7 +102,7 @@ test.describe("Delivery recovery keeps its two paths apart", () => {
   }) => {
     await page.goto(`./admin/fulfillment/requests/${FAILED_WITH_ARTIFACT_ID}`);
 
-    const actions = page.getByRole("region", { name: "Actions" });
+    const actions = page.getByRole("main");
     await expect(
       actions.getByRole("button", { name: "Retry notification" }),
     ).toBeVisible();
@@ -118,7 +125,7 @@ test.describe("Delivery recovery keeps its two paths apart", () => {
       `./admin/fulfillment/requests/${FAILED_WITHOUT_ARTIFACT_ID}`,
     );
 
-    const actions = page.getByRole("region", { name: "Actions" });
+    const actions = page.getByRole("main");
     await expect(
       actions.getByRole("button", { name: "Retry generation" }),
     ).toBeVisible();
@@ -163,7 +170,7 @@ test.describe("Consequential actions are confirmed with a reason", () => {
     await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
 
     await page
-      .getByRole("region", { name: "Actions" })
+      .getByRole("main")
       .getByRole("button", { name: "Approve" })
       .click();
 
@@ -188,7 +195,7 @@ test.describe("Consequential actions are confirmed with a reason", () => {
     await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
 
     await page
-      .getByRole("region", { name: "Actions" })
+      .getByRole("main")
       .getByRole("button", { name: "Approve" })
       .click();
     const dialog = page.getByRole("dialog");
@@ -202,7 +209,7 @@ test.describe("Consequential actions are confirmed with a reason", () => {
     await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
 
     await page
-      .getByRole("region", { name: "Actions" })
+      .getByRole("main")
       .getByRole("button", { name: "Cancel" })
       .click();
     const dialog = page.getByRole("dialog");
@@ -249,7 +256,7 @@ test.describe("Telegram re-notification is reachable (B5)", () => {
     await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
 
     await page
-      .getByRole("region", { name: "Actions" })
+      .getByRole("main")
       .getByRole("button", { name: "Re-notify in Telegram" })
       .click();
     const dialog = page.getByRole("dialog");
@@ -302,7 +309,7 @@ test.describe("Artifact regeneration is reachable", () => {
     await page.goto(`./admin/fulfillment/requests/${EXPIRED_ARTIFACT_ID}`);
 
     await page
-      .getByRole("region", { name: "Actions" })
+      .getByRole("main")
       .getByRole("button", { name: "Regenerate artifact" })
       .click();
     const dialog = page.getByRole("dialog");
@@ -319,7 +326,9 @@ test.describe("Stale state", () => {
   test("a refused action reports why and re-reads the record", async ({
     page,
   }) => {
-    await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
+    // The number address directly: the UUID redirect re-reads the record once
+    // more, which would race the stale override below.
+    await page.goto("./admin/batches/1042");
 
     /*
      * Wait for the *pending* record to be on screen before overriding the
@@ -329,21 +338,19 @@ test.describe("Stale state", () => {
      * race against how quickly the first fetch leaves the page, which is why it
      * only failed on some machines and some worker counts.
      */
-    const actionsRegion = page.getByRole("region", { name: "Actions" });
+    const actionsRegion = page.getByRole("main");
     await expect(actionsRegion.getByRole("button", { name: "Approve" })).toBeVisible();
 
     // The record moved on elsewhere — in Telegram, or in another tab.
     let reloaded = false;
     await page.route(
-      `**/api/admin/requests/${PENDING_REQUEST_ID}`,
+      "**/api/admin/batches/1042",
       async (route) => {
         reloaded = true;
         return route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({
-            ...STALE_APPROVED_DETAIL,
-          }),
+          body: JSON.stringify(asBatch({ ...STALE_APPROVED_DETAIL, number: 1042 })),
         });
       },
     );
@@ -379,12 +386,10 @@ test.describe("Telegram-originated state", () => {
     await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
 
     await expect(
-      page.getByText(
-        "This decision is also open in Telegram. Acting here settles it in both places.",
-      ),
+      page.getByText("Also open in Telegram. Acting here settles it in both places."),
     ).toBeVisible();
     await expect(
-      page.getByRole("region", { name: "Actions" }).getByRole("button", {
+      page.getByRole("main").getByRole("button", {
         name: "Approve",
       }),
     ).toHaveCount(1);
@@ -393,32 +398,31 @@ test.describe("Telegram-originated state", () => {
   test("attributes a decision taken in Telegram", async ({ page }) => {
     await page.goto(`./admin/fulfillment/requests/${PENDING_REQUEST_ID}`);
 
-    const activity = page.getByRole("region", { name: "Activity" });
-    await activity.locator("summary").first().click();
-    await expect(activity.getByText(/telegram:12345/)).toBeVisible();
-    await expect(activity.getByText("pending")).toBeVisible();
-    await expect(activity.getByText("approved")).toBeVisible();
+    const activity = page.getByRole("table", { name: "Activity" });
+    await expect(activity.getByText("Operator in Telegram")).toBeVisible();
+    await expect(activity.getByText("Approved · Telegram Batch Request decision")).toBeVisible();
   });
 });
 
 test.describe("Inventory Conflicts", () => {
-  test("explains the competing requests, overlap, and recurrence rule", async ({
-    page,
-  }) => {
+  test("puts the decision first and links both batches", async ({ page }) => {
     await page.goto(`./admin/fulfillment/conflicts/${CONFLICT_ID}`);
 
     await expect(
-      page.getByRole("heading", { level: 3, name: "Older Batch Request" }),
+      page.getByText("Batch #1036 cannot be filled yet, and Batch #1037 could use leads both need."),
     ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { level: 3, name: "Newer Batch Request" }),
-    ).toBeVisible();
-    await expect(
-      page.getByText("1 Leads eligible for both requests"),
-    ).toBeVisible();
-    await expect(
-      page.getByText(/may recur only after a material change/),
-    ).toBeVisible();
+    const decision = page.getByRole("region", { name: "The decision" });
+    await expect(decision.getByText("Leads both batches need")).toBeVisible();
+    const batches = page.getByRole("table", { name: "The two batches" });
+    await expect(batches.getByRole("link", { name: "Batch #1036" })).toHaveAttribute(
+      "href",
+      "/app/admin/batches/1036",
+    );
+    await expect(batches.getByRole("link", { name: "Batch #1037" })).toHaveAttribute(
+      "href",
+      "/app/admin/batches/1037",
+    );
+    await expect(page.getByText(/may recur only after a material change/)).toBeVisible();
   });
 
   test("a decision states that it authorizes exactly one attempt", async ({
@@ -426,10 +430,7 @@ test.describe("Inventory Conflicts", () => {
   }) => {
     await page.goto(`./admin/fulfillment/conflicts/${CONFLICT_ID}`);
 
-    await page
-      .getByRole("region", { name: "Decision" })
-      .getByRole("button", { name: "Confirm once" })
-      .click();
+    await page.getByRole("main").getByRole("button", { name: "Confirm once" }).click();
 
     await expect(page.getByRole("dialog")).toHaveAccessibleDescription(
       /Authorizes one allocation attempt for this exact inventory snapshot/,

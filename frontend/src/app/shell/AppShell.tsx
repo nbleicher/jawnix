@@ -16,6 +16,8 @@ export interface AppShellProps {
   headerActions?: ReactNode;
   /** Shown at the top of every routed screen, above its page header. */
   notice?: ReactNode;
+  /** A surface's own frame adjustments, e.g. the operator's phone header. */
+  className?: string;
 }
 
 /**
@@ -30,12 +32,12 @@ export interface AppShellProps {
  * header actions. On narrow screens the bar wraps and the nav scrolls
  * horizontally in its own row — no bottom bar, no hamburger.
  */
-export function AppShell({ audience, destinations, headerActions, notice }: AppShellProps) {
+export function AppShell({ audience, destinations, headerActions, notice, className }: AppShellProps) {
   const navigation = useNavigation();
   const isNavigating = navigation.state !== "idle";
 
   return (
-    <div className="jx-shell">
+    <div className={className ? `jx-shell ${className}` : "jx-shell"}>
       {/* First focusable element on the page (WCAG 2.4.1). */}
       <a className="jx-shell__skip-link" href="#jx-main">
         Skip to main content

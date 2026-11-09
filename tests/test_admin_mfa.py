@@ -672,7 +672,7 @@ def test_expired_session_is_refused_before_mfa_state(
         (
             [factor("Jawnix primary"), factor("Jawnix backup")],
             "aal2",
-            "/app/admin/overview",
+            "/app/admin/today",
         ),
     ],
 )

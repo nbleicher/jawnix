@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from "react-router";
+import { createBrowserRouter, Navigate, redirect } from "react-router";
 import { AdminShell } from "./shells/AdminShell";
 import { MFAShell } from "./shells/MFAShell";
 import { CustomerShell } from "./shells/CustomerShell";
@@ -143,10 +143,23 @@ export const router = createBrowserRouter(
           element: <AdminShell />,
           loader: adminAccessLoader,
           children: [
-            { index: true, element: <Navigate to="/admin/overview" replace /> },
+            { index: true, element: <Navigate to="/admin/today" replace /> },
+            // A2 replaced the Overview with Today. The old address keeps
+            // working for bookmarks and anything that still links to it.
+            { path: "overview", element: <Navigate to="/admin/today" replace /> },
             {
-              path: "overview",
-              lazy: lazyPage("AdminDestinations", "AdminDestinationRoute", "adminOverviewLoader"),
+              path: "today",
+              lazy: lazyPage("AdminToday", "AdminTodayRoute", "adminTodayLoader"),
+            },
+            // A Batch is named by its number ("/admin/batches/1042"); the
+            // Batch page also accepts the UUID older links carry.
+            {
+              path: "batches",
+              lazy: lazyPage("AdminBatches", "AdminBatchesRoute", "adminBatchesLoader"),
+            },
+            {
+              path: "batches/:batchId",
+              lazy: lazyPage("AdminBatches", "AdminBatchRoute", "adminBatchLoader"),
             },
             // #57 replaced the Fulfillment task map with the real workspace.
             // Its loaders read one aggregate contract, and every action the
@@ -156,9 +169,11 @@ export const router = createBrowserRouter(
               path: "fulfillment",
               lazy: lazyPage("AdminFulfillment", "AdminFulfillmentRoute", "fulfillmentLoader"),
             },
+            // The Batch page replaced the Fulfillment request detail. Telegram,
+            // email, and Activity links to the old address still land.
             {
               path: "fulfillment/requests/:requestId",
-              lazy: lazyPage("AdminFulfillment", "AdminFulfillmentRequestRoute", "fulfillmentRequestLoader"),
+              loader: ({ params }) => redirect(`/admin/batches/${params.requestId ?? ""}`),
             },
             {
               path: "fulfillment/conflicts/:conflictId",
