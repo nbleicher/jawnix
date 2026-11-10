@@ -92,13 +92,6 @@ services:
       JAWNIX_DATABASE_POOL_SIZE: "2"
       JAWNIX_DATABASE_MAX_OVERFLOW: "1"
 
-  metrics-worker:
-    <<: *app
-    command: ["python", "-m", "jawnix.worker"]
-    environment:
-      JAWNIX_WORKER_ID: metrics-worker-1
-      JAWNIX_WORKER_LANE: metrics
-
   scheduler:
     <<: *app
     command: ["python", "-m", "jawnix_data.scheduler"]

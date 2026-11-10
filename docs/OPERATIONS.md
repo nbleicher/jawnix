@@ -63,14 +63,14 @@ PostgreSQL, and Restic secrets remain server-side.
 ## Deploying the application host
 
 Production runs on `root@152.53.209.52` (hostname `textro`) in the Compose
-project at `/srv/jawnix/app`. The older host `159.195.15.51` only proxies to it
-and also runs the separate Summit Metrics app; never deploy Jawnix there.
+project at `/srv/jawnix/app`. The older host `159.195.15.51` only proxies to it;
+never deploy Jawnix there.
 
 ### Releasing application code
 
 Application releases build one image from a merged `main` commit and recreate
 every app service on it: `api`, `worker`, `scheduler`, and the `imports`,
-`fulfillment`, `notifications`, `metrics`, `keyword`, and `keyword-refill`
+`fulfillment`, `notifications`, `keyword`, and `keyword-refill`
 workers. Swapping only the API leaves workers on old code and old environment
 values; on 2026-11-10 that had left most workers with billing off for three
 weeks after `.env` turned it on.
@@ -410,8 +410,7 @@ its `checksum` to equal the verified file digest. Rerun it and require
    rollover must enable and disable successfully without that secret on the
    acquisition host; failure is an immediate rollback condition.
 8. From the tagged Jawnix source revision, build the application services, run
-   `docker compose run --rm migrate`, and recreate `api`, `worker`,
-   `metrics-worker`, `scheduler`,
+   `docker compose run --rm migrate`, and recreate `api`, `worker`, `scheduler`,
    `backup`, and `caddy` with `docker compose up -d`. Point Jawnix at the typed
    control endpoint and exercise generation, reads, CSV exports, monitoring,
    keyword preview/save/enqueue, pipeline pause/resume, runtime preview/save,

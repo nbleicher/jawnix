@@ -559,7 +559,6 @@ _JOB_LABELS: dict[str, str] = {
     "allocate_request": "Allocating inventory",
     "deliver_request": "Delivering the Batch email",
     "fulfill_round_robin": "Running round-robin fulfillment",
-    "emit_lead_assigned": "Emitting lead.assigned metrics",
     "send_request_milestone_email": "Sending a milestone email",
     "make_new_copy": "Making the Customer's new copy of the file",
 }

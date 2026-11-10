@@ -15,7 +15,7 @@ stage = root / f"release-stage-{short}"
 backup = root / "backups" / f"release-{short}"
 tables = sys.argv[2:]
 SERVICES = ["api", "worker", "scheduler", "imports-worker", "fulfillment-worker", "notifications-worker",
-            "metrics-worker", "keyword-worker", "keyword-refill-worker"]
+            "keyword-worker", "keyword-refill-worker"]
 PROTECTED = ["/srv/jawnix/app/.env", "/srv/jawnix/app/config.js", "/opt/gms-scale/.env.control",
              "/opt/gms-scale/control/active_states.yaml"]
 
