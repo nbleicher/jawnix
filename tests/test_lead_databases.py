@@ -69,6 +69,19 @@ def test_global_cooldown_and_phone_alias_history_survive_source_switch(session, 
     assert inventory_count(session, make_request(session, second, 1, ["TN"]), settings) == 0
 
 
+def test_db2_allocation_splits_evenly_by_uploaded_state(session, settings):
+    customer = Customer(slug="spread", name="Spread", licensed_states=["OH", "FL"], lead_database="db2")
+    ohio = [Lead(phone=f"614555{index:04d}", title="", state="", in_db1=False) for index in range(6)]
+    florida = [Lead(phone=f"305555{index:04d}", title="", state="", in_db1=False) for index in range(6)]
+    session.add_all([customer, *ohio, *florida]); session.flush()
+    db2_source(session, ohio, "OH")
+    db2_source(session, florida, "FL")
+    item = make_request(session, customer, 6, ["FL", "OH"])
+    assert allocate_request(session, item.id, settings).allocated == 6
+    states = [event.state for event in session.scalars(select(DistributionEvent).where(DistributionEvent.request_id == item.id))]
+    assert sorted(states) == ["FL"] * 3 + ["OH"] * 3
+
+
 def test_db2_state_is_independent_of_db1_listing_state(session, settings):
     customer = Customer(slug="csv", name="CSV", licensed_states=["TN"], lead_database="db2")
     lead = Lead(phone="6155550001", title="DB1 title", state="TX")

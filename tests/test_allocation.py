@@ -101,6 +101,30 @@ def test_allocation_locks_only_lead_rows_on_postgres(
     )
 
 
+def test_allocation_splits_evenly_across_requested_states(session, settings):
+    agent = Agent(slug="spread", name="Spread")
+    session.add(agent)
+    session.flush()
+    # Lower ids in one state must not crowd out the others.
+    session.add_all(
+        [Lead(phone=f"614555{index:04d}", title="Ohio", state="OH") for index in range(10)]
+        + [Lead(phone=f"305555{index:04d}", title="Florida", state="FL") for index in range(10)]
+        + [Lead(phone="7135550001", title="Texas", state="TX")]
+    )
+    request = make_request(session, agent, 9, ["FL", "OH", "TX", "WI"])
+
+    result = allocate_request(session, request.id, settings)
+    session.commit()
+
+    assert result.allocated == 9
+    delivered = session.execute(
+        select(DistributionEvent.state, func.count())
+        .where(DistributionEvent.request_id == request.id)
+        .group_by(DistributionEvent.state)
+    ).all()
+    assert dict(delivered) == {"FL": 4, "OH": 4, "TX": 1}
+
+
 def test_shortage_allocates_nothing(session, settings):
     agent = Agent(slug="short", name="Short")
     session.add(agent)
