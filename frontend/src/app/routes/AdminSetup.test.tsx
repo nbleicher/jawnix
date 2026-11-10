@@ -28,7 +28,7 @@ function setup(overrides: Partial<SetupData> = {}): SetupData {
       area({ key: "nicheMappings", label: "Niche mappings", href: "/app/admin/setup/niche-mappings", state: "1 awaiting review", attention: true, changedAt: "2026-11-08T12:00:00Z" }),
       area({ key: "agencies", label: "Agencies", href: "/app/admin/agencies", state: "2 active · 14 members", changedAt: "2026-10-02T12:00:00Z" }),
       area({ key: "security", label: "Security", href: "/app/admin/security", state: "Authenticator required at every sign-in", changedAt: "2026-07-24T12:00:00Z" }),
-      area({ key: "billing", label: "Billing defaults", href: "/app/admin/setup?area=billing", state: "DB1 starting rate $5.00 per 1,000", changedNote: "Server setting" }),
+      area({ key: "billing", label: "Billing defaults", href: "/app/admin/setup?area=billing", state: "Starting rate $5.00 per 1,000", changedNote: "Server setting" }),
     ],
     billing: { enabled: true, startingRateCentsPerThousand: 500, billedCustomers: 11 },
     scraperGranted: true,

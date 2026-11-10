@@ -190,11 +190,20 @@ def test_history_keeps_the_newest_rows_and_says_when_older_ones_are_left_off(ses
     assert billing.history[-1].balance_after_cents == 200
 
 
-@pytest.mark.parametrize(("billed", "database"), [(False, "db1"), (True, "db2")])
-def test_unbilled_customers_have_no_billing_tab(session, billed, database):
-    _, customer = _customer(session, billed=billed, database=database)
+@pytest.mark.parametrize("database", ["db1", "db2"])
+def test_unbilled_customers_have_no_billing_tab(session, database):
+    _, customer = _customer(session, billed=False, database=database)
 
     assert build_customer_billing(session, customer, now=NOW) is None
+
+
+def test_a_billed_customer_on_db2_has_a_billing_tab(session):
+    _, customer = _customer(session, billed=True, database="db2")
+
+    billing = build_customer_billing(session, customer, now=NOW)
+
+    assert billing is not None
+    assert billing.lead_rate_cents_per_thousand == customer.lead_rate_cents_per_thousand
 
 
 def _as_customer(session, user_id) -> TestClient:

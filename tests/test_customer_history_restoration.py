@@ -76,7 +76,7 @@ def test_exact_name_requires_operator_choice_before_inviting_or_restoring(restor
 def test_approved_restoration_reuses_history_and_refuses_the_retired_login(restoration, session, settings):
     client, customer, old_id, new_id, request, event, calls, payload = restoration
     settings.billing_enabled = True
-    settings.db1_default_lead_rate_cents_per_thousand = 150
+    settings.default_lead_rate_cents_per_thousand = 150
     key = customer.permanent_history_key
     result = client.post("/api/admin/customers", json={**payload, "restore_customer_id":customer.id})
     assert result.status_code == 201
@@ -162,7 +162,7 @@ def test_failed_invitation_leaves_customer_archived(restoration, session, monkey
 def test_new_invited_customer_receives_starting_price(restoration, session, settings):
     client, _, _, _, _, _, _, payload = restoration
     settings.billing_enabled = True
-    settings.db1_default_lead_rate_cents_per_thousand = 150
+    settings.default_lead_rate_cents_per_thousand = 150
     response = client.post("/api/admin/customers", json={**payload, "first_name":"New", "name":"New Morgan"})
     assert response.status_code == 201, response.text
     customer = session.get(Agent, response.json()["customerId"])

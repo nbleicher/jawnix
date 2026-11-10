@@ -169,10 +169,12 @@ describe("CustomerBillingSection", () => {
     expect(screen.getByRole("table", { name: "Purchases" })).toHaveTextContent("No card purchases yet.");
   });
 
-  it("cannot bill a DB2 customer", () => {
-    render(<CustomerBillingSection billing={{ ...BILLING, leadDatabase:"db2" }} customerId={7} onChanged={vi.fn()} />);
-    expect(screen.getByRole("button", { name:"Configure billing" })).toBeDisabled();
-    expect(screen.getByText(/Card payments and billing apply only to DB1/)).toBeVisible();
+  it("bills any customer, whichever database they draw from", () => {
+    render(<CustomerBillingSection billing={{ ...BILLING, billingEnabled: true, leadRateCentsPerThousand: 150 }} customerId={7} onChanged={vi.fn()} />);
+    expect(screen.getByRole("button", { name:"Configure billing" })).toBeEnabled();
+    expect(screen.getByText("Billing on")).toBeVisible();
+    expect(screen.getByText("$1.50 per 1,000")).toBeVisible();
+    expect(screen.queryByText(/DB1|DB2|database/i)).toBeNull();
   });
 
   it("posts a Credit Wallet adjustment with a required reason", async () => {
@@ -222,11 +224,12 @@ describe("CustomerDatabaseSection", () => {
     const onChanged = vi.fn().mockResolvedValue(undefined);
     vi.mocked(api).mockReset().mockResolvedValue({ customerId: 7, leadDatabase: "db2", changed: true });
 
-    render(<CustomerDatabaseSection customerId={7} database="db1" billed onChanged={onChanged} />);
+    render(<CustomerDatabaseSection customerId={7} database="db1" onChanged={onChanged} />);
 
     expect(screen.getByText("DB1 · Operator leads")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Change database" }));
     const dialog = screen.getByRole("dialog", { name: "Change database" });
+    expect(dialog).toHaveTextContent("Billing and the rate stay as they are.");
     await user.type(within(dialog).getByLabelText("Reason (required)"), "Uploads only");
     await user.click(within(dialog).getByRole("button", { name: "Use DB2" }));
 

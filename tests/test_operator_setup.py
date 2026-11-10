@@ -57,7 +57,7 @@ def test_every_area_is_listed_in_order_even_on_an_empty_platform(session, settin
     assert by_key["nicheMappings"]["attention"] is False
     assert by_key["agencies"]["state"] == "0 active · 0 members"
     assert by_key["billing"]["state"] == (
-        "No DB1 starting rate · platform billing off"
+        "No starting rate · platform billing off"
     )
     assert by_key["billing"]["changedNote"] == "Server setting"
     assert all(area["href"].startswith("/app/admin/") for area in result["areas"])
@@ -193,7 +193,7 @@ def test_each_area_reports_its_state_and_last_change(session, tmp_path):
     assert by_key["nicheMappings"]["state"] == "1 awaiting review"
     assert by_key["nicheMappings"]["attention"] is True
     assert by_key["agencies"]["state"] == "1 active · 2 members"
-    assert by_key["billing"]["state"] == "DB1 starting rate $5.00 per 1,000"
+    assert by_key["billing"]["state"] == "Starting rate $5.00 per 1,000"
     # A sign-in challenge is not a change to the authenticators.
     assert by_key["security"]["changedAt"].replace(tzinfo=timezone.utc) == (
         NOW - timedelta(days=100)

@@ -36,7 +36,6 @@ from .models import (
     UserAccount,
     UserAccountInvitation,
     UserAccountMigrationMapping,
-    ManagedAdmin,
 )
 from .schemas import (
     CustomerActivityEntry,
@@ -52,7 +51,6 @@ from .schemas import (
     CustomerRecord,
     UserAccountInvitationRecord,
     UserAccountRecord,
-    ManagedAdminRecord,
 )
 from .states import US_STATES
 
@@ -101,6 +99,8 @@ _PENDING_INVITATION = CustomerAdminStatus(
 )
 
 #: Audit actions worth surfacing on Customer details, in administrator words.
+#: The inventory-scope and manager actions are history from the retired
+#: managed administration.
 _ACTIVITY_LABELS: dict[str, str] = {
     "customer_history_restored": "Archived customer history restored",
     "customer_inventory_scope_changed": "Inventory database or manager changed",
@@ -276,8 +276,6 @@ def build_customer_directory(
             problems=problems,
             href=f"/app/admin/customers/{customer.id}",
             lead_database=customer.lead_database,
-            allowed_manager_id=customer.allowed_manager_id,
-            manager_id=customer.manager_id,
             needs=[need.as_dict() for need in figure.needs],
             billed=figure.billed,
             balance_cents=figure.balance_cents,
@@ -341,8 +339,6 @@ def build_customer_directory(
         counts=CustomerDirectoryCounts(
             active=active_count, deactivated=deactivated_count
         ),
-        managed_admins=[ManagedAdminRecord(id=item.auth_user_id, name=item.name, email=item.email)
-                       for item in db.scalars(select(ManagedAdmin).where(ManagedAdmin.active.is_(True)).order_by(ManagedAdmin.name))],
     )
 
 
@@ -386,8 +382,6 @@ def build_customer_details(
     return CustomerDetailsOut(
         customer=CustomerRecord(
             lead_database=customer.lead_database,
-            allowed_manager_id=customer.allowed_manager_id,
-            manager_id=customer.manager_id,
             id=customer.id,
             slug=customer.slug,
             name=customer.name,

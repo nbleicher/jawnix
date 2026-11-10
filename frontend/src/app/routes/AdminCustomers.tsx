@@ -91,7 +91,7 @@ export interface CustomerDirectoryRow {
   /** Computed server-side: approvals, failed deliveries, shortfalls,
    *  conflicts, open reports, and setup problems, worst first. */
   needs: CustomerNeed[];
-  /** Billing on and drawing from DB1. */
+  /** Billing on, whichever database the customer draws from. */
   billed: boolean;
   /** Available balance: the ledger less active holds. */
   balance_cents: number;
@@ -294,7 +294,7 @@ function CustomerPanel({
         <Kpi
           label="Balance"
           value={row.billed ? formatUsdCents(row.balance_cents) : "Not billed"}
-          meta={row.billed ? heldText(row) : database === "db2" ? "DB2 is not billed" : "Billing off"}
+          meta={row.billed ? heldText(row) : "Billing off"}
         />
         <Kpi
           label="Available"

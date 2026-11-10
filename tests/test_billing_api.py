@@ -133,7 +133,7 @@ def _submit(
 ):
     profile = session.get(CustomerProfile, user_id)
     customer = profile.customer
-    expected_rate = customer.lead_rate_cents_per_thousand if customer.billing_enabled and customer.lead_database == "db1" else None
+    expected_rate = customer.lead_rate_cents_per_thousand if customer.billing_enabled else None
     return _as_customer(session, user_id).post(
         "/api/me/batch-requests",
         json={
@@ -152,31 +152,45 @@ def test_positive_billed_batches_have_a_one_cent_floor():
     assert batch_cost_cents(0, 100) == 0
 
 
-def test_database_b_pauses_billing_and_preserves_database_a_terms_and_wallet(session):
+def _switch_database(session, customer: Agent, database: str) -> None:
+    response = _as_admin(session).put(
+        f"/api/admin/customers/{customer.id}/lead-database",
+        json={"lead_database": database, "reason": "Moving inventory."},
+    )
+    assert response.status_code == 200, response.text
+    session.expire_all()
+
+
+def test_switching_databases_never_changes_billing_or_frozen_terms(session):
     user_id, customer = _customer(session)
     _configure(session, customer, enabled=True, rate=1000)
     _adjust(session, customer, 2500)
-    first = _submit(session, user_id, lead_count=1000, key="database-a-billed-0001")
+    first = _submit(session, user_id, lead_count=1000, key="db1-billed-0001")
     assert first.status_code == 201, first.text
-    billed = session.scalar(select(LeadRequest).where(LeadRequest.agent_id == customer.id))
-    assert billed.is_billed and billed.billing_amount_cents == 1000
-    customer.lead_database = "db2"
-    session.commit()
+
+    _switch_database(session, customer, "db2")
     wallet = _as_customer(session, user_id).get("/api/me/billing").json()
-    assert not wallet["billingEnabled"] and wallet["billingConfigured"]
+    assert wallet["billingEnabled"] and wallet["leadRateCentsPerThousand"] == 1000
     assert wallet["balanceCents"] == 2500 and wallet["activeHoldsCents"] == 1000
-    second = _submit(session, user_id, lead_count=1000, key="database-b-free-0001")
+    assert "leadDatabase" not in wallet
+    second = _submit(session, user_id, lead_count=1000, key="db2-billed-0001")
     assert second.status_code == 201, second.text
+
+    # The operator can change the rate while the Customer draws from DB2.
+    _configure(session, customer, enabled=True, rate=1500)
+    third = _submit(session, user_id, lead_count=200, key="db2-billed-0002")
+    assert third.status_code == 201, third.text
+
+    _switch_database(session, customer, "db1")
+    customer = session.get(Agent, customer.id)
+    assert customer.billing_enabled and customer.lead_rate_cents_per_thousand == 1500
     requests = list(session.scalars(select(LeadRequest).where(LeadRequest.agent_id == customer.id).order_by(LeadRequest.created_at)))
-    assert [row.is_billed for row in requests] == [True, False]
-    assert session.scalar(select(func.count(BatchHold.id))) == 1
-    refused = _as_admin(session).put(f"/api/admin/customers/{customer.id}/billing", json={"billing_enabled":True,"lead_rate_cents_per_thousand":500,"reason":"Wrong database"})
-    assert refused.status_code == 422
-    customer.lead_database = "db1"
-    session.commit()
+    assert [(row.is_billed, row.lead_rate_cents_per_thousand, row.billing_amount_cents) for row in requests] == [
+        (True, 1000, 1000), (True, 1000, 1000), (True, 1500, 300),
+    ]
+    assert session.scalar(select(func.coalesce(func.sum(BatchHold.amount_cents), 0))) == 2300
     resumed = _as_customer(session, user_id).get("/api/me/billing").json()
-    assert resumed["billingEnabled"] and resumed["leadRateCentsPerThousand"] == 1000
-    assert resumed["balanceCents"] == 2500 and resumed["activeHoldsCents"] == 1000
+    assert resumed["balanceCents"] == 2500 and resumed["availableBalanceCents"] == 200
 
 
 @pytest.mark.parametrize("path", ["/api/me/batch-requests", "/api/me/requests"])

@@ -183,7 +183,7 @@ async def _identity_for_token(
             detail="The identity session is invalid or expired.",
         ) from None
     role = str((user.get("app_metadata") or {}).get("jawnix_role") or "")
-    if str(user.get("id") or "") != str(principal.user_id) or role != principal.role or role not in {"admin", "manager"}:
+    if str(user.get("id") or "") != str(principal.user_id) or role != principal.role or role != "admin":
         # Do not disclose which part mismatched.
         raise HTTPException(
             status_code=401,

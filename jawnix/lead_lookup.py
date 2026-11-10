@@ -126,7 +126,11 @@ def find_lead(db: Session, *, phone: str | None = None, lead_id: int | None = No
 
 
 def uploader_names(db: Session, uploads: list[LeadUpload]) -> dict[uuid.UUID, str]:
-    """Managed administrator names by id. The operator's own uploads have none."""
+    """Uploader names by id for earlier managed administrator uploads.
+
+    Managed administration is retired, but their uploads keep naming them.
+    The operator's own uploads have no manager_id.
+    """
     manager_ids = {item.manager_id for item in uploads if item.manager_id}
     if not manager_ids:
         return {}

@@ -64,7 +64,7 @@ export const SETUP = {
     area("security", "Security", "/app/admin/security", "Authenticator required at every sign-in", {
       changedAt: "2026-07-24T15:00:00Z",
     }),
-    area("billing", "Billing defaults", "/app/admin/setup?area=billing", "DB1 starting rate $5.00 per 1,000", {
+    area("billing", "Billing defaults", "/app/admin/setup?area=billing", "Starting rate $5.00 per 1,000", {
       changedNote: "Server setting",
     }),
   ],

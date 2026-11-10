@@ -51,8 +51,6 @@ export interface CreditPurchaseView {
 export interface CustomerBillingView {
   customerId: number;
   billingEnabled: boolean;
-  billingConfigured?: boolean;
-  leadDatabase?: "db1" | "db2";
   leadRateCentsPerThousand: number | null;
   balanceCents: number;
   activeHoldsCents: number;
@@ -260,7 +258,7 @@ export function ChangeDatabaseAction({
         open={dialog.open}
         onClose={dialog.close}
         title="Change database"
-        description="Future allocations draw from this database. Batches already allocated keep the leads they hold. Billing applies only to DB1."
+        description="Future allocations draw from this database. Batches already allocated keep the leads they hold. Billing and the rate stay as they are."
         dismissOnBackdrop={false}
       >
         <Stack gap={4}>
@@ -322,8 +320,7 @@ function ConfigureBillingAction({
   onChanged,
 }: ControlProps & { billing: CustomerBillingView }) {
   const dialog = useActionDialog(onChanged);
-  const databaseOne = (billing.leadDatabase ?? "db1") === "db1";
-  const configured = billing.billingConfigured ?? billing.billingEnabled;
+  const configured = billing.billingEnabled;
   const initialRate =
     billing.leadRateCentsPerThousand === null
       ? ""
@@ -334,13 +331,12 @@ function ConfigureBillingAction({
 
   const rateCents = parseRatePerThousand(rate);
   const rateValid = rateCents !== null && rateCents >= RATE_MIN && rateCents <= RATE_MAX;
-  const ready = databaseOne && reason.trim().length > 0 && (!enabled || rateValid);
+  const ready = reason.trim().length > 0 && (!enabled || rateValid);
 
   return (
     <>
       <Button
         variant="primary"
-        disabled={!databaseOne}
         onClick={() => {
           setEnabled(configured);
           setRate(initialRate);
@@ -492,7 +488,6 @@ export function CustomerBillingSection({
   customerId,
   onChanged,
 }: ControlProps & { billing: CustomerBillingView }) {
-  const database = billing.leadDatabase ?? "db1";
   return (
     <RecordColumns
       main={
@@ -533,18 +528,12 @@ export function CustomerBillingSection({
               { term: "Balance", description: formatUsdCents(billing.balanceCents) },
               { term: "Held for open batches", description: formatUsdCents(billing.activeHoldsCents) },
               { term: "Available", description: formatUsdCents(billing.availableBalanceCents) },
-              { term: "Database", description: formatDatabase(database) },
             ]}
           />
           <Cluster gap={3}>
             <ConfigureBillingAction billing={billing} customerId={customerId} onChanged={onChanged} />
             <PostAdjustmentAction customerId={customerId} onChanged={onChanged} />
           </Cluster>
-          {database !== "db1" ? (
-            <Text size="sm" tone="muted">
-              Card payments and billing apply only to DB1. Change the database on Rules to bill this customer.
-            </Text>
-          ) : null}
         </Panel>
       }
     />
@@ -557,9 +546,8 @@ export function CustomerBillingSection({
 export function CustomerDatabaseSection({
   customerId,
   database,
-  billed,
   onChanged,
-}: ControlProps & { database: string; billed: boolean }) {
+}: ControlProps & { database: string }) {
   return (
     <Section
       title="Database"
@@ -574,7 +562,6 @@ export function CustomerDatabaseSection({
               term: "Draws from",
               description: database === "db2" ? "DB2 · CSV uploads" : "DB1 · Operator leads",
             },
-            { term: "Billing", description: billed ? "On" : "Off" },
           ]}
         />
         <ChangeDatabaseAction customerId={customerId} database={database} onChanged={onChanged} />

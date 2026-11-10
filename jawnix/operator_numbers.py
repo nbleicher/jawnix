@@ -154,13 +154,13 @@ def _delivered(db: Session, since: datetime) -> DeliveredNumbers:
 def _credit_balance(db: Session) -> CreditBalanceNumbers:
     """Available balance (ledger minus active Batch Holds) of Billed Customers.
 
-    Billed matches ``billing.stripe_billing_enabled``: billing switched on and
-    drawing from DB1. A switched-off wallet keeps its balance invisibly.
+    Billed matches ``billing.stripe_billing_enabled``: billing switched on,
+    whichever database the Customer draws from. A switched-off wallet keeps
+    its balance invisibly.
     """
     billed = select(Customer.id).where(
         Customer.deleted_at.is_(None),
         Customer.billing_enabled.is_(True),
-        Customer.lead_database == "db1",
     )
     ledger = db.scalar(
         select(func.coalesce(func.sum(CreditLedgerEntry.amount_cents), 0))

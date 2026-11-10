@@ -569,8 +569,8 @@ def test_purchase_rejects_sub_dollar_amounts(session):
     assert fake.created == []
 
 
-@pytest.mark.parametrize("database,enabled,platform_enabled", [("db2", True, True), ("db1", False, True), ("db1", True, False)])
-def test_stripe_purchase_requires_database_a_and_enabled_billing(session, database, enabled, platform_enabled):
+@pytest.mark.parametrize("database,enabled,platform_enabled", [("db1", False, True), ("db2", False, True), ("db1", True, False)])
+def test_stripe_purchase_requires_enabled_billing(session, database, enabled, platform_enabled):
     fake = FakeStripeClient()
     settings = _billing_settings(fake)
     settings.billing_enabled = platform_enabled

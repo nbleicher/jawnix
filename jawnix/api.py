@@ -34,7 +34,7 @@ from .agency_management import (
     assign_customer,
     assignment_preview,
 )
-from .auth import Principal, administration_home, clear_session, issue_session, require_admin, require_principal, verify_supabase_token
+from .auth import RETIRED_MANAGER_MESSAGE, RETIRED_MANAGER_ROLE, Principal, administration_home, clear_session, issue_session, require_admin, require_principal, verify_supabase_token
 from .admin_mfa_api import router as admin_mfa_router
 from .billing import (
     BillingError,
@@ -264,8 +264,7 @@ from .fulfillment import (
 )
 from .transitions import TransitionError, transition_request
 from .request_updates import request_events, request_updates_lifespan
-from .models import ManagedAdmin
-from .managed_admin_api import router as managed_admin_router
+from .lead_upload_api import router as lead_upload_router
 from .acquisition_yield_api import router as acquisition_yield_router
 
 
@@ -283,7 +282,7 @@ app = FastAPI(title="Jawnix VPS API", version="1.0.0", lifespan=request_updates_
 app.include_router(admin_mfa_router)
 app.include_router(acquisition_yield_router)
 app.include_router(native_scraper_router)
-app.include_router(managed_admin_router)
+app.include_router(lead_upload_router)
 
 
 @app.exception_handler(RequestValidationError)
@@ -666,16 +665,14 @@ async def create_session(
 ):
     user = await verify_supabase_token(payload.access_token, settings)
     role = str((user.get("app_metadata") or {}).get("jawnix_role") or "customer")
-    if role not in {"admin", "manager", "customer"}:
+    if role == RETIRED_MANAGER_ROLE:
+        raise HTTPException(status_code=403, detail=RETIRED_MANAGER_MESSAGE)
+    if role not in {"admin", "customer"}:
         raise HTTPException(status_code=403, detail="This identity has no Jawnix access.")
-    if role == "manager":
-        manager = db.get(ManagedAdmin, uuid.UUID(str(user["id"])))
-        if manager is None or not manager.active:
-            raise HTTPException(status_code=403, detail="Managed administration is unavailable.")
     if payload.requested_next == "/admin.html" and role != "admin":
         raise HTTPException(status_code=403, detail="Sign in with noah@jawnix.com to access administration.")
     session_kwargs: dict = {}
-    admin_next = "/app/manager/uploads" if role == "manager" else "/app/admin/today"
+    admin_next = "/app/admin/today"
     if role == "admin":
         state = db.get(AdminMFAState, uuid.UUID(str(user["id"])))
         if state is None:
@@ -720,17 +717,12 @@ async def create_session(
             admin_next = "/app/admin/mfa/challenge"
         else:
             requested = payload.requested_next or ""
-            prefix = "/app/manager/" if role == "manager" else "/app/admin/"
             admin_next = (
                 requested
-                if requested.startswith(prefix)
+                if requested.startswith("/app/admin/")
                 and not requested.startswith("//")
                 else admin_next
             )
-    if role == "manager":
-        requested = payload.requested_next or ""
-        if requested.startswith("/app/manager/") and not requested.startswith("//"):
-            admin_next = requested
     principal = issue_session(
         response,
         user,
@@ -816,7 +808,7 @@ async def create_session(
         db.flush()
         registration = complete_registration(db, user_id=principal.user_id, email=principal.email, details=details, settings=settings)
     db.commit()
-    if principal.role in {"admin", "manager"}:
+    if principal.role == "admin":
         next_path = admin_next
     else:
         requested = payload.requested_next or ""
@@ -824,7 +816,6 @@ async def create_session(
             requested
             if requested.startswith("/app/")
             and not requested.startswith("/app/admin/")
-            and not requested.startswith("/app/manager/")
             and not requested.startswith("//")
             else CUSTOMER_HOME_PATH
         )
@@ -848,7 +839,7 @@ def signup_options():
 def my_registration(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
     item = db.get(CustomerRegistration, principal.user_id)
     if item is None:
-        return {"status": "active", "next": administration_home(principal) if principal.role in {"admin", "manager"} else CUSTOMER_HOME_PATH}
+        return {"status": "active", "next": administration_home(principal) if principal.role == "admin" else CUSTOMER_HOME_PATH}
     return registration_status(item)
 
 
@@ -888,7 +879,7 @@ def authentication_destination(principal: Principal = Depends(require_principal)
     registration = db.get(CustomerRegistration, principal.user_id)
     if principal.role == "customer" and registration is not None:
         return {"next": registration_next(registration)}
-    return {"next": administration_home(principal) if principal.role in {"admin", "manager"} else CUSTOMER_HOME_PATH}
+    return {"next": administration_home(principal) if principal.role == "admin" else CUSTOMER_HOME_PATH}
 
 
 @app.post("/api/auth/logout")

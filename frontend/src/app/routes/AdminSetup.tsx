@@ -112,7 +112,7 @@ function BillingPanel({
         items={[
           { term: "Platform billing", description: billing.enabled ? "On" : "Off" },
           {
-            term: "DB1 starting rate",
+            term: "Starting rate",
             description:
               billing.startingRateCentsPerThousand === null
                 ? "None"
@@ -122,7 +122,7 @@ function BillingPanel({
         ]}
       />
       <Text size="sm" tone="muted">
-        New DB1 customers start at this rate. It is set in the server
+        New customers start at this rate on either database. It is set in the server
         configuration, and each customer's own rate is changed on their page.
       </Text>
     </SidePanel>

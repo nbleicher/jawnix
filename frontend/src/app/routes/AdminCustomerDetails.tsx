@@ -404,7 +404,7 @@ function Dependencies({ counts }: { counts: Record<string, number> }) {
 
 function heldMeta(summary: CustomerSummaryView): string {
   const { balance } = summary;
-  if (!balance.billed) return summary.database === "db2" ? "DB2 is not billed" : "Billing off";
+  if (!balance.billed) return "Billing off";
   if (!balance.heldCents) return `Nothing held · ${formatRate(balance.rateCentsPerThousand)}`;
   const batches = balance.heldFor.map((number) => `#${number}`).join(", ");
   return `${formatUsdCents(balance.heldCents)} held for ${batches}`;
@@ -742,7 +742,6 @@ export function AdminCustomerDetailsRoute() {
               <CustomerDatabaseSection
                 customerId={customer.id}
                 database={database}
-                billed={data.billing?.billingEnabled ?? data.summary?.balance.billed ?? false}
                 onChanged={refresh}
               />
               {data.cooldown ? (

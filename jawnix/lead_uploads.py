@@ -158,6 +158,8 @@ def _publish(upload_id, factory, progress):
         item.imported_rows, item.updated_rows = total-updated, updated
         item.duplicate_rows = progress.valid-total
         item.completed_at = utcnow()
+        # Every publication, the operator's too, keeps this original action
+        # name so Activity history and its filters stay continuous.
         record_activity(session, action="manager_lead_upload_published", target_type="lead_upload", target_id=item.id,
                         actor_id=item.uploader_id, reason="Complete CSV inventory published to DB2",
                         details={"state":item.state, "processed":progress.processed, "imported":item.imported_rows,

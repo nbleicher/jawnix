@@ -35,6 +35,7 @@ export const SUPPRESSED_ID = 92;
 export const WAITING_LIST_ID = "88888888-8888-4888-8888-888888888888";
 export const FAILED_UPLOAD_ID = "33333333-aaaa-4aaa-8aaa-333333333333";
 export const READY_UPLOAD_ID = "11111111-aaaa-4aaa-8aaa-111111111111";
+export const NEW_UPLOAD_ID = "44444444-aaaa-4aaa-8aaa-444444444444";
 
 const STATE_CODES = [
   "TX", "FL", "CA", "PA", "OH", "NY", "IL", "GA", "NC", "MI", "NJ", "VA", "WA", "AZ", "MA", "TN", "IN", "MO",
@@ -454,6 +455,8 @@ export async function mockInventory(page: Page): Promise<RecordedCall[]> {
     return json(route, { db1: INVENTORY.db1, db2: INVENTORY.db2, refresh: { status: "queued", jobId: 41 } });
   });
 
+  // The operator's upload is queued, then finishes on its first status read.
+  let submitted: ReturnType<typeof upload> | null = null;
   await page.route(/\/api\/admin\/lead-uploads(\/[^?]*)?$/, (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
@@ -464,7 +467,26 @@ export async function mockInventory(page: Page): Promise<RecordedCall[]> {
     }
     if (path === "/api/admin/lead-uploads" && request.method() === "POST") {
       record(route);
-      return json(route, upload({ id: "44444444-aaaa-4aaa-8aaa-444444444444", filename: "new.csv", status: "queued", processedRows: 0, createdAt: new Date().toISOString(), completedAt: null }), 202);
+      const body = request.postData() ?? "";
+      submitted = upload({
+        id: NEW_UPLOAD_ID,
+        filename: /filename="([^"]+)"/.exec(body)?.[1] ?? "new.csv",
+        state: /name="state"\r\n\r\n([A-Z]{2})/.exec(body)?.[1] ?? "",
+        status: "queued",
+        bytes: 32,
+        processedRows: 0,
+        validRows: 0,
+        rejectedRows: 0,
+        importedRows: 0,
+        updatedRows: 0,
+        uploadedBy: "Operator",
+        createdAt: new Date().toISOString(),
+        completedAt: null,
+      });
+      return json(route, submitted, 202);
+    }
+    if (submitted && path === `/api/admin/lead-uploads/${submitted.id}`) {
+      return json(route, { ...submitted, status: "complete", processedRows: 1, validRows: 1, importedRows: 1, completedAt: new Date().toISOString() });
     }
     const match = UPLOADS.uploads.find((item) => path.endsWith(item.id));
     return match ? json(route, match) : json(route, { detail: "Upload was not found." }, 404);
