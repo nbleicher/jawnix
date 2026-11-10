@@ -11,11 +11,19 @@ from sqlalchemy.orm import Session
 from .config import Settings, get_settings
 from .database import get_db
 from .mfa_provider import BetterAuthMFAProvider, MFAProviderError, get_mfa_provider
-from .models import AdminMFAState, ManagedAdmin
+from .models import AdminMFAState
 
 
 SESSION_COOKIE = "jawnix_session"
 CSRF_COOKIE = "jawnix_csrf"
+
+#: Managed administration is retired. Identities that still carry this role
+#: are refused at sign-in and on every request with an existing session.
+RETIRED_MANAGER_ROLE = "manager"
+RETIRED_MANAGER_MESSAGE = (
+    "Managed administration has been retired, so this account can no longer "
+    "sign in. Email noah@jawnix.com if you need access."
+)
 
 
 @dataclass(frozen=True)
@@ -57,7 +65,7 @@ def issue_session(
     user_id = uuid.UUID(str(user["id"]))
     email = str(user.get("email") or "").strip().lower()
     role = str((user.get("app_metadata") or {}).get("jawnix_role") or "customer")
-    audience = "admin" if role in {"admin", "manager"} else "customer"
+    audience = "admin" if role == "admin" else "customer"
     claims = user.get("_jawnix_auth_claims") or {}
     established_assurance = assurance or str(claims.get("aal") or "aal1")
     csrf = uuid.uuid4().hex
@@ -109,7 +117,8 @@ def principal_from_request(request: Request, settings: Settings) -> Principal:
         payload = _serializer(settings).loads(token, max_age=settings.session_ttl_seconds)
         if payload.get("provider", "supabase") != settings.auth_provider:
             raise ValueError("Identity provider changed")
-        return Principal(
+        retired = payload.get("role") == RETIRED_MANAGER_ROLE
+        principal = Principal(
             user_id=uuid.UUID(str(payload["sub"])),
             email=str(payload["email"]),
             role=str(payload["role"]),
@@ -117,7 +126,7 @@ def principal_from_request(request: Request, settings: Settings) -> Principal:
             assurance=str(payload.get("aal") or "aal1"),
             audience=str(
                 payload.get("aud")
-                or ("admin" if payload.get("role") in {"admin", "manager"} else "customer")
+                or ("admin" if payload.get("role") == "admin" else "customer")
             ),
             session_generation=int(payload.get("generation") or 0),
             factor_id=(
@@ -129,6 +138,10 @@ def principal_from_request(request: Request, settings: Settings) -> Principal:
         )
     except (BadSignature, SignatureExpired, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Session expired.") from None
+    if retired:
+        # A session issued before managed administration was retired.
+        raise HTTPException(status_code=401, detail=RETIRED_MANAGER_MESSAGE)
+    return principal
 
 
 def require_principal(request: Request, settings: Settings = Depends(get_settings)) -> Principal:
@@ -153,7 +166,8 @@ def require_admin_identity(
 
 
 def administration_home(principal: Principal) -> str:
-    return "/app/manager/uploads" if principal.role == "manager" else "/app/admin/today"
+    """Where an administrator lands. The operator is the only one."""
+    return "/app/admin/today"
 
 
 async def require_admin(
@@ -164,31 +178,6 @@ async def require_admin(
     if principal.role != "admin" or principal.audience != "admin":
         raise HTTPException(status_code=403, detail="Admin access required.")
     return await require_administrator_assurance(principal, settings, db)
-
-
-async def require_manager(
-    principal: Principal = Depends(require_principal),
-    settings: Settings = Depends(get_settings),
-    db: Session = Depends(get_db),
-) -> Principal:
-    if principal.role != "manager" or principal.audience != "admin":
-        raise HTTPException(status_code=403, detail="Managed admin access required.")
-    manager = db.get(ManagedAdmin, principal.user_id)
-    if manager is None or not manager.active:
-        raise HTTPException(status_code=403, detail="Managed administration is unavailable.")
-    if not principal.provider_session_id:
-        raise HTTPException(status_code=401, detail="Sign in again to continue.")
-    try:
-        result = await get_mfa_provider(settings).request(
-            "validate-session", userId=str(principal.user_id),
-            sessionId=principal.provider_session_id, role="manager",
-        )
-        if result.get("valid") is not True:
-            raise MFAProviderError(expired_session=True)
-    except MFAProviderError as error:
-        raise HTTPException(status_code=401 if error.expired_session else 503,
-                            detail="Managed administration sign-in is unavailable.") from None
-    return principal
 
 
 async def require_administrator_assurance(principal: Principal, settings: Settings, db: Session) -> Principal:

@@ -189,7 +189,7 @@ test.describe("DB2 uploads", () => {
     await expect(table.getByText("Queued")).toBeVisible();
   });
 
-  test("uploads a CSV for a chosen state", async ({ page }) => {
+  test("uploads a CSV for a chosen state and follows its import to Ready", async ({ page }) => {
     await page.goto("./admin/inventory/uploads");
     const form = page.getByRole("form", { name: "New DB2 upload" });
     await form.getByLabel("CSV file (required)").setInputFiles({
@@ -199,9 +199,35 @@ test.describe("DB2 uploads", () => {
     });
     await form.getByLabel("State (required)").selectOption("TN");
     await form.getByRole("button", { name: "Upload CSV" }).click();
-    await expect(page.getByRole("table", { name: "DB2 uploads" }).getByText("new.csv")).toBeVisible();
+    const row = page.getByRole("table", { name: "DB2 uploads" }).getByRole("row").filter({ hasText: "new.csv" });
+    await expect(row).toBeVisible();
+    await expect(row.getByText("Queued")).toBeVisible();
+    await expect(row.getByText("Operator")).toBeVisible();
     const submitted = calls.find((call) => call.method === "POST" && call.url === "/api/admin/lead-uploads");
     expect(String(submitted?.body)).toContain("6155550199,Example");
+    expect(String(submitted?.body)).toMatch(/name="state"\r\n\r\nTN/);
+    // Importing rows are re-read every five seconds until they settle.
+    await expect(row.getByText("Ready")).toBeVisible({ timeout: 12_000 });
+    await expect(form.getByLabel("CSV file (required)")).toHaveValue("");
+  });
+
+  test("takes a CSV dropped onto the form", async ({ page }) => {
+    await page.goto("./admin/inventory/uploads");
+    const form = page.getByRole("form", { name: "New DB2 upload" });
+    const transfer = await page.evaluateHandle(() => {
+      const data = new DataTransfer();
+      data.items.add(new File(["Phone,Name\n6155550100,Dropped fixture\n"], "dropped.csv", { type: "text/csv" }));
+      return data;
+    });
+    await form.locator(".jx-upload-drop").dispatchEvent("drop", { dataTransfer: transfer });
+    await expect(form.getByText("dropped.csv · 0.0 MB", { exact: true })).toBeVisible();
+    await form.getByLabel("State (required)").selectOption("FL");
+    await form.getByRole("button", { name: "Upload CSV" }).click();
+    await expect(page.getByRole("table", { name: "DB2 uploads" }).getByText("dropped.csv")).toBeVisible();
+    const submitted = calls.find((call) => call.method === "POST" && call.url === "/api/admin/lead-uploads");
+    expect(String(submitted?.body)).toContain('filename="dropped.csv"');
+    expect(String(submitted?.body)).toContain("Dropped fixture");
+    await transfer.dispose();
   });
 });
 

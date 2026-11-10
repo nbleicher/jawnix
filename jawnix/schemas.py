@@ -366,12 +366,10 @@ class CustomerDirectoryRow(BaseModel):
     problems: list[str]
     href: str
     lead_database: Literal["db1", "db2"] = "db1"
-    allowed_manager_id: uuid.UUID | None = None
-    manager_id: uuid.UUID | None = None
     #: What the Customer needs from the operator, worst first. Empty when
     #: nothing is waiting.
     needs: list[CustomerNeedOut] = Field(default_factory=list)
-    #: Billing on and drawing from DB1. Unbilled Customers show no balance.
+    #: Billing on, from either database. Unbilled Customers show no balance.
     billed: bool = False
     #: Available balance: the Credit Ledger less active Batch Holds.
     balance_cents: int = 0
@@ -386,12 +384,6 @@ class CustomerDirectoryRow(BaseModel):
     #: The Customer's last availability snapshot, never counted on read.
     available: int | None = None
     available_as_of: datetime | None = None
-
-
-class ManagedAdminRecord(BaseModel):
-    id: uuid.UUID
-    email: str
-    name: str
 
 
 class CustomerDirectoryFilters(BaseModel):
@@ -420,7 +412,6 @@ class CustomerDirectoryOut(BaseModel):
     matched: int
     customers: list[CustomerDirectoryRow]
     counts: CustomerDirectoryCounts = Field(default_factory=CustomerDirectoryCounts)
-    managed_admins: list[ManagedAdminRecord] = Field(default_factory=list)
 
 
 class CustomerRecord(BaseModel):
@@ -436,8 +427,6 @@ class CustomerRecord(BaseModel):
     status: CustomerAdminStatus
     last_activity_at: datetime | None
     lead_database: Literal["db1", "db2"] = "db1"
-    allowed_manager_id: uuid.UUID | None = None
-    manager_id: uuid.UUID | None = None
 
 
 class CustomerHistory(BaseModel):

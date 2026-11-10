@@ -13,14 +13,14 @@ from psycopg import sql
 
 from conftest import make_request
 from jawnix.allocation import allocate_request, inventory_count
-from jawnix.billing import BillingError, prepare_submission
+from jawnix.billing import BillingError, SubmissionBilling, place_batch_hold, prepare_submission
 from jawnix.config import Settings
 from jawnix.database import Base
 from jawnix.db2_setup import db2_url, provision
 from jawnix.job_wakeup import postgres_dsn
 from jawnix.lead_uploads import ImportInterrupted, import_lead_upload
 from jawnix.inventory_snapshots import REFRESH_INVENTORY_JOB, refresh_inventory_snapshots
-from jawnix.models import Customer, DistributionEvent, InventorySnapshot, Job, Lead, LeadDatabaseMembership, LeadUpload, ManagedAdmin
+from jawnix.models import BatchHold, CreditLedgerEntry, Customer, DistributionEvent, InventorySnapshot, Job, Lead, LeadDatabaseMembership, LeadUpload, ManagedAdmin
 
 DATABASE_URL = os.environ.get("JAWNIX_ACCEPTANCE_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="requires disposable PostgreSQL")
@@ -61,7 +61,7 @@ def upload(factory, manager_id, path, content):
         db.add(item); db.flush(); return item.id
 
 
-@pytest.mark.parametrize("old_rate,new_rate,database", [(500,1000,"db1"),(None,1000,"db1"),(500,500,"db2")])
+@pytest.mark.parametrize("old_rate,new_rate,database", [(500,1000,"db1"),(None,1000,"db1"),(500,1000,"db2")])
 def test_reviewed_price_rechecks_committed_rate_and_database(stores, old_rate, new_rate, database):
     _, factory, _ = stores
     with factory.begin() as db:
@@ -80,6 +80,52 @@ def test_reviewed_price_rechecks_committed_rate_and_database(stores, old_rate, n
             prepare_submission(reviewing,customer_id=customer_id,lead_count=1000,
                                expected_lead_rate_cents_per_thousand=old_rate)
         assert stale.lead_rate_cents_per_thousand == new_rate and stale.lead_database == database
+
+
+def test_a_database_switch_alone_keeps_the_reviewed_price(stores):
+    # Billing belongs to the Customer: moving to DB2 is not a price change.
+    _, factory, _ = stores
+    with factory.begin() as db:
+        customer = Customer(slug=str(uuid.uuid4()), name="Switching fixture", billing_enabled=True,
+                            lead_rate_cents_per_thousand=500)
+        db.add(customer); db.flush(); customer_id=customer.id
+        db.add(CreditLedgerEntry(customer_id=customer_id, kind="admin_adjustment", amount_cents=1000,
+                                 reason="Opening credit", actor_user_id="operator"))
+    with factory() as reviewing:
+        reviewing.get(Customer,customer_id)
+        with factory.begin() as editing:
+            editing.get(Customer,customer_id).lead_database = "db2"
+        billing = prepare_submission(reviewing,customer_id=customer_id,lead_count=1000,
+                                     expected_lead_rate_cents_per_thousand=500)
+        assert billing == SubmissionBilling(is_billed=True, lead_rate_cents_per_thousand=500, amount_cents=500)
+
+
+def test_a_billed_db2_batch_is_held_and_captured_against_real_db2_rows(stores, tmp_path):
+    settings, factory, owner = stores
+    phones = [f"615{uuid.uuid4().int % 10**7:07d}", f"423{uuid.uuid4().int % 10**7:07d}"]
+    with factory.begin() as db:
+        customer = Customer(slug=str(uuid.uuid4()), name="Billed CSV recipient", lead_database="db2",
+                            licensed_states=["TN"], billing_enabled=True, lead_rate_cents_per_thousand=1000)
+        db.add(customer); db.flush(); customer_id = customer.id
+        db.add(CreditLedgerEntry(customer_id=customer_id, kind="admin_adjustment", amount_cents=100,
+                                 reason="Opening credit", actor_user_id="operator"))
+    raw = f"Phone,Name\n{phones[0]},First\n{phones[1]},Second\n".encode()
+    upload_id = upload(factory, owner, tmp_path / "billed.csv", raw)
+    assert import_lead_upload(upload_id, settings, session_factory=factory)["status"] == "complete"
+    with factory.begin() as db:
+        billing = prepare_submission(db, customer_id=customer_id, lead_count=2,
+                                     expected_lead_rate_cents_per_thousand=1000)
+        assert billing == SubmissionBilling(is_billed=True, lead_rate_cents_per_thousand=1000, amount_cents=2)
+        item = make_request(db, db.get(Customer, customer_id), 2, ["TN"])
+        place_batch_hold(db, request=item, billing=billing)
+        db.flush(); request_id = item.id
+        assert allocate_request(db, request_id, settings).allocated == 2
+    with factory() as db:
+        events = list(db.scalars(select(DistributionEvent).where(DistributionEvent.request_id == request_id)))
+        assert {event.inventory_database for event in events} == {"db2"} and len(events) == 2
+        assert db.scalar(select(BatchHold.status).where(BatchHold.request_id == request_id)) == "captured"
+        charge = db.scalar(select(CreditLedgerEntry).where(CreditLedgerEntry.batch_request_id == request_id))
+        assert (charge.kind, charge.amount_cents) == ("batch_charge", -2)
 
 
 def test_actual_db2_rows_preserve_db1_data_and_shared_delivery_history(stores, tmp_path):

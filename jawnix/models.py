@@ -38,6 +38,12 @@ class JobStatus(str, enum.Enum):
 
 
 class ManagedAdmin(Base):
+    """A retired managed administrator, kept so their DB2 uploads stay named.
+
+    Managed administration is retired and every row is inactive. Nothing
+    grants access from this table any more.
+    """
+
     __tablename__ = "managed_admins"
     auth_user_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
@@ -78,8 +84,6 @@ class Agent(Base):
     agency_id: Mapped[int | None] = mapped_column(ForeignKey("agencies.id", ondelete="SET NULL"), index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     lead_database: Mapped[str] = mapped_column(String(4), default="db1", server_default="db1", nullable=False)
-    allowed_manager_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("managed_admins.auth_user_id", ondelete="RESTRICT"), index=True)
-    manager_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("managed_admins.auth_user_id", ondelete="RESTRICT"), index=True)
     billing_enabled: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -104,7 +108,6 @@ class Agent(Base):
 
     __table_args__ = (
         CheckConstraint("lead_database IN ('db1', 'db2')", name="ck_customer_lead_database"),
-        CheckConstraint("manager_id IS NULL OR (allowed_manager_id IS NOT NULL AND manager_id = allowed_manager_id)", name="ck_customer_manager_allowed"),
         CheckConstraint(
             "NOT billing_enabled OR lead_rate_cents_per_thousand IS NOT NULL",
             name="ck_agent_billing_rate_required",
@@ -1331,7 +1334,8 @@ class BatchArtifact(Base):
 class LeadUpload(Base):
     __tablename__ = "lead_uploads"
     __table_args__ = (
-        # The operator and managed administrators publish into the same DB2.
+        # The operator uploads into DB2 now. Uploads from the retired managed
+        # administrators keep their manager_id, so they still name the uploader.
         CheckConstraint("(manager_id IS NULL) <> (operator_id IS NULL)", name="ck_lead_upload_one_uploader"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

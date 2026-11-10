@@ -8,7 +8,7 @@ from sqlalchemy import BigInteger, Column, MetaData, String, Table, Text, Uuid, 
 from .models import Lead, LeadDatabaseMembership
 
 # Kept outside Base.metadata: PostgreSQL owns this as a read-only foreign
-# table, not a second copy of Alex's listing records in DB1.
+# table, not a second copy of the CSV listing records in DB1.
 foreign_metadata = MetaData()
 db2_inventory = Table(
     "db2_inventory_rows", foreign_metadata,

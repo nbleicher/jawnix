@@ -62,7 +62,8 @@ def seed(session) -> dict:
         session.add(item)
         session.flush()
         batches.append(item)
-    manager = ManagedAdmin(auth_user_id=uuid.uuid4(), email="alex@example.com", name="Alex")
+    # Managed administration is retired; Alex's uploads still name him.
+    manager = ManagedAdmin(auth_user_id=uuid.uuid4(), email="alex@example.com", name="Alex", active=False)
     session.add(manager)
     session.flush()
     session.add_all(

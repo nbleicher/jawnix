@@ -62,7 +62,7 @@ def test_verified_signup_activates_one_customer_and_saves_details(signup, sessio
     assert profile.phone == "6155550100"
     assert profile.first_name == "River" and profile.last_name == "Morgan"
     assert profile.licensed_states == customer.licensed_states == ["SC", "TN"]
-    assert customer.active and customer.lead_database == "db1" and customer.manager_id is None and customer.agency_id is None
+    assert customer.active and customer.lead_database == "db1" and customer.agency_id is None
     assert not customer.billing_enabled
     assert session.get(UserAccount, user_id).active
     assert session.scalar(select(func.count()).select_from(Customer)) == 1
@@ -222,7 +222,7 @@ def test_registration_decision_rejects_ambiguous_payloads(payload):
 def test_new_customer_receives_starting_price_once(signup, session, settings, states_after_signup):
     client, identity, user_id = signup
     settings.billing_enabled = True
-    settings.db1_default_lead_rate_cents_per_thousand = 150
+    settings.default_lead_rate_cents_per_thousand = 150
     if states_after_signup:
         identity["user_metadata"]["signup_profile"].pop("licensed_states")
     assert exchange(client).status_code == 200
@@ -243,7 +243,7 @@ def test_new_customer_receives_starting_price_once(signup, session, settings, st
 def test_starting_rate_does_not_enable_billing_when_platform_disabled(signup, session, settings):
     client, identity, user_id = signup
     settings.billing_enabled = False
-    settings.db1_default_lead_rate_cents_per_thousand = 150
+    settings.default_lead_rate_cents_per_thousand = 150
     assert exchange(client).status_code == 200
     customer = session.get(Customer, session.get(UserAccount, user_id).customer_id)
     assert not customer.billing_enabled and customer.lead_rate_cents_per_thousand is None

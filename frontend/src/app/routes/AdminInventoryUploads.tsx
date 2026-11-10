@@ -11,9 +11,9 @@ import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Text } from "../../design-system/primitives/typography";
 import { api } from "../auth/adminMFA";
-import { submitLeadUpload } from "../auth/managedAdmin";
-import type { LeadUploadStatus } from "../auth/managedAdmin";
 import { formatCount, formatDateTime } from "../operator/format";
+import { LEAD_UPLOADS as UPLOADS, submitLeadUpload } from "../operator/leadUploads";
+import type { LeadUploadStatus } from "../operator/leadUploads";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { BackToInventory } from "./AdminInventory";
 import "./AdminInventory.css";
@@ -21,9 +21,9 @@ import "./AdminInventory.css";
 /**
  * DB2 uploads, moved from /admin/lead-uploads into Inventory.
  *
- * The operator and managed administrators publish into one DB2, so this
- * lists every upload. Imports run in the background; rows still importing
- * are re-read every few seconds until they settle.
+ * Every upload adds to one DB2, so this lists them all, including those the
+ * retired managed administrators made. Imports run in the background; rows
+ * still importing are re-read every few seconds until they settle.
  */
 
 export interface UploadWorkspace {
@@ -32,7 +32,6 @@ export interface UploadWorkspace {
   inventory: { total: number; states: Record<string, number>; asOf: string | null };
 }
 
-const UPLOADS = "/api/admin/lead-uploads";
 const POLL_MS = 5_000;
 
 const STATUS: Record<LeadUploadStatus["status"], { label: string; tone: StatusTone }> = {
@@ -98,7 +97,7 @@ function UploadForm({
     setProgress(0);
     setError("");
     try {
-      onUploaded(await submitLeadUpload(file, state, setProgress, UPLOADS));
+      onUploaded(await submitLeadUpload(file, state, setProgress));
       setFile(null);
       if (picker.current) picker.current.value = "";
     } catch (caught) {
@@ -302,7 +301,7 @@ export function AdminInventoryUploadsRoute() {
       title="DB2 uploads"
       width="data"
       density="data"
-      description="Add CSV leads to DB2. Your uploads and managed administrator uploads share one inventory."
+      description="Add CSV leads to DB2. Every upload adds to one inventory."
     >
       <Section title="New upload">
         <UploadForm

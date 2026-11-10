@@ -9,21 +9,18 @@ The active product that turns acquired lead data into approved lead batches deli
 _Avoid_: Lead tracker, lead-to-cash platform
 
 **Administrator Assurance**:
-The strength of the identity verification completed for the operator's Administrator Session. Operator access requires a password plus verification by a currently enrolled Authenticator Factor or an unused Recovery Code. Customers and Managed Administrators use email and password without MFA.
+The strength of the identity verification completed for the operator's Administrator Session. Operator access requires a password plus verification by a currently enrolled Authenticator Factor or an unused Recovery Code. Customers use email and password without MFA.
 _Avoid_: Login status, trusted browser
 
 **Authenticator Factor**:
 An authenticator-app credential held by an administrator and verified during enrollment before it can establish Administrator Assurance.
 _Avoid_: Verification code, MFA secret
 
-**Managed Administrator**:
-An administrator who can upload CSV leads and manage only Customers made available by the operator. The operator can assign Customers or withdraw the grant; the Managed Administrator can add only granted Customers. This access group does not change Agency membership or permanent distribution history.
-
 **Lead Database**:
-A Customer's operator-selected inventory source for its next allocation. DB1 contains the operator's inventory; physically separate DB2 stores immutable CSV listing versions. Shared canonical phone endpoints and distribution history enforce exclusions, holds, cooldown, and permanent no-repeat across source switches. Already generated Batches retain their original snapshots and artifacts.
+A Customer's operator-selected inventory source for its next allocation. DB1 contains the operator's inventory; physically separate DB2 stores immutable CSV listing versions from the operator's Lead Uploads. Shared canonical phone endpoints and distribution history enforce exclusions, holds, cooldown, and permanent no-repeat across source switches. Already generated Batches retain their original snapshots and artifacts.
 
 **Lead Upload**:
-A state-selected CSV import owned by the operator or a Managed Administrator. Records stream into DB2, and its eligibility index becomes visible atomically after the complete file commits. Retries retain the same source version. Invalid or interrupted files never publish a prefix.
+A state-selected CSV import owned by the operator. Records stream into DB2, and its eligibility index becomes visible atomically after the complete file commits. Retries retain the same source version. Invalid or interrupted files never publish a prefix. Uploads made before managed administration was retired keep naming their original uploader.
 
 **Primary Authenticator**:
 The Authenticator Factor an administrator normally uses to establish Administrator Assurance.
@@ -262,7 +259,7 @@ A situation where an older Batch Request cannot be fulfilled but a newer request
 _Avoid_: Automatic queue bypass, inventory shortage
 
 **Billed Customer**:
-A Customer whose new Batch Requests from Database A must be paid from their Credit Wallet, switched per Customer by the operator with no Agency-level pooling. Selecting Database B pauses billing for new requests and Stripe purchases while retaining the Customer's saved Database A price and wallet balance. Each request's billed-or-free status is frozen at submission and never repriced by later toggle or database changes.
+A Customer whose new Batch Requests must be paid from their Credit Wallet at their own Lead Rate, switched per Customer by the operator with no Agency-level pooling. Billing belongs to the Customer, not the Lead Database: batches drawn from DB1 and DB2 are priced, held, and charged the same way, and changing a Customer's database never changes their billing or rate. Each request's billed-or-free status is frozen at submission and never repriced by later toggle or database changes.
 _Avoid_: Paid tier, subscriber, agency billing
 
 **Credit Wallet**:
@@ -278,7 +275,7 @@ An arbitrary whole-dollar Credit Wallet top-up through Stripe Checkout, credited
 _Avoid_: Invoice, subscription, redirect-confirmed payment
 
 **Lead Rate**:
-The administrator-set flat per-lead price for one Billed Customer, required when billing is switched on. New Database A Customers receive the configured starting rate when platform billing is enabled. The operator can override each Customer's rate, which may carry sub-cent precision. Restoring history retains the saved billing configuration.
+The administrator-set flat per-lead price for one Billed Customer, required when billing is switched on. New Customers receive the configured starting rate when platform billing is enabled, whichever Lead Database they draw from. The operator can override each Customer's rate, which may carry sub-cent precision. Restoring history retains the saved billing configuration.
 _Avoid_: Global price, tiered pricing, per-batch price
 
 **Batch Hold**:

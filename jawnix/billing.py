@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from .activity import record_activity
 from .config import Settings
-from .lead_databases import inventory_database
 from .models import (
     BatchHold,
     CreditLedgerEntry,
@@ -26,9 +25,12 @@ MIN_PURCHASE_CENTS = 100
 
 
 def initialize_customer_billing(customer: Customer, settings: Settings) -> None:
-    """Apply the starting DB1 price once, when a new Customer is created."""
-    rate = settings.db1_default_lead_rate_cents_per_thousand
-    if settings.billing_enabled and rate is not None and inventory_database(customer) == "db1":
+    """Apply the starting price once, when a new Customer is created.
+
+    Billing belongs to the Customer, so the Lead Database does not matter.
+    """
+    rate = settings.default_lead_rate_cents_per_thousand
+    if settings.billing_enabled and rate is not None:
         customer.billing_enabled = True
         customer.lead_rate_cents_per_thousand = rate
 
@@ -99,8 +101,12 @@ def _purchase_view(purchase: CreditPurchase) -> dict[str, object]:
 
 
 def stripe_billing_enabled(customer: Customer) -> bool:
-    """Saved per-Customer pricing applies only while drawing from DB1."""
-    return customer.billing_enabled and inventory_database(customer) == "db1"
+    """A Billed Customer pays their own Lead Rate for every Batch.
+
+    Billing belongs to the Customer, not the Lead Database: batches drawn
+    from DB1 and DB2 are priced, held, and charged the same way.
+    """
+    return customer.billing_enabled
 
 
 def wallet_view(db: Session, customer: Customer) -> dict[str, object]:
@@ -124,8 +130,6 @@ def wallet_view(db: Session, customer: Customer) -> dict[str, object]:
     return {
         "customerId": customer.id,
         "billingEnabled": stripe_billing_enabled(customer),
-        "billingConfigured": customer.billing_enabled,
-        "leadDatabase": inventory_database(customer),
         "leadRateCentsPerThousand": (
             customer.lead_rate_cents_per_thousand
         ),
@@ -165,7 +169,7 @@ def start_credit_purchase(
     """Open a Stripe Checkout session and record a processing Credit Purchase."""
 
     if not stripe_billing_enabled(customer):
-        raise BillingError("Stripe payments require billing and a Lead Rate for Database A.")
+        raise BillingError("Stripe payments require billing and a Lead Rate.")
     if amount_dollars < 1:
         raise BillingError(
             "Credit Purchases must be whole dollars with a $1 floor.",
@@ -499,8 +503,6 @@ def configure_customer_billing(
     normalized_reason = reason.strip()
     if not normalized_reason:
         raise BillingError("A reason is required for a billing change.", 422)
-    if billing_enabled and inventory_database(customer) != "db1":
-        raise BillingError("Stripe billing can be enabled only for Database A.", 422)
     if billing_enabled and lead_rate_cents_per_thousand is None:
         raise BillingError(
             "A Lead Rate is required when billing is enabled.",

@@ -138,7 +138,8 @@ def seed(session) -> dict:
     session.flush()
     lead.current_listing_observation_id = observation.id
 
-    manager = ManagedAdmin(auth_user_id=uuid.uuid4(), email="alex@example.com", name="Alex")
+    # Managed administration is retired; Alex's uploads still name him.
+    manager = ManagedAdmin(auth_user_id=uuid.uuid4(), email="alex@example.com", name="Alex", active=False)
     session.add(manager)
     session.flush()
     upload = LeadUpload(

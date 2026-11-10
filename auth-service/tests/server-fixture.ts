@@ -54,7 +54,23 @@ await context.internalAdapter.createAccount({
   providerId: "credential",
   password: await context.password.hash(password),
 });
-console.log(JSON.stringify({ url: origin, bridgeSecret, password, admin }));
+// A managed administrator account that predates the retirement of managed
+// administration. Jawnix must refuse it at the session exchange.
+const manager = { userId: randomUUID(), email: `${randomUUID()}@example.test` };
+await context.internalAdapter.createUser({
+  id: manager.userId,
+  email: manager.email,
+  name: "Alex fixture",
+  emailVerified: true,
+  jawnixRole: "manager",
+}, { method: "email-password" });
+await context.internalAdapter.createAccount({
+  userId: manager.userId,
+  accountId: manager.userId,
+  providerId: "credential",
+  password: await context.password.hash(password),
+});
+console.log(JSON.stringify({ url: origin, bridgeSecret, password, admin, manager }));
 process.on("SIGTERM", () =>
   server.close(() => {
     void database.end().then(() => process.exit(0));

@@ -2,7 +2,6 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import { APIError } from "better-auth/api";
 import QRCode from "qrcode";
 import type { JawnixAuth } from "./auth.js";
-import { accessLinkContext } from "./auth.js";
 
 export function bridgeAuthorized(header: string | null, secret: string) {
   const supplied = Buffer.from(header || "");
@@ -85,14 +84,10 @@ export async function bridge(auth: JawnixAuth, body: Payload) {
     };
   };
 
+  // Managed administration is retired: "provision-manager",
+  // "manager-access-link", and "validate-session" were its actions and now
+  // fall through to BAD_REQUEST. The backend refuses "manager" identities.
   switch (body.action) {
-    case "validate-session": {
-      const session = await context.adapter.findOne<{ userId:string; expiresAt:Date }>({ model:"session", where:[{ field:"id", value:body.sessionId! }] });
-      const user = await context.adapter.findOne<{ jawnixRole: string }>({ model: "user", where: [{ field: "id", value: body.userId! }] });
-      if (!session || session.userId !== body.userId || session.expiresAt <= new Date() || !user || user.jawnixRole !== body.role)
-        throw new APIError("UNAUTHORIZED", { code:"SESSION_EXPIRED", message:"Identity session expired." });
-      return { valid:true };
-    }
     case "identity": {
       const session = await requireSession();
       const factor = await factorFor(session.user.id);
@@ -187,33 +182,6 @@ export async function bridge(auth: JawnixAuth, body: Payload) {
         { method: "email-password" },
       );
       return userJSON(user);
-    }
-    case "provision-manager": {
-      const existing = await context.adapter.findOne<{ id: string; email: string; name: string; jawnixRole?: string }>({
-        model: "user", where: [{ field: "email", value: body.email!.toLowerCase() }],
-      });
-      if (existing) {
-        if (existing.jawnixRole !== "manager")
-          throw new APIError("CONFLICT", { message: "This email already has another Jawnix role." });
-        return userJSON(existing);
-      }
-      const user = await adapter.createUser({
-        id: body.userId || randomUUID(), email: body.email!.toLowerCase(),
-        name: body.name || body.email!, emailVerified: true, jawnixRole: "manager",
-      }, { method: "email-password" });
-      return userJSON(user);
-    }
-    case "manager-access-link": {
-      const user = await context.adapter.findOne<{ id: string; email: string; jawnixRole?: string }>({
-        model: "user", where: [{ field: "id", value: body.userId! }],
-      });
-      if (!user || user.jawnixRole !== "manager") throw new APIError("FORBIDDEN");
-      const capture: { url?: string } = {};
-      await accessLinkContext.run(capture, () => auth.api.requestPasswordReset({
-        body: { email: user.email, redirectTo: `${new URL(auth.options.baseURL as string).origin}/app/accept-invitation` },
-      }));
-      if (!capture.url) throw new APIError("INTERNAL_SERVER_ERROR");
-      return { url: capture.url, expiresIn: 3600 };
     }
     case "reset-user": {
       // A reset has its own page and words; provisioning keeps the invitation.

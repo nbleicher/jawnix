@@ -70,31 +70,28 @@ test("bridge authorization uses a separate secret", () => {
   assert.equal(bridgeAuthorized("", ""), false);
 });
 
-test("manager uses password-only access with live session validation and cannot enroll MFA", async () => {
+test("retired managed administration has no provider actions", async () => {
+  const existing = await provision();
+  for (const action of ["provision-manager", "manager-access-link", "validate-session"]) {
+    await assert.rejects(bridge(auth, { action, userId:existing.id, email:existing.email, role:"customer" }));
+  }
+});
+
+test("a legacy manager identity still resolves, so Jawnix can refuse it by role", async () => {
+  // Alex's provider account predates the retirement. Its password sign-in
+  // still works here; the Jawnix session exchange refuses the role.
+  const context = await auth.$context;
   const id = randomUUID();
   const email = `${id}@example.test`;
-  const before = emails.length;
-  const user = await bridge(auth, { action:"provision-manager", userId:id, email, name:"Alex fixture" });
-  assert.ok("app_metadata" in user);
-  assert.equal(user.app_metadata.jawnix_role, "manager");
-  const link = await bridge(auth, { action:"manager-access-link", userId:id });
-  assert.ok("url" in link && typeof link.url === "string");
-  assert.equal(emails.length, before);
-  const token = new URL(link.url).pathname.split("/").at(-1)!;
-  await auth.api.resetPassword({ body:{ token, newPassword:"password-for-manager-test" } });
+  await context.internalAdapter.createUser({ id, email, name:"Alex fixture", emailVerified:true, jawnixRole:"manager" }, { method:"email-password" });
+  await context.internalAdapter.createAccount({ userId:id, accountId:id, providerId:"credential",
+    password:await context.password.hash("password-for-manager-test") });
   const login = await auth.api.signInEmail({ body:{ email, password:"password-for-manager-test" } });
   assert.ok("token" in login && login.token);
   const identity = await bridge(auth, { action:"identity", accessToken:login.token as string });
-  assert.ok("user" in identity);
-  assert.ok(identity.user);
+  assert.ok("user" in identity && identity.user);
   assert.equal(identity.user.app_metadata.jawnix_role, "manager");
   await assert.rejects(bridge(auth, { action:"enroll", accessToken:login.token as string, password:"password-for-manager-test" }));
-  assert.ok("claims" in identity && identity.claims);
-  assert.deepEqual(await bridge(auth, { action:"validate-session", userId:id, sessionId:identity.claims.sessionId, role:"manager" }), { valid:true });
-  await assert.rejects(bridge(auth, { action:"validate-session", userId:id, sessionId:identity.claims.sessionId, role:"admin" }));
-  await bridge(auth, { action:"logout", accessToken:login.token as string });
-  await assert.rejects(bridge(auth, { action:"validate-session", userId:id, sessionId:identity.claims.sessionId, role:"manager" }));
-  assert.equal(emails.length, before);
 });
 
 test("public signup validates details, verifies email, and cannot grant an operator role", async () => {
@@ -128,10 +125,11 @@ test("public signup validates details, verifies email, and cannot grant an opera
   await assert.rejects(bridge(auth, { action:"enroll", accessToken:login.token as string, password:base.password }));
 });
 
-test("provisioning cannot silently turn a customer into a manager", async () => {
-  const existing = await provision();
-  await assert.rejects(bridge(auth, { action:"provision-manager", email:existing.email }));
-  await assert.rejects(bridge(auth, { action:"manager-access-link", userId:existing.id }));
+test("provisioning never grants the retired manager role", async () => {
+  const id = randomUUID();
+  const user = await bridge(auth, { action:"provision-user", userId:id, email:`${id}@example.test`, role:"manager" });
+  assert.ok("app_metadata" in user);
+  assert.equal(user.app_metadata.jawnix_role, "customer");
 });
 
 test("existing UUID survives password setup, and customer cannot enroll admin MFA", async () => {

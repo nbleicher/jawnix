@@ -166,7 +166,7 @@ def test_every_tile_counts_only_what_its_label_says(session):
         session, "agency-paused", licensed_states=["TX"], agency=paused,
     )
     account(session, in_paused_agency)
-    # Billing switched on but drawing from DB2: not a Billed Customer.
+    # Billing belongs to the Customer: drawing from DB2 is still billed.
     db2_customer = customer(
         session, "db2-customer", licensed_states=["TX"], billing_enabled=True,
         lead_rate_cents_per_thousand=500, lead_database="db2",
@@ -290,8 +290,8 @@ def test_every_tile_counts_only_what_its_label_says(session):
     assert numbers.customers.active == 4
     assert numbers.customers.with_setup_problems == 2
     assert numbers.credit_balance.model_dump(by_alias=True) == {
-        "availableCents": 50_000 - 1_250 - 1_000 - 500 + 2_000,
-        "billedCustomers": 2,
+        "availableCents": 50_000 - 1_250 - 1_000 - 500 + 2_000 + 99_900 - 250,
+        "billedCustomers": 3,
     }
     # Batch Charges across every Customer, split into the two 30-day windows.
     assert numbers.credits_used.cents == 1_250 + 250

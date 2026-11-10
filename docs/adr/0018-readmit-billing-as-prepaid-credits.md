@@ -34,3 +34,11 @@ free-account overrides, and restored historical configurations are preserved.
 Submission compares the Customer's reviewed price with the current price under the Customer
 lock. A changed price requires another review before any request or hold is created. Replaying
 an already submitted request still returns its original terms.
+
+Amended 2026-11-09: managed administration is retired, and billing now belongs to the Customer
+rather than the Lead Database. Database B (DB2) is filled by the operator's CSV uploads; uploads
+Managed Administrators made earlier remain in it. The Database A restriction above is withdrawn:
+a Billed Customer pays their own Lead Rate for every batch from either database, Stripe
+purchases, Batch Holds, and Batch Charges work the same for both, and new Customers receive the
+configured starting rate whichever database they draw from. Switching databases never changes a
+Customer's billing or rate. Requests already submitted keep their frozen billed-or-free terms.

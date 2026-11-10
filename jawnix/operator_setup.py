@@ -263,21 +263,20 @@ def _security(db: Session) -> dict[str, object]:
 
 
 def _billing(db: Session, settings: Settings) -> tuple[dict[str, object], dict[str, object]]:
-    rate = settings.db1_default_lead_rate_cents_per_thousand
+    rate = settings.default_lead_rate_cents_per_thousand
     billed = int(
         db.scalar(
             select(func.count(Customer.id)).where(
                 Customer.deleted_at.is_(None),
                 Customer.billing_enabled.is_(True),
-                Customer.lead_database == "db1",
             )
         )
         or 0
     )
     parts = [
-        f"DB1 starting rate ${rate / 100:,.2f} per 1,000"
+        f"Starting rate ${rate / 100:,.2f} per 1,000"
         if rate is not None
-        else "No DB1 starting rate"
+        else "No starting rate"
     ]
     if not settings.billing_enabled:
         parts.append("platform billing off")

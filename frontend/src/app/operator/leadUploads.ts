@@ -1,17 +1,13 @@
-import { redirect } from "react-router";
-import { api } from "./adminMFA";
 import { clearReadPrefetch } from "../routeReadCache";
 
-export async function managerAccessLoader() {
-  try {
-    return await api<{ ok: true; id: string; email: string }>("/api/manager/access");
-  } catch (error) {
-    if ((error as { status?: number }).status === 401) {
-      throw redirect("/sign-in?next=%2Fapp%2Fmanager%2Fuploads");
-    }
-    throw error;
-  }
-}
+/**
+ * The operator's DB2 CSV uploads: /api/admin/lead-uploads.
+ *
+ * Every upload adds to one DB2 inventory. Uploads made by the retired
+ * managed administrators still name them in `uploadedBy`.
+ */
+
+export const LEAD_UPLOADS = "/api/admin/lead-uploads";
 
 export interface LeadUploadStatus {
   id: string;
@@ -26,17 +22,21 @@ export interface LeadUploadStatus {
   updatedRows: number;
   duplicateRows: number;
   error: string;
-  /** Present on the operator view, which lists every DB2 upload. */
+  /** "Operator", or the managed administrator who uploaded it before retirement. */
   uploadedBy?: string;
   createdAt: string;
   completedAt: string | null;
 }
 
-export function submitLeadUpload(file: File, state: string, onProgress: (percent: number) => void, endpoint = "/api/manager/uploads") {
+/**
+ * Send one CSV with the state it belongs to. XMLHttpRequest rather than fetch
+ * so a large file reports upload progress.
+ */
+export function submitLeadUpload(file: File, state: string, onProgress: (percent: number) => void) {
   clearReadPrefetch();
   return new Promise<LeadUploadStatus>((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open("POST", endpoint);
+    request.open("POST", LEAD_UPLOADS);
     const cookie = document.cookie.split(";").map(value => value.trim()).find(value => value.startsWith("jawnix_csrf="));
     request.setRequestHeader("X-CSRF-Token", decodeURIComponent(cookie?.split("=", 2)[1] ?? ""));
     request.upload.onprogress = (event) => {

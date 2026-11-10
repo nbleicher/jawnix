@@ -535,13 +535,24 @@ def test_an_empty_wallet_with_no_batches_is_low(session):
 
 def test_unbilled_customers_have_no_billing_or_balance_alert(session):
     user_id, customer, _, _ = _customer(session, licensed_states=["TX"], rate=500)
-    customer.lead_database = "db2"
+    customer.billing_enabled = False
     session.commit()
 
     home = _home(session, user_id)
 
     assert home["billing"] is None
     assert home["alerts"] == []
+
+
+def test_a_billed_customer_on_db2_sees_their_price_and_wallet(session):
+    user_id, customer, _, _ = _customer(session, licensed_states=["TX"], rate=500)
+    customer.lead_database = "db2"
+    session.commit()
+
+    home = _home(session, user_id)
+
+    assert home["billing"] is not None
+    assert home["billing"]["lead_rate_cents_per_thousand"] == 500
 
 
 def test_the_browser_month_start_decides_this_month(session):

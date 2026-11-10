@@ -92,7 +92,7 @@ def build_customer_billing(
     """The Billing tab in one read, or None when the Customer is not billed.
 
     Billing applies exactly when the header shows the Credit Wallet: billing
-    is on and the Customer draws from DB1.
+    is on, whichever database the Customer draws from.
     """
 
     if not stripe_billing_enabled(customer):
