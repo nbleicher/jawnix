@@ -7,7 +7,7 @@ import hmac
 import logging
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import urlsplit
@@ -66,7 +66,9 @@ from .scraper_monitoring import (
     REGIONS,
     MonitoringRegion,
     MonitoringSnapshot,
+    RegionData,
     RegionKey,
+    health_summary,
     monitoring_region,
     region_data,
     snapshot_regions,
@@ -134,6 +136,9 @@ MOUNT_PREFIX = "/admin/scraper"
 SCRAPER_SESSION_COOKIE = "jawnix_scraper_session"
 HANDOFF_MAX_AGE_SECONDS = 60
 SCRAPER_GRANT_COOKIE = "jawnix_scraper_grant"
+#: How long one Scraper health read answers Today. Today re-reads on every
+#: visit and after every decision; the Scraper is asked at most this often.
+HEALTH_CACHE_SECONDS = 30
 #: How long a reviewed keyword or runtime preview may wait before its save.
 #: It bounds how stale the reviewed numbers can be, not the Scraper session.
 REVIEW_MAX_AGE_SECONDS = 15 * 60
@@ -167,6 +172,12 @@ PATH_ATTRIBUTE = re.compile(
 class ScraperProxyState:
     settings_key: tuple[str, str, float]
     last_success: datetime | None = None
+    #: Today's health line, shared by every administrator for
+    #: ``HEALTH_CACHE_SECONDS``. Only ever read after the reader's own grant
+    #: check, so the cache never shows health to a sign-in without one.
+    health: dict | None = None
+    health_read_at: datetime | None = None
+    health_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class PipelineControl(BaseModel):
@@ -545,6 +556,59 @@ async def scraper_workspace(
     _mark_operations_success(request, settings)
     return {
         "serviceState": "connected",
+        "lastSuccessfulAt": _safe_last_success(state),
+    }
+
+
+@native_router.get("/health")
+async def scraper_health(
+    request: Request,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+):
+    """Today's one-line Scraper health, for a sign-in holding the grant.
+
+    It lives under the workspace's path so the grant cookie reaches it, and
+    it asks the same question every workspace read does. Without a live
+    grant it answers ``granted: false`` and the Scraper is never called:
+    Today then links to the Scraper entry instead of bypassing it. With one,
+    the activity and workers regions are read through the workspace's own
+    operations client, at most once per ``HEALTH_CACHE_SECONDS`` however
+    often Today refreshes, and a failed read is cached the same way so an
+    outage does not make every refresh wait out the Scraper timeout.
+    """
+
+    if not _has_grant(request, principal, settings):
+        return {"granted": False}
+    state = _state(request, settings)
+    async with state.health_lock:
+        now = _workspace_now(request)
+        if (
+            state.health is None
+            or state.health_read_at is None
+            or (now - state.health_read_at).total_seconds()
+            >= HEALTH_CACHE_SECONDS
+        ):
+            operations = _scraper_operations(request, settings)
+
+            async def read(region: RegionKey) -> RegionData | None:
+                try:
+                    return await operations.monitoring_region(region)
+                except ScraperOperationsError:
+                    return None
+
+            activity, workers = await asyncio.gather(
+                read("activity"),
+                read("workers"),
+            )
+            state.health = health_summary(activity, workers, checked_at=now)
+            state.health_read_at = now
+            if state.health["serviceState"] == "connected":
+                _mark_operations_success(request, settings)
+        health = state.health
+    return {
+        "granted": True,
+        **health,
         "lastSuccessfulAt": _safe_last_success(state),
     }
 

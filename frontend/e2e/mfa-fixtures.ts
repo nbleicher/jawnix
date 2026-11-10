@@ -266,7 +266,7 @@ export async function mockAdminMFA(
         })),
       });
     }
-    if (path.endsWith("/grant")) {
+    if (path.endsWith("/grant") || path.endsWith("/health")) {
       return json(route, { granted: false });
     }
     if (path.endsWith("/workspace")) {

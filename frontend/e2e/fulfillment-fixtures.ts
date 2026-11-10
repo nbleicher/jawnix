@@ -310,8 +310,8 @@ export function asBatch(detail: Record<string, unknown>) {
     },
     agencyRecord: { id: 3, name: detail.agency, href: "/app/admin/agencies/3" },
     fill: artifact
-      ? { needed: detail.leadCount, kind: "committed", committed: artifact.rowCount, olderOpen: null }
-      : { needed: detail.leadCount, kind: "unknown", olderOpen: null },
+      ? { needed: detail.leadCount, kind: "committed", committed: artifact.rowCount, rotation: null }
+      : { needed: detail.leadCount, kind: "unknown", rotation: null },
     cost: { billed: false },
     progress: [
       { key: "submitted", label: "Submitted", done: true, at: detail.createdAt },

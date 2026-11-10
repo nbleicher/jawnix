@@ -37,7 +37,7 @@ import {
 } from "../operator/actions";
 import { loadBatch } from "../operator/batch";
 import type { BatchDetail } from "../operator/batch";
-import { BatchPanel, FillResult, availableFact } from "../operator/BatchPanel";
+import { BatchPanel, FillResult, availableFact, rotationFact } from "../operator/BatchPanel";
 import { LiveActivityStrip, ProgressActivityLog } from "../operator/BatchProgress";
 import {
   availabilityText,
@@ -49,7 +49,6 @@ import {
   formatDay,
   formatRate,
   formatStates,
-  plural,
   stageLabel,
   stageTone,
 } from "../operator/format";
@@ -422,16 +421,8 @@ function fillFacts(batch: BatchDetail, now: Date): Fact[] {
     });
   }
   facts.push({ term: "Result", description: <FillResult batch={batch} /> });
-  if (fill.olderOpen) {
-    const first = fill.olderOpen.first;
-    facts.push({
-      term: "Older open batches",
-      description:
-        fill.olderOpen.count && first
-          ? `${plural(fill.olderOpen.count, "batch", "batches")} (${first.customer}, ${stageLabel(first.stage).toLowerCase()})`
-          : "None",
-    });
-  }
+  const rotation = rotationFact(batch);
+  if (rotation) facts.push(rotation);
   return facts;
 }
 

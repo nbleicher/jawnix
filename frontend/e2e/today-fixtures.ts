@@ -403,7 +403,7 @@ function detail(number: keyof typeof ROWS, overrides: Record<string, unknown> = 
     history: [],
     customerRecord: base.customer,
     agencyRecord: { id: 3, name: "Lakeside Agency", href: "/app/admin/agencies/3" },
-    fill: { needed: base.leadCount, ...base.availability, olderOpen: null },
+    fill: { needed: base.leadCount, ...base.availability, rotation: null },
     cost: { billed: false },
     progress: [
       { key: "submitted", label: "Submitted", done: true, at: base.createdAt },
@@ -425,9 +425,18 @@ export const BATCH_DETAILS: Record<string, Record<string, unknown>> = {
     fill: {
       needed: 25_000,
       ...ROWS[1042].availability,
-      olderOpen: {
-        count: 1,
-        first: { number: 1039, customer: "Ridgeline Benefits", stage: "waiting" },
+      // Awaiting approval: approved now, it would wait behind Ridgeline.
+      rotation: {
+        state: "pending_approval",
+        aheadCount: 1,
+        ahead: [
+          {
+            number: 1039,
+            href: "/app/admin/batches/1039",
+            customer: "Ridgeline Benefits",
+            stage: "waiting",
+          },
+        ],
       },
     },
     cost: {
@@ -506,7 +515,14 @@ export const BATCH_DETAILS: Record<string, Record<string, unknown>> = {
     approvedAt: hoursAgo(9),
     deliveredAt: todayAt(8, 40),
   }),
-  1039: detail(1039),
+  1039: detail(1039, {
+    approvedAt: hoursAgo(71),
+    fill: {
+      needed: 100_000,
+      ...ROWS[1039].availability,
+      rotation: { state: "queued", aheadCount: 0, ahead: [] },
+    },
+  }),
   1041: detail(1041),
 };
 
@@ -625,6 +641,21 @@ export const CONFLICT_DETAIL = {
   ],
 };
 
+/** Today's Scraper health line for a sign-in holding the Scraper grant:
+ *  the render's "running · 6 of 8 workers · queue 812". */
+export const SCRAPER_HEALTH = {
+  granted: true,
+  serviceState: "connected",
+  checkedAt: hoursAgo(0),
+  pipeline: { key: "running", label: "Running" },
+  workersRunning: 6,
+  workersTotal: 8,
+  queueDepth: 812,
+  latestWriteAt: hoursAgo(0),
+  writeIsFresh: true,
+  lastSuccessfulAt: hoursAgo(0),
+};
+
 /** An empty answer for every search, so the header box works on any page. */
 export async function mockEmptySearch(page: Page) {
   await page.route(/\/api\/admin\/search\?/, (route) => {
@@ -636,7 +667,7 @@ export async function mockEmptySearch(page: Page) {
 /** Today, All batches, the Batch page, global search, and their actions. */
 export async function mockOperatorDesk(
   page: Page,
-  { today = TODAY }: { today?: unknown } = {},
+  { today = TODAY, scraper = SCRAPER_HEALTH }: { today?: unknown; scraper?: unknown } = {},
 ): Promise<RecordedCall[]> {
   const calls: RecordedCall[] = [];
   function record(route: Route) {
@@ -649,6 +680,16 @@ export async function mockOperatorDesk(
   }
 
   await page.route(/\/api\/admin\/today(\?.*)?$/, (route) => json(route, today));
+  // Stamp the default health's times per request: a value fixed at import ages
+  // past "just now" during a long suite run.
+  await page.route(/\/api\/admin\/scraper\/health$/, (route) =>
+    json(
+      route,
+      scraper === SCRAPER_HEALTH
+        ? { ...SCRAPER_HEALTH, checkedAt: hoursAgo(0), latestWriteAt: hoursAgo(0), lastSuccessfulAt: hoursAgo(0) }
+        : scraper,
+    ),
+  );
 
   await page.route(/\/api\/admin\/batches(\?.*)?$/, (route) => {
     const url = new URL(route.request().url());

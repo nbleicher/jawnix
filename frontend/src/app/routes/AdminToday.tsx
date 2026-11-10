@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { Link, useLoaderData, useRevalidator } from "react-router";
 
 import { ActionLink, Button } from "../../design-system/primitives/Button";
@@ -14,6 +15,7 @@ import { DecisionPanel } from "../operator/DecisionPanel";
 import type { Decision } from "../operator/DecisionPanel";
 import {
   formatAge,
+  formatAgo,
   formatCount,
   formatTime,
   plural,
@@ -29,8 +31,9 @@ import "./AdminToday.css";
 
 /**
  * Today (P1): the operator's daily page. Numbers first, then last night's
- * run, then every decision waiting in one oldest-first list whose rows open
- * beside it, then the batches moving on their own.
+ * run beside the Scraper's health, then every decision waiting in one
+ * oldest-first list whose rows open beside it, then the batches moving on
+ * their own.
  */
 
 export interface LastNight {
@@ -46,6 +49,23 @@ export interface LastNight {
   } | null;
 }
 
+/** GET /api/admin/scraper/health: only a sign-in holding the Scraper grant
+ *  gets the numbers; without one the Scraper was never asked. */
+export type ScraperHealth =
+  | { granted: false }
+  | {
+      granted: true;
+      serviceState: "connected" | "unavailable";
+      checkedAt: string;
+      pipeline: { key: "pausing" | "paused" | "running" | "stopped"; label: string } | null;
+      workersRunning: number | null;
+      workersTotal: number | null;
+      queueDepth: number | null;
+      latestWriteAt: string | null;
+      writeIsFresh: boolean | null;
+      lastSuccessfulAt: string | null;
+    };
+
 export interface TodayData {
   generatedAt: string;
   numbers: OperatorNumbersData | null;
@@ -56,7 +76,13 @@ export interface TodayData {
     deliveredToday: BatchRow[];
     allBatches: number;
   } | null;
+  /** Read beside Today, under the Scraper's path so the grant cookie goes
+   *  with it. Null when the check itself failed. */
+  scraper: ScraperHealth | null;
 }
+
+/** Where the Scraper is entered: a live grant goes straight through. */
+const SCRAPER_ENTRY = "/admin/acquisition/scraper";
 
 function localMidnight(now: Date): Date {
   const midnight = new Date(now);
@@ -66,7 +92,11 @@ function localMidnight(now: Date): Date {
 
 export async function adminTodayLoader(): Promise<TodayData> {
   const since = localMidnight(new Date()).toISOString();
-  return api<TodayData>(`/api/admin/today?deliveredSince=${encodeURIComponent(since)}`);
+  const [today, scraper] = await Promise.all([
+    api<Omit<TodayData, "scraper">>(`/api/admin/today?deliveredSince=${encodeURIComponent(since)}`),
+    api<ScraperHealth>("/api/admin/scraper/health").catch(() => null),
+  ]);
+  return { ...today, scraper };
 }
 
 function routePath(href: string): string {
@@ -106,12 +136,113 @@ function telegramText(review: NonNullable<LastNight["review"]>, now: Date) {
   }
 }
 
-/** Last night's run in one line. Live Scraper health needs the Scraper
- *  step-up, so it is not shown here. */
+/** "running · 6 of 8 workers · queue 812 · last write just now". */
+function ScraperHealthLine({ health, now }: { health: ScraperHealth | null; now: Date }) {
+  const label = (
+    <Link to={SCRAPER_ENTRY}>
+      <strong>Scraper</strong>
+    </Link>
+  );
+  if (health === null) {
+    return (
+      <section className="jx-today-line__part jx-today-line__scraper" aria-label="Scraper health">
+        <span>
+          {label}{" "}
+          <Text as="span" size="sm" tone="muted">health could not be checked</Text>
+        </span>
+      </section>
+    );
+  }
+  if (!health.granted) {
+    return (
+      <section className="jx-today-line__part jx-today-line__scraper" aria-label="Scraper health">
+        <Link to={SCRAPER_ENTRY}>Scraper · verify to see health</Link>
+      </section>
+    );
+  }
+  if (health.serviceState === "unavailable") {
+    return (
+      <section className="jx-today-line__part jx-today-line__scraper" aria-label="Scraper health">
+        <span>
+          {label}{" "}
+          <Text as="span" size="sm" tone="danger">
+            unavailable
+            {health.lastSuccessfulAt ? ` · last reached ${formatAsOf(health.lastSuccessfulAt, now)}` : ""}
+          </Text>
+        </span>
+      </section>
+    );
+  }
+  const parts: ReactNode[] = [];
+  if (health.pipeline) {
+    parts.push(
+      health.pipeline.key === "stopped" ? (
+        <Text as="span" size="sm" tone="danger">{health.pipeline.label.toLowerCase()}</Text>
+      ) : (
+        health.pipeline.label.toLowerCase()
+      ),
+    );
+  }
+  if (health.workersRunning !== null) {
+    parts.push(
+      health.workersTotal !== null
+        ? `${formatCount(health.workersRunning)} of ${plural(health.workersTotal, "worker")}`
+        : `${plural(health.workersRunning, "worker")} running`,
+    );
+  } else if (health.workersTotal !== null) {
+    parts.push(`${plural(health.workersTotal, "worker")} expected`);
+  }
+  if (health.queueDepth !== null) parts.push(`queue ${formatCount(health.queueDepth)}`);
+  if (health.pipeline || health.latestWriteAt) {
+    const write = health.latestWriteAt
+      ? `last write ${formatAgo(health.latestWriteAt, now)}`
+      : "no writes yet";
+    // A running pipeline that has stopped writing is the thing to notice.
+    parts.push(
+      health.pipeline?.key === "running" && health.writeIsFresh === false ? (
+        <Text as="span" size="sm" tone="danger">{write}</Text>
+      ) : (
+        write
+      ),
+    );
+  }
+  return (
+    <section className="jx-today-line__part jx-today-line__scraper" aria-label="Scraper health">
+      <span>
+        {label}{" "}
+        {parts.map((part, index) => (
+          <Fragment key={index}>
+            {index ? " · " : ""}
+            {part}
+          </Fragment>
+        ))}
+      </span>
+    </section>
+  );
+}
+
+/** Last night's run and the Scraper's health in one ruled line. */
+function TodayLine({
+  lastNight,
+  scraper,
+  now,
+}: {
+  lastNight: LastNight | null;
+  scraper: ScraperHealth | null;
+  now: Date;
+}) {
+  return (
+    <div className="jx-today-line">
+      <LastNightLine lastNight={lastNight} now={now} />
+      <ScraperHealthLine health={scraper} now={now} />
+    </div>
+  );
+}
+
 function LastNightLine({ lastNight, now }: { lastNight: LastNight | null; now: Date }) {
   if (!lastNight) {
     return (
-      <section className="jx-today-line" aria-label="Last night">
+      <section className="jx-today-line__part" aria-label="Last night">
         <strong>Last night</strong>
         <span>No Scrape Run has been committed yet.</span>
       </section>
@@ -119,7 +250,7 @@ function LastNightLine({ lastNight, now }: { lastNight: LastNight | null; now: D
   }
   const { run, review } = lastNight;
   return (
-    <section className="jx-today-line" aria-label="Last night">
+    <section className="jx-today-line__part" aria-label="Last night">
       <strong>Last night</strong>
       {run ? (
         <span>
@@ -232,7 +363,7 @@ export function AdminTodayRoute() {
           The numbers are temporarily unavailable. The decisions below are current.
         </Text>
       )}
-      <LastNightLine lastNight={data.lastNight} now={now} />
+      <TodayLine lastNight={data.lastNight} scraper={data.scraper} now={now} />
       <PanelLayout
         panel={
           shown ? (

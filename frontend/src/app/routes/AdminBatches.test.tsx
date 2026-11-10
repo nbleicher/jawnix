@@ -56,7 +56,11 @@ function batch(overrides: Partial<BatchDetail> = {}): BatchDetail {
       short: 0,
       asOf: null,
       source: "customer_snapshot",
-      olderOpen: { count: 1, first: { number: 1039, customer: "Ridgeline Benefits", stage: "waiting" } },
+      rotation: {
+        state: "pending_approval",
+        aheadCount: 1,
+        ahead: [{ number: 1039, href: "/app/admin/batches/1039", customer: "Ridgeline Benefits", stage: "waiting" }],
+      },
     },
     cost: {
       billed: true,
@@ -129,11 +133,71 @@ describe("the Batch page", () => {
     const fill = screen.getByRole("region", { name: "Can it be filled?" });
     expect(within(fill).getByText("1,188,205")).toBeVisible();
     expect(within(fill).getByText("Fillable in full")).toBeVisible();
-    expect(within(fill).getByText("1 batch (Ridgeline Benefits, waiting)")).toBeVisible();
+    // Awaiting approval: where approving it now would put it in rotation.
+    const rotation = within(fill).getByText("Ahead once approved").nextElementSibling as HTMLElement;
+    expect(rotation).toHaveTextContent("1 batch: #1039 Ridgeline Benefits (waiting)");
+    expect(within(rotation).getByRole("link", { name: "#1039 Ridgeline Benefits" })).toHaveAttribute(
+      "href",
+      "/admin/batches/1039",
+    );
     const cost = screen.getByRole("region", { name: "Cost" });
     expect(within(cost).getByText("$5.00 per 1,000")).toBeVisible();
     expect(within(cost).getByText("$125.00, held at submission")).toBeVisible();
     expect(within(cost).getByText("$412.50")).toBeVisible();
+  });
+
+  it("says where an approved batch stands in rotation", () => {
+    const ahead = [1039, 1040, 1041].map((number, index) => ({
+      number,
+      href: `/app/admin/batches/${number}`,
+      customer: ["Ridgeline Benefits", "Harbor Insurance", "Summit Benefits Group"][index]!,
+      stage: index ? "queued" : "waiting",
+    }));
+    const { view } = renderBatch(
+      batch({
+        status: "approved",
+        stage: "queued",
+        fill: { ...batch().fill, rotation: { state: "queued", aheadCount: 7, ahead } },
+      }),
+    );
+    let fill = screen.getByRole("region", { name: "Can it be filled?" });
+    expect(within(fill).getByText("Ahead in rotation").nextElementSibling).toHaveTextContent(
+      "7 batches: #1039 Ridgeline Benefits (waiting), #1040 Harbor Insurance (approved), #1041 Summit Benefits Group (approved) and 4 more",
+    );
+    view.unmount();
+
+    renderBatch(
+      batch({
+        status: "approved",
+        stage: "queued",
+        fill: { ...batch().fill, rotation: { state: "queued", aheadCount: 0, ahead: [] } },
+      }),
+    );
+    fill = screen.getByRole("region", { name: "Can it be filled?" });
+    expect(within(fill).getByText("Rotation").nextElementSibling).toHaveTextContent("Next in rotation");
+    expect(within(fill).queryByText("Ahead in rotation")).toBeNull();
+  });
+
+  it("says a pending batch would be next, and a paused customer takes no turns", () => {
+    const { view } = renderBatch(
+      batch({ fill: { ...batch().fill, rotation: { state: "pending_approval", aheadCount: 0, ahead: [] } } }),
+    );
+    expect(screen.getByText("Next in rotation once approved")).toBeVisible();
+    view.unmount();
+    renderBatch(
+      batch({
+        fill: {
+          ...batch().fill,
+          rotation: {
+            state: "paused",
+            aheadCount: 0,
+            ahead: [],
+            reason: "Not in rotation while the customer is deactivated",
+          },
+        },
+      }),
+    );
+    expect(screen.getByText("Not in rotation while the customer is deactivated")).toBeVisible();
   });
 
   it("links the customer, agency, and the customer's recent batches", () => {
@@ -215,7 +279,7 @@ describe("the Batch page", () => {
           sentAt: null,
           available: false,
         },
-        fill: { needed: 25_000, kind: "committed", committed: 25_000, olderOpen: null },
+        fill: { needed: 25_000, kind: "committed", committed: 25_000, rotation: null },
         distribution: {
           committed: 25_000,
           expected: 25_000,
@@ -389,6 +453,21 @@ describe("All batches", () => {
     expect(router.state.location.search).toContain("database=db2");
   });
 
+  it("names only the first batch ahead in the narrow panel", async () => {
+    const ahead = [1039, 1040].map((number) => ({
+      number,
+      href: `/app/admin/batches/${number}`,
+      customer: `Customer ${number}`,
+      stage: "queued",
+    }));
+    ok(batch({ fill: { ...batch().fill, rotation: { state: "queued", aheadCount: 3, ahead } } }));
+    renderList("/admin/batches?batch=1042");
+    const panel = await screen.findByRole("complementary", { name: "#1042 · Northstar Insurance" });
+    expect(
+      (await within(panel).findByText("Ahead in rotation")).nextElementSibling,
+    ).toHaveTextContent("3 batches: #1039 Customer 1039 (approved) and 2 more");
+  });
+
   it("opens the selected batch beside the list", async () => {
     const user = userEvent.setup();
     ok(batch());
@@ -399,6 +478,9 @@ describe("All batches", () => {
     const panel = await screen.findByRole("complementary", { name: "#1042 · Northstar Insurance" });
     expect(await within(panel).findByText("$125.00 at $5.00 per 1,000")).toBeVisible();
     expect(within(panel).getByText("$412.50")).toBeVisible();
+    expect(within(panel).getByText("Ahead once approved").nextElementSibling).toHaveTextContent(
+      "1 batch: #1039 Ridgeline Benefits (waiting)",
+    );
     expect(within(panel).getByRole("button", { name: "Approve" })).toBeVisible();
     expect(within(table).getAllByRole("row")[2]).toHaveAttribute("aria-current", "true");
   });

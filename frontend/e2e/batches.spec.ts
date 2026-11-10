@@ -49,6 +49,7 @@ test.describe("All batches", () => {
     await expect(page).toHaveURL(/batch=1042/);
     const panel = page.getByRole("complementary", { name: "#1042 · Northstar Insurance" });
     await expect(panel.getByText("Fillable in full")).toBeVisible();
+    await expect(panel.getByText("1 batch: #1039 Ridgeline Benefits (waiting)")).toBeVisible();
     await expect(panel.getByRole("button", { name: "Approve" })).toBeVisible();
     await expect(table.locator("tbody tr").nth(3)).toHaveAttribute("aria-current", "true");
 
@@ -68,7 +69,21 @@ test.describe("The Batch page", () => {
     await expect(page.getByText(/25,000 leads · FL · DB1 · submitted 2 hours ago/)).toBeVisible();
     const fill = page.getByRole("region", { name: "Can it be filled?" });
     await expect(fill.getByText("Fillable in full")).toBeVisible();
-    await expect(fill.getByText("1 batch (Ridgeline Benefits, waiting)")).toBeVisible();
+    // Awaiting approval, so it reads as where approving it now would put it.
+    const rotation = fill.getByRole("definition").filter({ hasText: "Ridgeline" });
+    await expect(fill.getByRole("term").filter({ hasText: "Ahead once approved" })).toBeVisible();
+    await expect(rotation).toHaveText("1 batch: #1039 Ridgeline Benefits (waiting)");
+    await rotation.getByRole("link", { name: "#1039 Ridgeline Benefits" }).click();
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Batch #1039 · Ridgeline Benefits" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "Can it be filled?" }).getByText("Next in rotation", { exact: true }),
+    ).toBeVisible();
+    await page.goBack();
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Batch #1042 · Northstar Insurance" }),
+    ).toBeVisible();
     const cost = page.getByRole("region", { name: "Cost" });
     await expect(cost.getByText("$5.00 per 1,000")).toBeVisible();
     await expect(cost.getByText("$125.00, held at submission")).toBeVisible();
