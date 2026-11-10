@@ -89,6 +89,12 @@
 	}
 }
 
+# www has no app of its own. Sending it to the canonical origin keeps sign-in
+# cookies and links on one host.
+{$JAWNIX_WWW_DOMAIN:www.jawnix.com} {
+	redir {$JAWNIX_PUBLIC_BASE_URL:https://jawnix.com}{uri} permanent
+}
+
 {$JAWNIX_SCRAPER_OPS_DOMAIN:scraper.jawnix.com} {
 	encode zstd gzip
 

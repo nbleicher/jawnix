@@ -32,3 +32,12 @@ def test_no_static_file_server_remains():
     assert not any("/srv/static" in line for line in directives)
     assert not any("JAWNIX_ENABLE_NEW_UI" in line for line in directives)
     assert "redir * /app/?{query} 302" in directives
+
+
+def test_www_redirects_permanently_to_the_canonical_origin():
+    """www.jawnix.com resolves to the application host; it must forward the
+    whole path and query to the canonical origin rather than fail TLS."""
+    text = (ROOT / "Caddyfile").read_text()
+
+    assert "{$JAWNIX_WWW_DOMAIN:www.jawnix.com} {" in text
+    assert "redir {$JAWNIX_PUBLIC_BASE_URL:https://jawnix.com}{uri} permanent" in text
