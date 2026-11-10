@@ -1,4 +1,5 @@
-/* Last night's run in one ruled line under the numbers. */
+/* Last night's run and the Scraper's health in one ruled line under the
+   numbers. The health half sits at the far end and wraps under on a phone. */
 .jx-today-line {
   display: flex;
   flex-wrap: wrap;
@@ -12,9 +13,27 @@
   font-feature-settings: var(--jx-font-features-numeral);
 }
 
+.jx-today-line__part {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--jx-space-2) var(--jx-space-4);
+}
+
+.jx-today-line__scraper {
+  margin-inline-start: auto;
+}
+
 .jx-today-line a {
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
   text-decoration-thickness: 1px;
+}
+
+/* Wrapped under last night on a phone, it reads from the left like the rest. */
+@media (max-width: 40rem) {
+  .jx-today-line__scraper {
+    margin-inline-start: 0;
+  }
 }

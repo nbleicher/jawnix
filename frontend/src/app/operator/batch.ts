@@ -34,12 +34,30 @@ export interface BatchCost {
   availableBalanceCents?: number;
 }
 
+/** One Batch ahead in Fulfillment Rotation. */
+export interface RotationAhead {
+  number: number;
+  href: string;
+  customer: string;
+  stage: string;
+}
+
+/**
+ * Where a Batch stands in Fulfillment Rotation, from the same ordering the
+ * worker fulfills by. "pending_approval" is where it would stand if approved
+ * now; "paused" means its Customer or Agency is deactivated. `ahead` names
+ * the first few of `aheadCount`. Null once the Batch has left the rotation.
+ */
+export interface BatchRotation {
+  state: "queued" | "pending_approval" | "paused";
+  aheadCount: number;
+  ahead: RotationAhead[];
+  reason?: string;
+}
+
 export interface BatchFill extends BatchAvailability {
   needed: number;
-  olderOpen: {
-    count: number;
-    first: { number: number; customer: string; stage: string } | null;
-  } | null;
+  rotation: BatchRotation | null;
 }
 
 export interface BatchDetail extends Omit<RequestDetail, "activityTimeline"> {

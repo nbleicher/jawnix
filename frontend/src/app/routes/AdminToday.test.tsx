@@ -5,8 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Decision } from "../operator/DecisionPanel";
 import type { BatchRow } from "../operator/format";
-import { AdminTodayRoute } from "./AdminToday";
-import type { TodayData } from "./AdminToday";
+import { AdminTodayRoute, adminTodayLoader } from "./AdminToday";
+import type { ScraperHealth, TodayData } from "./AdminToday";
 
 function hoursAgo(hours: number): string {
   return new Date(Date.now() - hours * 3_600_000).toISOString();
@@ -102,9 +102,27 @@ function today(overrides: Partial<TodayData> = {}): TodayData {
       ],
       allBatches: 80,
     },
+    scraper: { granted: false },
     ...overrides,
   };
 }
+
+function minutesAgo(minutes: number): string {
+  return new Date(Date.now() - minutes * 60_000).toISOString();
+}
+
+const HEALTHY: ScraperHealth = {
+  granted: true,
+  serviceState: "connected",
+  checkedAt: minutesAgo(0),
+  pipeline: { key: "running", label: "Running" },
+  workersRunning: 6,
+  workersTotal: 8,
+  queueDepth: 812,
+  latestWriteAt: minutesAgo(0),
+  writeIsFresh: true,
+  lastSuccessfulAt: minutesAgo(0),
+};
 
 function renderToday(data: TodayData, path = "/admin/today") {
   const router = createMemoryRouter(
@@ -121,7 +139,7 @@ beforeEach(() => {
 });
 
 describe("Today", () => {
-  it("reads last night in one line, without live Scraper health", () => {
+  it("reads last night in one line", () => {
     renderToday(today());
     const line = screen.getByRole("region", { name: "Last night" });
     expect(within(line).getByRole("link", { name: "Run 42" })).toHaveAttribute(
@@ -132,6 +150,102 @@ describe("Today", () => {
     expect(within(line).getByText("1 segment held")).toBeVisible();
     expect(within(line).getByText("Telegram delivery unknown")).toBeVisible();
     expect(within(line).queryByText(/workers/)).toBeNull();
+  });
+
+  it("asks for the Scraper verification instead of showing health without it", () => {
+    renderToday(today({ scraper: { granted: false } }));
+    const health = screen.getByRole("region", { name: "Scraper health" });
+    expect(within(health).getByRole("link", { name: "Scraper · verify to see health" })).toHaveAttribute(
+      "href",
+      "/admin/acquisition/scraper",
+    );
+    expect(within(health).queryByText(/workers|queue/)).toBeNull();
+  });
+
+  it("shows running state, workers, queue, and last write with a live grant", () => {
+    renderToday(today({ scraper: HEALTHY }));
+    const health = screen.getByRole("region", { name: "Scraper health" });
+    expect(health).toHaveTextContent("Scraper running · 6 of 8 workers · queue 812 · last write just now");
+    expect(within(health).getByRole("link", { name: "Scraper" })).toHaveAttribute(
+      "href",
+      "/admin/acquisition/scraper",
+    );
+  });
+
+  it("marks a running Scraper that has stopped writing", () => {
+    renderToday(
+      today({
+        scraper: { ...HEALTHY, latestWriteAt: minutesAgo(12), writeIsFresh: false, workersTotal: null },
+      }),
+    );
+    const health = screen.getByRole("region", { name: "Scraper health" });
+    expect(health).toHaveTextContent("Scraper running · 6 workers running · queue 812 · last write 12 minutes ago");
+    expect(within(health).getByText("last write 12 minutes ago")).toHaveClass("jx-text--danger");
+  });
+
+  it("marks a Scraper with no healthy worker", () => {
+    renderToday(
+      today({
+        scraper: {
+          ...HEALTHY,
+          pipeline: { key: "stopped", label: "No workers" },
+          workersRunning: 0,
+          queueDepth: 0,
+          latestWriteAt: null,
+          writeIsFresh: false,
+        },
+      }),
+    );
+    const health = screen.getByRole("region", { name: "Scraper health" });
+    expect(health).toHaveTextContent("Scraper no workers · 0 of 8 workers · queue 0 · no writes yet");
+    expect(within(health).getByText("no workers")).toHaveClass("jx-text--danger");
+  });
+
+  it("says when the Scraper could not be reached", () => {
+    renderToday(
+      today({
+        scraper: {
+          ...HEALTHY,
+          serviceState: "unavailable",
+          pipeline: null,
+          workersRunning: null,
+          workersTotal: null,
+          queueDepth: null,
+          latestWriteAt: null,
+          writeIsFresh: null,
+          lastSuccessfulAt: null,
+        },
+      }),
+    );
+    expect(screen.getByRole("region", { name: "Scraper health" })).toHaveTextContent("Scraper unavailable");
+  });
+
+  it("keeps Today when the health check itself fails", () => {
+    renderToday(today({ scraper: null }));
+    expect(screen.getByRole("region", { name: "Scraper health" })).toHaveTextContent(
+      "Scraper health could not be checked",
+    );
+    expect(screen.getByRole("region", { name: "Last night" })).toBeVisible();
+  });
+
+  it("reads health beside Today and survives its failure", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.startsWith("/api/admin/scraper/health")) {
+        return new Response(JSON.stringify({ detail: "Scraper down" }), { status: 500 });
+      }
+      return new Response(JSON.stringify(today({})), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    const data = await adminTodayLoader();
+    expect(fetchSpy.mock.calls.map(([url]) => String(url).split("?")[0])).toEqual([
+      "/api/admin/today",
+      "/api/admin/scraper/health",
+    ]);
+    expect(data.scraper).toBeNull();
+    expect(data.lastNight?.run?.id).toBe(42);
   });
 
   it("lists decisions in the order given, oldest first, each opening beside the list", async () => {

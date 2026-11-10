@@ -1,4 +1,6 @@
+import { Fragment } from "react";
 import type { ReactNode } from "react";
+import { Link } from "react-router";
 
 import { Button } from "../../design-system/primitives/Button";
 import { FactList } from "../../design-system/primitives/facts";
@@ -56,6 +58,54 @@ export function costFact(batch: Pick<BatchDetail, "cost">): string {
   return `${formatCents(cost.amountCents ?? 0)} at ${formatRate(cost.rateCentsPerThousand)}`;
 }
 
+function routePath(href: string): string {
+  return href.startsWith("/app/") ? href.slice("/app".length) : href;
+}
+
+/**
+ * "Ahead in rotation: 2 batches: #1039 Ridgeline Benefits (waiting), …" or
+ * "Next in rotation". A Batch awaiting approval has not entered the rotation,
+ * so it reads as where approving it now would put it. `named` caps how many
+ * of the Batches ahead are listed; the count always covers all of them.
+ */
+export function rotationFact(
+  batch: Pick<BatchDetail, "fill">,
+  { named = Number.POSITIVE_INFINITY }: { named?: number } = {},
+): Fact | null {
+  const rotation = batch.fill.rotation;
+  if (!rotation) return null;
+  if (rotation.state === "paused") {
+    return { term: "Rotation", description: rotation.reason ?? "Not in rotation" };
+  }
+  const pending = rotation.state === "pending_approval";
+  if (rotation.aheadCount === 0) {
+    return {
+      term: "Rotation",
+      description: pending ? "Next in rotation once approved" : "Next in rotation",
+    };
+  }
+  const shown = rotation.ahead.slice(0, named);
+  const more = rotation.aheadCount - shown.length;
+  return {
+    term: pending ? "Ahead once approved" : "Ahead in rotation",
+    description: (
+      <>
+        {plural(rotation.aheadCount, "batch", "batches")}:{" "}
+        {shown.map((item, index) => (
+          <Fragment key={item.number}>
+            {index ? ", " : ""}
+            <Link to={routePath(item.href)}>
+              #{item.number} {item.customer}
+            </Link>{" "}
+            ({stageLabel(item.stage).toLowerCase()})
+          </Fragment>
+        ))}
+        {more > 0 ? ` and ${formatCount(more)} more` : ""}
+      </>
+    ),
+  };
+}
+
 function panelFacts(batch: BatchDetail): Fact[] {
   const facts: Fact[] = [
     {
@@ -64,8 +114,10 @@ function panelFacts(batch: BatchDetail): Fact[] {
     },
     { term: "Available for this customer", description: availableFact(batch) },
     { term: "Result", description: <FillResult batch={batch} /> },
-    { term: "Cost", description: costFact(batch) },
   ];
+  const rotation = rotationFact(batch, { named: 1 });
+  if (rotation) facts.push(rotation);
+  facts.push({ term: "Cost", description: costFact(batch) });
   if (batch.cost.billed) {
     facts.push({
       term: batch.cost.hold === "active" ? "Balance after hold" : "Balance",
@@ -229,11 +281,6 @@ export function BatchPanel({
           Reading Batch #{reference}…
         </Text>
       )}
-      {batch && batch.fill.olderOpen && batch.fill.olderOpen.count > 0 ? (
-        <Text size="xs" tone="muted">
-          {plural(batch.fill.olderOpen.count, "older open batch", "older open batches")} waiting.
-        </Text>
-      ) : null}
     </SidePanel>
   );
 }

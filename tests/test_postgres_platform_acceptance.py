@@ -27,9 +27,10 @@ from jawnix.api import app, replace_user_account
 from jawnix.customer_accounts import accept_user_account_invitation
 from jawnix.auth import Principal, require_admin, require_principal
 from jawnix.config import Settings, get_settings
-from jawnix.database import get_db
+from jawnix.database import Base, get_db
 from jawnix.delivery import deliver_request, mark_delivery_failed
 from jawnix.jobs import claim_next_job
+from jawnix.performance import source_performance_snapshot
 from jawnix.models import (
     Agency,
     AuditEntry,
@@ -42,6 +43,7 @@ from jawnix.models import (
     Job,
     Lead,
     LeadCorrectionEvent,
+    LeadDispositionTransition,
     LeadOutcome,
     LeadReport,
     LeadRequest,
@@ -82,6 +84,9 @@ def test_google_maps_to_customer_feedback_acceptance(
 ):
     database_url = os.environ["JAWNIX_ACCEPTANCE_DATABASE_URL"]
     engine = create_engine(database_url, pool_pre_ping=True)
+    # Builds the schema itself instead of relying on an earlier file in the
+    # same run to have done it, so it also passes alone or reordered.
+    Base.metadata.create_all(engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     run_key = uuid.uuid4().hex[:12]
     phone = f"469{int(run_key[:7], 16) % 10_000_000:07d}"
@@ -722,6 +727,16 @@ def test_google_maps_to_customer_feedback_acceptance(
                 )
                 session.add(performance_event)
                 session.flush()
+                # Every lead was worked, so both segments clear the
+                # worked-lead threshold an active prescription would need.
+                session.add(
+                    LeadDispositionTransition(
+                        distribution_event_id=performance_event.id,
+                        customer_id=customer.id,
+                        actor_user_id=user_id,
+                        disposition="no_contact",
+                    )
+                )
                 if outcome_index < 30:
                     session.add(
                         LeadOutcome(
@@ -765,6 +780,41 @@ def test_google_maps_to_customer_feedback_acceptance(
                             ),
                         )
                     )
+        # The worked-lead prescription is dormant: the nightly keeps the
+        # evidence above but proposes nothing new from it. Source
+        # Recommendations made before it went dormant stay decidable, so the
+        # decision path below runs against two of those, shaped the way the
+        # old builder wrote them (no configuration version).
+        performance_niche = f"Acceptance-{run_key}"
+        legacy_recommendation_ids = {}
+        for segment_key, legacy_action in (
+            (configured_segment, "expand"),
+            (peer_segment, "pause"),
+        ):
+            legacy_evidence = {
+                "niche": performance_niche,
+                "comparisonScope": "same_niche",
+                "proposedAction": legacy_action,
+                "segment": {"segment": segment_key, "delivered": 100},
+            }
+            legacy_recommendation = SourceRecommendation(
+                niche=performance_niche,
+                segment_key=segment_key,
+                action=legacy_action,
+                evidence=legacy_evidence,
+                evidence_checksum=hashlib.sha256(
+                    json.dumps(
+                        legacy_evidence,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8")
+                ).hexdigest(),
+            )
+            session.add(legacy_recommendation)
+            session.flush()
+            legacy_recommendation_ids[segment_key] = (
+                legacy_recommendation.id
+            )
         for history_index in range(7):
             historical_run = ScraperRun(
                 source="google_maps",
@@ -971,25 +1021,60 @@ def test_google_maps_to_customer_feedback_acceptance(
             "more_than_50_percent_down"
         ]
         assert scheduler_review.scraper_run_id == held_run.id
-        recommendation = session.scalar(
-            select(SourceRecommendation).where(
-                SourceRecommendation.segment_key
-                == configured_segment,
-                SourceRecommendation.action == "expand",
-                SourceRecommendation.status == "pending",
+        # The nightly ran the dormant recommendation step cleanly...
+        assert "recommendationError" not in held_run.details
+        assert not [
+            failure
+            for failure in scheduler_review.summary["failures"]
+            if failure["kind"] == "source_recommendations"
+        ]
+        # ...and proposed nothing: the only Source Recommendations for these
+        # segments are the two legacy ones, still pending and untouched.
+        segment_recommendations = list(
+            session.scalars(
+                select(SourceRecommendation).where(
+                    SourceRecommendation.segment_key.in_(
+                        {configured_segment, peer_segment}
+                    )
+                )
             )
         )
-        assert recommendation is not None
-        recommendation_id = recommendation.id
-        denied_recommendation = session.scalar(
-            select(SourceRecommendation).where(
-                SourceRecommendation.segment_key == peer_segment,
-                SourceRecommendation.action.in_({"pause", "reduce"}),
-                SourceRecommendation.status == "pending",
-            )
+        assert sorted(
+            (item.segment_key, item.id, item.status)
+            for item in segment_recommendations
+        ) == sorted(
+            (key, value, "pending")
+            for key, value in legacy_recommendation_ids.items()
         )
-        assert denied_recommendation is not None
-        denied_recommendation_id = denied_recommendation.id
+        # The outcomes behind them are kept as evidence, not prescription.
+        performance = source_performance_snapshot(session)
+        assert performance["global"]["prescriptive"] is False
+        retained = {
+            item["segment"]: item
+            for item in performance["cohorts"]
+            if item["segment"] in {configured_segment, peer_segment}
+            and item["distributionPeriod"] == "2026-06"
+        }
+        assert {
+            key: (
+                item["delivered"],
+                item["worked"],
+                item["rated"],
+                item["good"],
+                item["poor"],
+                item["positiveResponses"],
+                item["appointmentsBooked"],
+            )
+            for key, item in retained.items()
+        } == {
+            configured_segment: (100, 100, 30, 30, 0, 20, 10),
+            peer_segment: (100, 100, 30, 0, 30, 0, 0),
+        }
+        recommendation_id = legacy_recommendation_ids[configured_segment]
+        recommendation_checksum = session.get(
+            SourceRecommendation, recommendation_id
+        ).evidence_checksum
+        denied_recommendation_id = legacy_recommendation_ids[peer_segment]
         anomaly_id = anomaly.id
         anomaly_dataset_checksum = anomaly.dataset_checksum
 
@@ -1146,14 +1231,28 @@ def test_google_maps_to_customer_feedback_acceptance(
             csrf="acceptance-admin",
         )
         try:
+            workspace = TestClient(app).get("/api/admin/acquisition")
+            assert workspace.status_code == 200
+            assert {
+                item["id"]: item["decidable"]
+                for item in workspace.json()["sourceRecommendations"]
+                if item["segment"] in {configured_segment, peer_segment}
+            } == {
+                str(recommendation_id): True,
+                str(denied_recommendation_id): True,
+            }
             approved = TestClient(app).post(
                 (
                     "/api/admin/source-recommendations/"
                     f"{recommendation_id}/approve"
                 ),
-                json={"reason": "Acceptance recommendation approval"},
+                json={
+                    "reason": "Acceptance recommendation approval",
+                    "evidenceChecksum": recommendation_checksum,
+                },
             )
             assert approved.status_code == 200
+            assert approved.json()["status"] == "approved"
             next_configuration = session.get(
                 ScraperConfiguration,
                 uuid.UUID(

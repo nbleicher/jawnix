@@ -48,6 +48,12 @@ from .niche_policy import (
     policy_clause,
     policy_clause_for_rows,
 )
+from .rotation import (
+    ROTATION_STATUSES,
+    in_rotation,
+    rotation_candidate,
+    rotation_turns,
+)
 from .states import truncate_utf8
 
 
@@ -860,73 +866,28 @@ def decide_inventory_conflict(
 
 
 def fulfill_round_robin(session: Session, settings: Settings) -> dict[str, int]:
-    """Give each Agency (or standalone Customer) at most one fulfillment turn."""
+    """Give each Agency (or standalone Customer) at most one fulfillment turn.
+
+    The turns and their order come from ``rotation_turns``, the same function
+    the Batch page projects a Batch's place in the rotation from.
+    """
     requests = list(
         session.scalars(
             select(LeadRequest)
-            .where(
-                LeadRequest.status.in_(
-                    {
-                        RequestStatus.approved.value,
-                        RequestStatus.waiting_inventory.value,
-                    }
-                )
-            )
+            .where(LeadRequest.status.in_(ROTATION_STATUSES))
             .order_by(LeadRequest.created_at, LeadRequest.id)
             .with_for_update(skip_locked=True)
         )
     )
-    grouped: dict[tuple[str, int], list[LeadRequest]] = {}
-    for item in requests:
-        if (
-            not item.customer.active
-            or item.customer.deleted_at is not None
-            or (
-                item.customer.agency is not None
-                and (
-                    not item.customer.agency.active
-                    or item.customer.agency.deleted_at is not None
-                )
-            )
-        ):
-            continue
-        key = (
-            ("agency", item.customer.agency_id)
-            if item.customer.agency_id is not None
-            else ("customer", item.customer_id)
-        )
-        grouped.setdefault(key, []).append(item)
-
-    def group_order(entry: tuple[tuple[str, int], list[LeadRequest]]):
-        key, items = entry
-        customer = items[0].customer
-        last_fulfilled = (
-            customer.agency.last_fulfilled_at
-            if customer.agency is not None
-            else customer.last_fulfilled_at
-        )
-        return (
-            last_fulfilled is not None,
-            last_fulfilled or datetime.min.replace(tzinfo=timezone.utc),
-            key[0],
-            key[1],
-        )
+    by_id = {
+        item.id: item for item in requests if in_rotation(item.customer)
+    }
+    turns = rotation_turns(rotation_candidate(item) for item in by_id.values())
 
     fulfilled = waiting = visited = 0
-    for _, agency_requests in sorted(grouped.items(), key=group_order):
+    for turn in turns:
         visited += 1
-        agency_requests.sort(
-            key=lambda item: (
-                item.customer.last_fulfilled_at is not None,
-                item.customer.last_fulfilled_at
-                or datetime.min.replace(tzinfo=timezone.utc),
-                item.customer_id,
-                item.approved_at
-                or item.created_at,
-                item.id,
-            )
-        )
-        item = agency_requests[0]
+        item = by_id[turn.request_id]
         if _inventory_conflict_blocks(session, item, settings):
             waiting += 1
             continue

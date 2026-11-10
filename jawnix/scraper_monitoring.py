@@ -373,3 +373,53 @@ def monitoring_region(
         fetched_at=captured_at,
         data=region_data(region, payload),
     )
+
+
+def health_summary(
+    activity: RegionData | None,
+    workers: RegionData | None,
+    *,
+    checked_at: datetime,
+) -> dict[str, object]:
+    """Today's one-line Scraper health from the activity and workers regions.
+
+    Running state, queue depth, and the last write come from the activity
+    region; the running count is its healthy-worker count, and the total is
+    the workers region's expected fleet size. Either region may be missing
+    (its read failed), and what it would have supplied is then None rather
+    than a guess, so the line shows only what the Scraper actually reported.
+    """
+
+    pipeline = activity.pipeline_state if activity is not None else None
+    current = activity.activity if activity is not None else None
+    total = None
+    if workers is not None:
+        total = (
+            workers.expected_workers
+            if workers.expected_workers is not None
+            else len(workers.workers or [])
+        )
+    return {
+        "serviceState": (
+            "connected"
+            if current is not None or total is not None
+            else "unavailable"
+        ),
+        "checkedAt": checked_at,
+        "pipeline": (
+            {"key": pipeline.key, "label": pipeline.label}
+            if pipeline is not None
+            else None
+        ),
+        "workersRunning": (
+            current.healthy_workers if current is not None else None
+        ),
+        "workersTotal": total,
+        "queueDepth": current.queue_depth if current is not None else None,
+        "latestWriteAt": (
+            current.latest_write_at if current is not None else None
+        ),
+        "writeIsFresh": (
+            current.write_is_fresh if current is not None else None
+        ),
+    }

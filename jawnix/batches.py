@@ -29,6 +29,12 @@ from .models import (
     LeadRequest,
     RequestStatus,
 )
+from .rotation import (
+    ROTATION_STATUSES,
+    in_rotation,
+    rotation_candidate,
+    rotation_order,
+)
 
 PAGE_SIZE = 25
 MAX_PAGE_SIZE = 100
@@ -467,41 +473,74 @@ def find_batch(db: Session, reference: str) -> LeadRequest | None:
         return None
 
 
-def _older_open(db: Session, item: LeadRequest) -> dict[str, object] | None:
-    """Open, unallocated Batches submitted before this one."""
+#: How many of the Batches ahead in rotation the page names; the count
+#: covers the rest.
+ROTATION_AHEAD_SHOWN = 5
+
+
+def _rotation(
+    db: Session, item: LeadRequest, *, now: datetime
+) -> dict[str, object] | None:
+    """Where this Batch stands in Fulfillment Rotation.
+
+    The order is ``rotation_order`` over the requests the rotation draws from,
+    the same turns ``fulfill_round_robin`` takes. A Batch awaiting approval
+    has not entered the rotation, so its place is projected as if it were
+    approved now. None once the Batch has left the rotation.
+    """
     if item.status not in _UNALLOCATED:
         return None
-    statement = (
-        select(LeadRequest)
-        .options(selectinload(LeadRequest.agent))
-        .where(
-            LeadRequest.status.in_(
-                {
-                    RequestStatus.approved.value,
-                    RequestStatus.waiting_inventory.value,
-                    RequestStatus.processing.value,
-                }
-            ),
-            LeadRequest.created_at < item.created_at,
-            LeadRequest.id != item.id,
+    customer = item.customer
+    if not in_rotation(customer):
+        whose = (
+            "customer"
+            if not customer.active or customer.deleted_at is not None
+            else "agency"
         )
-        .order_by(LeadRequest.created_at.asc())
+        return {
+            "state": "paused",
+            "reason": f"Not in rotation while the {whose} is deactivated",
+            "aheadCount": 0,
+            "ahead": [],
+        }
+    queued = {
+        other.id: other
+        for other in db.scalars(
+            select(LeadRequest)
+            .options(selectinload(LeadRequest.agent).selectinload(Customer.agency))
+            .where(
+                LeadRequest.status.in_(ROTATION_STATUSES),
+                LeadRequest.id != item.id,
+            )
+        )
+        if in_rotation(other.customer)
+    }
+    pending = item.status == RequestStatus.pending.value
+    order = rotation_order(
+        [
+            *(rotation_candidate(other) for other in queued.values()),
+            rotation_candidate(item, queued_at=now if pending else None),
+        ],
+        now=now,
     )
-    count = int(
-        db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+    position = next(
+        index for index, turn in enumerate(order) if turn.request_id == item.id
     )
-    first = db.scalar(statement.limit(1))
     return {
-        "count": count,
-        "first": (
+        "state": "pending_approval" if pending else "queued",
+        "aheadCount": position,
+        "ahead": [
             {
-                "number": first.number,
-                "customer": first.customer.name,
-                "stage": stage(first),
+                "number": other.number,
+                "href": batch_href(other),
+                "customer": other.customer.name,
+                "stage": stage(other, now=now),
             }
-            if first is not None
-            else None
-        ),
+            for other in (
+                queued[turn.request_id]
+                for turn in order[: min(position, ROTATION_AHEAD_SHOWN)]
+            )
+        ],
     }
 
 
@@ -629,7 +668,7 @@ def describe_batch(
             "fill": {
                 "needed": item.lead_count,
                 **availability(item, committed=committed, snapshot=snapshot),
-                "olderOpen": _older_open(db, item),
+                "rotation": _rotation(db, item, now=moment),
             },
             "cost": _cost(db, item),
             "progress": _progress(item, committed),

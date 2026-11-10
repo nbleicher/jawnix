@@ -44,6 +44,21 @@ test.describe("Today", () => {
     await expect(lastNight.getByText("+18,420 new leads")).toBeVisible();
     await expect(lastNight.getByText("1 segment held")).toBeVisible();
     await expect(lastNight.getByText(/^Telegram sent \d\d:\d\d$/)).toBeVisible();
+    await expect(page.getByRole("region", { name: "Scraper health" })).toHaveText(
+      "Scraper running · 6 of 8 workers · queue 812 · last write just now",
+    );
+  });
+
+  test("links to the Scraper verification when this sign-in has no grant", async ({ page }) => {
+    await mockOperatorDesk(page, { scraper: { granted: false } });
+    await page.goto("./admin/today");
+
+    const health = page.getByRole("region", { name: "Scraper health" });
+    await expect(health).toHaveText("Scraper · verify to see health");
+    await health.getByRole("link", { name: "Scraper · verify to see health" }).click();
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Verify access to Scraper Operations" }),
+    ).toBeVisible();
   });
 
   test("lists every decision once, oldest first", async ({ page }) => {
@@ -74,6 +89,8 @@ test.describe("Today", () => {
     await expect(panel.getByText("25,000 · FL · DB1")).toBeVisible();
     await expect(panel.getByText("1,188,205")).toBeVisible();
     await expect(panel.getByText("Fillable in full")).toBeVisible();
+    await expect(panel.getByText("Ahead once approved")).toBeVisible();
+    await expect(panel.getByText("1 batch: #1039 Ridgeline Benefits (waiting)")).toBeVisible();
     await expect(panel.getByText("$125.00 at $5.00 per 1,000")).toBeVisible();
     await expect(panel.getByText("$412.50")).toBeVisible();
     await expect(panel.getByRole("link", { name: "Open full page" })).toHaveAttribute(

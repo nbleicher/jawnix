@@ -176,10 +176,23 @@ jobs:
       - name: Tests
         run: uv run pytest
 
-      - name: Verify committed worker wakeups and request updates on PostgreSQL
+      # Every PostgreSQL-only test, by glob so a new file cannot be left out.
+      # They skip without JAWNIX_ACCEPTANCE_DATABASE_URL (the step above), so
+      # any skip here means one never ran and fails the step. The database
+      # name must end in _test, and jawnix_test is the service's superuser:
+      # several files create and drop scratch databases, and DB2 provisioning
+      # creates the postgres_fdw extension, server, and user mapping.
+      - name: PostgreSQL acceptance (every test_postgres_* file, migration bootstrap)
+        timeout-minutes: 10
+        shell: bash
         env:
           JAWNIX_ACCEPTANCE_DATABASE_URL: postgresql+psycopg://jawnix_test:jawnix_test@127.0.0.1:5432/jawnix_worker_test
-        run: uv run pytest tests/test_postgres_job_updates.py tests/test_postgres_lead_databases.py tests/test_postgres_keyword_reserve.py tests/test_postgres_customer_registration.py
+        run: |
+          uv run pytest -rs tests/test_postgres_*.py tests/test_migration_bootstrap.py | tee postgres-pytest.log
+          if grep -q "SKIPPED" postgres-pytest.log; then
+            echo "::error::a PostgreSQL test skipped instead of running"
+            exit 1
+          fi
 
   scraper-worker:
     name: Scraper worker (build, test)

@@ -298,6 +298,9 @@ def test_batch_page_by_number_and_by_uuid(session, seeded, client):
     session.flush()
     northstar = seeded["northstar"]
     northstar.agency_id = agency.id
+    # Northstar's earlier deliveries were its agency's last turn.
+    agency.last_fulfilled_at = NOW - timedelta(hours=70)
+    northstar.last_fulfilled_at = NOW - timedelta(hours=70)
     northstar.billing_enabled = True
     northstar.lead_rate_cents_per_thousand = 500
     pending = seeded["pending"]
@@ -332,14 +335,19 @@ def test_batch_page_by_number_and_by_uuid(session, seeded, client):
     assert body["fill"]["kind"] == "fillable"
     assert body["fill"]["needed"] == 25_000
     assert body["fill"]["available"] == 1_188_205
-    # The waiting Ridgeline batch was submitted first and is still unallocated.
-    assert body["fill"]["olderOpen"] == {
-        "count": 1,
-        "first": {
-            "number": seeded["waiting"].number,
-            "customer": "Ridgeline Benefits",
-            "stage": "waiting",
-        },
+    # Awaiting approval, so not in rotation yet. Approved now, it would wait
+    # behind Ridgeline, which has never had a turn.
+    assert body["fill"]["rotation"] == {
+        "state": "pending_approval",
+        "aheadCount": 1,
+        "ahead": [
+            {
+                "number": seeded["waiting"].number,
+                "href": f"/app/admin/batches/{seeded['waiting'].number}",
+                "customer": "Ridgeline Benefits",
+                "stage": "waiting",
+            }
+        ],
     }
     assert body["cost"] == {
         "billed": True,
@@ -369,11 +377,79 @@ def test_batch_page_ends_progress_where_a_batch_stopped(session, seeded, client)
     body = client.get(f"/api/admin/batches/{seeded['canceled'].number}").json()
     assert [step["label"] for step in body["progress"]] == ["Submitted", "Canceled"]
     assert body["fill"]["kind"] == "none"
-    assert body["fill"]["olderOpen"] is None
+    assert body["fill"]["rotation"] is None
     assert body["cost"] == {"billed": False}
     failed = client.get(f"/api/admin/batches/{seeded['failed'].number}").json()
     assert failed["progress"][-1]["label"] == "Delivery failed"
     assert failed["stage"] == "delivery_failed"
+
+
+def rotation_of(client, item: LeadRequest) -> dict:
+    return client.get(f"/api/admin/batches/{item.number}").json()["fill"]["rotation"]
+
+
+def test_batch_page_places_approved_batches_in_rotation_order(session, seeded, client):
+    keystone = seeded["keystone"]
+    keystone.last_fulfilled_at = NOW - timedelta(days=1)
+    approved = batch(session, keystone, "approved", hours_ago=90, approved_at=NOW - timedelta(hours=1))
+    session.commit()
+
+    # Ridgeline has never had a turn; Keystone had one yesterday, so its
+    # batch waits behind Ridgeline's although it was submitted earlier.
+    assert rotation_of(client, seeded["waiting"]) == {"state": "queued", "aheadCount": 0, "ahead": []}
+    keystone_place = rotation_of(client, approved)
+    assert keystone_place["state"] == "queued"
+    assert keystone_place["aheadCount"] == 1
+    assert [item["number"] for item in keystone_place["ahead"]] == [seeded["waiting"].number]
+    # Generating, delivered, and closed batches have left the rotation.
+    for done in ("delivered", "failed", "canceled"):
+        assert rotation_of(client, seeded[done]) is None
+
+
+def test_awaiting_approval_is_projected_behind_its_own_customers_turn(session, seeded, client):
+    ridgeline = seeded["ridgeline"]
+    pending = batch(session, ridgeline, "pending", hours_ago=0.5)
+    session.commit()
+
+    place = rotation_of(client, pending)
+    # Its own Customer's waiting batch takes Ridgeline's next turn first.
+    assert place["state"] == "pending_approval"
+    assert place["aheadCount"] == 1
+    assert place["ahead"][0]["number"] == seeded["waiting"].number
+
+
+def test_batch_page_names_the_first_batches_ahead_and_counts_the_rest(session, seeded, client):
+    keystone = seeded["keystone"]
+    keystone.last_fulfilled_at = NOW - timedelta(hours=1)
+    target = batch(session, keystone, "approved", hours_ago=200)
+    for index in range(6):
+        batch(session, customer(session, f"never-served-{index}"), "approved", hours_ago=10 + index)
+    session.commit()
+
+    place = rotation_of(client, target)
+    assert place["aheadCount"] == 7
+    assert len(place["ahead"]) == 5
+    assert place["ahead"][0]["customer"] == "Ridgeline Benefits"
+
+
+def test_a_deactivated_customer_or_agency_takes_no_turns(session, seeded, client):
+    keystone = seeded["keystone"]
+    approved = batch(session, keystone, "approved", hours_ago=4)
+    keystone.active = False
+    session.commit()
+    assert rotation_of(client, approved) == {
+        "state": "paused",
+        "reason": "Not in rotation while the customer is deactivated",
+        "aheadCount": 0,
+        "ahead": [],
+    }
+    # Nor does it count ahead of anyone else.
+    assert rotation_of(client, seeded["waiting"])["aheadCount"] == 0
+
+    keystone.active = True
+    keystone.agency = Agency(slug="closed-agency", name="Closed Agency", active=False)
+    session.commit()
+    assert rotation_of(client, approved)["reason"] == "Not in rotation while the agency is deactivated"
 
 
 def test_batch_page_counts_the_customers_open_lead_reports(session, seeded, client):
