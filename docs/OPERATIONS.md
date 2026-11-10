@@ -62,6 +62,47 @@ PostgreSQL, and Restic secrets remain server-side.
 
 ## Deploying the application host
 
+Production runs on `root@152.53.209.52` (hostname `textro`) in the Compose
+project at `/srv/jawnix/app`. The older host `159.195.15.51` only proxies to it
+and also runs the separate Summit Metrics app; never deploy Jawnix there.
+
+### Releasing application code
+
+Application releases build one image from a merged `main` commit and recreate
+every app service on it: `api`, `worker`, `scheduler`, and the `imports`,
+`fulfillment`, `notifications`, `metrics`, `keyword`, and `keyword-refill`
+workers. Swapping only the API leaves workers on old code and old environment
+values; on 2026-11-10 that had left most workers with billing off for three
+weeks after `.env` turned it on.
+
+```sh
+SHA=$(git rev-parse origin/main)
+git archive --format=tar.gz -o release-${SHA:0:7}.tar.gz $SHA
+scp release-${SHA:0:7}.tar.gz ops/release-prepare.py ops/release-activate.py root@152.53.209.52:/srv/jawnix/
+ssh root@152.53.209.52 "cd /srv/jawnix && python3 release-prepare.py $SHA [tables the migrations change]"
+ssh root@152.53.209.52 "cd /srv/jawnix && setsid nohup python3 release-activate.py $SHA \
+  > backups/release-${SHA:0:7}/activate.log 2>&1 < /dev/null &"
+```
+
+`release-prepare.py` changes no running container. It records each service's
+container, image, and environment, dumps the named tables, tags every current
+image `jawnix-<service>:rollback-<sha7>`, and builds `jawnix-release:<sha7>`.
+
+`release-activate.py` stops the app services, runs `alembic upgrade head`,
+starts every service on the new image, and verifies readiness, restart counts,
+logs, the main pages, and that each container's environment matches its
+declared Compose configuration exactly. Run it detached as shown so a dropped
+SSH session cannot interrupt it, and follow `activate.log`. If any check fails
+after migrating, it downgrades to the previous revision with the new image and
+restores the previous images, saving every service's logs first. The `backup`
+service, Caddy, and Postgres are never touched.
+
+Afterwards, deploy `auth-service/` separately when it changed:
+`vercel deploy --prod --scope pro-build-momentum` from that folder (project
+`jawnix-auth`). `vercel link` writes a `.env.local` with secrets; delete it.
+
+### Syncing the Compose tree
+
 `ops/deploy.sh` is the only sanctioned path for updating the application tree
 at `/srv/jawnix/app`. Do not copy a hand-picked file set or run `scp` or a
 separate `rsync` command against that directory. The host has no Git checkout,
@@ -75,7 +116,7 @@ exact tag. Run the deploy script interactively with the SSH destination in
 ```sh
 git fetch origin main --tags
 git switch --detach production-YYYYMMDDTHHMMSSZ
-JAWNIX_DEPLOY_TARGET=root@159.195.15.51 \
+JAWNIX_DEPLOY_TARGET=root@152.53.209.52 \
   ops/deploy.sh production-YYYYMMDDTHHMMSSZ
 ```
 
