@@ -616,3 +616,25 @@ def test_home_refuses_a_replaced_or_deactivated_user_account(session):
         app.dependency_overrides.clear()
 
     assert response.status_code == 403
+
+
+def test_an_administrator_with_a_customer_profile_is_not_a_customer(session):
+    # The shell's 404 path sends the operator to administration. A Customer
+    # profile left on the operator's identity must not open the Customer portal.
+    user_id, _, _, _ = _customer(session, licensed_states=["TX"])
+    session.commit()
+
+    app.dependency_overrides[get_db] = lambda: (yield session)
+    app.dependency_overrides[require_principal] = lambda: Principal(
+        user_id=user_id,
+        email="operator@example.com",
+        role="admin",
+        csrf="test",
+        audience="admin",
+    )
+    try:
+        response = TestClient(app).get("/api/me/overview")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
