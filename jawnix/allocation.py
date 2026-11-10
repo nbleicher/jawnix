@@ -634,10 +634,33 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
     session.flush()
 
     database = inventory_database(request.customer)
-    query = eligible_query(request, settings).limit(request.lead_count)
+    state = inventory_state(database)
+    # Rank each requested state's eligible Leads in the usual order, then take
+    # rank 1 from every state, then rank 2, and so on. A state that runs out
+    # drops out, so the quantity splits as evenly as inventory allows.
+    state_rank = func.row_number().over(
+        partition_by=state,
+        order_by=(nullsfirst(Lead.last_distributed_at), Lead.id),
+    )
+    ranked = (
+        eligible_query(request, settings)
+        .with_only_columns(Lead.id, state.label("state"), state_rank.label("state_rank"))
+        .order_by(None)
+        .subquery()
+    )
+    picked = (
+        select(ranked.c.id, ranked.c.state, ranked.c.state_rank)
+        .order_by(ranked.c.state_rank, ranked.c.state)
+        .limit(request.lead_count)
+        .subquery()
+    )
+    # PostgreSQL refuses row locks beside a window function, so the picked
+    # Leads are locked by an outer query.
+    query = select(Lead).join(picked, picked.c.id == Lead.id).order_by(picked.c.state_rank, picked.c.state)
     source_keys = []
     if database == "db2":
         selected = session.execute(query.add_columns(LeadDatabaseMembership.upload_id)
+                                   .join(LeadDatabaseMembership, LeadDatabaseMembership.lead_id == Lead.id)
                                    .with_for_update(skip_locked=True, of=(Lead, LeadDatabaseMembership))).all()
         candidates = [row[0] for row in selected]
         source_keys = [(row[0].id, row[1]) for row in selected]
