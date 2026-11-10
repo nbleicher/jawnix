@@ -61,19 +61,21 @@ def declared_env():
             for service in SERVICES}
 
 
-def env_check(service, old, new, declared):
-    """A recreated container must match its declared configuration exactly; anything
-    else (image-level settings) must be unchanged. Returns the keys that moved from a
-    stale container value to the configured value."""
+def env_check(service, old, new, declared, image_env):
+    """A recreated container must have exactly the new image's built-in environment
+    plus its declared Compose configuration: nothing set outside the config survives,
+    and keys added, changed, or removed in .env take effect. Returns the declared keys
+    whose value differs from the old container (including keys removed from .env)."""
     old_env = dict(v.split("=", 1) for v in old)
     new_env = dict(v.split("=", 1) for v in new)
-    for key, value in declared.items():
-        assert new_env.get(key) == value, f"{service}: {key} does not match the compose configuration"
-    for key, value in old_env.items():
-        if key in IMAGE_KEYS or key in declared:
-            continue
-        assert new_env.get(key) == value, f"{service}: {key} changed outside the compose configuration"
-    return sorted(key for key in declared if old_env.get(key) != new_env.get(key))
+    expected = dict(v.split("=", 1) for v in image_env)
+    expected.update(declared)
+    assert new_env == expected, (
+        f"{service}: environment differs from image plus Compose configuration: "
+        f"{sorted(k for k in set(new_env) | set(expected) if new_env.get(k) != expected.get(k))}"
+    )
+    removed = sorted(k for k in old_env if k not in new_env and k not in IMAGE_KEYS)
+    return sorted(k for k in declared if old_env.get(k) != new_env.get(k)) + [f"{k} (removed)" for k in removed]
 
 
 # Job failures that predate a release and are retried by the worker. Each failed job is
@@ -126,11 +128,12 @@ try:
         raise AssertionError("API not ready")
     time.sleep(25)
     declared = declared_env()
+    image_env = json.loads(run(["docker", "image", "inspect", image, "--format", "{{json .Config.Env}}"]))
     added = {}
     for service in SERVICES:
         row = inspect(f"jawnix-{service}-1")
         assert row["Image"] == expected and row["State"]["Running"] and row["RestartCount"] == 0, f"{service} not healthy"
-        added[service] = env_check(service, before["services"][service]["env"], row["Config"]["Env"], declared[service])
+        added[service] = env_check(service, before["services"][service]["env"], row["Config"]["Env"], declared[service], image_env)
         logs = subprocess.run(["docker", "logs", "--since", started.isoformat(), f"jawnix-{service}-1"],
                               capture_output=True, text=True)
         assert unexpected_tracebacks(service, logs.stdout + logs.stderr) == 0, f"{service} logged an unexpected traceback"
