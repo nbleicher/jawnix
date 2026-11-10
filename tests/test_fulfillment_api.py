@@ -257,7 +257,7 @@ class TestRequestDetail:
         assert by_state[("FL", "Unmapped")] == 1
         assert body["live"]["blocker"] is None
 
-    def test_live_blocker_ignores_metrics_lane_for_telegram_jobs(self, session):
+    def test_live_blocker_ignores_other_lanes_for_telegram_jobs(self, session):
         from jawnix.models import Job, JobStatus
 
         _, _, waiting = customer_with_request(session)
@@ -265,11 +265,11 @@ class TestRequestDetail:
         session.add_all(
             [
                 Job(
-                    kind="emit_lead_assigned",
+                    kind="sync_inventory",
                     request_id=blocking.id,
                     status=JobStatus.running.value,
                     locked_at=datetime.now(timezone.utc),
-                    locked_by="metrics-worker-1",
+                    locked_by="maintenance-worker-1",
                     attempts=1,
                 ),
                 Job(

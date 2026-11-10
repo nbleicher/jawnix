@@ -330,12 +330,12 @@ describe("the Batch page", () => {
           settled: false,
           refreshSeconds: 10,
           blocker: {
-            kind: "emit_lead_assigned",
-            label: "Emitting lead.assigned metrics",
+            kind: "allocate_request",
+            label: "Allocating inventory",
             status: "running",
             jobId: 41,
             requestId: null,
-            detail: "The worker is busy with Emitting lead.assigned metrics. Jobs for this request stay queued until that finishes.",
+            detail: "The worker is busy with Allocating inventory. Jobs for this request stay queued until that finishes.",
           },
           jobs: [
             {

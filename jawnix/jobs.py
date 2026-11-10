@@ -3,26 +3,22 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, case, or_, select
+from sqlalchemy import and_, case, or_, select, true
 from sqlalchemy.orm import Session
 
 from .models import Job, JobStatus
 
-# lead.assigned fan-out runs on its own worker lane so Telegram, email,
-# allocate, and deliver never share a claim loop with metrics ingest.
-METRICS_JOB_KINDS = frozenset({"emit_lead_assigned"})
 IMPORT_JOB_KINDS = frozenset({"import_lead_upload"})
 # make_new_copy rebuilds a delivered file from its Distribution Events, so it
 # serializes with allocation on the fulfillment lane.
 FULFILLMENT_JOB_KINDS = frozenset({"allocate_request", "fulfill_round_robin", "telegram_action", "telegram_inventory_conflict_action", "make_new_copy"})
 NOTIFICATION_JOB_KINDS = frozenset({"notify_request", "update_notification", "licensed_states_changed", "deliver_request", "send_request_milestone_email", "send_registration_decision_email", "notify_nightly_review", "update_nightly_review_notification", "notify_telegram_action_failure"})
 WORKER_LANE_DEFAULT = "default"
-WORKER_LANE_METRICS = "metrics"
 WORKER_LANE_FULFILLMENT = "fulfillment"
 WORKER_LANE_NOTIFICATIONS = "notifications"
 WORKER_LANE_MAINTENANCE = "maintenance"
 WORKER_LANE_IMPORTS = "imports"
-_VALID_WORKER_LANES = frozenset({WORKER_LANE_DEFAULT, WORKER_LANE_METRICS, WORKER_LANE_FULFILLMENT, WORKER_LANE_NOTIFICATIONS, WORKER_LANE_MAINTENANCE, WORKER_LANE_IMPORTS})
+_VALID_WORKER_LANES = frozenset({WORKER_LANE_DEFAULT, WORKER_LANE_FULFILLMENT, WORKER_LANE_NOTIFICATIONS, WORKER_LANE_MAINTENANCE, WORKER_LANE_IMPORTS})
 
 
 def normalize_worker_lane(lane: str | None) -> str:
@@ -37,8 +33,6 @@ def normalize_worker_lane(lane: str | None) -> str:
 
 def job_lane(kind: str) -> str:
     """Which worker lane owns this job kind."""
-    if kind in METRICS_JOB_KINDS:
-        return WORKER_LANE_METRICS
     if kind in FULFILLMENT_JOB_KINDS:
         return WORKER_LANE_FULFILLMENT
     if kind in NOTIFICATION_JOB_KINDS:
@@ -49,8 +43,6 @@ def job_lane(kind: str) -> str:
 
 
 def _lane_filter(lane: str):
-    if lane == WORKER_LANE_METRICS:
-        return Job.kind.in_(METRICS_JOB_KINDS)
     if lane == WORKER_LANE_FULFILLMENT:
         return Job.kind.in_(FULFILLMENT_JOB_KINDS)
     if lane == WORKER_LANE_NOTIFICATIONS:
@@ -58,9 +50,9 @@ def _lane_filter(lane: str):
     if lane == WORKER_LANE_IMPORTS:
         return Job.kind.in_(IMPORT_JOB_KINDS)
     if lane == WORKER_LANE_MAINTENANCE:
-        return Job.kind.notin_(METRICS_JOB_KINDS | FULFILLMENT_JOB_KINDS | NOTIFICATION_JOB_KINDS | IMPORT_JOB_KINDS)
-    # Keep the pre-split deployment's default worker compatible.
-    return Job.kind.notin_(METRICS_JOB_KINDS)
+        return Job.kind.notin_(FULFILLMENT_JOB_KINDS | NOTIFICATION_JOB_KINDS | IMPORT_JOB_KINDS)
+    # The pre-split deployment's default worker claims every kind.
+    return true()
 
 
 def enqueue_job(session: Session, kind: str, request_id: uuid.UUID | None = None, payload: dict | None = None) -> Job:
@@ -68,34 +60,6 @@ def enqueue_job(session: Session, kind: str, request_id: uuid.UUID | None = None
     session.add(job)
     session.flush()
     return job
-
-
-def higher_priority_job_waiting(
-    session: Session,
-    *,
-    lane: str = WORKER_LANE_DEFAULT,
-    now: datetime | None = None,
-) -> bool:
-    """True when a higher-priority job is ready on the same worker lane.
-
-    Only meaningful on the default lane (metrics is a single-kind lane).
-    """
-    lane = normalize_worker_lane(lane)
-    if lane == WORKER_LANE_METRICS:
-        return False
-    now = now or datetime.now(timezone.utc)
-    return (
-        session.scalar(
-            select(Job.id)
-            .where(
-                Job.status == JobStatus.queued.value,
-                Job.run_after <= now,
-                _lane_filter(lane),
-            )
-            .limit(1)
-        )
-        is not None
-    )
 
 
 def claim_next_job(

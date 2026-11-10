@@ -85,13 +85,6 @@ class Settings(BaseSettings):
     # default remains compatible with unsplit deployments.
     worker_lane: str = Field(default="default", alias="JAWNIX_WORKER_LANE")
     job_lock_timeout_seconds: int = Field(default=900, alias="JAWNIX_JOB_LOCK_TIMEOUT_SECONDS")
-    # Metrics platform ingest for lead.assigned (PRD §4.1). Empty URL or secret
-    # skips emission so hosts without metrics configured do not fail the job.
-    metrics_ingest_url: str = Field(default="", alias="JAWNIX_METRICS_INGEST_URL")
-    metrics_ingest_secret: str = Field(
-        default="",
-        alias="JAWNIX_METRICS_INGEST_SECRET",
-    )
 
     scraper_db_path: Path = Field(default=Path("/data/health_leads/data/leads.db"), alias="JAWNIX_SCRAPER_DB_PATH")
     scraper_command: str = Field(default="", alias="JAWNIX_SCRAPER_COMMAND")

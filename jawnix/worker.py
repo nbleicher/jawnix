@@ -21,13 +21,6 @@ from .inventory_snapshots import (
 )
 from .lead_uploads import IMPORT_JOB, ImportInterrupted, import_lead_upload
 from .models import LeadUpload
-from .metrics_emit import (
-    EMIT_LEAD_ASSIGNED_JOB,
-    EMIT_MAX_ATTEMPTS,
-    MetricsEmitTransientError,
-    emit_lead_assigned,
-    emit_retry_delay,
-)
 from .milestone_emails import (
     MILESTONE_EMAIL_JOB,
     enqueue_milestone_email,
@@ -652,28 +645,6 @@ def process_job(job_id: int) -> None:
                     settings,
                     job_id=job.id,
                 )
-            elif job.kind == EMIT_LEAD_ASSIGNED_JOB:
-                after_raw = job.payload.get("after_id")
-                after_id = int(after_raw) if after_raw is not None else None
-                emit_result = emit_lead_assigned(
-                    session,
-                    uuid.UUID(str(job.request_id)),
-                    settings,
-                    after_id=after_id,
-                )
-                # Requeue whenever work remains (more events, time budget, or
-                # a higher-priority job arrived). Empty payload continues from
-                # the start; after_id is the exclusive cursor.
-                if not emit_result.done:
-                    payload: dict = {}
-                    if emit_result.next_after_id is not None:
-                        payload["after_id"] = emit_result.next_after_id
-                    enqueue_job(
-                        session,
-                        EMIT_LEAD_ASSIGNED_JOB,
-                        job.request_id,
-                        payload,
-                    )
             elif job.kind == MILESTONE_EMAIL_JOB:
                 if request is None:
                     raise LookupError("Request was not found.")
@@ -734,22 +705,6 @@ def process_job(job_id: int) -> None:
                 if upload is not None:
                     upload.status = "queued" if retry else "failed"
                     upload.error = "Import interrupted. It will retry automatically." if retry else "Import interrupted. Retry this upload."
-                return
-            if (
-                job.kind == EMIT_LEAD_ASSIGNED_JOB
-                and isinstance(exc, MetricsEmitTransientError)
-                and job.attempts < EMIT_MAX_ATTEMPTS
-            ):
-                # Transient metrics-ingest failure (network / 5xx): reschedule
-                # with backoff instead of failing permanently. Metrics dedups
-                # on distribution_event.id, so re-POSTing is safe. Only after
-                # EMIT_MAX_ATTEMPTS does the job fail for good — and even then
-                # it never touches the customer request's status.
-                job.status = JobStatus.queued.value
-                job.run_after = utcnow() + emit_retry_delay(job.attempts)
-                job.locked_at = None
-                job.locked_by = ""
-                job.last_error = str(exc)[:4000]
                 return
             if (
                 job.kind in NOTIFY_REQUEST_JOB_KINDS
