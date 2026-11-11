@@ -246,6 +246,7 @@ def test_the_production_edge_adapter_exists_and_names_the_upstream():
     assert caddy["environment"] == {
         "JAWNIX_DOMAIN": ":8080",
         "JAWNIX_SCRAPER_OPS_DOMAIN": ":8081",
+        "JAWNIX_WWW_DOMAIN": ":8082",
     }
     # 80/443 belong to buzz-prod's Caddy; binding them here fails to start.
     assert caddy["ports"] == []
