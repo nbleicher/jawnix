@@ -34,6 +34,7 @@ services:
     environment:
       JAWNIX_DOMAIN: ":8080"
       JAWNIX_SCRAPER_OPS_DOMAIN: ":8081"
+      JAWNIX_WWW_DOMAIN: ":8082"
     ports: !reset []
     networks:
       - private
