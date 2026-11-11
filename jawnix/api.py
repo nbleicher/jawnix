@@ -904,6 +904,10 @@ def _current_customer_profile(
     before it can read or write anything under its old identity.
     """
 
+    # The administrator is never a Customer, even if a Customer profile was
+    # left on that identity. The shell's 404 path sends them to administration.
+    if principal.role == "admin":
+        raise HTTPException(status_code=404, detail="Profile was not found.")
     registration = db.get(CustomerRegistration, principal.user_id)
     if registration is not None and registration.status != "active":
         raise HTTPException(status_code=409, detail="Your account setup or review is not complete.")
