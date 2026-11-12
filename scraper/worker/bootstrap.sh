@@ -5,7 +5,7 @@
 # deps, spool dir, .env, worker image, and the event-driven shipper units.
 #
 # It deliberately does NOT bring up containers or scale — smoke-test → scale →
-# calibrate stay MANUAL gates (see FIRST_BOT_SETUP.md). Provisioning is one
+# calibrate stay MANUAL gates (see ../../docs/plans/archive/FIRST_BOT_SETUP.md). Provisioning is one
 # command; the calibration discipline is yours.
 #
 # Assumes the assembled repo (auto_scrape + scale/worker, Go patch B+C applied)
@@ -123,7 +123,7 @@ cat <<DONE
        psql "\$DATABASE_URL" -c 'select count(*) from businesses;'      # rising via the shipper
   2. Scale to 12:
        docker compose up -d --scale worker_replica=11
-  3. Calibrate per-container yield + proxy/bandwidth (FIRST_BOT_SETUP.md §4–6).
+  3. Calibrate per-container yield + proxy/bandwidth (../../docs/plans/archive/FIRST_BOT_SETUP.md §4–6).
 
   Fleet: after box1 works, push gmapssaas:local to a registry, then on each new box
   run this script with IMAGE=<registry/image> to PULL instead of rebuilding.

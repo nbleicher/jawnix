@@ -3,7 +3,7 @@
 **Apply into:** `auto_scrape/util/scraper_src/scraper/centralwriter.go`
 **Depends on:** the migrations in `scale/scraper_changes/migrations/` for `businesses`/`leads` and lightweight `scrape_results` counts (apply them first).
 
-> **Chosen architecture: Part C (spool-and-ship).** The worker writes NDJSON + a `.done` marker; `worker/shipper.py` bulk-loads `businesses` and records lightweight per-job counts in `scrape_results`. This decouples scraping from DB latency, batches loads, and uses one DB connection per box (mitigates O-9). See `SPOOL_AND_SHIP.md`.
+> **Chosen architecture: Part C (spool-and-ship).** The worker writes NDJSON + a `.done` marker; `worker/shipper.py` bulk-loads `businesses` and records lightweight per-job counts in `scrape_results`. This decouples scraping from DB latency, batches loads, and uses one DB connection per box (mitigates O-9). See `../../docs/plans/archive/SPOOL_AND_SHIP.md`.
 >
 > **Apply: Part B (provenance) + Part C (below).** Part B's `state`/`cell` are written into the NDJSON wrapper. **Part A (direct write to Postgres) is the superseded alternative — skip it;** it's kept below only for reference.
 
@@ -110,7 +110,7 @@ func upsertBusinesses(ctx context.Context, db *pgxpool.Pool, riverJobID int64, k
 ## 4. Apply & build
 ```bash
 cd auto_scrape/util/scraper_src
-# 1) copy the migration in, then run it (see SETUP_POSTGRES_CONTROL_VPS.md Part A4)
+# 1) copy the migration in, then run it (see ../../docs/plans/archive/SETUP_POSTGRES_CONTROL_VPS.md Part A4)
 cp ../../../scale/scraper_changes/migrations/20260617000000-add_businesses_and_leads.sql migrations/
 # 2) edit scraper/centralwriter.go per §1–§2 above
 go build ./...           # compiles
