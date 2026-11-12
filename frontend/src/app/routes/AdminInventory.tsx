@@ -1,21 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import type { LoaderFunctionArgs } from "react-router";
-import { Link, useLoaderData, useNavigate, useRevalidator, useSearchParams } from "react-router";
+import { useLoaderData, useNavigate, useRevalidator } from "react-router";
 
 import { ActionLink, Button, ButtonLink } from "../../design-system/primitives/Button";
 import { FactList } from "../../design-system/primitives/facts";
-import { Field, Input, Select } from "../../design-system/primitives/form";
-import { Cluster, Page, Section, Stack } from "../../design-system/primitives/layout";
+import { Field, Input } from "../../design-system/primitives/form";
+import { Page, Section } from "../../design-system/primitives/layout";
 import { Panel } from "../../design-system/primitives/panel";
-import { StatusBadge } from "../../design-system/primitives/status";
 import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
-import { ControlActionBar, errorMessage, leadControlRequest } from "../operator/actions";
-import type { ControlAction } from "../operator/actions";
-import { formatCount, formatDateTime, formatDay, formatPhone, plural } from "../operator/format";
+import { api } from "../api";
+import { errorMessage } from "../operator/actions";
+import { formatCount, formatDay, plural } from "../operator/format";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { formatAsOf } from "./OperatorNumbers";
 import "./AdminInventory.css";
@@ -28,8 +25,6 @@ import "./AdminInventory.css";
  * Every count over the inventory is a background snapshot: the page shows its
  * as-of time, and "Refresh counts" only queues a recount.
  */
-
-// ------------------------------------------------------------------ Inventory
 
 export interface InventorySnapshot {
   database: "db1" | "db2";
@@ -374,396 +369,18 @@ export function AdminInventoryRoute() {
   );
 }
 
-// ---------------------------------------------------------------- Shared bits
-
-export interface Paged<Row> {
-  items: Row[];
-  page: number;
-  pageSize: number;
-  total: number;
-  pages: number;
-}
-
-function pageHref(path: string, params: URLSearchParams, page: number): string {
-  const next = new URLSearchParams(params);
-  if (page <= 1) next.delete("page");
-  else next.set("page", String(page));
-  const query = next.toString();
-  return `/app${path}${query ? `?${query}` : ""}`;
-}
-
-/** "Showing 1–25 of 61" with Previous and Next, for a paged table. */
-export function Pager({ path, data, noun }: { path: string; data: Paged<unknown>; noun: string }) {
-  const [params] = useSearchParams();
-  const first = data.total ? (data.page - 1) * data.pageSize + 1 : 0;
-  const last = Math.min(data.total, data.page * data.pageSize);
-  return (
-    <Cluster gap={3} justify="space-between">
-      <Text size="sm" tone="muted">
-        {data.total
-          ? `Showing ${formatCount(first)}–${formatCount(last)} of ${formatCount(data.total)}`
-          : `No ${noun}`}
-      </Text>
-      {data.pages > 1 ? (
-        <nav aria-label={`${noun.charAt(0).toUpperCase()}${noun.slice(1)} pages`} className="jx-pages">
-          {data.page > 1 ? (
-            <ButtonLink variant="secondary" href={pageHref(path, params, data.page - 1)}>
-              Previous
-            </ButtonLink>
-          ) : null}
-          <Text as="span" size="sm">
-            Page {data.page} of {data.pages}
-          </Text>
-          {data.page < data.pages ? (
-            <ButtonLink variant="secondary" href={pageHref(path, params, data.page + 1)}>
-              Next
-            </ButtonLink>
-          ) : null}
-        </nav>
-      ) : null}
-    </Cluster>
-  );
-}
-
-export function BackToInventory() {
-  return <ActionLink href="/app/admin/inventory">Back to Inventory</ActionLink>;
-}
-
-function pageParam(request: Request): string {
-  const page = new URL(request.url).searchParams.get("page");
-  return page && /^\d+$/.test(page) ? `?page=${page}` : "";
-}
-
-// ---------------------------------------------------------- Suppressed leads
-
-export interface SuppressedLeadRow {
-  id: number;
-  phone: string;
-  title: string;
-  state: string;
-  reason: string;
-  href: string;
-  actions: ControlAction[];
-}
-
-export interface SuppressedLeadsData extends Paged<SuppressedLeadRow> {
-  restoreNotice: string;
-}
-
-export async function adminSuppressedLeadsLoader({
-  request,
-}: LoaderFunctionArgs): Promise<SuppressedLeadsData> {
-  return api<SuppressedLeadsData>(`/api/admin/suppressed-leads${pageParam(request)}`);
-}
-
-function routePath(href: string): string {
-  return href.startsWith("/app/") ? href.slice("/app".length) : href;
-}
-
-export function AdminSuppressedLeadsRoute() {
-  const data = useLoaderData<SuppressedLeadsData>();
-  useDocumentTitle("Suppressed leads");
-  const columns: DataColumn<SuppressedLeadRow>[] = [
-    {
-      key: "phone",
-      header: "Phone",
-      cell: (row) => <Link to={routePath(row.href)}>{formatPhone(row.phone)}</Link>,
-    },
-    { key: "title", header: "Title", cell: (row) => row.title || "No title" },
-    { key: "state", header: "State", cell: (row) => row.state || "—" },
-    { key: "reason", header: "Reason", cell: (row) => row.reason || "No reason recorded" },
-    {
-      key: "action",
-      header: "Action",
-      cell: (row) => (
-        <ControlActionBar
-          actions={row.actions}
-          resolve={leadControlRequest(row.id)}
-          settled="Restored"
-        />
-      ),
-    },
-  ];
-  return (
-    <Page
-      title="Suppressed leads"
-      width="data"
-      density="data"
-      description="Leads withheld from every Customer. Restoring one takes a reason and is recorded in Activity."
-    >
-      <Text size="sm" tone="muted">
-        {data.restoreNotice}
-      </Text>
-      <DataTable
-        label="Suppressed leads"
-        columns={columns}
-        rows={data.items}
-        rowKey={(row) => String(row.id)}
-        hasActions
-        empty="No leads are suppressed. Suppressing a lead from lead lookup or a Lead Report puts it here."
-      />
-      <Pager path="/admin/inventory/suppressed" data={data} noun="suppressed leads" />
-      <BackToInventory />
-    </Page>
-  );
-}
-
-// ---------------------------------------------------------- Niche assignment
-
-interface NicheAssignmentUploadStatus {
-  id: string;
-  filename: string;
-  status: "queued" | "ingesting" | "complete" | "failed";
-  totalRows: number;
-  acceptedRows: number;
-  invalidRows: number;
-  duplicateRows: number;
-  skippedMappedRows: number;
-  error: string;
-}
-
-const NICHE_IMPORT_STATUS: Record<NicheAssignmentUploadStatus["status"], { label: string; tone: "info" | "success" | "danger" }> = {
-  queued: { label: "Queued", tone: "info" },
-  ingesting: { label: "Importing", tone: "info" },
-  complete: { label: "Imported", tone: "success" },
-  failed: { label: "Failed", tone: "danger" },
-};
-
-/** Niche Assignment transfer, moved here from Customers: export the
- *  inventory with no source-derived Niche, assign one in a CSV, import it. */
-export function AdminNicheAssignmentRoute() {
-  const [file, setFile] = useState<File | null>(null);
-  const [upload, setUpload] = useState<NicheAssignmentUploadStatus | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState("");
-  const [pollAttempt, setPollAttempt] = useState(0);
-  useDocumentTitle("Niche assignment");
-
-  useEffect(() => {
-    if (!upload || !["queued", "ingesting"].includes(upload.status)) return;
-    const timer = window.setTimeout(() => {
-      void api<NicheAssignmentUploadStatus>(`/api/admin/niche-assignments/${upload.id}`)
-        .then((next) => {
-          setFailure("");
-          setUpload(next);
-        })
-        .catch((caught: unknown) => {
-          setFailure(errorMessage(caught));
-          setPollAttempt((attempt) => attempt + 1);
-        });
-    }, 1000);
-    return () => window.clearTimeout(timer);
-  }, [upload, pollAttempt]);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!file) {
-      setFailure("Choose a Niche Assignment CSV.");
-      return;
-    }
-    setBusy(true);
-    setFailure("");
-    const body = new FormData();
-    body.append("file", file);
-    try {
-      setUpload(
-        await api<NicheAssignmentUploadStatus>("/api/admin/niche-assignments", {
-          method: "POST",
-          body,
-        }),
-      );
-    } catch (caught) {
-      setFailure(errorMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const status = upload ? NICHE_IMPORT_STATUS[upload.status] : null;
-  return (
-    <Page
-      title="Niche assignment"
-      width="data"
-      density="data"
-      description="Give a Niche to inventory that has none from its source. Source mappings always take precedence."
-    >
-      <Section title="1. Export unmapped inventory">
-        <Text size="sm" tone="muted">
-          Downloads phone, title, and state for every lead with no source-derived Niche, so the
-          working file can be reviewed outside Jawnix.
-        </Text>
-        <div>
-          <ButtonLink href="/api/admin/niche-assignments/export" variant="secondary" download>
-            Export unmapped inventory
-          </ButtonLink>
-        </div>
-      </Section>
-      <Section title="2. Import reviewed assignments">
-        <form onSubmit={(event) => void submit(event)} aria-label="Import Niche assignments">
-          <Stack gap={3} align="flex-start">
-            <Field
-              label="Niche Assignment CSV"
-              description="CSV with phone and niche headers. Rows with a source-derived Niche are skipped."
-              required
-            >
-              <Input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(event) => {
-                  setFile(event.currentTarget.files?.[0] ?? null);
-                  setFailure("");
-                }}
-              />
-            </Field>
-            <Button type="submit" variant="primary" busy={busy} busyLabel="Importing…" disabled={!file}>
-              Import assignments
-            </Button>
-          </Stack>
-        </form>
-        {failure ? (
-          <Text role="alert" tone="danger">
-            {failure}
-          </Text>
-        ) : null}
-      </Section>
-      {upload && status ? (
-        <Section title="Import status">
-          <Panel title={upload.filename} action={<StatusBadge tone={status.tone}>{status.label}</StatusBadge>}>
-            {upload.error ? <Text tone="danger">{upload.error}</Text> : null}
-            <FactList
-              label="Niche Assignment import status"
-              items={[
-                { term: "Rows", description: formatCount(upload.totalRows) },
-                { term: "Assigned", description: formatCount(upload.acceptedRows) },
-                { term: "Skipped, source-mapped", description: formatCount(upload.skippedMappedRows) },
-                { term: "Invalid", description: formatCount(upload.invalidRows) },
-                { term: "Duplicates", description: formatCount(upload.duplicateRows) },
-              ]}
-            />
-          </Panel>
-        </Section>
-      ) : null}
-      <BackToInventory />
-    </Page>
-  );
-}
-
-// ------------------------------------------------------------ Pool analytics
-
-export interface PoolBreakdownCell {
-  state: string;
-  niche: string;
-  count: number;
-}
-
-export interface PoolBreakdownData {
-  asOf: string | null;
-  cells: PoolBreakdownCell[];
-  refreshQueued?: boolean;
-}
-
-export async function adminPoolAnalyticsLoader(): Promise<PoolBreakdownData> {
-  return api<PoolBreakdownData>("/api/admin/pool-breakdown");
-}
-
-const POOL_TOP = 25;
-
-/** Pool analytics, moved here from Fulfillment: usable DB1 leads by state and
- *  effective Niche, recounted by the same background job as the totals. */
-export function AdminPoolAnalyticsRoute() {
-  const loaded = useLoaderData<PoolBreakdownData>();
-  const [data, setData] = useState(loaded);
-  const [state, setState] = useState("");
-  const [all, setAll] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setData(loaded), [loaded]);
-  useDocumentTitle("Pool analytics");
-
-  const states = useMemo(
-    () => [...new Set(data.cells.map((cell) => cell.state))].sort(),
-    [data.cells],
-  );
-  const rows = useMemo(
-    () =>
-      data.cells
-        .filter((cell) => !state || cell.state === state)
-        .sort((a, b) => b.count - a.count || a.state.localeCompare(b.state) || a.niche.localeCompare(b.niche)),
-    [data.cells, state],
-  );
-  const shown = all ? rows : rows.slice(0, POOL_TOP);
-  const total = rows.reduce((sum, cell) => sum + cell.count, 0);
-
-  async function refresh() {
-    setBusy(true);
-    setMessage("");
-    setFailed(false);
-    try {
-      setData(await api<PoolBreakdownData>("/api/admin/pool-breakdown/refresh", { method: "POST", body: "{}" }));
-      setMessage("Recount queued. The breakdown updates when it finishes.");
-    } catch (caught) {
-      setFailed(true);
-      setMessage(errorMessage(caught));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const columns: DataColumn<PoolBreakdownCell>[] = [
-    { key: "state", header: "State", cell: (row) => row.state, footer: state ? `All of ${state}` : "All states" },
-    { key: "niche", header: "Niche", cell: (row) => (row.niche === "unmapped" ? "Unmapped" : row.niche) },
-    {
-      key: "count",
-      header: "Usable",
-      numeric: true,
-      cell: (row) => formatCount(row.count),
-      footer: formatCount(total),
-    },
-  ];
-
-  return (
-    <Page
-      title="Pool analytics"
-      width="data"
-      density="data"
-      description="Usable DB1 leads by state and Niche. Leads with no Niche are counted as Unmapped."
-      actions={
-        <Button variant="secondary" busy={busy} busyLabel="Queuing…" onClick={() => void refresh()}>
-          Refresh breakdown
-        </Button>
-      }
-    >
-      <Text size="sm" tone={failed ? "danger" : "muted"} role="status">
-        {message || (data.asOf ? `As of ${formatDateTime(data.asOf)}` : "Not counted yet. The background recount fills this in.")}
-      </Text>
-      <div className="jx-inventory-filters">
-        <Field label="State">
-          <Select value={state} onChange={(event) => setState(event.target.value)}>
-            <option value="">All states</option>
-            {states.map((code) => (
-              <option key={code} value={code}>
-                {code}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
-      <DataTable
-        label="Pool breakdown"
-        columns={columns}
-        rows={shown}
-        rowKey={(row) => `${row.state}:${row.niche}`}
-        empty="No breakdown yet. Opening this page never runs the count."
-      />
-      {rows.length > POOL_TOP ? (
-        <div>
-          <Button variant="secondary" onClick={() => setAll((value) => !value)}>
-            {all ? `Show the top ${POOL_TOP}` : `Show all ${formatCount(rows.length)} rows`}
-          </Button>
-        </div>
-      ) : null}
-      <BackToInventory />
-    </Page>
-  );
-}
+// The tool pages live in their own modules; these keep the imports that
+// already name this module working.
+export { BackToInventory, Pager } from "./inventoryTools";
+export type { Paged } from "./inventoryTools";
+export {
+  AdminSuppressedLeadsRoute,
+  adminSuppressedLeadsLoader,
+} from "./AdminSuppressedLeads";
+export type { SuppressedLeadRow, SuppressedLeadsData } from "./AdminSuppressedLeads";
+export { AdminNicheAssignmentRoute } from "./AdminNicheAssignment";
+export {
+  AdminPoolAnalyticsRoute,
+  adminPoolAnalyticsLoader,
+} from "./AdminPoolAnalytics";
+export type { PoolBreakdownCell, PoolBreakdownData } from "./AdminPoolAnalytics";

@@ -1,3 +1,4 @@
+import { apiFetch } from "../api";
 import type { BatchIdentity } from "./batchLabel";
 
 /**
@@ -45,7 +46,7 @@ const SUMMARY_PATH = "/api/me/billing/summary";
 
 /** The Billing tab's read, or null when the Customer is not billed. */
 export async function loadCustomerBilling(): Promise<CustomerBilling | null> {
-  const response = await fetch(SUMMARY_PATH, { credentials: "same-origin" });
+  const response = await apiFetch(SUMMARY_PATH);
   if (response.status === 404) return null;
   if (!response.ok) {
     throw new Error("Billing could not be loaded. Please try again.");

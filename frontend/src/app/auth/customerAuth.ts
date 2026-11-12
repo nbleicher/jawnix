@@ -1,7 +1,7 @@
 import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
-import { clearReadPrefetch } from "../routeReadCache";
+import { apiFetch } from "../api";
 import { customerHomePath } from "../customer/home";
 import type { CustomerHomeData } from "../customer/home";
 
@@ -24,14 +24,6 @@ export interface InvitationLoaderData {
 
 export interface PasswordResetLoaderData {
   canReset: boolean;
-}
-
-function csrf(): string {
-  const item = document.cookie
-    .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith("jawnix_csrf="));
-  return decodeURIComponent(item?.split("=", 2)[1] ?? "");
 }
 
 function safeCustomerPath(value: string | null, fallback = "/app/home"): string {
@@ -95,11 +87,10 @@ export async function exchangeJawnixSession(
   accessToken: string,
   requestedNext: string,
 ): Promise<SessionExchangeResponse> {
-  clearReadPrefetch();
-  const response = await fetch("/api/auth/session", {
+  // No CSRF token yet: this exchange is what establishes the session.
+  const response = await apiFetch("/api/auth/session", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
+    csrf: false,
     body: JSON.stringify({
       access_token: accessToken,
       requested_next: safeCustomerPath(requestedNext),
@@ -118,9 +109,7 @@ export async function exchangeJawnixSession(
 export async function customerAccessLoader({
   request,
 }: LoaderFunctionArgs): Promise<CustomerHomeData> {
-  const response = await fetch(customerHomePath(), {
-    credentials: "same-origin",
-  });
+  const response = await apiFetch(customerHomePath());
   if (response.status === 401 || response.status === 403) {
     throw redirect(signInPath(new URL(request.url)));
   }
@@ -130,7 +119,7 @@ export async function customerAccessLoader({
   // root lands here, so hand them to their own shell; the admin boundary
   // still decides admission.
   if (response.status === 404) {
-    const destination = await fetch("/api/auth/destination", { credentials: "same-origin" });
+    const destination = await apiFetch("/api/auth/destination");
     if (destination.ok) {
       const value = await destination.json() as { next: string };
       throw redirect(routerPath(value.next));
@@ -148,13 +137,8 @@ export async function customerAccessLoader({
 // Shared by the Customer and Administration shells: clears the Jawnix session
 // cookie and then the provider session. The endpoint is role-agnostic.
 export async function signOut(): Promise<void> {
-  clearReadPrefetch();
   try {
-    await fetch("/api/auth/logout", {
-      method: "POST",
-      headers: { "X-CSRF-Token": csrf() },
-      credentials: "same-origin",
-    });
+    await apiFetch("/api/auth/logout", { method: "POST" });
   } finally {
     const { signOutProvider } = await import("./providerSession");
     await signOutProvider();

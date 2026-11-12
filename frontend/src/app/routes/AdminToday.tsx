@@ -10,7 +10,8 @@ import { StatusBadge } from "../../design-system/primitives/status";
 import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
+import { routePath } from "../routePath";
 import { DecisionPanel } from "../operator/DecisionPanel";
 import type { Decision } from "../operator/DecisionPanel";
 import {
@@ -97,10 +98,6 @@ export async function adminTodayLoader(): Promise<TodayData> {
     api<ScraperHealth>("/api/admin/scraper/health").catch(() => null),
   ]);
   return { ...today, scraper };
-}
-
-function routePath(href: string): string {
-  return href.startsWith("/app/") ? href.slice("/app".length) : href;
 }
 
 function describeToday(now: Date): string {

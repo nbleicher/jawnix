@@ -1,3 +1,5 @@
+import { apiFetch } from "../api";
+
 export type CreditPurchaseStatus =
   | "processing"
   | "completed"
@@ -46,14 +48,6 @@ export interface CreditPurchaseStart {
 const BILLING_PATH = "/api/me/billing";
 const PURCHASES_PATH = "/api/me/billing/purchases";
 
-function csrf(): string {
-  const item = document.cookie
-    .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith("jawnix_csrf="));
-  return decodeURIComponent(item?.split("=", 2)[1] ?? "");
-}
-
 interface ErrorBody {
   detail?: string | { msg?: string }[];
 }
@@ -71,7 +65,7 @@ function refusal(body: ErrorBody, fallback: string): string {
  * accounts simply show no billing UI.
  */
 export async function loadCreditWallet(): Promise<CreditWallet | null> {
-  const response = await fetch(BILLING_PATH, { credentials: "same-origin" });
+  const response = await apiFetch(BILLING_PATH);
   if (response.status === 404) return null;
   if (response.status === 401 || response.status === 403) {
     // Not an answer about the wallet: the session is being refreshed, or it
@@ -96,13 +90,8 @@ export async function startCreditPurchase(
   amountDollars: number,
   returnTo?: string,
 ): Promise<CreditPurchaseStart> {
-  const response = await fetch(PURCHASES_PATH, {
+  const response = await apiFetch(PURCHASES_PATH, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CSRF-Token": csrf(),
-    },
-    credentials: "same-origin",
     body: JSON.stringify({
       amount_dollars: amountDollars,
       ...(returnTo ? { return_to: returnTo } : {}),

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useRevalidator } from "react-router";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 import { Button } from "../../design-system/primitives/Button";
 import { Dialog } from "../../design-system/primitives/Dialog";
 import { Cluster, Section, Stack } from "../../design-system/primitives/layout";

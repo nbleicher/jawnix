@@ -1,6 +1,6 @@
 import { redirect } from "react-router";
 
-import { clearReadPrefetch, readResponse } from "../routeReadCache";
+import { api, apiFetch } from "../api";
 
 export interface FactorUseLocation {
   ipAddress: string;
@@ -37,55 +37,6 @@ export interface EnrollmentSecret {
   session?: { accessToken: string; refreshToken: string; expiresIn: number };
 }
 
-/** `detail` is a plain string on most failures, but blocked lifecycle actions
- *  answer with a structured object the caller needs intact (the counts that
- *  explain the block). Both shapes are carried through. */
-interface APIErrorDetail {
-  message?: string;
-  dependencies?: Record<string, number>;
-}
-
-interface APIErrorBody {
-  detail?: string | APIErrorDetail;
-}
-
-function csrf(): string {
-  const item = document.cookie
-    .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith("jawnix_csrf="));
-  return decodeURIComponent(item?.split("=", 2)[1] ?? "");
-}
-
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const method = init.method ?? "GET";
-  const headers = new Headers(init.headers);
-  if (init.body && !(init.body instanceof FormData)) {
-    headers.set("Content-Type", "application/json");
-  }
-  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
-    headers.set("X-CSRF-Token", csrf());
-  }
-  const options = {
-    ...init,
-    method,
-    headers,
-    credentials: "same-origin" as const,
-  };
-  if (method !== "GET") clearReadPrefetch();
-  const response = method === "GET" ? await readResponse(path, options) : await fetch(path, options);
-  if (method !== "GET") clearReadPrefetch();
-  const body = (await response.json().catch(() => ({}))) as APIErrorBody;
-  if (!response.ok) {
-    const detail = body.detail;
-    const message = typeof detail === "string" ? detail : detail?.message;
-    const error = new Error(message || "The request could not be completed.");
-    Object.assign(error, { status: response.status, detail });
-    throw error;
-  }
-  return body as T;
-}
-
 export async function adminMFAStatusLoader(): Promise<AdminMFAStatus> {
   try {
     return await api<AdminMFAStatus>("/api/auth/admin-mfa");
@@ -105,7 +56,7 @@ export async function adminAccessLoader() {
   } catch (error) {
     const status = (error as { status?: number }).status;
     if (status === 401) {
-      const response = await fetch("/api/auth/admin-mfa", { credentials: "same-origin" });
+      const response = await apiFetch("/api/auth/admin-mfa");
       if (response.ok) {
         const state = (await response.json()) as AdminMFAStatus;
         throw redirect(state.next.replace(/^\/app/, ""));
