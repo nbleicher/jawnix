@@ -120,6 +120,11 @@ function BulkUpload() {
   useEffect(() => {
     if (!ingesting || upload === null) return;
     const timer = window.setTimeout(() => {
+      // While the tab is hidden, keep the chain alive without reading.
+      if (document.visibilityState === "hidden") {
+        setPollAttempt((attempt) => attempt + 1);
+        return;
+      }
       void api<ExclusionListStatus>(`/api/admin/exclusion-lists/${upload.id}`)
         .then((next) => {
           setUpload(next);

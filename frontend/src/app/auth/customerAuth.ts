@@ -2,6 +2,7 @@ import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
 import { apiFetch } from "../api";
+import { clearAdminAccessCache } from "./adminMFA";
 import { customerHomePath } from "../customer/home";
 import type { CustomerHomeData } from "../customer/home";
 
@@ -99,6 +100,8 @@ export async function exchangeJawnixSession(
   if (!response.ok) {
     throw new Error("Jawnix did not establish a session.");
   }
+  // A new session must not inherit the previous one's passed gate check.
+  clearAdminAccessCache();
   return response.json() as Promise<SessionExchangeResponse>;
 }
 
@@ -137,6 +140,7 @@ export async function customerAccessLoader({
 // Shared by the Customer and Administration shells: clears the Jawnix session
 // cookie and then the provider session. The endpoint is role-agnostic.
 export async function signOut(): Promise<void> {
+  clearAdminAccessCache();
   try {
     await apiFetch("/api/auth/logout", { method: "POST" });
   } finally {

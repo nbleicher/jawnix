@@ -49,9 +49,26 @@ export async function adminMFAStatusLoader(): Promise<AdminMFAStatus> {
   }
 }
 
+/**
+ * A passed gate check is reused this long across the SPA session, so the
+ * revalidations that router actions and poll-driven `revalidate()` calls
+ * trigger do not each cost another access check. Full page loads always
+ * check, failures are never cached, and a new or cleared session drops the
+ * answer. The backend's require_admin boundary still decides every request.
+ */
+const ADMIN_ACCESS_RECHECK_MS = 30_000;
+let adminAccessCheckedAt = 0;
+
+/** Forget a passed gate check: the session it belongs to is gone. */
+export function clearAdminAccessCache() {
+  adminAccessCheckedAt = 0;
+}
+
 export async function adminAccessLoader() {
+  if (Date.now() - adminAccessCheckedAt < ADMIN_ACCESS_RECHECK_MS) return null;
   try {
     await api<{ ok: true }>("/api/auth/admin-mfa/access");
+    adminAccessCheckedAt = Date.now();
     return null;
   } catch (error) {
     const status = (error as { status?: number }).status;

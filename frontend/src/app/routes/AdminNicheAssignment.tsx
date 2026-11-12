@@ -50,6 +50,11 @@ export function AdminNicheAssignmentRoute() {
   useEffect(() => {
     if (!upload || !["queued", "ingesting"].includes(upload.status)) return;
     const timer = window.setTimeout(() => {
+      // While the tab is hidden, keep the chain alive without reading.
+      if (document.visibilityState === "hidden") {
+        setPollAttempt((attempt) => attempt + 1);
+        return;
+      }
       void api<NicheAssignmentUploadStatus>(`/api/admin/niche-assignments/${upload.id}`)
         .then((next) => {
           setFailure("");

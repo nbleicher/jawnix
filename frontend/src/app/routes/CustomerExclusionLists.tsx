@@ -121,6 +121,11 @@ export function CustomerExclusionListsSection() {
   useEffect(() => {
     if (!ingesting) return;
     const timer = window.setTimeout(() => {
+      // While the tab is hidden, keep the chain alive without reading.
+      if (document.visibilityState === "hidden") {
+        setPollAttempt((attempt) => attempt + 1);
+        return;
+      }
       listMyExclusionLists()
         .then((loaded) => setItems(loaded))
         .catch(() => setPollAttempt((attempt) => attempt + 1));
