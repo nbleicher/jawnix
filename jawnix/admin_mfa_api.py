@@ -25,7 +25,6 @@ from .mfa_provider import (
     ProviderFactor,
     ProviderSession,
     BetterAuthMFAProvider,
-    SupabaseMFAProvider,
     get_mfa_provider,
 )
 from .models import AdminMFAFactorUse, AdminMFAState, utcnow
@@ -171,7 +170,7 @@ def _record_factor_use(
 
 
 async def _identity_for_token(
-    provider: SupabaseMFAProvider,
+    provider: BetterAuthMFAProvider,
     principal: Principal,
     access_token: str,
 ) -> tuple[dict, dict]:
@@ -193,7 +192,7 @@ async def _identity_for_token(
 
 
 async def _factors(
-    provider: SupabaseMFAProvider,
+    provider: BetterAuthMFAProvider,
     principal: Principal,
 ) -> list[ProviderFactor]:
     try:
@@ -234,7 +233,7 @@ def _factor_json(
 def _session_json(value: ProviderSession) -> dict:
     # These provider credentials are intentionally returned only to the
     # authenticated browser that supplied the previous credential.  The React
-    # client passes them to Supabase's setSession so refresh/resumption works.
+    # client passes them to the identity service so refresh/resumption works.
     return {
         "accessToken": value.access_token,
         "refreshToken": value.refresh_token,
@@ -252,15 +251,12 @@ async def admin_mfa_status(
     provider = get_mfa_provider(settings)
     if principal.session_generation != state.session_generation:
         raise HTTPException(status_code=401, detail="This administrator session is no longer valid.")
-    if isinstance(provider, BetterAuthMFAProvider):
-        if not principal.provider_session_id:
-            raise HTTPException(status_code=401, detail="Sign in again to continue.")
-        try:
-            factors = await provider.list_factors(principal.user_id, session_id=principal.provider_session_id)
-        except MFAProviderError as error:
-            raise HTTPException(status_code=401 if error.expired_session else 503, detail="Administrator verification is unavailable. Sign in again to continue.") from None
-    else:
-        factors = await _factors(provider, principal)
+    if not principal.provider_session_id:
+        raise HTTPException(status_code=401, detail="Sign in again to continue.")
+    try:
+        factors = await provider.list_factors(principal.user_id, session_id=principal.provider_session_id)
+    except MFAProviderError as error:
+        raise HTTPException(status_code=401 if error.expired_session else 503, detail="Administrator verification is unavailable. Sign in again to continue.") from None
     uses = {
         value.provider_factor_id: value
         for value in db.scalars(
@@ -342,12 +338,9 @@ async def start_admin_mfa_enrollment(
                 detail="Authenticator setup could not be restarted.",
             ) from None
     try:
-        if isinstance(provider, BetterAuthMFAProvider):
-            if not payload.password:
-                raise HTTPException(status_code=422, detail="Enter your password to start authenticator setup.")
-            enrolled = await provider.enroll(payload.access_token, "Jawnix authenticator", password=payload.password.get_secret_value())
-        else:
-            enrolled = await provider.enroll(payload.access_token, "Jawnix authenticator")
+        if not payload.password:
+            raise HTTPException(status_code=422, detail="Enter your password to start authenticator setup.")
+        enrolled = await provider.enroll(payload.access_token, "Jawnix authenticator", password=payload.password.get_secret_value())
     except MFAProviderError:
         raise HTTPException(
             status_code=502,
@@ -379,23 +372,14 @@ async def start_admin_mfa_enrollment(
 
 async def _verify_factor(
     *,
-    provider: SupabaseMFAProvider,
+    provider: BetterAuthMFAProvider,
     access_token: str,
     factor_id: uuid.UUID,
     code: str,
     method: str = "totp",
 ) -> ProviderSession:
     challenge_id = await provider.challenge(access_token, factor_id)
-    if isinstance(provider, BetterAuthMFAProvider):
-        return await provider.verify(access_token, factor_id, challenge_id, code, method=method)
-    if method != "totp":
-        raise MFAProviderError(invalid_code=True)
-    return await provider.verify(
-        access_token,
-        factor_id,
-        challenge_id,
-        code,
-    )
+    return await provider.verify(access_token, factor_id, challenge_id, code, method=method)
 
 
 @router.post("/enrollment/verify")
@@ -713,12 +697,9 @@ async def start_admin_mfa_replacement(
             detail="Finish or cancel the current authenticator setup first.",
         )
     try:
-        if isinstance(provider, BetterAuthMFAProvider):
-            if not payload.password:
-                raise HTTPException(status_code=422, detail="Enter your password to replace your authenticator.")
-            enrolled = await provider.enroll(payload.access_token, "Jawnix replacement", password=payload.password.get_secret_value(), replacement=True)
-        else:
-            enrolled = await provider.enroll(payload.access_token, "Jawnix replacement")
+        if not payload.password:
+            raise HTTPException(status_code=422, detail="Enter your password to replace your authenticator.")
+        enrolled = await provider.enroll(payload.access_token, "Jawnix replacement", password=payload.password.get_secret_value(), replacement=True)
     except MFAProviderError:
         raise HTTPException(
             status_code=502,

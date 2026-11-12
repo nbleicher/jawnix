@@ -123,6 +123,7 @@ def test_a_grant_from_another_sign_in_is_refused_without_calling(workspace_clien
             "generation": 1,
             "factor_id": str(PRIMARY_ID),
             "csrf": "a-later-sign-in",
+            "provider_sid": "test-provider-session",
         }
     )
     client.cookies.clear()

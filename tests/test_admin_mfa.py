@@ -69,7 +69,7 @@ class FakeProvider:
                 "email": "admin@example.com",
                 "app_metadata": {"jawnix_role": "admin"},
             },
-            {"sub": str(ADMIN_ID), "aal": assurance},
+            {"sub": str(ADMIN_ID), "aal": assurance, "sessionId": "test-provider-session"},
         )
 
     async def admin_user(self, _user_id: uuid.UUID):
@@ -79,10 +79,17 @@ class FakeProvider:
             "app_metadata": {"jawnix_role": "admin"},
         }
 
-    async def list_factors(self, _user_id: uuid.UUID):
+    async def list_factors(self, _user_id: uuid.UUID, *, session_id: str | None = None):
         return list(self.factors)
 
-    async def enroll(self, _access_token: str, friendly_name: str):
+    async def enroll(
+        self,
+        _access_token: str,
+        friendly_name: str,
+        *,
+        password: str | None = None,
+        replacement: bool = False,
+    ):
         self.enrollment_counter += 1
         value = factor(
             friendly_name,
@@ -113,6 +120,8 @@ class FakeProvider:
         factor_id: uuid.UUID,
         _challenge_id: uuid.UUID,
         code: str,
+        *,
+        method: str = "totp",
     ):
         if code in self.invalid_codes:
             raise MFAProviderError(invalid_code=True)
@@ -156,9 +165,6 @@ def mfa_settings(settings):
         JAWNIX_BATCH_DIR=settings.batch_dir,
         JAWNIX_COOKIE_SECURE=False,
         JAWNIX_SESSION_SECRET=settings.session_secret,
-        JAWNIX_SUPABASE_URL="https://project.supabase.co",
-        JAWNIX_SUPABASE_ANON_KEY="anon-key",
-        SUPABASE_SERVICE_ROLE_KEY="service-role",
     )
 
 
@@ -185,6 +191,8 @@ def session_client(
             "generation": generation,
             "factor_id": str(used_factor_id) if used_factor_id else None,
             "csrf": csrf,
+            "provider": "better-auth",
+            "provider_sid": "test-provider-session",
         }
     )
 
@@ -397,6 +405,7 @@ def test_one_authenticator_enrollment_is_audited_and_activates_atomically(
             json={
                 "access_token": "provider-aal1-access-token-long-enough",
                 "slot": "primary",
+                "password": "KNOWN-PASSWORD",
             },
         )
         assert primary.status_code == 200
@@ -471,6 +480,7 @@ def test_cancellation_restores_the_pre_enrollment_factor_set(
             json={
                 "access_token": "provider-aal1-access-token-long-enough",
                 "slot": "primary",
+                "password": "KNOWN-PASSWORD",
             },
         )
         new_id = provider.factors[0].id
@@ -702,7 +712,7 @@ def test_admin_password_exchange_routes_to_the_required_mfa_step(
 
     app.dependency_overrides[get_db] = database_override
     app.dependency_overrides[get_settings] = lambda: mfa_settings
-    monkeypatch.setattr("jawnix.api.verify_supabase_token", fake_verify)
+    monkeypatch.setattr("jawnix.api.verify_access_token", fake_verify)
     monkeypatch.setattr(
         "jawnix.api.get_mfa_provider",
         lambda _settings: provider,

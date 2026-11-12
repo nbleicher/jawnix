@@ -992,31 +992,7 @@ def build_generation_provider(
     settings: Settings,
     *,
     transport: httpx.BaseTransport | None = None,
-    session_factory=None,
 ) -> GenerationProvider:
-    if settings.keyword_generation_provider == "anthropic":
-        from .anthropic_generation import AnthropicGenerationProvider
-        from .keyword_spend import DatabaseKeywordBudget
-
-        if session_factory is None:
-            from .database import SessionLocal
-
-            session_factory = SessionLocal
-        budget = DatabaseKeywordBudget(
-            session_factory,
-            settings.keyword_daily_spend_usd,
-            timezone_name=settings.keyword_budget_timezone,
-        )
-        return AnthropicGenerationProvider(
-            settings.anthropic_api_key.get_secret_value().strip()
-            if settings.anthropic_api_key else "",
-            settings=settings,
-            workspace_id=settings.anthropic_workspace_id,
-            transport=transport,
-            budget=budget,
-            production=True,
-            prompt_history_limit=96,
-        )
     return OpenRouterGenerationProvider(settings, transport=transport)
 
 

@@ -152,7 +152,7 @@ def test_a_manager_identity_cannot_sign_in(uploads, session, monkeypatch):
         return {"id": str(uploads.manager_id), "email": "alex@example.test",
                 "app_metadata": {"jawnix_role": "manager"}, "user_metadata": {}}
 
-    monkeypatch.setattr("jawnix.api.verify_supabase_token", verify)
+    monkeypatch.setattr("jawnix.api.verify_access_token", verify)
     # Even a managed administrator row someone reactivated by hand grants nothing.
     session.get(ManagedAdmin, uploads.manager_id).active = True
     session.commit()

@@ -250,10 +250,10 @@ async def refill_keyword_reserve(
             if focus is None:
                 return {"outcome": "cooldown", "available": available}
             pending = [item["term"] for item in pool.candidates]
-            requested = min(25 if settings.keyword_generation_provider == "anthropic" else KEYWORD_CANDIDATE_BATCH_SIZE, POOL_TARGET - available)
+            requested = min(KEYWORD_CANDIDATE_BATCH_SIZE, POOL_TARGET - available)
 
         # Neither the pool row nor a database transaction is held here.
-        provider = provider or build_generation_provider(settings, session_factory=session_factory)
+        provider = provider or build_generation_provider(settings)
         failure = None
         if not provider.available:
             failure = generation_error(GenerationErrorCode.INVALID_API_KEY)
@@ -354,7 +354,7 @@ async def refill_keyword_reserve(
                         "candidateMetrics": metrics, "available": len(pool.candidates)})
             else:
                 message = (
-                    f"{'Anthropic' if settings.keyword_generation_provider == 'anthropic' else 'OpenRouter'} is not configured for automatic rollover"
+                    "OpenRouter is not configured for automatic rollover"
                     if not provider.available
                     else (
                         failure.message

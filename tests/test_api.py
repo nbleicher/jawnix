@@ -5,15 +5,15 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from jawnix.allocation import allocate_request
-from jawnix.api import _customer_invitation_redirect, app
+from jawnix.api import app
 from jawnix.customer_accounts import accept_user_account_invitation
 from jawnix.auth import Principal, require_admin, require_principal
+from jawnix.mfa_provider import MFAProviderError
 from jawnix.config import get_settings
 from jawnix.database import get_db
 from jawnix.models import (
@@ -1171,17 +1171,6 @@ def test_admin_can_send_recipient_password_reset(session, settings, monkeypatch)
         app.dependency_overrides.clear()
 
 
-def test_customer_invitation_redirect_targets_the_shell(settings):
-    settings = settings.model_copy(
-        update={"public_base_url": "https://jawnix.example/"}
-    )
-
-    assert (
-        _customer_invitation_redirect(settings)
-        == "https://jawnix.example/app/accept-invitation"
-    )
-
-
 def test_admin_batch_request_decision_records_actor_reason_and_change(
     session,
 ):
@@ -1492,14 +1481,15 @@ def test_replacement_waits_for_acceptance_then_swaps_access_atomically(
 
     settings = settings.model_copy(
         update={
-            "supabase_url": "https://auth.example.test",
-            "supabase_service_role_key": "service-role-key",
             "public_base_url": "https://jawnix.example",
         }
     )
 
-    async def fake_admin(_settings, _method, _path, _payload):
-        return {"id": str(new_user_id)}
+    class FakeProvider:
+        async def request(self, action, **payload):
+            if action == "provision-user":
+                return {"id": str(new_user_id)}
+            return {}
 
     def database_override():
         yield session
@@ -1512,7 +1502,7 @@ def test_replacement_waits_for_acceptance_then_swaps_access_atomically(
         role="admin",
         csrf="test",
     )
-    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
+    monkeypatch.setattr("jawnix.api.get_mfa_provider", lambda _settings: FakeProvider())
     try:
         client = TestClient(app)
         invited = client.post(
@@ -1683,18 +1673,9 @@ def test_failed_invitation_dispatch_leaves_the_customer_untouched(
     session.add_all([customer, profile, account])
     session.commit()
 
-    settings = settings.model_copy(
-        update={
-            "supabase_url": "https://auth.example.test",
-            "supabase_service_role_key": "service-role-key",
-        }
-    )
-
-    async def failing_admin(*_args):
-        raise HTTPException(
-            status_code=502,
-            detail="Supabase administration failed: rate limited",
-        )
+    class FailingProvider:
+        async def request(self, *_args, **_payload):
+            raise MFAProviderError()
 
     def database_override():
         yield session
@@ -1707,7 +1688,7 @@ def test_failed_invitation_dispatch_leaves_the_customer_untouched(
         role="admin",
         csrf="test",
     )
-    monkeypatch.setattr("jawnix.api._supabase_admin", failing_admin)
+    monkeypatch.setattr("jawnix.api.get_mfa_provider", lambda _settings: FailingProvider())
     try:
         failed = TestClient(app).post(
             f"/api/admin/customers/{customer.id}/user-account-invitation",
@@ -1757,15 +1738,11 @@ def test_an_identity_can_be_invited_again_after_cancellation(
     )
     session.commit()
 
-    settings = settings.model_copy(
-        update={
-            "supabase_url": "https://auth.example.test",
-            "supabase_service_role_key": "service-role-key",
-        }
-    )
-
-    async def fake_admin(_settings, _method, _path, _payload):
-        return {"id": str(invited_id)}
+    class FakeProvider:
+        async def request(self, action, **payload):
+            if action == "provision-user":
+                return {"id": str(invited_id)}
+            return {}
 
     def database_override():
         yield session
@@ -1778,7 +1755,7 @@ def test_an_identity_can_be_invited_again_after_cancellation(
         role="admin",
         csrf="test",
     )
-    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
+    monkeypatch.setattr("jawnix.api.get_mfa_provider", lambda _settings: FakeProvider())
     try:
         client = TestClient(app)
         path = f"/api/admin/customers/{first.id}/user-account-invitation"
@@ -1923,11 +1900,14 @@ def test_creating_a_customer_invites_access_and_never_takes_a_password(
             "public_base_url": "https://jawnix.example",
         }
     )
-    provider_requests: list[tuple[str, str, dict]] = []
+    provider_requests: list[tuple[str, dict]] = []
 
-    async def fake_admin(_settings, method, path, payload):
-        provider_requests.append((method, path, payload))
-        return {"id": str(invited_user_id)}
+    class FakeProvider:
+        async def request(self, action, **payload):
+            provider_requests.append((action, payload))
+            if action == "provision-user":
+                return {"id": str(invited_user_id)}
+            return {}
 
     def database_override():
         yield session
@@ -1940,7 +1920,7 @@ def test_creating_a_customer_invites_access_and_never_takes_a_password(
         role="admin",
         csrf="test",
     )
-    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
+    monkeypatch.setattr("jawnix.api.get_mfa_provider", lambda _settings: FakeProvider())
     try:
         client = TestClient(app)
         created = client.post(
@@ -1973,17 +1953,16 @@ def test_creating_a_customer_invites_access_and_never_takes_a_password(
 
         assert provider_requests == [
             (
-                "POST",
-                (
-                    "/auth/v1/invite?"
-                    "redirect_to=https%3A%2F%2Fjawnix.example"
-                    "%2Fapp%2Faccept-invitation"
-                ),
+                "provision-user",
                 {
                     "email": "new-user@example.com",
-                    "data": {"first_name": "New", "last_name": "User"},
+                    "name": "New User",
                 },
-            )
+            ),
+            (
+                "reset-user",
+                {"email": "new-user@example.com"},
+            ),
         ]
         actions = {
             entry.action
@@ -2015,10 +1994,11 @@ def test_admin_cannot_assign_states_or_reason_during_customer_invitation(
 ):
     provider_called = False
 
-    async def fake_admin(*_args):
-        nonlocal provider_called
-        provider_called = True
-        return {"id": str(uuid.uuid4())}
+    class FakeProvider:
+        async def request(self, *_args, **_payload):
+            nonlocal provider_called
+            provider_called = True
+            return {"id": str(uuid.uuid4())}
 
     def database_override():
         yield session
@@ -2031,7 +2011,7 @@ def test_admin_cannot_assign_states_or_reason_during_customer_invitation(
         role="admin",
         csrf="test",
     )
-    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
+    monkeypatch.setattr("jawnix.api.get_mfa_provider", lambda _settings: FakeProvider())
     try:
         response = TestClient(app).post(
             "/api/admin/customers",
@@ -2061,10 +2041,11 @@ def test_admin_customer_invitation_rejects_and_redacts_known_password(
     known_password = "Known-secret-password-48"
     provider_called = False
 
-    async def fake_admin(*_args):
-        nonlocal provider_called
-        provider_called = True
-        return {"id": str(uuid.uuid4())}
+    class FakeProvider:
+        async def request(self, *_args, **_payload):
+            nonlocal provider_called
+            provider_called = True
+            return {"id": str(uuid.uuid4())}
 
     def database_override():
         yield session
@@ -2077,7 +2058,7 @@ def test_admin_customer_invitation_rejects_and_redacts_known_password(
         role="admin",
         csrf="test",
     )
-    monkeypatch.setattr("jawnix.api._supabase_admin", fake_admin)
+    monkeypatch.setattr("jawnix.api.get_mfa_provider", lambda _settings: FakeProvider())
     try:
         response = TestClient(app).post(
             "/api/admin/customers",
@@ -2862,12 +2843,12 @@ def test_admin_session_does_not_create_customer_profile(session, settings, monke
         yield session
 
     class _NoFactors:
-        async def list_factors(self, _user_id):
+        async def list_factors(self, _user_id, *, session_id=None):
             return []
 
     app.dependency_overrides[get_db] = database_override
     app.dependency_overrides[get_settings] = lambda: settings
-    monkeypatch.setattr("jawnix.api.verify_supabase_token", fake_verify)
+    monkeypatch.setattr("jawnix.api.verify_access_token", fake_verify)
     monkeypatch.setattr("jawnix.api.get_mfa_provider", lambda _settings: _NoFactors())
     try:
         client = TestClient(app)
@@ -2901,7 +2882,7 @@ def test_customer_session_cannot_target_admin_portal(session, settings, monkeypa
 
     app.dependency_overrides[get_db] = database_override
     app.dependency_overrides[get_settings] = lambda: settings
-    monkeypatch.setattr("jawnix.api.verify_supabase_token", fake_verify)
+    monkeypatch.setattr("jawnix.api.verify_access_token", fake_verify)
     try:
         client = TestClient(app)
         response = client.post(
@@ -2935,7 +2916,7 @@ def test_active_customer_session_uses_safe_react_destination_when_enabled(
 
     app.dependency_overrides[get_db] = database_override
     app.dependency_overrides[get_settings] = lambda: settings
-    monkeypatch.setattr("jawnix.api.verify_supabase_token", fake_verify)
+    monkeypatch.setattr("jawnix.api.verify_access_token", fake_verify)
     try:
         client = TestClient(app)
         requested = client.post(
@@ -2990,7 +2971,7 @@ def test_inactive_user_account_cannot_establish_a_session(
 
     app.dependency_overrides[get_db] = database_override
     app.dependency_overrides[get_settings] = lambda: settings
-    monkeypatch.setattr("jawnix.api.verify_supabase_token", fake_verify)
+    monkeypatch.setattr("jawnix.api.verify_access_token", fake_verify)
     try:
         client = TestClient(app)
         response = client.post(
@@ -3158,8 +3139,6 @@ def test_an_operator_sent_reset_lands_on_the_reset_page(settings, monkeypatch):
             return {"ok": True}
 
     monkeypatch.setattr("jawnix.api.get_mfa_provider", lambda _settings: Provider())
-    settings = settings.model_copy(update={"auth_provider": "better-auth"})
-
     asyncio.run(_send_password_reset(settings, "customer@example.com"))
 
     assert calls == [
