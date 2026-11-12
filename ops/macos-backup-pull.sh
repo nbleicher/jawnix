@@ -4,7 +4,9 @@ set -eu
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 external_root="${JAWNIX_EXTERNAL_BACKUP_ROOT:-/Volumes/Peely SSD/Jawnix Backups}"
-ssh_target="${JAWNIX_VPS_SSH_TARGET:-root@159.195.15.51}"
+# Production host (textro). The legacy host 159.195.15.51 is decommissioned;
+# its Restic repository stopped receiving snapshots on 2026-09-28.
+ssh_target="${JAWNIX_VPS_SSH_TARGET:-root@152.53.209.52}"
 ssh_key="${JAWNIX_VPS_SSH_KEY:-$HOME/.ssh/jawnix_vps}"
 source_repository="${JAWNIX_VPS_RESTIC_REPOSITORY:-/srv/jawnix/restic-repository}"
 retention_days="${JAWNIX_EXTERNAL_BACKUP_RETENTION_DAYS:-14}"
