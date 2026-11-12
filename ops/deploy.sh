@@ -57,7 +57,6 @@ run_rsync() {
     --human-readable \
     --exclude='/.git' \
     --exclude='/.env' \
-    --exclude='/config.js' \
     --exclude='/.venv/' \
     --exclude='/jawnix_vps.egg-info/' \
     --exclude='/jawnix-dev.db' \

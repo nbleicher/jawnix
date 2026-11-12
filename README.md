@@ -46,8 +46,7 @@ uv run pytest
 cd frontend && npm ci && npm run build && npm test && npm run test:e2e && cd ..
 
 cp .env.example .env
-# Replace every placeholder, then (Caddy renders /config.js from the
-# environment — there is no file to generate):
+# Replace every placeholder, then:
 docker compose config
 docker compose up -d
 curl https://jawnix.com/api/readyz
@@ -79,7 +78,7 @@ python -m jawnix_data retry-delivery --request-id UUID
 Dataset Publication into PostgreSQL; it does not launch acquisition or modify
 the dataset. It fails rather than importing an unversioned file.
 
-Migration and production operations are documented in [OPERATIONS.md](docs/OPERATIONS.md). Copy `.env.example` for the complete secret/configuration contract. Never commit `.env` or generated `config.js`.
+Migration and production operations are documented in [OPERATIONS.md](docs/OPERATIONS.md). Copy `.env.example` for the complete secret/configuration contract. Never commit `.env`.
 
 ## Allocation rules
 

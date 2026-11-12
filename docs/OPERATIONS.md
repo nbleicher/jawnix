@@ -21,7 +21,7 @@ Do not stop Railway or delete old Supabase application tables during provisionin
 3. Configure the Telegram webhook at `https://jawnix.com/api/integrations/telegram/webhook` with the bot token, random webhook secret, destination chat ID, and comma-separated authorized Telegram user IDs. Register it with Telegram's `setWebhook` API using the same `secret_token`.
 4. Verify `jawnix.com` in Resend, configure `Jawnix <hai@jawnix.com>`, and set the webhook to `https://jawnix.com/api/integrations/resend/webhook` for delivered, bounced, complained, and failed events.
 5. Configure a private encrypted Restic repository and credentials. Do not reuse the database or session secret as its password. The backup service creates separate database/base and WAL snapshots so a large WAL archive cannot block the daily logical dump. It creates a physical base backup on the configured UTC weekday and expires VPS material after 14 days. Install `ops/com.jawnix.external-backup.plist` on the Mac so `ops/macos-backup-pull.sh` creates the second encrypted copy under `/Volumes/Peely SSD/Jawnix Backups`.
-6. Run `docker compose config` and `docker compose build`. (`/config.js` is rendered by Caddy from the environment — there is no file to generate.)
+6. Run `docker compose config` and `docker compose build`.
 7. Run `docker compose up -d postgres`, `docker compose run --rm migrate`, then `docker compose up -d`.
 8. Confirm `/api/healthz`, `/api/readyz`, container health/logs, PostgreSQL `archive_mode`, and a Restic snapshot before importing production data. Force one initial physical base backup with `docker compose run --rm -e JAWNIX_FORCE_BASEBACKUP=true backup /app/ops/backup.sh`.
 
@@ -55,10 +55,7 @@ JAWNIX_DOMAIN=staging.jawnix.com docker compose up -d
 
 Set `JAWNIX_SCRAPER_OPS_DOMAIN` to the staging Scraper hostname in the same way. Nothing else differs from production.
 
-`/config.js` is rendered by Caddy from the environment and contains only
-browser-public values: the Supabase URL and publishable/anon key, the Scraper
-Operations origin, and the billing flag. Service-role, Telegram, Resend,
-PostgreSQL, and Restic secrets remain server-side.
+Service-role, Telegram, Resend, PostgreSQL, and Restic secrets remain server-side; no browser-facing configuration file is served.
 
 ## Deploying the application host
 
@@ -128,19 +125,13 @@ itemized `rsync --dry-run` first and requires the exact confirmation shown in
 the prompt before repeating the same sync without `--dry-run`.
 
 The sync uses `--delete`, but its pinned excludes protect the production
-`.env`, `config.js`, `batches/`, `backups/`, `invoices/`, `monitoring/`,
+`.env`, `batches/`, `backups/`, `invoices/`, `monitoring/`,
 `restic-repository/`, `migration/`, and `user-account-migration/`. These paths
 contain host-owned configuration, datasets, generated invoices, monitoring
 state, backup material, or migration evidence and must never be removed or
 replaced by an application deploy. The backup, monitoring, and migration
 directories are normally siblings of `/srv/jawnix/app`; keeping them excluded
 also protects legacy or accidentally nested copies.
-
-`config.js` is gitignored and therefore absent from the deploy source, so
-`--delete` would remove the host's copy. Caddy has rendered `/config.js` from
-the environment since #103 and the on-disk file is no longer read, but it
-holds real Supabase credentials and is host-owned, so the deploy leaves it
-alone rather than destroying it as a side effect.
 
 The excludes also cover build artifacts that exist only on the host —
 `.venv/`, `jawnix_vps.egg-info/`, and a stray `jawnix-dev.db`. Nothing
@@ -213,7 +204,7 @@ exposes only `/admin/scraper/*`, uses a separate host-only session and
 proxy-scoped CSRF token, rewrites dashboard and HTMX paths, and injects the
 Scraper Basic Auth credential server-side. This origin separation prevents
 Scraper HTML or JavaScript from accessing native Jawnix sessions and APIs. Do
-not expose either credential in `config.js` or any browser-facing environment
+not expose either credential in any browser-facing environment
 value.
 
 Connect the two VPS hosts with WireGuard before enabling the mount:
@@ -860,8 +851,8 @@ approved. Deleted `index.html`, `login.html`, `portal.html`,
 their `/srv/static` bind mounts from `docker-compose.yml`; and rewrote the
 Caddyfile so the legacy-URL redirects are unconditional (no longer gated on
 `JAWNIX_ENABLE_NEW_UI`) with a catch-all sending every other non-shell path to
-`/app`. `/config.js` is untouched — it is rendered by Caddy from the
-environment and the React shell still reads `window.JAWNIX_CONFIG`.
+`/app`. The `/config.js` browser-config chain was retired later once nothing
+in the React shell read `window.JAWNIX_CONFIG` anymore.
 
 Still pending, and deliberately **not** part of that change: remove
 `$JAWNIX_PUBLIC_BASE_URL/portal-accept.html` from the Supabase Auth redirect

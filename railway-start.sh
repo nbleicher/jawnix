@@ -3,16 +3,6 @@ set -eu
 
 : "${PORT:=8080}"
 : "${JAWNIX_API_PORT:=8001}"
-: "${JAWNIX_WORKSPACE_ID:=default}"
-: "${JAWNIX_LEADS_TABLE:=jawnix_leads}"
-: "${JAWNIX_SETTINGS_TABLE:=jawnix_settings}"
-: "${JAWNIX_INVOICE_VOIDS_TABLE:=jawnix_invoice_voids}"
-: "${JAWNIX_INVOICE_RECORDS_TABLE:=jawnix_invoice_records}"
-: "${JAWNIX_EXPENSES_TABLE:=jawnix_expenses}"
-: "${JAWNIX_MISC_INCOME_TABLE:=jawnix_misc_income}"
-: "${JAWNIX_PROFILES_TABLE:=jawnix_profiles}"
-: "${JAWNIX_LEAD_REQUESTS_TABLE:=jawnix_lead_requests}"
-: "${JAWNIX_INVOICES_BUCKET:=jawnix-invoices}"
 : "${CADDY_BIN:=caddy}"
 : "${APP_DIR:=/app}"
 : "${JAWNIX_INVOICE_DIR:=$APP_DIR/invoices}"
@@ -20,49 +10,12 @@ set -eu
 : "${JAWNIX_BASIC_AUTH_USER:=}"
 : "${JAWNIX_BASIC_AUTH_PASSWORD:=}"
 
-: "${JAWNIX_SUPABASE_URL:=}"
-: "${JAWNIX_SUPABASE_ANON_KEY:=}"
-: "${JAWNIX_SCRAPER_OPS_ORIGIN:=}"
-: "${JAWNIX_ENABLE_BILLING:=false}"
-
-if [ -z "$JAWNIX_SUPABASE_URL" ] || [ -z "$JAWNIX_SUPABASE_ANON_KEY" ]; then
-  echo "Warning: JAWNIX_SUPABASE_URL and JAWNIX_SUPABASE_ANON_KEY are not set; serving app with empty database config." >&2
-fi
-
 if [ "$JAWNIX_ALLOW_UNPROTECTED" != "true" ]; then
   if [ -z "$JAWNIX_BASIC_AUTH_USER" ] || [ -z "$JAWNIX_BASIC_AUTH_PASSWORD" ]; then
     echo "Error: set JAWNIX_BASIC_AUTH_USER and JAWNIX_BASIC_AUTH_PASSWORD, or set JAWNIX_ALLOW_UNPROTECTED=true for an intentionally unprotected deployment." >&2
     exit 1
   fi
 fi
-
-js_escape() {
-  printf "%s" "$1" | sed "s/\\\\/\\\\\\\\/g; s/'/\\\\'/g"
-}
-
-case "$JAWNIX_ENABLE_BILLING" in
-  true|True|TRUE) billing_enabled=true ;;
-  *) billing_enabled=false ;;
-esac
-
-cat > "$APP_DIR/config.js" <<EOF
-window.JAWNIX_CONFIG = {
-  supabaseUrl: '$(js_escape "$JAWNIX_SUPABASE_URL")',
-  supabaseAnonKey: '$(js_escape "$JAWNIX_SUPABASE_ANON_KEY")',
-  scraperOpsOrigin: '$(js_escape "$JAWNIX_SCRAPER_OPS_ORIGIN")',
-  billingEnabled: $billing_enabled,
-  workspaceId: '$(js_escape "$JAWNIX_WORKSPACE_ID")',
-  leadsTable: '$(js_escape "$JAWNIX_LEADS_TABLE")',
-  settingsTable: '$(js_escape "$JAWNIX_SETTINGS_TABLE")',
-  invoiceVoidsTable: '$(js_escape "$JAWNIX_INVOICE_VOIDS_TABLE")',
-  invoiceRecordsTable: '$(js_escape "$JAWNIX_INVOICE_RECORDS_TABLE")',
-  expensesTable: '$(js_escape "$JAWNIX_EXPENSES_TABLE")',
-  miscIncomeTable: '$(js_escape "$JAWNIX_MISC_INCOME_TABLE")',
-  profilesTable: '$(js_escape "$JAWNIX_PROFILES_TABLE")',
-  leadRequestsTable: '$(js_escape "$JAWNIX_LEAD_REQUESTS_TABLE")',
-  invoicesBucket: '$(js_escape "$JAWNIX_INVOICES_BUCKET")',
-};
-EOF
 
 mkdir -p "$JAWNIX_INVOICE_DIR"
 python3 "$APP_DIR/app.py" &
@@ -127,7 +80,7 @@ if [ "$JAWNIX_ALLOW_UNPROTECTED" != "true" ]; then
 		redir * /portal.html 308
 	}
 
-	@public_portal path /portal.html /portal-accept.html /config.js /theme.css
+	@public_portal path /portal.html /portal-accept.html /theme.css
 	handle @public_portal {
 		file_server
 	}

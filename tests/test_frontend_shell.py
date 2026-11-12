@@ -167,42 +167,6 @@ def test_registering_the_shell_adds_no_route_outside_the_app_prefix():
     assert all(path.startswith("/app") for path in added), added
 
 
-def test_config_js_renderers_cover_the_browser_contract():
-    """Compose and the legacy Railway entrypoint must cover the checked-in
-    browser contract. The deploy-only render script was removed because nothing
-    served its output; keeping a dead third renderer was the source of drift, not
-    protection against it.
-    """
-    import re
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parent.parent
-    example = (root / "config.example.js").read_text()
-    contract_fields = set(re.findall(r"^  ([a-zA-Z]+):", example, re.M))
-
-    caddyfile = (root / "Caddyfile").read_text()
-    block = caddyfile[caddyfile.index("handle /config.js") :]
-    block = block[: block.index("` 200")]
-    caddy_fields = set(re.findall(r"^  ([a-zA-Z]+):", block, re.M))
-
-    railway = (root / "railway-start.sh").read_text()
-    railway_block = railway[railway.index("window.JAWNIX_CONFIG = {") :]
-    railway_block = railway_block[: railway_block.index("};")]
-    railway_fields = set(re.findall(r"^  ([a-zA-Z]+):", railway_block, re.M))
-
-    assert contract_fields
-    assert caddy_fields == contract_fields, (
-        "Caddy's served config.js disagrees with config.example.js: "
-        f"missing {contract_fields - caddy_fields}, extra {caddy_fields - contract_fields}"
-    )
-    assert contract_fields <= railway_fields, (
-        "the legacy Railway renderer is missing browser fields: "
-        f"{contract_fields - railway_fields}"
-    )
-    assert "billingEnabled: '{$JAWNIX_ENABLE_BILLING:false}' === 'true'" in block
-    assert "billingEnabled: $billing_enabled" in railway_block
-
-
 def test_the_production_edge_adapter_exists_and_names_the_upstream():
     """jawnix.com TLS terminates in another product's Caddy (buzz-prod-caddy-1),
     which proxies to a container named `jawnix-caddy` on :8080.
