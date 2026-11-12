@@ -16,8 +16,8 @@ running_services="$(
 current_status="healthy"
 detail="ready=$ready_body health=$health_body services=$running_services"
 if [ "$ready_body" != '{"ok":true}' ] ||
-  [ "$health_body" != '{"ok":true,"billingEnabled":false}' ] ||
-  [ "$running_services" -lt 6 ]; then
+  ! printf '%s' "$health_body" | grep -q '"ok":true' ||
+  [ "$running_services" -lt 11 ]; then
   current_status="unhealthy"
 fi
 
