@@ -619,3 +619,21 @@ def test_http_adapter_does_not_request_without_runtime_configuration(settings):
     with pytest.raises(ScraperOperationsError):
         asyncio.run(adapter.list_keywords())
     assert requests == 0
+
+
+def test_scraper_ops_timeout_default_exceeds_the_slowest_known_page(monkeypatch):
+    """The Scraper database page measured 11.3s against production on
+    2026-07-29 — several live aggregates over ~772k rows. The default was 10,
+    so httpx raised ReadTimeout, `_raw_native_upstream` swallowed it as a
+    RequestError, and the screen reported the upstream as unresponsive for a
+    request that was merely slow.
+
+    Ceilings below a known-good response time are worse than no ceiling: they
+    fail correctly-working systems and blame the wrong component. 30 keeps
+    ~2.5x headroom over the slowest measured page; a regression to, say, 15
+    would sit 3.7s above a measurement that already varies by more than that.
+    """
+    monkeypatch.delenv("JAWNIX_SCRAPER_OPS_TIMEOUT_SECONDS", raising=False)
+    settings = Settings(JAWNIX_SESSION_SECRET="test-secret-at-least-long-enough")
+
+    assert settings.scraper_ops_timeout_seconds >= 30

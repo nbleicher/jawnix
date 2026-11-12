@@ -341,16 +341,11 @@ def test_every_administrator_route_observably_passes_through_the_mfa_gate(
         monkeypatch,
         assurance="aal1",
     )
-    excluded = {"/admin/scraper/session", "/admin/scraper/logout"}
     routes = [
         route
         for route in app.routes
         if isinstance(route, APIRoute)
-        and (
-            route.path.startswith("/api/admin")
-            or route.path.startswith("/admin/scraper")
-        )
-        and route.path not in excluded
+        and route.path.startswith("/api/admin")
     ]
     # Inventory guard: accidentally narrowing the route selection must not turn
     # this into a green test over a token sample.

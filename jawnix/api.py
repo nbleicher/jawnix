@@ -234,14 +234,8 @@ from .schemas import (
     UserAccountReplace,
 )
 from .scraper_proxy import (
-    accept_scraper_handoff,
     clear_scraper_grant,
-    clear_scraper_session,
-    forward_scraper_request,
     native_router as native_scraper_router,
-    request_is_scraper_origin,
-    scraper_handoff_response,
-    scraper_principal_from_request,
 )
 from .states import normalize_phone, normalize_states
 from .telegram import (
@@ -475,53 +469,6 @@ def admin_entity_activity(
         entity_id=entity_id,
         page=page,
         page_size=page_size,
-    )
-
-
-@app.post("/admin/scraper/session")
-async def scraper_operations_session(
-    request: Request,
-    settings: Settings = Depends(get_settings),
-):
-    return await accept_scraper_handoff(request, settings)
-
-
-@app.post("/admin/scraper/logout")
-def scraper_operations_logout(
-    request: Request,
-    settings: Settings = Depends(get_settings),
-):
-    return clear_scraper_session(request, settings)
-
-
-@app.api_route(
-    "/admin/scraper",
-    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
-)
-@app.api_route(
-    "/admin/scraper/{path:path}",
-    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
-)
-async def scraper_operations(
-    request: Request,
-    path: str = "",
-    settings: Settings = Depends(get_settings),
-    db: Session = Depends(get_db),
-):
-    if request_is_scraper_origin(request, settings):
-        principal = scraper_principal_from_request(request, settings)
-    else:
-        principal = await require_admin(
-            require_principal(request, settings),
-            settings,
-            db,
-        )
-        return scraper_handoff_response(principal, settings)
-    return await forward_scraper_request(
-        request,
-        path,
-        principal,
-        settings,
     )
 
 
