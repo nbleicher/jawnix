@@ -8,7 +8,7 @@ from fontTools.pens.transformPen import TransformPen
 from fontTools.misc.transform import Transform
 from fontTools.varLib.mutator import instantiateVariableFont
 
-ROOT = Path("/root/jawnix/brand-books")
+ROOT = Path(__file__).resolve().parent
 FONTS = Path("/tmp/jnx-fonts")
 
 # Optical pair kerns in em, added on top of tracking.
@@ -250,7 +250,7 @@ def main():
     d_match, ww, wh = word_path(dm, "JAWNIX", -0.015, 56, MATCH_KERN)
     d_metab, ww2, wh2 = word_path(plex, "JAWNIX", 0.16, 52, METAB_KERN)
 
-    mdir = ROOT / "01-the-match"
+    mdir = ROOT / "the-match"
     mpad = 2.4
     mark, mw, mh = match_mark(0, 0, 1.0, ping="#1B4FD6", bid="#0F8A5A", post="#0E1114", line="#8B969E")
     write(mdir / "mark.svg", svg(mw, mh, f"  <g>{mark}</g>", None, "JAWNIX mark", pad=mpad))
@@ -302,7 +302,7 @@ def main():
     write(mdir / "wordmark.svg", svg(ww, wh + wh_pad, f'  <g transform="translate(0 2)" fill="#0E1114"><path d="{d_match}"/></g>', None, pad=1.2))
     write(mdir / "wordmark-dark.svg", svg(ww, wh + wh_pad, f'  <g transform="translate(0 2)" fill="#E8EDF0"><path d="{d_match}"/></g>', None, "JAWNIX wordmark dark", pad=1.2))
 
-    pdir = ROOT / "02-metabolism"
+    pdir = ROOT / "metabolism"
     mm, mmw, mmh = metab_mark(4, 6, 1.0)
     write(pdir / "mark.svg", svg(mmw + 8, mmh + 8, f"  <g>{mm}</g>", None, "JAWNIX mark"))
 
