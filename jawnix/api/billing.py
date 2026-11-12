@@ -25,7 +25,7 @@ from ..schemas import (
     CreditPurchaseCreate,
     CustomerBillingUpdate,
 )
-from ._shared import _current_customer_profile, log
+from ._shared import _current_customer_profile, log, raw_body
 from fastapi import APIRouter
 
 
@@ -107,8 +107,9 @@ def create_credit_purchase(
 
 
 @router.post("/api/billing/stripe/webhook")
-async def stripe_billing_webhook(
+def stripe_billing_webhook(
     request: Request,
+    body: bytes = Depends(raw_body),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -117,7 +118,6 @@ async def stripe_billing_webhook(
             status_code=503,
             detail="Stripe webhook verification is not configured.",
         )
-    body = await request.body()
     signature = request.headers.get("Stripe-Signature", "")
     stripe = get_stripe_client(settings)
     try:
