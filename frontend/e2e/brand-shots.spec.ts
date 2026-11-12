@@ -200,14 +200,6 @@ for (const scheme of SCHEMES) {
         .waitFor({ state: "visible" });
       await shoot(page, testInfo, `route-error-404-${scheme}`);
     });
-
-    test(`design system (${scheme})`, async ({ page }, testInfo) => {
-      await page.goto("./design-system");
-      await page
-        .getByRole("heading", { level: 1, name: "Design system" })
-        .waitFor({ state: "visible" });
-      await shoot(page, testInfo, `design-system-gallery-${scheme}`);
-    });
   });
 }
 

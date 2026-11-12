@@ -20,8 +20,7 @@
     "better-auth": "1.7.7",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router": "^8.3.0",
-    "three": "0.143.0"
+    "react-router": "^8.3.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.10.1",
@@ -36,7 +35,6 @@
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@types/three": "0.143.0",
     "@vitejs/plugin-react": "^5.0.0",
     "jsdom": "^26.1.0",
     "typescript": "^5.9.2",
