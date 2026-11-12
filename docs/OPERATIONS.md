@@ -20,7 +20,7 @@ Do not stop Railway or delete old Supabase application tables during provisionin
 2. Clone this branch, copy `.env.example` to `.env`, and replace every placeholder. Generate independent database, session, and Restic passwords. On the shared production VPS only, also uncomment the `COMPOSE_FILE` line so compose can never omit the edge adapter (see below).
 3. Configure the Telegram webhook at `https://jawnix.com/api/integrations/telegram/webhook` with the bot token, random webhook secret, destination chat ID, and comma-separated authorized Telegram user IDs. Register it with Telegram's `setWebhook` API using the same `secret_token`.
 4. Verify `jawnix.com` in Resend, configure `Jawnix <hai@jawnix.com>`, and set the webhook to `https://jawnix.com/api/integrations/resend/webhook` for delivered, bounced, complained, and failed events.
-5. Configure a private encrypted Restic repository and credentials. Do not reuse the database or session secret as its password. The backup service creates separate database/base and WAL snapshots so a large WAL archive cannot block the daily logical dump. It creates a physical base backup on the configured UTC weekday and expires VPS material after 14 days. Install `ops/com.jawnix.external-backup.plist` on the Mac so `ops/macos-backup-pull.sh` creates the second encrypted copy under `/Volumes/Peely SSD/Jawnix Backups`.
+5. Configure a private encrypted Restic repository and credentials. Do not reuse the database or session secret as its password. The backup service creates separate database/base and WAL snapshots so a large WAL archive cannot block the daily logical dump. It creates a physical base backup on the configured UTC weekday and expires VPS material after 14 days. Configure the Cloudflare R2 offsite copy per `docs/OFFSITE-BACKUP-R2.md` so every local snapshot is mirrored off-host automatically. `ops/macos-backup-pull.sh` (installed via `ops/com.jawnix.external-backup.plist`) is superseded by the R2 copy and retained only as an optional third copy under `/Volumes/Peely SSD/Jawnix Backups`.
 6. Run `docker compose config` and `docker compose build`. (`/config.js` is rendered by Caddy from the environment — there is no file to generate.)
 7. Run `docker compose up -d postgres`, `docker compose run --rm migrate`, then `docker compose up -d`.
 8. Confirm `/api/healthz`, `/api/readyz`, container health/logs, PostgreSQL `archive_mode`, and a Restic snapshot before importing production data. Force one initial physical base backup with `docker compose run --rm -e JAWNIX_FORCE_BASEBACKUP=true backup /app/ops/backup.sh`.
@@ -741,7 +741,22 @@ docker compose exec backup restic snapshots
 docker compose exec backup restic check
 ```
 
-Run the installed Mac pull whenever Peely SSD is mounted:
+The primary offsite copy is the Cloudflare R2 Restic repository, maintained
+automatically by `ops/backup.sh` after every local backup. Verify it with:
+
+```sh
+docker compose exec backup sh -c 'restic -r "$R2_RESTIC_REPO" snapshots'
+docker compose exec backup sh -c 'restic -r "$R2_RESTIC_REPO" check'
+```
+
+Setup, seeding, and restore-from-R2 steps are in `docs/OFFSITE-BACKUP-R2.md`.
+A failed R2 copy logs `OFFSITE BACKUP FAILED` and exits the backup non-zero
+while leaving the local repository intact.
+
+The Mac pull to Peely SSD is superseded by the R2 copy. It is retained as an
+optional third copy; its default SSH target still points at the legacy host
+whose backups stopped 2026-10-02, so set `JAWNIX_VPS_SSH_TARGET` to the
+production host before relying on it again:
 
 ```sh
 "$HOME/Library/Application Support/Jawnix/macos-backup-pull.sh"
@@ -753,9 +768,6 @@ and runs `restic check`. Restic copy is resumable and deduplicated; an
 interrupted run can be rerun safely. Restic assigns new snapshot IDs in the
 destination repository; verify corresponding timestamps, tags, paths, and
 sizes rather than expecting the VPS snapshot IDs to remain unchanged.
-
-The launch agent runs daily at 01:00 local time but only while the Mac and drive
-are available. A missed run does not affect the VPS repository.
 
 ## Cutover monitoring
 
