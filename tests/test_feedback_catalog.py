@@ -1,46 +1,19 @@
-"""The Lead Disposition catalog the Customer Feedback screen renders (#53).
+"""The Lead Disposition catalog pins what each choice does (#53).
 
 The load-bearing test here is
-``test_the_catalog_cannot_drift_from_what_is_enforced``. The screen must state
-a disposition's consequence *before* the Customer commits to it, and those
-consequences are irreversible. Copy maintained separately from
-``apply_disposition_controls`` would eventually disagree with it, and the
-failure mode is telling someone their answer is harmless when it places an
-Eligibility Hold. So the catalog is derived from the same constants the
-controls are materialized from, and this file pins that.
+``test_the_catalog_cannot_drift_from_what_is_enforced``. The consequences are
+irreversible. Copy maintained separately from ``apply_disposition_controls``
+would eventually disagree with it, and the failure mode is telling someone
+their answer is harmless when it places an Eligibility Hold. So the catalog is
+derived from the same constants the controls are materialized from, and this
+file pins that.
 """
 
 from __future__ import annotations
 
-import uuid
-
-from fastapi.testclient import TestClient
-
-from jawnix.api import app
-from jawnix.auth import Principal, require_principal
-from jawnix.config import Settings, get_settings
-from jawnix.database import get_db
-from jawnix.dispositions import CATALOG, GROUP_ORDER, catalog_payload
+from jawnix.dispositions import CATALOG, GROUP_ORDER
 from jawnix.feedback import HOLD_DISPOSITIONS, REPORT_DISPOSITIONS
 from jawnix.schemas import FeedbackCreate
-
-
-CUSTOMER_ID = uuid.uuid4()
-
-
-def as_customer(session) -> TestClient:
-    def database_override():
-        yield session
-
-    app.dependency_overrides[get_db] = database_override
-    app.dependency_overrides[get_settings] = lambda: Settings()
-    app.dependency_overrides[require_principal] = lambda: Principal(
-        user_id=CUSTOMER_ID,
-        email="customer@example.com",
-        role="customer",
-        csrf="test",
-    )
-    return TestClient(app)
 
 
 class TestCatalogIntegrity:
@@ -112,83 +85,3 @@ class TestCatalogIntegrity:
         ]
         grouped = {entry.group for entry in CATALOG}
         assert grouped == {group for group, _ in GROUP_ORDER}
-
-
-class TestCatalogEndpoint:
-    def test_the_catalog_is_served_to_a_signed_in_customer(self, session):
-        client = as_customer(session)
-        try:
-            response = client.get("/api/me/feedback/dispositions")
-        finally:
-            app.dependency_overrides.clear()
-
-        assert response.status_code == 200
-        body = response.json()
-        assert [group["group"] for group in body["groups"]] == [
-            "contact_result",
-            "positive_progress",
-            "appointment_follow_up",
-            "data_compliance_problem",
-            "other",
-        ]
-        flattened = [
-            option
-            for group in body["groups"]
-            for option in group["options"]
-        ]
-        assert len(flattened) == len(CATALOG)
-
-    def test_the_served_consequences_name_report_and_hold_distinctly(
-        self, session
-    ):
-        client = as_customer(session)
-        try:
-            body = client.get("/api/me/feedback/dispositions").json()
-        finally:
-            app.dependency_overrides.clear()
-
-        options = {
-            option["disposition"]: option
-            for group in body["groups"]
-            for option in group["options"]
-        }
-        assert options["wrong_business"]["createsReport"] is True
-        assert options["wrong_business"]["createsHold"] is False
-        assert options["invalid_phone"]["createsHold"] is True
-        assert options["do_not_contact"]["createsHold"] is True
-        # A disposition with no durable control must say nothing about one.
-        assert options["no_contact"]["createsReport"] is False
-        assert options["no_contact"]["createsHold"] is False
-        assert options["no_contact"]["consequence"] == ""
-
-    def test_a_quality_rating_is_never_described_as_a_consequence(
-        self, session
-    ):
-        """Poor must not imply suppression or a Lead Report."""
-        client = as_customer(session)
-        try:
-            body = client.get("/api/me/feedback/dispositions").json()
-        finally:
-            app.dependency_overrides.clear()
-
-        rating = body["qualityRating"]
-        assert rating["optional"] is True
-        assert [option["value"] for option in rating["options"]] == [
-            "good",
-            "poor",
-        ]
-        for option in rating["options"]:
-            assert option["createsReport"] is False
-            assert option["createsHold"] is False
-        combined = " ".join(
-            option["description"] for option in rating["options"]
-        ).lower()
-        for forbidden in ("suppress", "lead report", "hold"):
-            assert forbidden not in combined, forbidden
-
-
-def test_the_payload_is_json_safe():
-    """The catalog is served verbatim, so it must survive serialization."""
-    import json
-
-    json.dumps(catalog_payload())

@@ -16,7 +16,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from svix.webhooks import Webhook, WebhookVerificationError
@@ -42,9 +42,7 @@ from .billing import (
     complete_credit_purchase_for_session,
     configure_customer_billing,
     initialize_customer_billing,
-    place_batch_hold,
     post_admin_adjustment,
-    prepare_submission,
     start_credit_purchase,
     wallet_view,
 )
@@ -100,7 +98,6 @@ from .eligibility import (
     record_correction,
     suppress_from_report,
 )
-from .feedback import apply_disposition_controls
 from .exclusions import (
     EXCLUSION_TYPES,
     ExclusionDecisionError,
@@ -151,17 +148,12 @@ from .models import (
     CustomerTombstone,
     DailySourcePerformance,
     DistributionEvent,
-    EligibilityHold,
     ExclusionList,
     InventoryConflict,
     LeadDispositionState,
-    LeadDispositionTransition,
     LeadReport,
-    LeadReportResolution,
-    LeadOutcome,
     Lead,
     LeadCorrectionEvent,
-    ListingObservation,
     LeadRequest,
     NightlyReview,
     NicheAssignmentUpload,
@@ -171,7 +163,6 @@ from .models import (
     ScraperConfiguration,
     ScrapeAnomaly,
     ScraperRun,
-    SourceRecommendation,
     SourceNicheMapping,
     SourceSegment,
     UserAccount,
@@ -211,22 +202,14 @@ from .schemas import (
     NichePolicyUpdate,
     CustomerDetailsOut,
     CustomerDirectoryOut,
-    DeleteConfirmation,
-    FeedbackCreate,
     FeedbackLookup,
-    FeedbackSearch,
-    OutcomeCreate,
-    OutcomeOut,
     ProfileOut,
     ProfileUpdate,
-    CustomerMappingUpdate,
     CustomerRequestCreate,
     CustomerRequestDetail,
     CustomerRequestReceipt,
     CustomerRequestWorkspaceOut,
     RecommendationDecision,
-    RequestCreate,
-    RequestOut,
     SessionExchange,
     ScraperConfigurationCreate,
     SourceNicheDecision,
@@ -254,7 +237,6 @@ from .telegram import (
     verify_telegram_secret,
 )
 from .fulfillment import (
-    OPEN_STATUSES,
     TRANSITION_ACTIONS,
     artifact_available,
     artifact_download_filename,
@@ -452,30 +434,6 @@ def admin_activity(
         ),
         "filters": activity_filters(db),
     }
-
-
-@app.get("/api/admin/activity/{entity_type}/{entity_id}")
-def admin_entity_activity(
-    entity_type: str,
-    entity_id: str,
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(
-        default=ACTIVITY_PAGE_SIZE,
-        alias="pageSize",
-        ge=1,
-        le=100,
-    ),
-    _: Principal = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """One entity timeline through the same query as global Activity."""
-    return query_activity(
-        db,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        page=page,
-        page_size=page_size,
-    )
 
 
 @app.post("/admin/scraper/session")
@@ -1723,48 +1681,11 @@ def update_profile(
     return profile
 
 
-@app.get("/api/me/requests", response_model=list[RequestOut])
-def list_my_requests(principal: Principal = Depends(require_principal), db: Session = Depends(get_db)):
-    profile = _current_customer_profile(db, principal)
-    return list(
-        db.scalars(
-            select(LeadRequest).where(request_history_scope(profile, principal.user_id)).order_by(LeadRequest.created_at.desc())
-        )
-    )
-
-
-_OUTCOME_METRICS = {
-    "good": "quality",
-    "poor": "quality",
-    "positive_response": "positive_response",
-    "appointment_booked": "appointment_booked",
-    "appointment_canceled": "appointment_canceled",
-    "appointment_no_show": "appointment_no_show",
-}
-
-
 def _feedback_not_found() -> HTTPException:
     return HTTPException(
         status_code=404,
         detail="No delivered Lead found.",
     )
-
-
-@app.get("/api/me/feedback/dispositions")
-def feedback_disposition_catalog(
-    _: Principal = Depends(require_principal),
-):
-    """The Lead Dispositions a Customer chooses from, and what each one does.
-
-    Served rather than duplicated in the client so the consequence a Customer
-    reads is derived from the rule that materializes it. A Lead Report and an
-    Eligibility Hold cannot be undone from the Customer's side; copy that
-    drifted from `apply_disposition_controls` would misstate an irreversible
-    effect.
-    """
-    from .dispositions import catalog_payload
-
-    return catalog_payload()
 
 
 @app.post("/api/me/feedback/lookup")
@@ -1822,72 +1743,6 @@ def lookup_feedback(
     }
 
 
-@app.post("/api/me/feedback/search")
-def search_feedback(
-    payload: FeedbackSearch,
-    principal: Principal = Depends(require_principal),
-    db: Session = Depends(get_db),
-):
-    profile = _current_customer_profile(db, principal)
-    if profile is None or profile.customer_id is None:
-        return []
-    query = payload.query
-    digits = "".join(character for character in query if character.isdigit())
-    conditions = [
-        DistributionEvent.title.icontains(query, autoescape=True),
-    ]
-    if digits:
-        conditions.append(
-            DistributionEvent.phone.contains(digits, autoescape=True)
-        )
-    events = list(
-        db.scalars(
-            select(DistributionEvent)
-            .join(
-                LeadRequest,
-                LeadRequest.id == DistributionEvent.request_id,
-            )
-            .where(
-                DistributionEvent.agent_id == profile.customer_id,
-                LeadRequest.agent_id == profile.customer_id,
-                LeadRequest.status == RequestStatus.delivered.value,
-                or_(*conditions),
-                *(
-                    [LeadRequest.id == payload.request_id]
-                    if payload.request_id is not None
-                    else []
-                ),
-            )
-            .order_by(
-                DistributionEvent.delivered_at.desc(),
-                DistributionEvent.id.desc(),
-            )
-            .limit(20)
-        )
-    )
-    states = {
-        state.distribution_event_id: state.current_disposition
-        for state in db.scalars(
-            select(LeadDispositionState).where(
-                LeadDispositionState.distribution_event_id.in_(
-                    [event.id for event in events]
-                )
-            )
-        )
-    }
-    return [
-        {
-            "distributionEventId": event.id,
-            "businessName": event.title,
-            "phone": event.phone,
-            "deliveredAt": event.delivered_at,
-            "batchId": str(event.request_id),
-            "currentDisposition": states.get(event.id),
-        }
-        for event in events
-    ]
-
-
 def _customer_distribution(
     db: Session,
     principal: Principal,
@@ -1905,328 +1760,6 @@ def _customer_distribution(
     if event is None:
         raise HTTPException(status_code=404, detail="Delivered Lead was not found.")
     return profile, event
-
-
-def _disposition_transition_response(
-    item: LeadDispositionTransition,
-) -> dict:
-    return {
-        "id": str(item.id),
-        "distributionEventId": item.distribution_event_id,
-        "disposition": item.disposition,
-        "note": item.note,
-        "actorUserId": str(item.actor_user_id),
-        "previousTransitionId": (
-            str(item.previous_transition_id)
-            if item.previous_transition_id is not None
-            else None
-        ),
-        "createdAt": item.created_at,
-    }
-
-
-def _customer_feedback_distribution(
-    db: Session,
-    principal: Principal,
-    event_id: int,
-) -> tuple[CustomerProfile, DistributionEvent]:
-    try:
-        return _customer_distribution(
-            db,
-            principal,
-            event_id,
-        )
-    except HTTPException as error:
-        if error.status_code == 404:
-            raise _feedback_not_found() from None
-        raise
-
-
-def _quality_rating_response(item: LeadOutcome) -> dict:
-    return {
-        "id": str(item.id),
-        "kind": item.kind,
-        "note": item.note,
-        "supersedesOutcomeId": (
-            str(item.supersedes_outcome_id)
-            if item.supersedes_outcome_id is not None
-            else None
-        ),
-        "createdAt": item.created_at,
-    }
-
-
-@app.get("/api/me/distributions/{event_id}/dispositions")
-def list_dispositions(
-    event_id: int,
-    principal: Principal = Depends(require_principal),
-    db: Session = Depends(get_db),
-):
-    _, event = _customer_feedback_distribution(
-        db,
-        principal,
-        event_id,
-    )
-    return [
-        _disposition_transition_response(item)
-        for item in db.scalars(
-            select(LeadDispositionTransition)
-            .where(
-                LeadDispositionTransition.distribution_event_id
-                == event.id
-            )
-            .order_by(
-                LeadDispositionTransition.created_at,
-                LeadDispositionTransition.id,
-            )
-        )
-    ]
-
-
-@app.post("/api/me/feedback", status_code=201)
-def create_feedback(
-    payload: FeedbackCreate,
-    principal: Principal = Depends(require_principal),
-    db: Session = Depends(get_db),
-):
-    profile, event = _customer_feedback_distribution(
-        db,
-        principal,
-        payload.distribution_event_id,
-    )
-    event = db.scalar(
-        select(DistributionEvent)
-        .where(DistributionEvent.id == event.id)
-        .with_for_update()
-    )
-    previous = db.scalar(
-        select(LeadDispositionTransition)
-        .where(
-            LeadDispositionTransition.distribution_event_id
-            == event.id
-        )
-        .order_by(
-            LeadDispositionTransition.created_at.desc(),
-            LeadDispositionTransition.id.desc(),
-        )
-        .limit(1)
-    )
-    if payload.disposition in {
-        "appointment_canceled",
-        "appointment_no_show",
-    }:
-        booked = db.scalar(
-            select(LeadDispositionTransition.id)
-            .where(
-                LeadDispositionTransition.distribution_event_id
-                == event.id,
-                LeadDispositionTransition.disposition
-                == "appointment_booked",
-            )
-            .limit(1)
-        )
-        if booked is None:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Book an appointment before reporting its later status."
-                ),
-            )
-    quality_rating = None
-    if payload.quality_rating is not None:
-        rating_history = list(
-            db.scalars(
-                select(LeadOutcome)
-                .where(
-                    LeadOutcome.distribution_event_id
-                    == event.id,
-                    LeadOutcome.metric == "quality",
-                )
-                .order_by(
-                    LeadOutcome.created_at,
-                    LeadOutcome.id,
-                )
-            )
-        )
-        superseded_rating_ids = {
-            item.supersedes_outcome_id
-            for item in rating_history
-            if item.supersedes_outcome_id is not None
-        }
-        active_rating = next(
-            (
-                item
-                for item in reversed(rating_history)
-                if item.id not in superseded_rating_ids
-            ),
-            None,
-        )
-        quality_rating = LeadOutcome(
-            distribution_event_id=event.id,
-            customer_id=profile.customer_id,
-            actor_user_id=principal.user_id,
-            kind=payload.quality_rating,
-            metric="quality",
-            note=payload.quality_note.strip(),
-            supersedes_outcome_id=(
-                active_rating.id
-                if active_rating is not None
-                else None
-            ),
-        )
-    changed_at = utcnow()
-    transition = LeadDispositionTransition(
-        distribution_event_id=event.id,
-        customer_id=profile.customer_id,
-        actor_user_id=principal.user_id,
-        source_outcome_id=None,
-        disposition=payload.disposition,
-        note=payload.note.strip(),
-        previous_transition_id=(
-            previous.id if previous is not None else None
-        ),
-        created_at=changed_at,
-    )
-    db.add(transition)
-    if quality_rating is not None:
-        db.add(quality_rating)
-    db.flush()
-    report, hold = apply_disposition_controls(db, event, transition)
-    disposition_state = db.get(
-        LeadDispositionState,
-        event.id,
-    )
-    if disposition_state is None:
-        disposition_state = LeadDispositionState(
-            distribution_event_id=event.id,
-            current_transition_id=transition.id,
-            current_disposition=payload.disposition,
-            updated_at=changed_at,
-        )
-        db.add(disposition_state)
-    else:
-        disposition_state.current_transition_id = transition.id
-        disposition_state.current_disposition = payload.disposition
-        disposition_state.updated_at = changed_at
-    db.commit()
-    db.refresh(transition)
-    if quality_rating is not None:
-        db.refresh(quality_rating)
-    return {
-        "distributionEventId": event.id,
-        "currentDisposition": (
-            disposition_state.current_disposition
-        ),
-        "transition": _disposition_transition_response(
-            transition
-        ),
-        "qualityRating": (
-            _quality_rating_response(quality_rating)
-            if quality_rating is not None
-            else None
-        ),
-        "reportId": str(report.id) if report is not None else None,
-        "eligibilityHoldId": (
-            str(hold.id) if hold is not None else None
-        ),
-    }
-
-
-@app.get(
-    "/api/me/distributions/{event_id}/outcomes",
-    response_model=list[OutcomeOut],
-)
-def list_outcomes(
-    event_id: int,
-    principal: Principal = Depends(require_principal),
-    db: Session = Depends(get_db),
-):
-    _, event = _customer_distribution(db, principal, event_id)
-    return list(
-        db.scalars(
-            select(LeadOutcome)
-            .where(LeadOutcome.distribution_event_id == event.id)
-            .order_by(LeadOutcome.created_at, LeadOutcome.id)
-        )
-    )
-
-
-@app.post(
-    "/api/me/distributions/{event_id}/outcomes",
-    response_model=OutcomeOut,
-    status_code=201,
-    deprecated=True,
-)
-def create_outcome(
-    event_id: int,
-    payload: OutcomeCreate,
-    principal: Principal = Depends(require_principal),
-    db: Session = Depends(get_db),
-):
-    """Retain the legacy Outcome write contract during feedback migration."""
-    profile, event = _customer_distribution(db, principal, event_id)
-    metric = _OUTCOME_METRICS[payload.kind]
-    history = list(
-        db.scalars(
-            select(LeadOutcome)
-            .where(LeadOutcome.distribution_event_id == event.id)
-            .order_by(LeadOutcome.created_at, LeadOutcome.id)
-            .with_for_update()
-        )
-    )
-    superseded_ids = {
-        item.supersedes_outcome_id
-        for item in history
-        if item.supersedes_outcome_id is not None
-    }
-    active_by_metric = {
-        item.metric: item
-        for item in history
-        if item.id not in superseded_ids
-    }
-    if payload.kind in {"appointment_canceled", "appointment_no_show"}:
-        if "appointment_booked" not in active_by_metric:
-            raise HTTPException(
-                status_code=409,
-                detail="Book an appointment before reporting its later status.",
-            )
-    if payload.supersedes_outcome_id is not None:
-        previous = next(
-            (
-                item
-                for item in history
-                if item.id == payload.supersedes_outcome_id
-            ),
-            None,
-        )
-        if (
-            previous is None
-            or previous.metric != metric
-            or previous.id in superseded_ids
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail="The selected outcome cannot be superseded.",
-            )
-    elif metric in active_by_metric:
-        raise HTTPException(
-            status_code=409,
-            detail="This milestone is already recorded; submit a correction instead.",
-        )
-    outcome = LeadOutcome(
-        distribution_event_id=event.id,
-        customer_id=profile.customer_id,
-        actor_user_id=principal.user_id,
-        kind=payload.kind,
-        metric=metric,
-        appointment_at=payload.appointment_at,
-        note=payload.note.strip(),
-        supersedes_outcome_id=payload.supersedes_outcome_id,
-    )
-    db.add(outcome)
-    db.commit()
-    db.refresh(outcome)
-    return outcome
 
 
 @app.post(
@@ -2497,24 +2030,6 @@ def source_performance_history(
     }
 
 
-@app.get("/api/admin/source-niches")
-def list_source_niches(
-    _: Principal = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    from .acquisition import niche_dict
-
-    return [
-        niche_dict(item)
-        for item in db.scalars(
-            select(SourceNicheMapping).order_by(
-                SourceNicheMapping.state,
-                SourceNicheMapping.keyword,
-            )
-        )
-    ]
-
-
 @app.post("/api/admin/source-niches/{segment_key}/confirm")
 def confirm_source_niche(
     segment_key: str,
@@ -2643,24 +2158,6 @@ def admin_acquisition(
     return acquisition_workspace(db)
 
 
-@app.get("/api/admin/source-recommendations")
-def list_source_recommendations(
-    _: Principal = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    from .acquisition import recommendation_dict
-
-    return [
-        recommendation_dict(item, decidable=False)
-        for item in db.scalars(
-            select(SourceRecommendation).order_by(
-                SourceRecommendation.created_at.desc(),
-                SourceRecommendation.id,
-            )
-        )
-    ]
-
-
 @app.post(
     "/api/admin/source-recommendations/{recommendation_id}/{action}"
 )
@@ -2706,81 +2203,6 @@ def decide_source_recommendation(
     }
 
 
-@app.post("/api/me/requests", response_model=RequestOut, status_code=201)
-def create_request(
-    payload: RequestCreate,
-    principal: Principal = Depends(require_principal),
-    db: Session = Depends(get_db),
-):
-    profile = _current_customer_profile(db, principal)
-    if (
-        profile is None
-        or profile.customer is None
-        or not profile.customer.active
-        or profile.customer.deleted_at is not None
-        or (
-            profile.customer.agency is not None
-            and (
-                not profile.customer.agency.active
-                or profile.customer.agency.deleted_at is not None
-            )
-        )
-        or profile.mapping_confirmed_at is None
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail="Your distribution mapping must be active and confirmed before requesting a batch.",
-        )
-    saved_states = normalize_states(profile.licensed_states)
-    if not saved_states:
-        raise HTTPException(status_code=422, detail="Save at least one licensed state first.")
-    states = saved_states if payload.state_mode == "all_saved" else payload.states
-    if not set(states).issubset(saved_states):
-        raise HTTPException(status_code=422, detail="Request states must be selected from your saved profile states.")
-    try:
-        billing = prepare_submission(
-            db,
-            customer_id=profile.customer_id,
-            lead_count=payload.lead_count,
-            expected_lead_rate_cents_per_thousand=payload.expected_lead_rate_cents_per_thousand,
-        )
-    except BillingError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.detail,
-        ) from None
-    request = LeadRequest(
-        user_id=principal.user_id,
-        agent_id=profile.customer_id,
-        lead_count=payload.lead_count,
-        state_mode=payload.state_mode,
-        states_snapshot=states,
-        delivery_email=profile.email,
-        status=RequestStatus.pending.value,
-        status_message="Awaiting Telegram approval.",
-    )
-    db.add(request)
-    place_batch_hold(db, request=request, billing=billing)
-    db.flush()
-    enqueue_job(db, "notify_request", request.id)
-    db.commit()
-    db.refresh(request)
-    return request
-
-
-@app.delete("/api/me/requests/{request_id}")
-def cancel_request(
-    request_id: uuid.UUID,
-    principal: Principal = Depends(require_principal),
-    db: Session = Depends(get_db),
-):
-    try:
-        withdraw_request(db, user_id=principal.user_id, request_id=request_id)
-    except RequestSubmissionError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
-    return {"ok": True}
-
-
 def _request_dict(item: LeadRequest) -> dict:
     return {
         "id": str(item.id),
@@ -2801,11 +2223,6 @@ def _request_dict(item: LeadRequest) -> dict:
     }
 
 
-@app.get("/api/admin/requests")
-def admin_requests(_: Principal = Depends(require_admin), db: Session = Depends(get_db)):
-    return [_request_dict(item) for item in db.scalars(select(LeadRequest).order_by(LeadRequest.created_at.desc()))]
-
-
 @app.get("/api/admin/fulfillment")
 def admin_fulfillment(
     _: Principal = Depends(require_admin),
@@ -2819,23 +2236,6 @@ def admin_fulfillment(
     state actually permits.
     """
     return fulfillment_workspace(db)
-
-
-@app.get("/api/admin/requests/events")
-def admin_workspace_request_events(
-    request: Request,
-    _: Principal = Depends(require_admin),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-):
-    scope = {str(value) for value in db.scalars(select(LeadRequest.id).where(LeadRequest.status.in_(OPEN_STATUSES)))}
-    db.close()
-    async def authorize():
-        try:
-            await require_admin(require_principal(request, settings), settings, db)
-        finally:
-            db.close()
-    return StreamingResponse(request_events(request, scope, authorize), media_type="text/event-stream", headers={"Cache-Control":"private, no-store", "X-Accel-Buffering":"no"})
 
 
 @app.get("/api/admin/requests/{request_id}")
@@ -2881,124 +2281,6 @@ def admin_inventory_conflict_detail(
             status_code=404, detail="Inventory Conflict was not found."
         )
     return describe_conflict(db, conflict)
-
-
-def _available_account_profiles(db: Session) -> list[CustomerProfile]:
-    return list(db.scalars(
-        select(CustomerProfile)
-        .outerjoin(UserAccount, UserAccount.auth_user_id == CustomerProfile.user_id)
-        .where(or_(UserAccount.auth_user_id.is_(None), UserAccount.active.is_(True)))
-        .order_by(CustomerProfile.email)
-    ))
-
-
-@app.get("/api/admin/recipients", include_in_schema=False)
-def admin_recipients(_: Principal = Depends(require_admin), db: Session = Depends(get_db)):
-    profiles = _available_account_profiles(db)
-    agencies = list(db.scalars(select(Agency).where(Agency.deleted_at.is_(None)).order_by(Agency.name)))
-    agents = list(
-        db.scalars(
-            select(Customer)
-            .where(Customer.deleted_at.is_(None))
-            .order_by(Customer.name)
-        )
-    )
-    return {
-        "recipients": [
-            {
-                "userId": str(profile.user_id),
-                "email": profile.email,
-                "name": " ".join(part for part in (profile.first_name, profile.last_name) if part).strip(),
-                "states": profile.licensed_states,
-                "agentId": profile.customer_id,
-                "agent": (
-                    profile.customer.name if profile.customer else ""
-                ),
-                "confirmed": profile.mapping_confirmed_at is not None,
-            }
-            for profile in profiles
-        ],
-        "agencies": [
-            {"id": agency.id, "slug": agency.slug, "name": agency.name, "active": agency.active}
-            for agency in agencies
-        ],
-        "agents": [
-            {
-                "id": agent.id,
-                "slug": agent.slug,
-                "name": agent.name,
-                "active": agent.active,
-                "agencyId": agent.agency_id,
-                "agency": agent.agency.name if agent.agency else "",
-            }
-            for agent in agents
-        ],
-    }
-
-
-@app.get("/api/admin/customers")
-def admin_customers(
-    _: Principal = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    customers = list(
-        db.scalars(
-            select(Customer)
-            .where(Customer.deleted_at.is_(None))
-            .order_by(Customer.name)
-        )
-    )
-    profiles = _available_account_profiles(db)
-    agencies = list(
-        db.scalars(
-            select(Agency)
-            .where(Agency.deleted_at.is_(None))
-            .order_by(Agency.name)
-        )
-    )
-    return {
-        "userAccounts": [
-            {
-                "userId": str(profile.user_id),
-                "email": profile.email,
-                "name": " ".join(
-                    part
-                    for part in (
-                        profile.first_name,
-                        profile.last_name,
-                    )
-                    if part
-                ).strip(),
-                "states": profile.licensed_states,
-                "customerId": profile.customer_id,
-                "customer": (
-                    profile.customer.name if profile.customer else ""
-                ),
-                "confirmed": profile.mapping_confirmed_at is not None,
-            }
-            for profile in profiles
-        ],
-        "agencies": [
-            {
-                "id": agency.id,
-                "slug": agency.slug,
-                "name": agency.name,
-                "active": agency.active,
-            }
-            for agency in agencies
-        ],
-        "customers": [
-            {
-                "id": customer.id,
-                "slug": customer.slug,
-                "name": customer.name,
-                "active": customer.active,
-                "agencyId": customer.agency_id,
-                "agency": customer.agency.name if customer.agency else "",
-            }
-            for customer in customers
-        ]
-    }
 
 
 def _configuration_dict(item: ScraperConfiguration) -> dict:
@@ -4558,167 +3840,6 @@ def cancel_customer_user_account_invitation(
     return {"ok": True, "invitationId": str(invitation.id)}
 
 
-@app.post("/api/admin/user-accounts/sync")
-@app.post("/api/admin/recipients/sync", include_in_schema=False)
-async def sync_user_accounts(
-    principal: Principal = Depends(require_admin),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-):
-    customers = {
-        customer.slug: customer
-        for customer in db.scalars(
-            select(Customer).where(
-                Customer.active.is_(True),
-                Customer.deleted_at.is_(None),
-            )
-        )
-        if customer.agency is None
-        or (
-            customer.agency.active
-            and customer.agency.deleted_at is None
-        )
-    }
-    seen = created = updated = proposed = 0
-    page = 1
-    while True:
-        data = await _supabase_admin(settings, "GET", f"/auth/v1/admin/users?page={page}&per_page=1000")
-        users = data.get("users") or []
-        if not users:
-            break
-        for user in users:
-            role = str((user.get("app_metadata") or {}).get("jawnix_role") or "customer")
-            if role != "customer":
-                continue
-            seen += 1
-            user_id = uuid.UUID(str(user["id"]))
-            email = str(user.get("email") or "").strip().lower()
-            metadata = user.get("user_metadata") or {}
-            profile = db.get(CustomerProfile, user_id)
-            is_new = profile is None
-            if profile is None:
-                profile = CustomerProfile(
-                    user_id=user_id,
-                    email=email,
-                    first_name=str(metadata.get("first_name") or ""),
-                    last_name=str(metadata.get("last_name") or ""),
-                    licensed_states=[],
-                )
-                db.add(profile)
-                created += 1
-            else:
-                if profile.email != email:
-                    updated += 1
-                profile.email = email
-            if profile.customer_id is None:
-                candidates = {
-                    re.sub(r"[^a-z0-9]+", "-", email.split("@", 1)[0]).strip("-"),
-                    re.sub(r"[^a-z0-9]+", "-", profile.first_name.lower()).strip("-"),
-                    re.sub(r"[^a-z0-9]+", "-", f"{profile.first_name} {profile.last_name}".lower()).strip("-"),
-                }
-                match = next(
-                    (
-                        customers[value]
-                        for value in candidates
-                        if value in customers
-                    ),
-                    None,
-                )
-                if match:
-                    profile.customer_id = match.id
-                    profile.mapping_confirmed_at = None
-                    proposed += 1
-            if is_new:
-                profile.mapping_confirmed_at = None
-        if len(users) < 1000:
-            break
-        page += 1
-    if created or updated or proposed:
-        record_activity(
-            db,
-            action="user_accounts_synchronized",
-            target_type="user_account",
-            target_id="bulk-sync",
-            actor_id=principal.user_id,
-            reason="Synchronized User Accounts from the identity provider.",
-            details={
-                "before": None,
-                "after": {
-                    "created": created,
-                    "updated": updated,
-                    "proposedMappings": proposed,
-                },
-                "seen": seen,
-            },
-        )
-    db.commit()
-    return {"seen": seen, "created": created, "proposedMappings": proposed, "allMappingsRequireConfirmation": True}
-
-
-@app.patch("/api/admin/user-accounts/{user_id}/customer")
-@app.patch("/api/admin/recipients/{user_id}", include_in_schema=False)
-def map_user_account_customer(
-    user_id: uuid.UUID,
-    payload: CustomerMappingUpdate,
-    principal: Principal = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    profile = db.get(CustomerProfile, user_id)
-    customer = db.get(Customer, payload.customer_id)
-    if profile is None or customer is None:
-        raise HTTPException(
-            status_code=404,
-            detail="User Account or Customer was not found.",
-        )
-    if (
-        not customer.active
-        or customer.deleted_at is not None
-        or (
-            customer.agency is not None
-            and (
-                not customer.agency.active
-                or customer.agency.deleted_at is not None
-            )
-        )
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "User Accounts can only be mapped to an active Customer "
-                "and Agency."
-            ),
-        )
-    previous = {
-        "customerId": profile.customer_id,
-        "confirmed": profile.mapping_confirmed_at is not None,
-    }
-    after = {
-        "customerId": customer.id,
-        "confirmed": payload.confirmed,
-    }
-    if previous == after:
-        return {"ok": True}
-    profile.customer_id = customer.id
-    profile.mapping_confirmed_at = (
-        datetime.now(timezone.utc) if payload.confirmed else None
-    )
-    record_activity(
-        db,
-        action="user_account_customer_mapped",
-        target_type="customer",
-        target_id=customer.id,
-        actor_id=principal.user_id,
-        reason="Confirmed User Account to Customer mapping.",
-        details={
-            "before": previous,
-            "after": after,
-            "authUserId": str(profile.user_id),
-        },
-    )
-    db.commit()
-    return {"ok": True}
-
-
 @app.patch("/api/admin/agencies/{agency_id}")
 def update_agency(
     agency_id: int,
@@ -4763,7 +3884,6 @@ def update_agency(
 
 
 @app.patch("/api/admin/customers/{customer_id}")
-@app.patch("/api/admin/agents/{customer_id}", include_in_schema=False)
 def update_customer(
     customer_id: int,
     payload: CustomerUpdate,
@@ -5043,64 +4163,6 @@ def erase_customer_personal_data(
     }
 
 
-@app.delete("/api/admin/agents/{agent_id}", include_in_schema=False)
-def delete_agent(
-    agent_id: int,
-    payload: DeleteConfirmation,
-    principal: Principal = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    agent = db.get(Customer, agent_id)
-    if agent is None or agent.deleted_at is not None:
-        raise HTTPException(status_code=404, detail="Agent was not found.")
-    if payload.confirm_slug != agent.slug:
-        raise HTTPException(status_code=409, detail="Agent slug confirmation did not match.")
-    active_requests = int(
-        db.scalar(
-            select(func.count(LeadRequest.id)).where(
-                LeadRequest.agent_id == agent.id,
-                LeadRequest.status.notin_(
-                    [
-                        RequestStatus.delivered.value,
-                        RequestStatus.rejected.value,
-                        RequestStatus.canceled.value,
-                    ]
-                ),
-            )
-        )
-        or 0
-    )
-    if active_requests:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Resolve {active_requests} active request(s) before deleting this agent.",
-        )
-    profiles = list(db.scalars(select(CustomerProfile).where(CustomerProfile.agent_id == agent.id)))
-    for profile in profiles:
-        profile.customer_id = None
-        profile.mapping_confirmed_at = None
-    agent.active = False
-    agent.deleted_at = utcnow()
-    record_activity(
-        db,
-        action="customer_deleted",
-        target_type="customer",
-        target_id=agent.id,
-        actor_id=principal.user_id,
-        reason="Legacy Customer deletion endpoint.",
-        details={
-            "before": {"deleted": False},
-            "after": {
-                "deleted": True,
-                "historyPreserved": True,
-            },
-            "unassignedUserAccounts": len(profiles),
-        },
-    )
-    db.commit()
-    return {"ok": True, "unassignedRecipients": len(profiles), "historyPreserved": True}
-
-
 @app.delete("/api/admin/agencies/{agency_id}")
 def delete_agency(
     agency_id: int,
@@ -5362,10 +4424,6 @@ async def _send_password_reset(settings: Settings, email: str) -> None:
 
 
 @app.post("/api/admin/user-accounts/{user_id}/send-password-reset")
-@app.post(
-    "/api/admin/recipients/{user_id}/send-password-reset",
-    include_in_schema=False,
-)
 async def send_user_account_password_reset(
     user_id: uuid.UUID,
     principal: Principal = Depends(require_admin),
