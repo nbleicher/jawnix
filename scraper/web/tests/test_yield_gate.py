@@ -198,3 +198,104 @@ async def test_recovery_pause_is_visible_and_preserves_operator_pause(app_client
     finally:
         await conn.execute("UPDATE acquisition_health SET blocked_until=NULL,last_probe_outcome=NULL")
         await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_category_covered_grid_resolves_evaluation_at_creation(seeded_database):
+    import os
+    import json
+    from category_catalogue import category_identity, sync_catalogue
+    from yield_gate import policy_from_queue
+
+    conn = psycopg2.connect(os.environ["TEST_DATABASE_URL"])
+    conn.autocommit = True
+    today = date.today()
+    keyword = "covered pilot fixture"
+    jobs = [{"keyword": keyword, "state": "tn", "geo_coordinates": f"{35 + n / 100},-86"} for n in range(8)]
+    ledger = SimpleNamespace(conn=conn)
+    try:
+        sync_catalogue(ledger, [keyword], today, origin="approved_campaign")
+        category_id = category_identity(keyword)[0]
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO acquisition_category_cells(category_id,state,cell) VALUES(%s,'tn',%s)",
+                [(category_id, job["geo_coordinates"]) for job in jobs],
+            )
+        # Every cell is already covered under the category: nothing to evaluate.
+        assert eligible_jobs(ledger, jobs, today, today) == []
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status,reason FROM keyword_yield_evaluations WHERE keyword=%s AND state='tn'",
+                (keyword,),
+            )
+            status, reason = cur.fetchone()
+            assert status == "completed"
+            assert reason == "Cells already covered under category aliases."
+            cur.execute("SELECT count(*) FROM keyword_history WHERE keyword=%s", (keyword,))
+            assert cur.fetchone()[0] == 1
+
+        # Only the pilot head covered: the pilot must sample the uncovered rest.
+        partial = "partially covered fixture"
+        partial_jobs = [{"keyword": partial, "state": "tn", "geo_coordinates": f"{36 + n / 100},-86"} for n in range(8)]
+        sync_catalogue(ledger, [partial], today, origin="approved_campaign")
+        partial_id = category_identity(partial)[0]
+        covered_cells = [job["geo_coordinates"] for job in partial_jobs[:6]]
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO acquisition_category_cells(category_id,state,cell) VALUES(%s,'tn',%s)",
+                [(partial_id, cell) for cell in covered_cells],
+            )
+        pilot = eligible_jobs(ledger, partial_jobs, today, today)
+        assert [job["geo_coordinates"] for job in pilot] == ["36.06,-86", "36.07,-86"]
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status FROM keyword_yield_evaluations WHERE keyword=%s AND state='tn'",
+                (partial,),
+            )
+            assert cur.fetchone()[0] == "testing"
+
+        # A pre-existing stuck evaluation whose wave is category-covered resolves
+        # on the next pass instead of parking in testing forever.
+        stuck = "covered sweep fixture"
+        stuck_jobs = [{"keyword": stuck, "state": "tn", "geo_coordinates": f"{37 + n / 100},-86"} for n in range(8)]
+        stuck_cells = [job["geo_coordinates"] for job in stuck_jobs[:6]]
+        policy = policy_from_queue({})
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO keyword_yield_evaluations
+                (keyword,state,started_on,sample_cells,full_cells,status,coverage_cells,wave_cells,policy)
+                VALUES (%s,'tn',%s,%s::jsonb,8,'testing',%s::jsonb,%s::jsonb,%s::jsonb)""",
+                (stuck, today, json.dumps(stuck_cells), json.dumps(stuck_cells),
+                 json.dumps(stuck_cells), json.dumps(policy)),
+            )
+        sync_catalogue(ledger, [stuck], today, origin="approved_campaign")
+        stuck_id = category_identity(stuck)[0]
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO acquisition_category_cells(category_id,state,cell) VALUES(%s,'tn',%s)",
+                [(stuck_id, job["geo_coordinates"]) for job in stuck_jobs],
+            )
+        assert eligible_jobs(ledger, stuck_jobs, today, today) == []
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT status,reason FROM keyword_yield_evaluations WHERE keyword=%s AND state='tn'",
+                (stuck,),
+            )
+            status, reason = cur.fetchone()
+            assert status == "completed"
+            assert reason == "Cells already covered under category aliases."
+    finally:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM acquisition_categories WHERE canonical_query IN (%s,%s,%s)",
+                (keyword, "partially covered fixture", "covered sweep fixture"),
+            )
+            cur.execute(
+                "DELETE FROM keyword_yield_evaluations WHERE keyword IN (%s,%s,%s)",
+                (keyword, "partially covered fixture", "covered sweep fixture"),
+            )
+            cur.execute(
+                "DELETE FROM keyword_history WHERE keyword IN (%s,%s,%s)",
+                (keyword, "partially covered fixture", "covered sweep fixture"),
+            )
+        conn.close()

@@ -12,7 +12,7 @@ import type { StatusTone } from "../../design-system/primitives/status";
 import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 import { errorMessage } from "../operator/actions";
 import { DecisionPanel } from "../operator/DecisionPanel";
 import type { Decision } from "../operator/DecisionPanel";
@@ -120,6 +120,11 @@ function BulkUpload() {
   useEffect(() => {
     if (!ingesting || upload === null) return;
     const timer = window.setTimeout(() => {
+      // While the tab is hidden, keep the chain alive without reading.
+      if (document.visibilityState === "hidden") {
+        setPollAttempt((attempt) => attempt + 1);
+        return;
+      }
       void api<ExclusionListStatus>(`/api/admin/exclusion-lists/${upload.id}`)
         .then((next) => {
           setUpload(next);

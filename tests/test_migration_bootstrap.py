@@ -1,9 +1,10 @@
-"""The Alembic chain must bootstrap an empty PostgreSQL database (#181).
+"""The squashed Alembic baseline must bootstrap an empty PostgreSQL database (#181).
 
-Revision 20260721_0001 creates the schema from the current models via
-Base.metadata.create_all(), so later revisions only apply cleanly when they
-guard every metadata object they create. This runs the real chain against a
-scratch database created inside the acceptance PostgreSQL instance.
+The baseline revision 20261109_0055 creates the schema from the current
+models via Base.metadata.create_all() and then installs the append-only
+triggers that live outside SQLAlchemy metadata. This runs the real chain
+against a scratch database created inside the acceptance PostgreSQL
+instance.
 """
 
 from __future__ import annotations

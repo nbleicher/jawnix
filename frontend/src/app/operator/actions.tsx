@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../design-system/primitives/Dialog";
 import { Field, Textarea } from "../../design-system/primitives/form";
 import { Cluster, Stack } from "../../design-system/primitives/layout";
 import { Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 
 /**
  * Consequential operator actions, each behind a confirmation that states its

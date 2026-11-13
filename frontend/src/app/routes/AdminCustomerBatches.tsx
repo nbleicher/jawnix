@@ -8,7 +8,8 @@ import { StatusBadge } from "../../design-system/primitives/status";
 import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
+import { routePath } from "../routePath";
 import { BatchPanel } from "../operator/BatchPanel";
 import {
   formatCount,
@@ -27,10 +28,6 @@ import { formatUsdCents } from "./AdminCustomerControls";
  * Batches reads one Customer's batches from All batches' own endpoint,
  * newest first and paged, with the selected batch open beside the list.
  */
-
-function routePath(href: string): string {
-  return href.startsWith("/app/") ? href.slice("/app".length) : href;
-}
 
 interface CustomerBatchPage {
   items: BatchRow[];

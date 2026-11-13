@@ -4,7 +4,8 @@ import { useNavigate } from "react-router";
 
 import { cx } from "../../design-system/primitives/cx";
 import { VisuallyHidden } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
+import { routePath } from "../routePath";
 import "./GlobalSearch.css";
 
 /**
@@ -38,10 +39,6 @@ interface SearchResponse {
 
 const MIN_LENGTH = 2;
 const DEBOUNCE_MS = 200;
-
-function routePath(href: string): string {
-  return href.startsWith("/app/") ? href.slice("/app".length) : href;
-}
 
 export function GlobalSearch() {
   const navigate = useNavigate();

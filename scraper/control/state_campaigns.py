@@ -6,6 +6,8 @@ import os
 from collections import deque
 from datetime import date
 
+from category_catalogue import covered_jobs, normalized
+
 PENDING = """
 SELECT b.keyword,b.started_on,COALESCE(e.status,'new'),COALESCE(e.new_phones_per_minute,0)
 FROM state_campaign_backlog b
@@ -65,6 +67,7 @@ def prepare(ledger, cfg, keywords, started_on, today, build_jobs, gate, weights=
     states=cfg['states']
     register(ledger,keywords,states,started_on)
     selected=pending(ledger,states)
+    covered=covered_jobs(ledger,states)
     jobs=[]
     expected={}
     # Each campaign keeps the date and immutable policy of its first approval.
@@ -82,7 +85,9 @@ def prepare(ledger, cfg, keywords, started_on, today, build_jobs, gate, weights=
                     WHERE day>=%s AND state=%s AND
                     (status='posted' OR (status='reserved' AND updated_at>=now()-interval '15 minutes'))""",(day,state))
                 done=set(cur.fetchall())
-            jobs.extend(job for job in candidates if (job['keyword'],state,job['geo_coordinates']) not in done)
+            jobs.extend(job for job in candidates
+                        if (job['keyword'],state,job['geo_coordinates']) not in done
+                        and (normalized(job['keyword']),state,job['geo_coordinates']) not in covered)
     counts={state:len(campaigns) for state,campaigns in selected.items()}
     if os.environ.get('GMS_CATEGORY_CATALOGUE','').lower() in ('1','true','yes'):
         from category_catalogue import sync_catalogue,prepare as prepare_catalogue

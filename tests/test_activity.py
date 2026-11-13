@@ -225,13 +225,15 @@ def test_activity_endpoints_are_admin_only_and_share_the_query(
                 "q": "Reason for customer_updated",
             },
         )
-        timeline = client.get("/api/admin/activity/customer/42")
+        timeline = client.get(
+            "/api/admin/activity",
+            params={"entityType": "customer", "entityId": "42"},
+        )
         assert global_view.status_code == 200
         assert timeline.status_code == 200
         assert global_view.json()["entries"][0]["id"] == str(entry.id)
         assert global_view.json()["entries"][0] == timeline.json()["entries"][0]
         assert "filters" in global_view.json()
-        assert "filters" not in timeline.json()
         refused = client.get("/api/admin/activity", params={"refused": "true"})
         assert refused.json()["total"] == 0
         operator = client.get("/api/admin/activity", params={"who": "operator"})
@@ -251,7 +253,6 @@ def test_activity_endpoints_are_admin_only_and_share_the_query(
     try:
         client = TestClient(app)
         assert client.get("/api/admin/activity").status_code == 403
-        assert client.get("/api/admin/activity/customer/42").status_code == 403
     finally:
         app.dependency_overrides.clear()
 
@@ -268,7 +269,6 @@ def test_activity_endpoints_refuse_unauthenticated_sessions(
     try:
         client = TestClient(app)
         assert client.get("/api/admin/activity").status_code == 401
-        assert client.get("/api/admin/activity/customer/42").status_code == 401
     finally:
         app.dependency_overrides.clear()
 

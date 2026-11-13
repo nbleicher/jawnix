@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { redirect, useLoaderData, useNavigate } from "react-router";
 
-import { api, formatCode, providerAccessToken } from "../auth/adminMFA";
+import { api } from "../api";
+import { formatCode, providerAccessToken } from "../auth/adminMFA";
 import { storeProviderSession } from "../auth/providerSession";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { ActionLink, Button } from "../../design-system/primitives/Button";

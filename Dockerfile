@@ -43,10 +43,8 @@ RUN pip install --no-cache-dir .
 
 # Static-page retirement (P8): the legacy customer/admin HTML pages and their
 # stylesheet are deleted. config.example.js stays as the browser-config
-# contract reference; app.py and supabase-schema.sql remain the legacy monolith
-# artefacts (unused by the Compose runtime, kept for the Railway path).
+# contract reference.
 COPY config.example.js ./static/
-COPY app.py supabase-schema.sql ./legacy/
 
 # Served by jawnix.frontend at /app when JAWNIX_ENABLE_NEW_UI is on. Present in
 # the image either way, so enabling the flag needs no rebuild.
