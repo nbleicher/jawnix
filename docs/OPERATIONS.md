@@ -97,6 +97,13 @@ after migrating, it downgrades to the previous revision with the new image and
 restores the previous images, saving every service's logs first. The `backup`
 service, Caddy, and Postgres are never touched.
 
+After a successful activation, `release-activate.py` prunes all but the newest
+three releases: it removes their `release-stage-<sha7>` folders and their
+`jawnix-release:<sha7>` / `jawnix-<service>:rollback-<sha7>` image tags. The
+evidence under `backups/release-<sha7>` is kept. A pruning failure never fails
+an otherwise successful release. `ops/host-cleanup.sh` is the one-time,
+dry-run-by-default counterpart for catching up an already-cluttered host.
+
 Afterwards, deploy `auth-service/` separately when it changed:
 `vercel deploy --prod --scope pro-build-momentum` from that folder (project
 `jawnix-auth`). `vercel link` writes a `.env.local` with secrets; delete it.
