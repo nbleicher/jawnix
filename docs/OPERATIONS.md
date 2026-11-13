@@ -772,7 +772,7 @@ sizes rather than expecting the VPS snapshot IDs to remain unchanged.
 ## Cutover monitoring
 
 The installed `jawnix-cutover-monitor.timer` runs every five minutes. It checks
-production readiness, billing-disable health, and that all six Compose services
+production readiness, application health, and that all eleven Compose services
 are running. Results are written to journald under
 `jawnix-cutover-monitor`; state changes generate Telegram alerts.
 
