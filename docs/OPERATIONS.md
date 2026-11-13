@@ -101,6 +101,42 @@ Afterwards, deploy `auth-service/` separately when it changed:
 `vercel deploy --prod --scope pro-build-momentum` from that folder (project
 `jawnix-auth`). `vercel link` writes a `.env.local` with secrets; delete it.
 
+### Alembic baseline
+
+Revisions 0001-0055 are squashed into a single baseline whose revision ID
+equals the former chain head, `20261109_0055`. Its `upgrade()` builds the
+schema from the current models and installs the append-only triggers
+(`audit_entries`, `lead_report_resolutions`, `credit_ledger_entries`,
+`scraper_runtime_configuration_revisions`,
+`user_account_migration_artifacts`) that SQLAlchemy metadata cannot
+express. A database already stamped `20261109_0055` is up to date:
+`alembic upgrade head` is a no-op and `release-activate.py`'s head check
+passes unchanged.
+
+Deploy steps for a database already at head (production):
+
+1. Deploy as usual. `release-activate.py` runs `alembic upgrade head`;
+   with the database stamped `20261109_0055` this applies nothing.
+
+A database stamped at a revision older than `20261109_0055` cannot run
+any alembic command against the squashed tree (`Can't locate revision`).
+Bring it to head BEFORE deploying the squashed code:
+
+1. Activate the last pre-squash release and let `alembic upgrade head`
+   advance the database to `20261109_0055`.
+2. Verify: `SELECT version_num FROM alembic_version` → `20261109_0055`.
+3. Deploy the squashed release.
+
+Pre-existing drift, kept intentionally: databases built by the old chain
+carry a redundant named constraint `uq_nightly_reviews_review_date` on
+`nightly_reviews.review_date` in addition to the model's unique index
+`ix_nightly_reviews_review_date` (revision 0022 added it because its guard
+checked constraints only, not the unique index revision 0001 had already
+created). The baseline does not recreate it on fresh databases; dropping
+it from an existing database is optional and safe
+(`ALTER TABLE nightly_reviews DROP CONSTRAINT uq_nightly_reviews_review_date`),
+since the unique index enforces the same invariant.
+
 ### Syncing the Compose tree
 
 `ops/deploy.sh` is the only sanctioned path for updating the application tree
