@@ -154,22 +154,10 @@ export async function adminCustomerDetailsLoader({
   params,
 }: LoaderFunctionArgs): Promise<CustomerDetailsData> {
   const customerId = params.customerId;
-  const details = await api<
-    Omit<
-      CustomerDetailsData,
-      | "agencies"
-      | "summary"
-      | "billing"
-      | "cooldown"
-      | "nichePolicy"
-      | "availability"
-      | "exclusionLists"
-      | "leadReports"
-      | "activityTimeline"
-      | "unavailableSections"
-    >
-  >(`/api/admin/customers/${customerId}/details`);
+  // Every section is independent of the details payload, so all ten reads go
+  // out together: one round trip instead of details first and the rest after.
   const [
+    details,
     summary,
     directory,
     activityTimeline,
@@ -180,6 +168,21 @@ export async function adminCustomerDetailsLoader({
     exclusionLists,
     leadReports,
   ] = await Promise.all([
+    api<
+      Omit<
+        CustomerDetailsData,
+        | "agencies"
+        | "summary"
+        | "billing"
+        | "cooldown"
+        | "nichePolicy"
+        | "availability"
+        | "exclusionLists"
+        | "leadReports"
+        | "activityTimeline"
+        | "unavailableSections"
+      >
+    >(`/api/admin/customers/${customerId}/details`),
     api<CustomerSummaryView>(`/api/admin/customers/${customerId}/summary`).catch(
       () => undefined,
     ),

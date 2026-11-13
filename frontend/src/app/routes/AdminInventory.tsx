@@ -186,6 +186,9 @@ function useInventoryRefresh(initial: RefreshState) {
     if (!running) return;
     let cancelled = false;
     const timer = window.setInterval(() => {
+      // A hidden tab keeps the last known state; the next visible tick reads
+      // again on the same cadence.
+      if (document.visibilityState === "hidden") return;
       void api<SnapshotRead>("/api/admin/inventory-snapshots")
         .then((next) => {
           if (cancelled) return;
