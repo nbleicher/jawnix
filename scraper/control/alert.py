@@ -9,12 +9,17 @@ the system can run unattended.
 Checks (each one only runs if its inputs/thresholds are configured):
   • API reachable        — GET <api-base>/api/v1/jobs responds
   • DB reachable         — can connect to Postgres
-  • Queue depth in band  — pending jobs between --min-depth and --max-depth
+  • Queue depth in band  — pending jobs between --min-depth and --max-depth. With a
+                           DSN, a short queue is only "starved" when no scrape job has
+                           finished within --starved-mins: workers drain each top-up in
+                           seconds, so an empty queue between top-ups is normal.
   • On pace              — businesses added in the last hour ≥ pace-floor × (target/24)
   • Block/empty rate     — share of last-hour jobs returning 0 results ≤ --max-empty-rate
 
 Output:
-  • If a webhook is set (--webhook or $ALERT_WEBHOOK), POST {"text": "..."} (Slack-compatible).
+  • If a webhook is set (--webhook or $ALERT_WEBHOOK), POST {"text": "..."} (Slack-compatible)
+    only when the set of alerts changes, including recovery to all-clear. The last sent
+    set is kept in --state-file, so a persisting alert is not re-sent every run.
   • Always print to stderr and exit non-zero when there are alerts (so cron/systemd flag it).
   • Clean run prints "OK" and exits 0.
 
@@ -27,8 +32,10 @@ Usage (systemd timer runs this):
 import argparse
 import json
 import os
+import re
 import sys
 import time
+from pathlib import Path
 from urllib.request import Request, urlopen
 
 
@@ -49,8 +56,9 @@ def api_pending(api_base: str, api_key: str = None):
         return -1, str(e)
 
 
-def db_metrics(dsn: str):
-    """Return production, quality, and exact River queue metrics."""
+def db_metrics(dsn: str, finished_window_mins: float = 30):
+    """Return production, quality, and exact River queue metrics, plus the number of
+    scrape jobs finished within finished_window_mins."""
     try:
         import psycopg2
         conn = psycopg2.connect(dsn)
@@ -67,14 +75,17 @@ def db_metrics(dsn: str):
                 "count(*) FILTER (WHERE state='running'), "
                 "count(*) FILTER (WHERE state='retryable'), "
                 "COALESCE(extract(epoch FROM now()-min(created_at) FILTER "
-                "(WHERE state IN ('available','pending','retryable'))),0) "
-                "FROM river_job WHERE kind='scrape'"
+                "(WHERE state IN ('available','pending','retryable'))),0), "
+                "count(*) FILTER (WHERE finalized_at >= now() - %s * interval '1 minute') "
+                "FROM river_job WHERE kind='scrape'",
+                (finished_window_mins,),
             )
-            queued, running, retryable, oldest_secs = cur.fetchone()
+            queued, running, retryable, oldest_secs, finished = cur.fetchone()
         conn.close()
-        return added, empty_rate, int(queued), int(running), int(retryable), float(oldest_secs), None
+        return (added, empty_rate, int(queued), int(running), int(retryable),
+                float(oldest_secs), int(finished), None)
     except Exception as e:
-        return None, None, None, None, None, None, str(e)
+        return None, None, None, None, None, None, None, str(e)
 
 
 def spool_metrics(spool_dir: str):
@@ -117,6 +128,35 @@ def send_webhook(url: str, text: str):
     except Exception as e:
         print(f"  webhook failed: {e}", file=sys.stderr)
         return False
+
+
+def alert_key(message: str) -> str:
+    """Identify an alert by its kind, ignoring the counts in its text, so a persisting
+    alert whose numbers move does not count as a change."""
+    return re.sub(r"\d+(\.\d+)?", "#", message.split(":", 1)[0]).strip()
+
+
+def load_sent_keys(path: str):
+    """The alert kinds last delivered; [] when nothing has been sent, None when the
+    state file is unreadable (forces a resend)."""
+    try:
+        keys = json.loads(Path(path).read_text())["keys"]
+        return sorted(keys) if isinstance(keys, list) else None
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def save_sent_keys(path: str, keys: list[str]):
+    try:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(target.name + ".tmp")
+        tmp.write_text(json.dumps({"keys": keys, "sent_at": time.time()}))
+        os.replace(tmp, target)
+    except OSError as e:
+        print(f"  alert state write failed: {e}", file=sys.stderr)
 
 
 def env_number(name: str, default, converter):
@@ -179,7 +219,14 @@ def main():
     ap.add_argument("--max-empty-rate", type=float,
                     default=env_number("GMS_MAX_EMPTY_RATE", 0.9, float),
                     help="Alert if last-hour 0-result job rate exceeds this (e.g. 0.5)")
+    ap.add_argument("--starved-mins", type=float,
+                    default=env_number("GMS_STARVED_MINS", 30, float),
+                    help="A short queue is only starved when no scrape job finished in this window")
     ap.add_argument("--webhook", default=os.environ.get("ALERT_WEBHOOK"))
+    ap.add_argument("--state-file",
+                    default=os.environ.get("GMS_ALERT_STATE_FILE")
+                    or str(Path(__file__).resolve().parent / "runtime" / "alert-state.json"),
+                    help="Where the last delivered alert set is kept")
     args = ap.parse_args()
 
     alerts = []
@@ -200,7 +247,8 @@ def main():
 
     # DB-derived: pace + empty rate
     if args.dsn:
-        added, empty_rate, queued, running, retryable, oldest_secs, db_err = db_metrics(args.dsn)
+        (added, empty_rate, queued, running, retryable, oldest_secs, finished,
+         db_err) = db_metrics(args.dsn, args.starved_mins)
         if db_err:
             infrastructure_error = True
             alerts.append(f"database unreachable: {db_err}")
@@ -210,9 +258,12 @@ def main():
             except Exception as error:
                 infrastructure_error = True
                 alerts.append(f"acquisition health unavailable: {error}")
-            if args.min_depth is not None and queued + running < args.min_depth:
+            if (args.min_depth is not None and queued + running < args.min_depth
+                    and finished == 0):
                 alerts.append(
-                    f"queue starved: {queued} queued + {running} running < min {args.min_depth}"
+                    f"queue starved: {queued} queued + {running} running < min {args.min_depth} "
+                    f"and no scrape job finished in {args.starved_mins:g}m "
+                    f"(enqueuer down or campaign exhausted?)"
                 )
             if args.max_depth is not None and queued > args.max_depth:
                 alerts.append(f"queue backing up: {queued} queued > max {args.max_depth}")
@@ -241,17 +292,21 @@ def main():
                 f"> {args.max_spool_age_mins:g}m"
             )
 
-    if not alerts:
+    if alerts:
+        record_event(args.dsn, "error" if infrastructure_error else "alert", alerts)
+        msg = "⚠ Scraper alert:\n" + "\n".join(f"• {a}" for a in alerts)
+        print(msg, file=sys.stderr)
+    else:
         record_event(args.dsn, "ok", [])
+        msg = "✅ Scraper recovered: all checks passing"
         print("OK")
-        return 0
 
-    record_event(args.dsn, "error" if infrastructure_error else "alert", alerts)
-    msg = "⚠ Scraper alert:\n" + "\n".join(f"• {a}" for a in alerts)
-    print(msg, file=sys.stderr)
-    if args.webhook:
-        send_webhook(args.webhook, msg)
-    return 1
+    keys = sorted({alert_key(a) for a in alerts})
+    if keys != load_sent_keys(args.state_file):
+        # Keep the old state when delivery fails so the next run retries it.
+        if not args.webhook or send_webhook(args.webhook, msg):
+            save_sent_keys(args.state_file, keys)
+    return 1 if alerts else 0
 
 
 if __name__ == "__main__":
