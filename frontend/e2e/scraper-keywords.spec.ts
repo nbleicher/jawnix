@@ -82,6 +82,8 @@ async function openKeywords(page: Page, options: OpenOptions = {}) {
   };
   let generationFailure = options.generationFailureOnce ?? false;
   let conflict = options.conflictOnce ?? false;
+  let requestedMode: "broad" | "adjacent" = "broad";
+  let requestedSeed: string | null = null;
   const calls: { path: string; body: Record<string, unknown> }[] = [];
 
   await page.route(/\/api\/admin\/scraper\/keywords(?:\/.*)?$/, async (route) => {
@@ -133,25 +135,42 @@ async function openKeywords(page: Page, options: OpenOptions = {}) {
         diff: result,
       });
     }
-    if (path.endsWith("/generate")) {
+    if (path.endsWith("/generate") && request.method() === "POST") {
+      requestedMode = body.mode === "adjacent" ? "adjacent" : "broad";
+      requestedSeed =
+        requestedMode === "adjacent" ? String(body.seed_keyword) : null;
+      return json(
+        route,
+        {
+          generation_id: KEYWORD_GENERATION.generation_id,
+          status: "generating",
+        },
+        202,
+      );
+    }
+    if (path.includes("/generate/") && request.method() === "GET") {
       if (generationFailure) {
         generationFailure = false;
-        return json(
-          route,
-          { detail: "DeepSeek is temporarily unavailable; try again" },
-          503,
-        );
+        return json(route, {
+          status: "failed",
+          generation_id: KEYWORD_GENERATION.generation_id,
+          draft: null,
+          detail: "DeepSeek is temporarily unavailable; try again",
+        });
       }
-      const mode = body.mode === "adjacent" ? "adjacent" : "broad";
       return json(route, {
-        ...KEYWORD_GENERATION,
-        mode,
-        seed_keyword:
-          mode === "adjacent" ? String(body.seed_keyword) : null,
-        keywords:
-          mode === "adjacent"
-            ? ["drain cleaning", "septic service", "water heater repair"]
-            : KEYWORD_GENERATION.keywords,
+        status: "ready",
+        generation_id: KEYWORD_GENERATION.generation_id,
+        draft: {
+          ...KEYWORD_GENERATION,
+          mode: requestedMode,
+          seed_keyword: requestedSeed,
+          keywords:
+            requestedMode === "adjacent"
+              ? ["drain cleaning", "septic service", "water heater repair"]
+              : KEYWORD_GENERATION.keywords,
+        },
+        detail: null,
       });
     }
     if (path.endsWith("/rollover")) {
