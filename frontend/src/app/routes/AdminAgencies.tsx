@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLoaderData, useNavigate, useNavigation, useRevalidator, useSearchParams } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
+import { routePath } from "../routePath";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { Button } from "../../design-system/primitives/Button";
 import { ConfirmDialog, Dialog } from "../../design-system/primitives/Dialog";
@@ -106,10 +107,6 @@ export interface AgencyDetailsData {
     requiresDeactivation: boolean;
     canHardDelete: boolean;
   };
-}
-
-function routePath(href: string): string {
-  return href.startsWith("/app/") ? href.slice("/app".length) : href;
 }
 
 export async function adminAgencyDirectoryLoader({

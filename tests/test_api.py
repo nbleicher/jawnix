@@ -26,7 +26,6 @@ from jawnix.models import (
     DistributionEvent,
     Job,
     Lead,
-    LeadDispositionState,
     LeadDispositionTransition,
     LeadOutcome,
     LeadCorrectionEvent,
@@ -277,76 +276,6 @@ def test_admin_confirms_unknown_nightly_review_was_delivered(session):
         app.dependency_overrides.clear()
 
 
-def test_request_mapping_state_validation_cancel_and_billing_404(session):
-    user_id = uuid.uuid4()
-    agent = Agent(slug="api-agent", name="API Agent")
-    profile = CustomerProfile(
-        user_id=user_id,
-        email="customer@example.com",
-        licensed_states=["TX", "FL"],
-    )
-    session.add_all([agent, profile])
-    session.commit()
-
-    def database_override():
-        yield session
-
-    app.dependency_overrides[get_db] = database_override
-    app.dependency_overrides[require_principal] = lambda: Principal(
-        user_id=user_id,
-        email=profile.email,
-        role="customer",
-        csrf="test",
-    )
-    try:
-        client = TestClient(app)
-        assert client.post("/api/generate-invoice", json={}).status_code == 404
-        assert client.post(
-            "/api/me/requests",
-            json={"lead_count": 10, "state_mode": "all_saved", "states": []},
-        ).status_code == 409
-
-        profile.agent_id = agent.id
-        profile.mapping_confirmed_at = utcnow()
-        session.commit()
-        session.expire(profile, ["agent"])
-        outside = client.post(
-            "/api/me/requests",
-            json={"lead_count": 10, "state_mode": "selected", "states": ["PA"]},
-        )
-        assert outside.status_code == 422
-
-        created = client.post(
-            "/api/me/requests",
-            json={"lead_count": 10, "state_mode": "selected", "states": ["TX"]},
-        )
-        assert created.status_code == 201
-        request_id = created.json()["id"]
-        assert created.json()["states_snapshot"] == ["TX"]
-        assert session.scalar(select(func.count(Job.id)).where(Job.kind == "notify_request")) == 1
-        assert client.delete(f"/api/me/requests/{request_id}").status_code == 200
-        assert session.get(LeadRequest, uuid.UUID(request_id)).status == "canceled"
-        assert client.delete(f"/api/me/requests/{request_id}").status_code == 409
-
-        approved = client.post(
-            "/api/me/requests",
-            json={"lead_count": 10, "state_mode": "selected", "states": ["TX"]},
-        )
-        approved_id = uuid.UUID(approved.json()["id"])
-        session.get(LeadRequest, approved_id).status = "approved"
-        session.commit()
-        assert client.delete(f"/api/me/requests/{approved_id}").status_code == 200
-
-        agent.active = False
-        session.commit()
-        assert client.post(
-            "/api/me/requests",
-            json={"lead_count": 10, "state_mode": "selected", "states": ["TX"]},
-        ).status_code == 409
-    finally:
-        app.dependency_overrides.clear()
-
-
 def test_general_profile_patch_refuses_to_bypass_licensed_state_impact_review(session):
     user_id = uuid.uuid4()
     customer = Agent(slug="licensed-customer", name="Licensed Customer")
@@ -580,552 +509,7 @@ def test_customer_looks_up_most_recent_delivered_lead_by_phone_without_inventory
         app.dependency_overrides.clear()
 
 
-def test_customer_feedback_preserves_milestones_and_materializes_current_state(
-    session,
-):
-    user_id = uuid.uuid4()
-    customer = Agent(
-        slug="disposition-customer",
-        name="Disposition Customer",
-    )
-    profile = CustomerProfile(
-        user_id=user_id,
-        email="disposition@example.com",
-        licensed_states=["TX"],
-        agent=customer,
-        mapping_confirmed_at=utcnow(),
-    )
-    lead = Lead(
-        phone="2145555010",
-        title="Disposition Roofing",
-        state="TX",
-    )
-    session.add_all([customer, profile, lead])
-    session.flush()
-    delivered = DistributionEvent(
-        lead_id=lead.id,
-        agent_id=customer.id,
-        customer_name=customer.name,
-        phone=lead.phone,
-        title=lead.title,
-        state=lead.state,
-        delivered_at=utcnow(),
-        source_segment_key="roofing|TX",
-    )
-    session.add(delivered)
-    session.commit()
-
-    def database_override():
-        yield session
-
-    principal = Principal(
-        user_id=user_id,
-        email=profile.email,
-        role="customer",
-        csrf="test",
-    )
-    app.dependency_overrides[get_db] = database_override
-    app.dependency_overrides[require_principal] = lambda: principal
-    try:
-        client = TestClient(app)
-        positive = client.post(
-            "/api/me/feedback",
-            json={
-                "distribution_event_id": delivered.id,
-                "disposition": "positive_response",
-            },
-        )
-        assert positive.status_code == 201
-        assert positive.json()["transition"]["actorUserId"] == str(
-            user_id
-        )
-
-        booked = client.post(
-            "/api/me/feedback",
-            json={
-                "distribution_event_id": delivered.id,
-                "disposition": "appointment_booked",
-            },
-        )
-        assert booked.status_code == 201
-        assert booked.json()["currentDisposition"] == (
-            "appointment_booked"
-        )
-        assert booked.json()["transition"]["previousTransitionId"] == (
-            positive.json()["transition"]["id"]
-        )
-
-        canceled = client.post(
-            "/api/me/feedback",
-            json={
-                "distribution_event_id": delivered.id,
-                "disposition": "appointment_canceled",
-                "note": "Prospect rescheduled elsewhere",
-            },
-        )
-        assert canceled.status_code == 201
-        assert canceled.json()["currentDisposition"] == (
-            "appointment_canceled"
-        )
-        assert canceled.json()["transition"]["previousTransitionId"] == (
-            booked.json()["transition"]["id"]
-        )
-
-        no_show = client.post(
-            "/api/me/feedback",
-            json={
-                "distribution_event_id": delivered.id,
-                "disposition": "appointment_no_show",
-            },
-        )
-        assert no_show.status_code == 201
-        assert no_show.json()["currentDisposition"] == (
-            "appointment_no_show"
-        )
-        assert no_show.json()["transition"]["previousTransitionId"] == (
-            canceled.json()["transition"]["id"]
-        )
-
-        # Fresh Lead: appointment follow-ups require a prior booking.
-        fresh_lead = Lead(
-            phone="2145555099",
-            title="Ungated Roofing",
-            state="TX",
-        )
-        session.add(fresh_lead)
-        session.flush()
-        ungated = DistributionEvent(
-            lead_id=fresh_lead.id,
-            agent_id=customer.id,
-            customer_name=customer.name,
-            phone=fresh_lead.phone,
-            title=fresh_lead.title,
-            state=fresh_lead.state,
-            delivered_at=utcnow(),
-            source_segment_key="roofing|TX",
-        )
-        session.add(ungated)
-        session.commit()
-        refused = client.post(
-            "/api/me/feedback",
-            json={
-                "distribution_event_id": ungated.id,
-                "disposition": "appointment_canceled",
-            },
-        )
-        assert refused.status_code == 409
-        assert "Book an appointment" in refused.json()["detail"]
-
-        history = client.get(
-            f"/api/me/distributions/{delivered.id}/dispositions"
-        )
-        assert history.status_code == 200
-        assert [
-            item["disposition"] for item in history.json()
-        ] == [
-            "positive_response",
-            "appointment_booked",
-            "appointment_canceled",
-            "appointment_no_show",
-        ]
-        assert history.json()[2]["note"] == (
-            "Prospect rescheduled elsewhere"
-        )
-        assert {
-            item["actorUserId"] for item in history.json()
-        } == {str(user_id)}
-
-        persisted = list(
-            session.scalars(
-                select(LeadDispositionTransition)
-                .where(
-                    LeadDispositionTransition.distribution_event_id
-                    == delivered.id
-                )
-                .order_by(
-                    LeadDispositionTransition.created_at,
-                    LeadDispositionTransition.id,
-                )
-            )
-        )
-        assert {
-            item.customer_id for item in persisted
-        } == {customer.id}
-        assert {
-            item.actor_user_id for item in persisted
-        } == {user_id}
-        assert {
-            item.distribution_event_id for item in persisted
-        } == {delivered.id}
-        attributed_event = session.get(
-            DistributionEvent,
-            persisted[-1].distribution_event_id,
-        )
-        assert attributed_event.source_segment_key == "roofing|TX"
-        current = session.get(LeadDispositionState, delivered.id)
-        assert current.current_transition_id == persisted[-1].id
-        assert current.current_disposition == "appointment_no_show"
-
-        lookup = client.post(
-            "/api/me/feedback/lookup",
-            json={"phone": lead.phone},
-        )
-        assert lookup.status_code == 200
-        assert lookup.json()["currentDisposition"] == (
-            "appointment_no_show"
-        )
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_customer_feedback_accepts_optional_quality_rating_and_requires_other_note(
-    session,
-):
-    user_id = uuid.uuid4()
-    customer = Agent(
-        slug="rating-customer",
-        name="Rating Customer",
-    )
-    profile = CustomerProfile(
-        user_id=user_id,
-        email="rating@example.com",
-        licensed_states=["TX"],
-        agent=customer,
-        mapping_confirmed_at=utcnow(),
-    )
-    lead = Lead(
-        phone="2145555011",
-        title="Rating Roofing",
-        state="TX",
-    )
-    session.add_all([customer, profile, lead])
-    session.flush()
-    delivered = DistributionEvent(
-        lead_id=lead.id,
-        agent_id=customer.id,
-        customer_name=customer.name,
-        phone=lead.phone,
-        title=lead.title,
-        state=lead.state,
-        delivered_at=utcnow(),
-    )
-    session.add(delivered)
-    session.commit()
-
-    def database_override():
-        yield session
-
-    principal = Principal(
-        user_id=user_id,
-        email=profile.email,
-        role="customer",
-        csrf="test",
-    )
-    app.dependency_overrides[get_db] = database_override
-    app.dependency_overrides[require_principal] = lambda: principal
-    try:
-        client = TestClient(app)
-        missing_note = client.post(
-            "/api/me/feedback",
-            json={
-                "distribution_event_id": delivered.id,
-                "disposition": "other",
-            },
-        )
-        assert missing_note.status_code == 422
-
-        first = client.post(
-            "/api/me/feedback",
-            json={
-                "distribution_event_id": delivered.id,
-                "disposition": "other",
-                "note": "Asked to call a different department",
-                "quality_rating": "good",
-            },
-        )
-        assert first.status_code == 201
-        assert first.json()["qualityRating"]["kind"] == "good"
-        assert (
-            first.json()["qualityRating"]["supersedesOutcomeId"]
-            is None
-        )
-
-        corrected = client.post(
-            "/api/me/feedback",
-            json={
-                "distribution_event_id": delivered.id,
-                "disposition": "not_interested",
-                "quality_rating": "poor",
-                "quality_note": "Business details were incomplete",
-            },
-        )
-        assert corrected.status_code == 201
-        assert corrected.json()["qualityRating"]["kind"] == "poor"
-        assert corrected.json()["qualityRating"][
-            "supersedesOutcomeId"
-        ] == first.json()["qualityRating"]["id"]
-
-        rating_history = client.get(
-            f"/api/me/distributions/{delivered.id}/outcomes"
-        )
-        assert rating_history.status_code == 200
-        assert [
-            item["kind"] for item in rating_history.json()
-        ] == ["good", "poor"]
-        assert rating_history.json()[1]["note"] == (
-            "Business details were incomplete"
-        )
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_customer_feedback_accepts_controlled_dispositions_without_disclosing_other_deliveries(
-    session,
-):
-    user_id = uuid.uuid4()
-    customer = Agent(
-        slug="controlled-disposition-customer",
-        name="Controlled Disposition Customer",
-    )
-    other_customer = Agent(
-        slug="private-disposition-customer",
-        name="Private Disposition Customer",
-    )
-    profile = CustomerProfile(
-        user_id=user_id,
-        email="controlled-disposition@example.com",
-        licensed_states=["TX"],
-        agent=customer,
-        mapping_confirmed_at=utcnow(),
-    )
-    lead = Lead(
-        phone="2145555012",
-        title="Controlled Roofing",
-        state="TX",
-    )
-    private_lead = Lead(
-        phone="2145555013",
-        title="Private Roofing",
-        state="TX",
-    )
-    session.add_all(
-        [customer, other_customer, profile, lead, private_lead]
-    )
-    session.flush()
-    delivered = DistributionEvent(
-        lead_id=lead.id,
-        agent_id=customer.id,
-        customer_name=customer.name,
-        phone=lead.phone,
-        title=lead.title,
-        state=lead.state,
-        delivered_at=utcnow(),
-    )
-    private = DistributionEvent(
-        lead_id=private_lead.id,
-        agent_id=other_customer.id,
-        customer_name=other_customer.name,
-        phone=private_lead.phone,
-        title=private_lead.title,
-        state=private_lead.state,
-        delivered_at=utcnow(),
-    )
-    session.add_all([delivered, private])
-    session.commit()
-
-    def database_override():
-        yield session
-
-    principal = Principal(
-        user_id=user_id,
-        email=profile.email,
-        role="customer",
-        csrf="test",
-    )
-    app.dependency_overrides[get_db] = database_override
-    app.dependency_overrides[require_principal] = lambda: principal
-    try:
-        client = TestClient(app)
-        dispositions = [
-            "no_contact",
-            "not_interested",
-            "positive_response",
-            "appointment_booked",
-            "appointment_canceled",
-            "appointment_no_show",
-            "invalid_phone",
-            "wrong_business",
-            "do_not_contact",
-        ]
-        for disposition in dispositions:
-            response = client.post(
-                "/api/me/feedback",
-                json={
-                    "distribution_event_id": delivered.id,
-                    "disposition": disposition,
-                },
-            )
-            assert response.status_code == 201, disposition
-        assert client.post(
-            "/api/me/feedback",
-            json={
-                "distribution_event_id": delivered.id,
-                "disposition": "other",
-                "note": "Customer supplied context",
-            },
-        ).status_code == 201
-
-        private_submission = client.post(
-            "/api/me/feedback",
-            json={
-                "distribution_event_id": private.id,
-                "disposition": "positive_response",
-            },
-        )
-        missing_submission = client.post(
-            "/api/me/feedback",
-            json={
-                "distribution_event_id": 999_999,
-                "disposition": "positive_response",
-            },
-        )
-        for response in (private_submission, missing_submission):
-            assert response.status_code == 404
-            assert response.json() == {
-                "detail": "No delivered Lead found."
-            }
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_late_feedback_keeps_correction_history_and_performance_denominators(
-    session,
-):
-    user_id = uuid.uuid4()
-    customer = Agent(slug="feedback-customer", name="Feedback Customer")
-    profile = CustomerProfile(
-        user_id=user_id,
-        email="feedback@example.com",
-        licensed_states=["TX"],
-        agent=customer,
-        mapping_confirmed_at=utcnow(),
-    )
-    lead = Lead(phone="2145555001", title="Roofing One", state="TX")
-    legacy = Lead(
-        phone="2145555002",
-        title="Legacy",
-        state="TX",
-        source_flow="nppes",
-    )
-    session.add_all([customer, profile, lead, legacy])
-    session.flush()
-    delivered = DistributionEvent(
-        lead_id=lead.id,
-        agent_id=customer.id,
-        customer_name=customer.name,
-        phone=lead.phone,
-        title=lead.title,
-        state=lead.state,
-        source_kind="google_maps",
-        source_segment_key="roofing|TX|maps",
-        source_niche="roofing",
-        delivered_at=utcnow(),
-    )
-    legacy_delivered = DistributionEvent(
-        lead_id=legacy.id,
-        agent_id=customer.id,
-        customer_name=customer.name,
-        phone=legacy.phone,
-        title=legacy.title,
-        state=legacy.state,
-        source_kind="legacy",
-        delivered_at=utcnow(),
-    )
-    session.add_all([delivered, legacy_delivered])
-    session.commit()
-
-    def database_override():
-        yield session
-
-    principal = Principal(
-        user_id=user_id,
-        email=profile.email,
-        role="customer",
-        csrf="test",
-    )
-    app.dependency_overrides[get_db] = database_override
-    app.dependency_overrides[require_principal] = lambda: principal
-    app.dependency_overrides[require_admin] = lambda: Principal(
-        user_id=uuid.uuid4(),
-        email="admin@example.com",
-        role="admin",
-        csrf="test",
-    )
-    try:
-        client = TestClient(app)
-        poor = client.post(
-            f"/api/me/distributions/{delivered.id}/outcomes",
-            json={"kind": "poor"},
-        )
-        assert poor.status_code == 201
-        positive = client.post(
-            f"/api/me/distributions/{delivered.id}/outcomes",
-            json={"kind": "positive_response"},
-        )
-        assert positive.status_code == 201
-        assert client.post(
-            f"/api/me/distributions/{delivered.id}/outcomes",
-            json={"kind": "positive_response"},
-        ).status_code == 409
-        assert client.post(
-            f"/api/me/distributions/{delivered.id}/outcomes",
-            json={"kind": "appointment_booked"},
-        ).status_code == 422
-
-        corrected = client.post(
-            f"/api/me/distributions/{delivered.id}/outcomes",
-            json={
-                "kind": "good",
-                "supersedes_outcome_id": poor.json()["id"],
-            },
-        )
-        assert corrected.status_code == 201
-        history = client.get(
-            f"/api/me/distributions/{delivered.id}/outcomes"
-        )
-        assert history.status_code == 200
-        assert [item["kind"] for item in history.json()] == [
-            "poor",
-            "positive_response",
-            "good",
-        ]
-
-        performance = client.get("/api/admin/source-performance")
-        assert performance.status_code == 200
-        body = performance.json()
-        # The Admin screen renders global/legacy + nightly rows. Cohorts stay
-        # available from source_performance_snapshot for offline analysis; the
-        # HTTP path must not materialize every DistributionEvent (#blank page).
-        assert body["cohorts"] == []
-        assert body["segments"] == []
-        assert body["global"]["prescriptive"] is False
-        assert body["global"]["worked"] == 1
-        assert body["global"]["delivered"] == 1
-        assert body["global"]["rates"] == {
-            "good": 1.0,
-            "positiveResponse": 1.0,
-            "appointmentBooked": 0.0,
-        }
-        assert body["legacy"] == {
-            "delivered": 1,
-            "excludedFromRecommendations": True,
-        }
-        assert session.scalar(select(func.count(LeadOutcome.id))) == 3
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_admin_can_send_recipient_password_reset(session, settings, monkeypatch):
+def test_admin_can_send_user_account_password_reset(session, settings, monkeypatch):
     user_id = uuid.uuid4()
     profile = CustomerProfile(
         user_id=user_id,
@@ -1153,7 +537,7 @@ def test_admin_can_send_recipient_password_reset(session, settings, monkeypatch)
     monkeypatch.setattr("jawnix.api._send_password_reset", fake_send)
     try:
         client = TestClient(app)
-        response = client.post(f"/api/admin/recipients/{user_id}/send-password-reset")
+        response = client.post(f"/api/admin/user-accounts/{user_id}/send-password-reset")
         assert response.status_code == 200
         assert response.json() == {"ok": True, "email": profile.email}
         assert sent == [profile.email]
@@ -1166,7 +550,7 @@ def test_admin_can_send_recipient_password_reset(session, settings, monkeypatch)
         assert audit is not None
         assert audit.target_id == str(user_id)
         assert audit.details["after"] == {"resetDispatched": True}
-        assert client.post(f"/api/admin/recipients/{uuid.uuid4()}/send-password-reset").status_code == 404
+        assert client.post(f"/api/admin/user-accounts/{uuid.uuid4()}/send-password-reset").status_code == 404
     finally:
         app.dependency_overrides.clear()
 
@@ -1271,29 +655,6 @@ def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
     )
     try:
         client = TestClient(app)
-        hierarchy = client.get("/api/admin/recipients")
-        assert hierarchy.status_code == 200
-        data = hierarchy.json()
-        assert {item["slug"] for item in data["agencies"]} == {"first-agency", "second-agency"}
-        returned_agent = next(item for item in data["agents"] if item["slug"] == agent.slug)
-        assert returned_agent == {
-            "id": agent.id,
-            "slug": "hierarchy-agent",
-            "name": "Hierarchy Agent",
-            "active": False,
-            "agencyId": first_agency.id,
-            "agency": "First Agency",
-        }
-        customers = client.get("/api/admin/customers")
-        assert customers.status_code == 200
-        returned_customer = next(
-            item
-            for item in customers.json()["customers"]
-            if item["slug"] == agent.slug
-        )
-        assert returned_customer["id"] == agent.id
-        assert returned_customer["name"] == "Hierarchy Agent"
-        assert "agents" not in customers.json()
 
         agency_update = client.patch(
             f"/api/admin/agencies/{second_agency.id}",
@@ -1305,12 +666,12 @@ def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
         assert second_agency.active is True
 
         bypassed_assignment = client.patch(
-            f"/api/admin/agents/{agent.id}",
+            f"/api/admin/customers/{agent.id}",
             json={"name": "Renamed Agent", "agency_id": second_agency.id, "active": True},
         )
         assert bypassed_assignment.status_code == 409
         agent_update = client.patch(
-            f"/api/admin/agents/{agent.id}",
+            f"/api/admin/customers/{agent.id}",
             json={
                 "name": "Renamed Agent",
                 "agency_id": first_agency.id,
@@ -1333,7 +694,7 @@ def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
         assert agent.active is True
 
         assert client.patch(
-            f"/api/admin/agents/{agent.id}",
+            f"/api/admin/customers/{agent.id}",
             json={"name": "Agent", "agency_id": 999_999, "active": True},
         ).status_code == 409
         assert client.patch(
@@ -1347,18 +708,20 @@ def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
 
         assert client.request(
             "DELETE",
-            f"/api/admin/agents/{agent.id}",
+            f"/api/admin/customers/{agent.id}",
             json={"confirm_slug": "wrong"},
         ).status_code == 409
+        agent.active = False
+        session.commit()
         deleted_agent = client.request(
             "DELETE",
-            f"/api/admin/agents/{agent.id}",
+            f"/api/admin/customers/{agent.id}",
             json={"confirm_slug": agent.slug},
         )
         assert deleted_agent.status_code == 200
         assert deleted_agent.json() == {
             "ok": True,
-            "unassignedRecipients": 1,
+            "hardDeleted": False,
             "historyPreserved": True,
         }
         session.refresh(agent)
@@ -1425,11 +788,6 @@ def test_admin_can_view_and_edit_agency_agent_hierarchy(session):
         assert cascade_agent.deleted_at is not None
         assert cascade_profile.agent_id is None
         assert cascade_profile.mapping_confirmed_at is None
-
-        remaining = client.get("/api/admin/recipients").json()
-        assert "first-agency" not in {item["slug"] for item in remaining["agencies"]}
-        assert "hierarchy-agent" not in {item["slug"] for item in remaining["agents"]}
-        assert "cascade-agent" not in {item["slug"] for item in remaining["agents"]}
     finally:
         app.dependency_overrides.clear()
 

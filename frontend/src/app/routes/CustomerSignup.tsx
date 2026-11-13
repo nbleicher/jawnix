@@ -4,6 +4,7 @@ import { Link, redirect, useLoaderData, useNavigate, useRevalidator } from "reac
 import { AuthPanel } from "../../design-system/primitives/auth";
 import { Button } from "../../design-system/primitives/Button";
 import { Field, Input } from "../../design-system/primitives/form";
+import { apiFetch } from "../api";
 import { exchangeJawnixSession, routerPath, signOut } from "../auth/customerAuth";
 import { getProviderSession, resendVerificationEmail, signUpWithPassword } from "../auth/providerSession";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
@@ -15,12 +16,12 @@ import "./CustomerSignup.css";
 export interface RegistrationStatus { status: "active" | "awaiting_review" | "rejected"; next: string; states?: string[]; email?: string }
 
 export async function signupOptionsLoader(): Promise<{ states: StateOption[] }> {
-  const response = await fetch("/api/auth/signup-options");
+  const response = await apiFetch("/api/auth/signup-options");
   if (!response.ok) throw new Response("Signup is temporarily unavailable.", { status: response.status });
   return response.json();
 }
 async function loadRegistration(): Promise<RegistrationStatus> {
-  const response = await fetch("/api/me/registration", { credentials: "same-origin" });
+  const response = await apiFetch("/api/me/registration");
   if (response.status === 401 || response.status === 403) throw redirect("/sign-in");
   if (!response.ok) throw new Response("Account status is temporarily unavailable.", { status: response.status });
   return response.json() as Promise<RegistrationStatus>;
@@ -100,10 +101,8 @@ export function AppointedStatesRoute() {
     if (!chosen.length) { setError("Select at least one appointed state."); return; }
     setBusy(true); setError("");
     try {
-      const cookie = document.cookie.split(";").map(value => value.trim()).find(value => value.startsWith("jawnix_csrf="));
-      const response = await fetch("/api/me/registration/states", {
-        method: "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": decodeURIComponent(cookie?.split("=", 2)[1] ?? "") },
+      const response = await apiFetch("/api/me/registration/states", {
+        method: "POST",
         body: JSON.stringify({ states: chosen }),
       });
       if (response.status === 401) { navigate("/sign-in", { replace: true }); return; }

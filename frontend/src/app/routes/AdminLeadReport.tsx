@@ -17,7 +17,7 @@ import {
 import { Panel, RecordColumns } from "../../design-system/primitives/panel";
 import { StatusBadge } from "../../design-system/primitives/status";
 import { Heading, Mono, Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 import { formatDateTime } from "../operator/format";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import {

@@ -22,10 +22,10 @@ Two levers cut cost hard: (1) **datacenter/ISP proxies** (Maps tolerates them be
 | **Oxylabs** | ~$8–10/GB (some PAYG ~$4) | — | Premium; **overkill/expensive** for Maps |
 
 ## Recommendation (lowest cost)
-1. **Start with per-IP / unmetered, not per-GB.** For browser-based Maps, **Webshare** (datacenter ~$0.02–0.03/IP, or static-ISP from $0.30/IP with high bandwidth) makes proxy cost ~fixed regardless of traffic. Its **10 free proxies** are perfect for the box1 smoke test (GO_LIVE 3.2).
+1. **Start with per-IP / unmetered, not per-GB.** For browser-based Maps, **Webshare** (datacenter ~$0.02–0.03/IP, or static-ISP from $0.30/IP with high bandwidth) makes proxy cost ~fixed regardless of traffic. Its **10 free proxies** are perfect for the box1 smoke test (`../docs/plans/archive/GO_LIVE.md` 3.2).
 2. **Keep a cheap rotating-residential fallback** for if datacenter block-rate is too high: **Evomi at $0.49/GB** is the cheapest credible residential — about 1/3 of Decodo and ~1/7 of Bright Data/Oxylabs.
 3. **Skip Bright Data & Oxylabs** on a budget — they're enterprise-priced for the hardest targets; Maps doesn't need them.
-4. **Decide with data, not vibes:** run the box1 proxy A/B (FIRST_BOT_SETUP §6) — Arm A datacenter/ISP, Arm B Evomi residential — and compare empty-rate (K5) + measured GB/day. Pick the cheapest arm that holds empty-rate ≤ ~10%.
+4. **Decide with data, not vibes:** run the box1 proxy A/B (`../docs/plans/archive/FIRST_BOT_SETUP.md` §6) — Arm A datacenter/ISP, Arm B Evomi residential — and compare empty-rate (K5) + measured GB/day. Pick the cheapest arm that holds empty-rate ≤ ~10%.
 
 **Net:** Webshare per-IP as primary (near-fixed cost, free trial), Evomi $0.49/GB residential as fallback. That's the lowest-cost path that still has a block-rate safety net. Final pick comes from the A/B + your measured GB/day.
 

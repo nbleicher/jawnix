@@ -14,7 +14,7 @@
 x-worker-common: &worker-common
   build:
     context: ../../auto_scrape/util/scraper_src
-    dockerfile: Dockerfile.saas      # copy scale/worker/Dockerfile.saas there first — see FIRST_BOT_SETUP.md §2
+    dockerfile: Dockerfile.saas      # copy scale/worker/Dockerfile.saas there first — see ../../docs/plans/archive/FIRST_BOT_SETUP.md §2
   image: gmapssaas:local
   restart: unless-stopped
   env_file:

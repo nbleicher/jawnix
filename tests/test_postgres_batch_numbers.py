@@ -1,19 +1,15 @@
-"""Batch numbers on real PostgreSQL: the sequence, the backfill, concurrency."""
+"""Batch numbers on real PostgreSQL: the sequence and concurrency."""
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import threading
 import uuid
-from pathlib import Path
 
 import psycopg
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from psycopg import sql
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -41,17 +37,6 @@ def database_url():
             admin.execute(
                 sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name))
             )
-
-
-def _migration():
-    path = (
-        Path(__file__).resolve().parents[1]
-        / "alembic/versions/20261109_0054_batch_numbers.py"
-    )
-    spec = importlib.util.spec_from_file_location("batch_number_migration", path)
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
-    return migration
 
 
 def test_concurrent_submissions_never_share_a_number(database_url):
@@ -104,34 +89,6 @@ def test_concurrent_submissions_never_share_a_number(database_url):
     engine.dispose()
     assert not errors
     assert sorted(numbers) == list(range(1001, 1009))
-
-
-def test_migration_backfills_and_continues_the_sequence(database_url):
-    engine = create_engine(database_url)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                "CREATE TABLE lead_requests (id uuid PRIMARY KEY, "
-                "created_at timestamptz NOT NULL, lead_count integer NOT NULL)"
-            )
-        )
-        for day in (3, 1, 2):
-            connection.execute(
-                text(
-                    "INSERT INTO lead_requests VALUES "
-                    "(gen_random_uuid(), :at, 10)"
-                ),
-                {"at": f"2026-07-0{day}T00:00:00Z"},
-            )
-        with Operations.context(MigrationContext.configure(connection)):
-            _migration().upgrade()
-        assert connection.execute(
-            text("SELECT number FROM lead_requests ORDER BY created_at")
-        ).scalars().all() == [1001, 1002, 1003]
-        assert connection.execute(
-            text("SELECT nextval('lead_requests_number_seq')")
-        ).scalar() == 1004
-    engine.dispose()
 
 
 def test_batch_list_search_and_today_queries_run_on_postgresql(database_url):

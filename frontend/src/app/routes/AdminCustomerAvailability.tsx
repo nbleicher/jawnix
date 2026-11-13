@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 import { Button } from "../../design-system/primitives/Button";
 import { FactList } from "../../design-system/primitives/facts";
 import { Panel } from "../../design-system/primitives/panel";

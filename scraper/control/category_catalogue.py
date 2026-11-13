@@ -37,6 +37,59 @@ def normalized(value):
     return " ".join(value.strip().casefold().split())
 
 
+def _tables_exist(cur):
+    cur.execute(
+        "SELECT to_regclass('acquisition_category_aliases') IS NOT NULL "
+        "AND to_regclass('acquisition_category_cells') IS NOT NULL"
+    )
+    return bool(cur.fetchone()[0])
+
+
+# Mirrors the server's permanent skip in rqueue/bulk_enqueue.go: a job whose
+# keyword aliases into a category is dropped when the category already covers
+# the cell (canonical cells, or a posted ledger entry from any alias).
+def category_covered_cells(cur, keyword, state):
+    """Cells the queue server treats as already covered for this keyword's category."""
+    if not _tables_exist(cur):
+        return set()
+    cur.execute(
+        """SELECT covered.cell FROM acquisition_category_aliases alias
+           JOIN acquisition_category_cells covered
+             ON covered.category_id=alias.category_id AND covered.state=%s
+           WHERE alias.alias=%s
+           UNION
+           SELECT covered.cell FROM acquisition_category_aliases alias
+           JOIN acquisition_category_aliases peer ON peer.category_id=alias.category_id
+           JOIN enqueue_log covered ON lower(covered.keyword)=peer.alias
+             AND covered.state=%s AND covered.status='posted'
+           WHERE alias.alias=%s""",
+        (state, normalized(keyword), state, normalized(keyword)),
+    )
+    return {row[0] for row in cur.fetchall()}
+
+
+def covered_jobs(ledger, states):
+    """(normalized keyword, state, cell) triples the server will permanently skip."""
+    states = [state.lower() for state in states]
+    with ledger.conn.cursor() as cur:
+        if not _tables_exist(cur):
+            return set()
+        cur.execute(
+            """SELECT alias.alias,covered.state,covered.cell
+               FROM acquisition_category_cells covered
+               JOIN acquisition_category_aliases alias ON alias.category_id=covered.category_id
+               WHERE covered.state=ANY(%s)
+               UNION
+               SELECT alias.alias,covered.state,covered.cell
+               FROM enqueue_log covered
+               JOIN acquisition_category_aliases peer ON peer.alias=lower(covered.keyword)
+               JOIN acquisition_category_aliases alias ON alias.category_id=peer.category_id
+               WHERE covered.status='posted' AND covered.state=ANY(%s)""",
+            (states, states),
+        )
+        return set(cur.fetchall())
+
+
 def _signature(value):
     tokens = []
     for word in re.findall(r"[a-z0-9]+", value.replace("&", " and ")):

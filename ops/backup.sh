@@ -73,3 +73,37 @@ if [ "$include_base" = "true" ]; then
   rm -rf "$base_dir"
 fi
 find "$wal_dir" -type f -mtime +14 -delete
+
+# Offsite copy to a Cloudflare R2-backed Restic repository. Skipped entirely
+# when R2_RESTIC_REPO is unset so hosts without R2 behave exactly as before.
+# See docs/OFFSITE-BACKUP-R2.md.
+if [ -n "${R2_RESTIC_REPO:-}" ]; then
+  r2_password="${R2_RESTIC_PASSWORD:-$RESTIC_PASSWORD}"
+  source_password_file="$(mktemp)"
+  chmod 600 "$source_password_file"
+  printf %s "$RESTIC_PASSWORD" > "$source_password_file"
+  if ! RESTIC_PASSWORD="$r2_password" restic -r "$R2_RESTIC_REPO" snapshots >/dev/null 2>&1; then
+    if ! RESTIC_PASSWORD="$r2_password" restic -r "$R2_RESTIC_REPO" init; then
+      rm -f "$source_password_file"
+      echo "OFFSITE BACKUP FAILED: could not initialize R2 Restic repository $R2_RESTIC_REPO" >&2
+      exit 1
+    fi
+  fi
+  if ! RESTIC_PASSWORD="$r2_password" restic -r "$R2_RESTIC_REPO" copy \
+    --from-repo "$RESTIC_REPOSITORY" \
+    --from-password-file "$source_password_file"; then
+    rm -f "$source_password_file"
+    echo "OFFSITE BACKUP FAILED: restic copy to $R2_RESTIC_REPO failed; the local backup is intact" >&2
+    exit 1
+  fi
+  if ! RESTIC_PASSWORD="$r2_password" restic -r "$R2_RESTIC_REPO" forget \
+    --group-by tags --keep-within 14d --prune; then
+    rm -f "$source_password_file"
+    echo "OFFSITE BACKUP FAILED: restic forget on $R2_RESTIC_REPO failed; the local backup is intact" >&2
+    exit 1
+  fi
+  rm -f "$source_password_file"
+  echo "Offsite copy to R2 completed at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+else
+  echo "R2_RESTIC_REPO is not set; offsite copy skipped"
+fi

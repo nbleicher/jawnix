@@ -98,7 +98,6 @@ def test_approved_restoration_reuses_history_and_refuses_the_retired_login(resto
     assert workspace.status_code == 200
     assert [row["id"] for row in workspace.json()["requests"]] == [str(request.id)]
     assert client.get(f"/api/me/batch-requests/{request.id}").status_code == 200
-    assert len(client.get("/api/me/requests").json()) == 1
     # The immutable original event still makes this phone permanently
     # ineligible for the restored party, regardless of the new login UUID.
     assert session.scalar(eligible_query(request,settings).where(Lead.id == event.lead_id)) is None
@@ -111,7 +110,7 @@ def test_approved_restoration_reuses_history_and_refuses_the_retired_login(resto
     assert client.get("/api/me/batch-requests").json()["requests"] == []
 
     app.dependency_overrides[require_principal] = lambda: Principal(old_id,"old@example.com","customer","test")
-    for path in ["/api/me/profile", "/api/me/requests", "/api/me/batch-requests", "/api/me/billing"]:
+    for path in ["/api/me/profile", "/api/me/batch-requests", "/api/me/billing"]:
         assert client.get(path).status_code == 403
     assert client.post("/api/me/feedback/lookup",json={"phone":"6155550101"}).status_code == 403
 
