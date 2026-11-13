@@ -5,6 +5,8 @@ import json
 import math
 import time
 
+from category_catalogue import category_covered_cells
+
 SAMPLE_SIZE = 6
 MIN_PRODUCTIVE_CELLS = 2
 MIN_PHONES = 3
@@ -115,13 +117,27 @@ def eligible_jobs(ledger, jobs, started_on, today, queue=None, *, allow_legacy=T
                             (keyword,state,started_on))
                 legacy=bool(cur.fetchone()[0]) and allow_legacy
                 policy=policy_from_queue(queue or {})
-                cells=sample_cells(grid,{cell:value for (st,cell),value in scores.items() if st==state},policy["pilot_cells"])
-                status="legacy" if legacy else "testing"
-                coverage=grid if legacy else cells
+                reason=None
+                if legacy:
+                    cells=sample_cells(grid,{cell:value for (st,cell),value in scores.items() if st==state},policy["pilot_cells"])
+                    status="legacy";coverage=grid
+                else:
+                    # Cells already covered via category aliases can never be
+                    # posted, so sampling them would park the evaluation in
+                    # testing forever. Sample the uncovered remainder and
+                    # resolve immediately when nothing is left to measure.
+                    covered=category_covered_cells(cur,keyword,state)
+                    uncovered=[cell for cell in grid if cell not in covered]
+                    cells=sample_cells(uncovered,{cell:value for (st,cell),value in scores.items() if st==state},policy["pilot_cells"])
+                    if uncovered:
+                        status="testing";coverage=cells
+                    else:
+                        status="completed";coverage=grid
+                        reason="Cells already covered under category aliases."
                 cur.execute("""INSERT INTO keyword_yield_evaluations
-                    (keyword,state,started_on,sample_cells,full_cells,status,coverage_cells,wave_cells,policy)
-                    VALUES (%s,%s,%s,%s::jsonb,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb) ON CONFLICT DO NOTHING""",
-                    (keyword,state,started_on,json.dumps(cells),len(grid),status,json.dumps(coverage),json.dumps(cells),json.dumps(policy)))
+                    (keyword,state,started_on,sample_cells,full_cells,status,coverage_cells,wave_cells,policy,reason)
+                    VALUES (%s,%s,%s,%s::jsonb,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb,%s) ON CONFLICT DO NOTHING""",
+                    (keyword,state,started_on,json.dumps(cells),len(grid),status,json.dumps(coverage),json.dumps(cells),json.dumps(policy),reason))
                 cur.execute("""SELECT sample_cells,status,coverage_cells,wave_cells,policy,new_phones_per_minute
                     FROM keyword_yield_evaluations WHERE keyword=%s AND state=%s AND started_on=%s""",(keyword,state,started_on))
                 row=cur.fetchone()
@@ -134,16 +150,34 @@ def eligible_jobs(ledger, jobs, started_on, today, queue=None, *, allow_legacy=T
                 continue
             coverage=coverage or cells;wave=wave or cells
             if status in ("testing","expanding"):
+                reason=None
+                # Cells that became category-covered can never produce evidence;
+                # drop them, then redeal the wave or resolve the evaluation.
+                covered=category_covered_cells(cur,keyword,state)
+                if covered:
+                    coverage=[cell for cell in coverage if cell not in covered]
+                    wave=[cell for cell in wave if cell not in covered]
+                if not wave:
+                    limit=min(len(grid),policy["max_cells"] or len(grid))
+                    remaining=[cell for cell in grid if cell not in coverage and cell not in covered]
+                    if remaining and len(coverage)<limit:
+                        remaining.sort(key=lambda cell:(-scores.get((state,cell),0),cell))
+                        wave=remaining[:min(policy["wave_cells"],limit-len(coverage))]
+                        coverage=[*coverage,*wave]
+                    else:
+                        status="completed"
+                        reason="Operator coverage cap reached." if remaining else "Cells already covered under category aliases."
                 current=evidence(cur,keyword,state,wave,started_on)
                 cumulative=evidence(cur,keyword,state,coverage,started_on)
-                reason=None
-                if current["completed"]>=len(wave):
+                if reason is not None:
+                    pass
+                elif current["completed"]>=len(wave):
                     pilot=status=="testing"
                     minimum=policy["min_new_phones"] if pilot else policy["wave_min_new_phones"]
                     productive=policy["min_productive_cells"] if pilot else policy["wave_min_productive_cells"]
                     passed=current["new"]>=minimum and len(current["productive"])>=min(productive,len(wave))
                     limit=min(len(grid),policy["max_cells"] or len(grid))
-                    remaining=[cell for cell in grid if cell not in coverage]
+                    remaining=[cell for cell in grid if cell not in coverage and cell not in covered]
                     if not passed:
                         status="rejected" if pilot else "completed"
                         reason="Pilot lacked new unique phones." if pilot else "Stopped expansion after low new-phone yield."

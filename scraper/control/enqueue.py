@@ -51,6 +51,7 @@ sys.path.insert(0, str(HERE))
 from grid import generate_grid_cells, STATE_CONFIG  # noqa: E402
 from yield_gate import eligible_jobs  # noqa: E402
 from state_campaigns import prepare as prepare_state_campaigns  # noqa: E402
+from category_catalogue import covered_jobs, normalized  # noqa: E402
 
 
 # ── Inputs ────────────────────────────────────────────────────────────────────
@@ -264,23 +265,31 @@ def expected_cells_by_pair(jobs: list) -> dict:
     return {key: len(value) for key, value in cells.items()}
 
 
-def filter_jobs(jobs: list, recent: set, done: set) -> tuple:
-    """Drop jobs already covered. Returns (kept, n_recent_skipped, n_done_skipped)."""
-    kept, n_recent, n_done = [], 0, 0
+def filter_jobs(jobs: list, recent: set, done: set, covered: set = ()) -> tuple:
+    """Drop jobs already covered. Returns (kept, n_recent, n_done, n_covered)."""
+    kept, n_recent, n_done, n_covered = [], 0, 0, 0
     for j in jobs:
         key2 = (j["keyword"], j["state"])
         key3 = (j["keyword"], j["state"], j["geo_coordinates"])
+        alias = (normalized(j["keyword"]), j["state"], j["geo_coordinates"])
         if key2 in recent:
             n_recent += 1
         elif key3 in done:
             n_done += 1
+        elif alias in covered:
+            n_covered += 1
         else:
             kept.append(j)
-    return kept, n_recent, n_done
+    return kept, n_recent, n_done, n_covered
 
 
 # ── Queue API ─────────────────────────────────────────────────────────────────
 MAX_ENQUEUE_BATCH = 100
+# The server permanently skips category-covered jobs without ever posting them,
+# so the same head batch would be replayed every cycle. Keep advancing past
+# all-skipped batches, but bound the scan so a fully covered list still ends
+# the cycle instead of streaming the whole backlog through the API.
+MAX_BATCHES_PER_CYCLE = 25
 
 
 def queue_depth(api_base: str, api_key: str = None) -> int:
@@ -366,15 +375,15 @@ def top_up(api_base: str, jobs: list, cursor: int, target_depth: int, batch_size
     need = max(0, target_depth - depth)
     if need == 0:
         return cursor, 0, depth
-    n = min(need, batch_size, len(jobs) - cursor)
     inserted = 0
     i = cursor
-    stop = cursor + n
     if ledger:
-        while i < stop:
+        plan = min(need, batch_size)
+        batches = 0
+        while i < len(jobs) and inserted < plan and batches < MAX_BATCHES_PER_CYCLE:
             if pause_file and pause_file.exists():
                 break
-            end = min(stop,i+MAX_ENQUEUE_BATCH)
+            end = min(len(jobs),i+MAX_ENQUEUE_BATCH)
             accepted, error = insert_batch(api_base,jobs[i:end],day,expected_cells,api_key)
             if accepted is None:
                 print(f"  warn: bulk POST failed; batch retained for safe retry: {error}",file=sys.stderr)
@@ -382,7 +391,10 @@ def top_up(api_base: str, jobs: list, cursor: int, target_depth: int, batch_size
             inserted += accepted
             i = end
             cursor = i
+            batches += 1
         return cursor,inserted,depth
+    n = min(need, batch_size, len(jobs) - cursor)
+    stop = cursor + n
     while i < stop:
         if pause_file and pause_file.exists():
             break
@@ -436,15 +448,17 @@ def prepare_jobs(args) -> tuple[dict, list, dict, object | None, date, str, int,
             if independent:
                 jobs,expected_cells,selected = prepare_state_campaigns(
                     ledger,states_cfg,keywords,started_on,today,build_jobs,eligible_jobs)
-                n_recent=n_done=0
+                n_recent=n_done=n_covered=0
                 print(f"  Independent state backlogs: {selected}")
             else:
                 recent = ledger.load_recent(skip_days)
                 done = ledger.load_done(today, states_cfg["states"])
+                covered = covered_jobs(ledger, states_cfg["states"])
                 jobs = eligible_jobs(ledger, jobs, started_on, today, q)
-                jobs, n_recent, n_done = filter_jobs(jobs, recent, done)
+                jobs, n_recent, n_done, n_covered = filter_jobs(jobs, recent, done, covered)
             print(f"  Ledger: skipped {n_recent:,} (recent ≤{skip_days}d, O-12) + "
-                  f"{n_done:,} (already queued/reserved today, O-11)")
+                  f"{n_done:,} (already queued/reserved today, O-11) + "
+                  f"{n_covered:,} (category-covered)")
         except Exception as e:
             print(f"  ERROR: acquisition quality gate unavailable ({e}); no jobs queued", file=sys.stderr)
             if ledger:
