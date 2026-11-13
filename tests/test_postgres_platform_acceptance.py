@@ -1092,7 +1092,7 @@ def test_google_maps_to_customer_feedback_acceptance(
     settings.telegram_chat_id = "-10020260726"
     settings.telegram_approver_user_ids = "42"
     monkeypatch.setattr(
-        "jawnix.api.TelegramClient.answer_callback",
+        "jawnix.api.webhooks.TelegramClient.answer_callback",
         lambda *_args, **_kwargs: None,
     )
 
