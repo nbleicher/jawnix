@@ -10,6 +10,7 @@ import { SidePanel, Steps } from "../../design-system/primitives/panel";
 import { StatusBadge } from "../../design-system/primitives/status";
 import { Text } from "../../design-system/primitives/typography";
 import { formatCents } from "../billing/money";
+import { routePath } from "../routePath";
 import {
   ControlActionBar,
   RENOTIFY_STATUSES,
@@ -56,10 +57,6 @@ export function costFact(batch: Pick<BatchDetail, "cost">): string {
   const { cost } = batch;
   if (!cost.billed) return "Not billed";
   return `${formatCents(cost.amountCents ?? 0)} at ${formatRate(cost.rateCentsPerThousand)}`;
-}
-
-function routePath(href: string): string {
-  return href.startsWith("/app/") ? href.slice("/app".length) : href;
 }
 
 /**

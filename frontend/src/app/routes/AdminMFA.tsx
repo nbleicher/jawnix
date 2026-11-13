@@ -7,7 +7,8 @@ import {
   useSearchParams,
 } from "react-router";
 
-import { api, formatCode, providerAccessToken } from "../auth/adminMFA";
+import { api } from "../api";
+import { formatCode, providerAccessToken } from "../auth/adminMFA";
 import type {
   AdminMFAFactor,
   AdminMFAStatus,

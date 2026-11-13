@@ -1,6 +1,8 @@
 import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
+import { apiFetch } from "../api";
+
 import type { CustomerHomeData } from "../customer/home";
 import type { BatchRequestWorkspace } from "./batchRequests";
 
@@ -80,14 +82,6 @@ export class ProfileUpdateError extends Error {
   }
 }
 
-function csrf(): string {
-  const item = document.cookie
-    .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith("jawnix_csrf="));
-  return decodeURIComponent(item?.split("=", 2)[1] ?? "");
-}
-
 function refusal(body: ErrorBody, fallback: string): string {
   if (typeof body.detail === "string") return body.detail;
   const first = Array.isArray(body.detail) ? body.detail[0]?.msg : undefined;
@@ -95,13 +89,8 @@ function refusal(body: ErrorBody, fallback: string): string {
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
+  const response = await apiFetch(path, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CSRF-Token": csrf(),
-    },
-    credentials: "same-origin",
     body: JSON.stringify(body),
   });
   const parsed = (await response.json().catch(() => ({}))) as ErrorBody;
@@ -124,13 +113,8 @@ export async function updateCustomerProfile(input: {
   phone: string;
   licensed_states: string[];
 }): Promise<CustomerAccountIdentity> {
-  const response = await fetch("/api/me/profile", {
+  const response = await apiFetch("/api/me/profile", {
     method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CSRF-Token": csrf(),
-    },
-    credentials: "same-origin",
     body: JSON.stringify(input),
   });
   const parsed = (await response.json().catch(() => ({}))) as ErrorBody &
@@ -148,8 +132,8 @@ export async function customerAccountLoader({
   request,
 }: LoaderFunctionArgs): Promise<CustomerAccountWorkspace> {
   const [identityResponse, licensedStatesResponse] = await Promise.all([
-    fetch("/api/me/profile", { credentials: "same-origin" }),
-    fetch("/api/me/licensed-states", { credentials: "same-origin" }),
+    apiFetch("/api/me/profile"),
+    apiFetch("/api/me/licensed-states"),
   ]);
   if (
     identityResponse.status === 401

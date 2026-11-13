@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { ConfirmDialog, Dialog } from "../../design-system/primitives/Dialog";
 import { Field, Input } from "../../design-system/primitives/form";

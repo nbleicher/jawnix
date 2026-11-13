@@ -1,3 +1,4 @@
+import { csrfToken } from "../api";
 import { clearReadPrefetch } from "../routeReadCache";
 
 /**
@@ -37,8 +38,7 @@ export function submitLeadUpload(file: File, state: string, onProgress: (percent
   return new Promise<LeadUploadStatus>((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", LEAD_UPLOADS);
-    const cookie = document.cookie.split(";").map(value => value.trim()).find(value => value.startsWith("jawnix_csrf="));
-    request.setRequestHeader("X-CSRF-Token", decodeURIComponent(cookie?.split("=", 2)[1] ?? ""));
+    request.setRequestHeader("X-CSRF-Token", csrfToken());
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(Math.round(100 * event.loaded / event.total));
     };

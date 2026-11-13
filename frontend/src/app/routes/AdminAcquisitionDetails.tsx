@@ -10,7 +10,7 @@ import type { StatusTone } from "../../design-system/primitives/status";
 import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Mono, Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 import { formatCount, formatDateTime } from "../operator/format";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { ActivityTable, loadEntityActivity, recordActivityHref } from "./AdminActivity";

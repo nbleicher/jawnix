@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 
 import type { CustomerDetailsData } from "./AdminCustomerDetails";
 import {
@@ -12,7 +12,7 @@ import {
   adminCustomerDetailsShouldRevalidate,
 } from "./AdminCustomerDetails";
 
-vi.mock("../auth/adminMFA", () => ({ api: vi.fn() }));
+vi.mock("../api", () => ({ api: vi.fn() }));
 
 const ACCOUNT = {
   auth_user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
