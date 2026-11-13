@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 import {
   CustomerBillingSection,
   CustomerCooldownSection,
@@ -19,7 +19,7 @@ import type {
   NichePolicyView,
 } from "./AdminCustomerControls";
 
-vi.mock("../auth/adminMFA", () => ({ api: vi.fn() }));
+vi.mock("../api", () => ({ api: vi.fn() }));
 
 /** The ledger links each entry to its batch, so these render in a router. */
 function render(element: ReactElement) {

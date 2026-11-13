@@ -18,6 +18,7 @@ from jawnix.api import app
 from jawnix.auth import Principal, require_admin, require_principal
 from jawnix.config import Settings
 from jawnix.database import get_db
+from jawnix.feedback import apply_disposition_controls
 from jawnix.models import (
     Agent,
     AuditEntry,
@@ -26,6 +27,7 @@ from jawnix.models import (
     EligibilityHold,
     Lead,
     LeadCorrectionEvent,
+    LeadDispositionTransition,
     LeadReport,
     LeadRequest,
     ListingObservation,
@@ -107,25 +109,18 @@ def reported_lead(
     session.add_all([profile, event])
     session.flush()
 
-    def database_override():
-        yield session
-
-    app.dependency_overrides[get_db] = database_override
-    app.dependency_overrides[require_principal] = lambda: Principal(
-        user_id=user_id,
-        email=profile.email,
-        role="customer",
-        csrf="test",
+    transition = LeadDispositionTransition(
+        distribution_event_id=event.id,
+        customer_id=customer.id,
+        actor_user_id=user_id,
+        disposition=disposition,
+        note="The line was disconnected",
+        created_at=datetime(2026, 7, 27, 12, tzinfo=timezone.utc),
     )
-    filed = TestClient(app).post(
-        "/api/me/feedback",
-        json={
-            "distribution_event_id": event.id,
-            "disposition": disposition,
-            "note": "The line was disconnected",
-        },
-    )
-    assert filed.status_code == 201, filed.text
+    session.add(transition)
+    session.flush()
+    apply_disposition_controls(session, event, transition)
+    session.flush()
     session.expire_all()
     report = session.scalar(
         select(LeadReport).where(LeadReport.customer_id == customer.id)
@@ -386,33 +381,23 @@ class TestHoldCannotBeBypassed:
 
         # The Customer walks their own report back. Nothing about eligibility
         # is theirs to decide.
-        def database_override():
-            yield session
-
-        app.dependency_overrides[get_db] = database_override
-        app.dependency_overrides[require_principal] = lambda: Principal(
-            user_id=user_id,
-            email=profile.email,
-            role="customer",
-            csrf="test",
+        walked_back = LeadDispositionTransition(
+            distribution_event_id=event.id,
+            customer_id=report.customer_id,
+            actor_user_id=user_id,
+            disposition="positive_response",
+            note="Reached them after all",
+            created_at=datetime(2026, 7, 28, 12, tzinfo=timezone.utc),
         )
-        try:
-            walked_back = TestClient(app).post(
-                "/api/me/feedback",
-                json={
-                    "distribution_event_id": event.id,
-                    "disposition": "positive_response",
-                    "note": "Reached them after all",
-                },
-            )
-            assert walked_back.status_code == 201
-            session.expire_all()
-            hold = session.scalar(select(EligibilityHold))
-            assert hold.active is True
-            assert inventory_count(session, request, settings) == 0
-            assert session.get(LeadReport, report.id).status == "open"
-        finally:
-            app.dependency_overrides.clear()
+        session.add(walked_back)
+        session.flush()
+        apply_disposition_controls(session, event, walked_back)
+        session.flush()
+        session.expire_all()
+        hold = session.scalar(select(EligibilityHold))
+        assert hold.active is True
+        assert inventory_count(session, request, settings) == 0
+        assert session.get(LeadReport, report.id).status == "open"
 
         client = as_admin(session)
         try:

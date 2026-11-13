@@ -10,18 +10,16 @@ from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import DatabaseError
 
-from jawnix.database import Base
-
 
 def load_revision():
     path = (
         Path(__file__).parents[1]
         / "alembic"
         / "versions"
-        / "20260804_0044_audit_immutability_guards.py"
+        / "20261109_0055_baseline.py"
     )
     spec = importlib.util.spec_from_file_location(
-        "audit_immutability_guards_0044",
+        "baseline_0055",
         path,
     )
     assert spec is not None and spec.loader is not None
@@ -34,7 +32,6 @@ def load_revision():
 def guarded_engine(tmp_path):
     database = tmp_path / "audit-immutability.db"
     engine = create_engine(f"sqlite:///{database}")
-    Base.metadata.create_all(engine)
     revision = load_revision()
     with engine.begin() as connection:
         context = MigrationContext.configure(connection)
@@ -135,31 +132,6 @@ def test_downgrade_removes_triggers(guarded_engine):
         with Operations.context(context):
             revision.downgrade()
 
-    entry_id = str(uuid.uuid4())
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
-                INSERT INTO audit_entries (
-                    id, action, target_type, target_id, actor_user_id,
-                    reason, details, created_at
-                ) VALUES (
-                    :id, 'batch_request_approve', 'batch_request', :id,
-                    'admin:1', 'Because', '{}', CURRENT_TIMESTAMP
-                )
-                """
-            ),
-            {"id": entry_id},
-        )
-        # The trigger is gone, so an update that would have raised before
-        # the downgrade now succeeds without complaint.
-        connection.execute(
-            text(
-                "UPDATE audit_entries SET reason = 'Changed' WHERE id = :id"
-            ),
-            {"id": entry_id},
-        )
-    assert set(inspect(engine).get_table_names()) >= {
-        "audit_entries",
-        "lead_report_resolutions",
-    }
+    # The baseline downgrade drops the schema, triggers included.
+    assert "audit_entries" not in inspect(engine).get_table_names()
+    assert "lead_report_resolutions" not in inspect(engine).get_table_names()

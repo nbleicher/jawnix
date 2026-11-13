@@ -26,7 +26,8 @@ import { StatusBadge } from "../../design-system/primitives/status";
 import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Mono, Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
+import { routePath } from "../routePath";
 import { formatCents } from "../billing/money";
 import {
   ControlActionBar,
@@ -69,10 +70,6 @@ import "./AdminBatches.css";
  * filled, what it costs, and what has happened, with the Batch, its progress,
  * and the Customer's recent batches on the right.
  */
-
-function routePath(href: string): string {
-  return href.startsWith("/app/") ? href.slice("/app".length) : href;
-}
 
 // ---------------------------------------------------------------- All batches
 
