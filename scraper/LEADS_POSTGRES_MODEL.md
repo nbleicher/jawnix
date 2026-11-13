@@ -70,6 +70,6 @@ UPDATE leads SET state = derive_state(phone) WHERE state = 'UNKNOWN';
 worker → `businesses` (deduped place, with phone) → `export_leads.py --append` → `leads` (deduped phone, area-code state) → `--by-state` / `--redistribute` → 10k CSVs. New scraped phones join the manifest automatically; everything else (state grouping, 7-day pool, agent files) is a query.
 
 ## Apply order
-After `businesses`/`leads` (20260617) and the control ledger (20260618), run this migration (20260619). All three live in `scraper_changes/migrations/` and are applied together per `SETUP_POSTGRES_CONTROL_VPS.md` Part A4.
+After `businesses`/`leads` (20260617) and the control ledger (20260618), run this migration (20260619). All three live in `scraper_changes/migrations/` and are applied together per `../docs/plans/archive/SETUP_POSTGRES_CONTROL_VPS.md` Part A4.
 
 > **Open choice:** whether `internal_clean` (your sacred master that's never distributed) is modeled as `flow='internal'` rows excluded from `available_leads`, or a separate table. Tell me which and I'll wire it into the view.
