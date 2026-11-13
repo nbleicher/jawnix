@@ -4,8 +4,10 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
-from jawnix.maintenance import expire_batch_files
-from jawnix.models import Agent, BatchArtifact
+from jawnix.maintenance import expire_batch_files, purge_completed_jobs
+from jawnix.milestone_emails import MILESTONE_EMAIL_JOB
+from jawnix.models import Agent, BatchArtifact, Job, JobStatus
+from jawnix.registration_emails import REGISTRATION_EMAIL_JOB
 
 from conftest import make_request
 
@@ -114,3 +116,50 @@ def test_expire_batch_files_counts_an_already_missing_file(
         "alreadyMissing": 1,
         "outsideBatchDir": 0,
     }
+
+
+def _job(session, *, kind, status, created_at) -> Job:
+    job = Job(kind=kind, status=status, created_at=created_at)
+    session.add(job)
+    session.flush()
+    return job
+
+
+def test_purge_completed_jobs_deletes_only_aged_complete_jobs(session, settings):
+    now = datetime.now(timezone.utc)
+    aged = now - timedelta(days=settings.job_retention_days + 1)
+    aged_complete = _job(
+        session, kind="emit_lead_assigned", status=JobStatus.complete.value, created_at=aged
+    )
+    fresh_complete = _job(
+        session, kind="emit_lead_assigned", status=JobStatus.complete.value, created_at=now
+    )
+    aged_failed = _job(
+        session, kind="emit_lead_assigned", status=JobStatus.failed.value, created_at=aged
+    )
+    aged_queued = _job(
+        session, kind="emit_lead_assigned", status=JobStatus.queued.value, created_at=aged
+    )
+    session.commit()
+
+    assert purge_completed_jobs(session, settings) == 1
+    remaining = {job.id for job in session.scalars(select(Job))}
+    assert remaining == {fresh_complete.id, aged_failed.id, aged_queued.id}
+    assert aged_complete.id not in remaining
+
+
+def test_purge_completed_jobs_keeps_email_dedup_rows(session, settings):
+    aged = datetime.now(timezone.utc) - timedelta(
+        days=settings.job_retention_days + 1
+    )
+    milestone = _job(
+        session, kind=MILESTONE_EMAIL_JOB, status=JobStatus.complete.value, created_at=aged
+    )
+    registration = _job(
+        session, kind=REGISTRATION_EMAIL_JOB, status=JobStatus.complete.value, created_at=aged
+    )
+    session.commit()
+
+    assert purge_completed_jobs(session, settings) == 0
+    remaining = {job.id for job in session.scalars(select(Job))}
+    assert remaining == {milestone.id, registration.id}

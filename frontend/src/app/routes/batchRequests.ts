@@ -1,6 +1,7 @@
 import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 import { signInPath } from "../auth/customerAuth";
+import { apiFetch } from "../api";
 import { clearReadPrefetch, readResponse } from "../routeReadCache";
 
 /**
@@ -224,14 +225,6 @@ export type LeadReportReason =
 
 const WORKSPACE_PATH = "/api/me/batch-requests";
 
-function csrf(): string {
-  const item = document.cookie
-    .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith("jawnix_csrf="));
-  return decodeURIComponent(item?.split("=", 2)[1] ?? "");
-}
-
 interface ErrorBody {
   detail?: string | { msg?: string }[];
 }
@@ -260,12 +253,8 @@ export class BatchRequestError extends Error {
 }
 
 async function mutate<T>(path: string, body?: unknown): Promise<T> {
-  const headers = new Headers({ "X-CSRF-Token": csrf() });
-  if (body !== undefined) headers.set("Content-Type", "application/json");
-  const response = await fetch(path, {
+  const response = await apiFetch(path, {
     method: "POST",
-    headers,
-    credentials: "same-origin",
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const parsed = (await response.json().catch(() => ({}))) as ErrorBody;
@@ -416,7 +405,7 @@ export function requestNewCopy(id: string): Promise<BatchRequest> {
 }
 
 export async function loadBatchRequest(reference: string): Promise<BatchRequest> {
-  const response = await fetch(`${WORKSPACE_PATH}/${reference}`, { credentials: "same-origin" });
+  const response = await apiFetch(`${WORKSPACE_PATH}/${reference}`);
   if (!response.ok) throw Object.assign(new Error("Batch updates are temporarily unavailable."), { status: response.status });
   return response.json() as Promise<BatchRequest>;
 }

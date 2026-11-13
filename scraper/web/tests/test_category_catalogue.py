@@ -219,3 +219,58 @@ async def test_catalogue_does_not_treat_a_partial_old_post_as_verified_yield(
                 "DELETE FROM keyword_yield_evaluations WHERE keyword=%s", (term,)
             )
         conn.close()
+
+
+@pytest.mark.asyncio
+async def test_category_covered_cells_are_never_selected(seeded_database):
+    import enqueue
+    from category_catalogue import covered_jobs
+
+    conn = psycopg2.connect(os.environ["TEST_DATABASE_URL"])
+    conn.autocommit = True
+    ledger = SimpleNamespace(conn=conn)
+    today = date.today()
+    term = "coverage filter fixture"
+    peer = "coverage filter peer"
+    try:
+        sync_catalogue(ledger, [term], today, origin="approved_campaign")
+        category_id = category_identity(term)[0]
+        with conn.cursor() as cur:
+            # Canonical coverage and a posted ledger entry from an aliased peer
+            # both cover cells for every keyword in the category.
+            cur.execute(
+                "INSERT INTO acquisition_category_cells(category_id,state,cell) VALUES(%s,'tn','35.0,-86')",
+                (category_id,),
+            )
+            cur.execute(
+                "INSERT INTO acquisition_category_aliases(alias,category_id,origin) VALUES(%s,%s,'test') ON CONFLICT DO NOTHING",
+                (peer, category_id),
+            )
+            cur.execute(
+                "INSERT INTO enqueue_log(keyword,state,cell,day,status,updated_at) VALUES(%s,'tn','35.01,-86',%s,'posted',now())",
+                (peer, today),
+            )
+        covered = covered_jobs(ledger, ["tn"])
+        assert (term, "tn", "35.0,-86") in covered
+        assert (term, "tn", "35.01,-86") in covered
+        candidates = [
+            {"keyword": term, "state": "tn", "geo_coordinates": "35.0,-86"},
+            {"keyword": "Coverage Filter Fixture", "state": "tn", "geo_coordinates": "35.01,-86"},
+            {"keyword": peer, "state": "tn", "geo_coordinates": "35.01,-86"},
+            {"keyword": term, "state": "tn", "geo_coordinates": "35.02,-86"},
+        ]
+        kept, n_recent, n_done, n_covered = enqueue.filter_jobs(
+            candidates, set(), set(), covered
+        )
+        assert kept == [candidates[3]]
+        assert (n_recent, n_done, n_covered) == (0, 0, 3)
+    finally:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM acquisition_categories WHERE canonical_query=%s", (term,)
+            )
+            cur.execute(
+                "DELETE FROM acquisition_category_aliases WHERE alias=%s", (peer,)
+            )
+            cur.execute("DELETE FROM enqueue_log WHERE keyword=%s", (peer,))
+        conn.close()

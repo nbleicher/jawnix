@@ -11,7 +11,7 @@ import { Card, Cluster, Grid, Page, Stack } from "../../design-system/primitives
 import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Heading, Mono, Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 import { formatCount, formatDateTime } from "../operator/format";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import "./AdminActivity.css";

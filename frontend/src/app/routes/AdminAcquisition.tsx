@@ -11,7 +11,7 @@ import type { StatusTone } from "../../design-system/primitives/status";
 import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 import { ControlActionBar } from "../operator/actions";
 import type { ControlAction, ControlResolver } from "../operator/actions";
 import { NICHE_CONFIRM, NICHE_DENY } from "../operator/decisionActions";

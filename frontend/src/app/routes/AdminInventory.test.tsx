@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router";
@@ -58,12 +58,49 @@ function respond(body: unknown, status = 200) {
   );
 }
 
+function setTabHidden(value: boolean) {
+  Object.defineProperty(document, "hidden", { configurable: true, value });
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: value ? "hidden" : "visible",
+  });
+  document.dispatchEvent(new Event("visibilitychange"));
+}
+
 beforeEach(() => {
   document.cookie = "jawnix_csrf=test-csrf";
   vi.restoreAllMocks();
 });
 
 describe("Inventory", () => {
+  it("pauses recount polling while the tab is hidden and resumes on return", async () => {
+    vi.useFakeTimers();
+    const running = { status: "running", jobId: "job-1" };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ refresh: running }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    renderPage("/admin/inventory", <AdminInventoryRoute />, { ...INVENTORY, refresh: running });
+    await act(async () => Promise.resolve());
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => { setTabHidden(true); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => { setTabHidden(false); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    setTabHidden(false);
+    vi.useRealTimers();
+  });
+
   it("shows each database's usable count with its breakdown and as-of time", () => {
     renderPage("/admin/inventory", <AdminInventoryRoute />, INVENTORY);
 

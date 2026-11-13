@@ -38,6 +38,14 @@ export function CreditWalletProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [retryPending, setRetryPending] = useState(false);
   const [schedule, setSchedule] = useState({ polls: 0, failures: 0 });
+  const [hidden, setHidden] = useState(() => document.hidden);
+
+  useEffect(() => {
+    const onVisibilityChange = () => setHidden(document.hidden);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -75,12 +83,15 @@ export function CreditWalletProvider({ children }: { children: ReactNode }) {
   // Keep polling while a Credit Purchase is processing so the balance updates
   // when the Stripe webhook lands — without a manual reload. Failures back off
   // so an outage is not hammered every 2.5 seconds for the whole session.
+  // A hidden tab is not watching, so polling pauses there without spending
+  // the poll budget and resumes on the same cadence when the tab returns.
   useEffect(() => {
     const processing =
       Boolean(wallet?.billingEnabled) &&
       Boolean(wallet && hasProcessingPurchase(wallet));
     if (!retryPending && !processing) return;
     if (schedule.polls >= MAX_POLLS) return;
+    if (hidden) return;
     const delay = retryPending
       ? Math.min(
           POLL_MS * 2 ** Math.max(0, schedule.failures - 1),
@@ -92,7 +103,7 @@ export function CreditWalletProvider({ children }: { children: ReactNode }) {
       void load();
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [wallet, load, retryPending, schedule]);
+  }, [wallet, load, retryPending, schedule, hidden]);
 
   return (
     <CreditWalletContext.Provider value={{ wallet, ready, refresh }}>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 import type { RequestDetail } from "../routes/AdminFulfillment";
 import type { BatchAvailability, RecordLink } from "./format";
 

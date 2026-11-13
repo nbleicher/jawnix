@@ -101,7 +101,7 @@ def run() -> None:
             try:
                 with SessionLocal.begin() as session:
                     artifacts = expire_batch_files(session, settings)
-                    records = purge_retained_records(session)
+                    records = purge_retained_records(session, settings)
                 log.info(
                     "Daily retention cleanup: artifacts=%s records=%s",
                     artifacts,

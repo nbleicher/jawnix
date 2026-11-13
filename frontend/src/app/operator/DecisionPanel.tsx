@@ -9,7 +9,7 @@ import { Stack } from "../../design-system/primitives/layout";
 import { SidePanel } from "../../design-system/primitives/panel";
 import { StatusBadge } from "../../design-system/primitives/status";
 import { Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 import type {
   ConflictDetail,
   ConflictSide,

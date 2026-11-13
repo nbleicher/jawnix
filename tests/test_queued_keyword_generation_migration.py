@@ -3,6 +3,8 @@
 import importlib.util
 from pathlib import Path
 
+import sqlalchemy as sa
+from alembic import op
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect, text
@@ -16,13 +18,49 @@ def load_revision(name):
     return migration
 
 
+def create_pre_queued_drafts_table():
+    """The keyword_generation_drafts schema as the 0055 baseline shipped it."""
+    op.create_table(
+        "keyword_generation_drafts",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("administrator_id", sa.Uuid(), nullable=False),
+        sa.Column("mode", sa.String(length=16), nullable=False),
+        sa.Column("seed_keyword", sa.String(length=200), nullable=True),
+        sa.Column("model", sa.String(length=200), nullable=False),
+        sa.Column("terms", sa.JSON(), nullable=False),
+        sa.Column("exclusion_metrics", sa.JSON(), nullable=False),
+        sa.Column("candidate_metrics", sa.JSON(), nullable=False),
+        sa.Column("excluded_count", sa.Integer(), nullable=False),
+        sa.Column("acceptance_status", sa.String(length=16), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=True),
+        sa.CheckConstraint(
+            "mode IN ('broad', 'adjacent')",
+            name="ck_keyword_generation_drafts_mode",
+        ),
+        sa.CheckConstraint(
+            "acceptance_status IN ('pending', 'accepted')",
+            name="ck_keyword_generation_drafts_acceptance_status",
+        ),
+        sa.CheckConstraint(
+            "excluded_count >= 0",
+            name="ck_keyword_generation_drafts_excluded_count",
+        ),
+        sa.CheckConstraint(
+            "created_at < expires_at",
+            name="ck_keyword_generation_drafts_expiry",
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+
+
 def test_upgrade_allows_queued_statuses_and_is_safe_on_fresh_models(tmp_path):
-    drafts = load_revision("20260731_0031_keyword_generation_drafts.py")
     queued = load_revision("20261112_0056_queued_keyword_generation.py")
     engine = create_engine(f"sqlite:///{tmp_path / 'migration.db'}")
     with engine.begin() as connection:
         with Operations.context(MigrationContext.configure(connection)):
-            drafts.upgrade()
+            create_pre_queued_drafts_table()
         connection.execute(
             text(
                 "INSERT INTO keyword_generation_drafts (id, administrator_id, mode, model, terms, exclusion_metrics, candidate_metrics, excluded_count, acceptance_status, created_at, expires_at) "

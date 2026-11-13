@@ -2,7 +2,7 @@
 
 A draft starts as "generating" while the keyword worker owns the provider
 call, and lands on "failed" (with failure_detail) when that call does not
-produce a reviewable draft. Revision 0001 builds fresh schemas from the
+produce a reviewable draft. The 0055 baseline builds fresh schemas from the
 current models, so every step here is guarded.
 """
 

@@ -94,7 +94,7 @@ production:
   table: migrations
 DBC
 sudo -u "${APP_USER}" bash -lc "cd ${SCRAPER_SRC} && ${APP_DIR}/bin/sql-migrate up -config=migrations/dbconfig.prod.yml -env=production" || \
-  echo "  (migrations failed — run manually per SETUP_POSTGRES_CONTROL_VPS.md Part A4)"
+  echo "  (migrations failed — run manually per ../../docs/plans/archive/SETUP_POSTGRES_CONTROL_VPS.md Part A4)"
 fi
 
 echo "==> Creating the admin user and control-plane API key"

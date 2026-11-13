@@ -7,7 +7,8 @@ import { PanelLayout, SidePanel } from "../../design-system/primitives/panel";
 import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
+import { routePath } from "../routePath";
 import type { AdminMFAStatus } from "../auth/adminMFA";
 import { formatDay, formatRate, plural } from "../operator/format";
 import { useSelectedRow } from "../operator/useSelectedRow";
@@ -55,10 +56,6 @@ export async function adminSetupLoader(): Promise<SetupData> {
     api<AdminMFAStatus>("/api/auth/admin-mfa").catch(() => null),
   ]);
   return { ...setup, scraperGranted: grant?.granted ?? null, security };
-}
-
-function routePath(href: string): string {
-  return href.startsWith("/app/") ? href.slice("/app".length) : href;
 }
 
 /** The state line, completed with what only the browser could read. */
