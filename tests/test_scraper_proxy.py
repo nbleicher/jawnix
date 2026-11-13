@@ -377,7 +377,7 @@ def test_isolated_scraper_session_cannot_authenticate_native_admin_api():
     )
     client, _ = isolated_session_client(settings)
     try:
-        response = client.get("/api/admin/requests")
+        response = client.get("/api/admin/today")
         assert response.status_code == 401
     finally:
         client.close()

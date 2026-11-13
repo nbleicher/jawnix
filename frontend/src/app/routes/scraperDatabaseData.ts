@@ -1,7 +1,7 @@
 import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
-import { api } from "../auth/adminMFA";
+import { api, apiFetch, csrfToken } from "../api";
 
 export interface DatabaseTotals {
   businesses: number;
@@ -68,18 +68,9 @@ export interface ExportRegeneration {
 
 const BASE = "/api/admin/scraper/database";
 
-function csrf(): string {
-  const item = document.cookie
-    .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith("jawnix_csrf="));
-  return decodeURIComponent(item?.split("=", 2)[1] ?? "");
-}
-
 async function read<T>(path: string): Promise<T> {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    headers: { "X-CSRF-Token": csrf() },
+  const response = await apiFetch(path, {
+    headers: { "X-CSRF-Token": csrfToken() },
   });
   if (response.status === 401 || response.status === 403) {
     throw redirect("/admin/acquisition/scraper");

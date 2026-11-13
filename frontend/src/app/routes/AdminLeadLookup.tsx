@@ -10,7 +10,8 @@ import { StatusBadge } from "../../design-system/primitives/status";
 import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
+import { routePath } from "../routePath";
 import { ControlActionBar, leadControlRequest } from "../operator/actions";
 import type { ControlAction } from "../operator/actions";
 import { formatDatabase, formatDay, formatPhone } from "../operator/format";
@@ -151,10 +152,6 @@ export async function adminLeadLookupLoader({
   if (phone) return api<LeadLookupResult>(`/api/admin/leads/lookup?phone=${encodeURIComponent(phone)}`);
   if (lead && /^\d+$/.test(lead)) return api<LeadLookupResult>(`/api/admin/leads/lookup?lead=${lead}`);
   return null;
-}
-
-function routePath(href: string): string {
-  return href.startsWith("/app/") ? href.slice("/app".length) : href;
 }
 
 function recipientValue(row: NextRecipient): string {

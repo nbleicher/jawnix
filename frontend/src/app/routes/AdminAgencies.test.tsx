@@ -3,12 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 
 import type { AgencyDetailsData, AgencyDirectoryData } from "./AdminAgencies";
 import { AdminAgenciesRoute, AdminAgencyDetailsRoute } from "./AdminAgencies";
 
-vi.mock("../auth/adminMFA", () => ({ api: vi.fn() }));
+vi.mock("../api", () => ({ api: vi.fn() }));
 
 const STATUS = {
   label: "Active",

@@ -1,6 +1,8 @@
 import { createAuthClient } from "better-auth/react";
 import { twoFactorClient } from "better-auth/client/plugins";
 
+import { apiFetch } from "../api";
+
 export interface ProviderSessionUpdate {
   accessToken: string;
   refreshToken: string;
@@ -67,9 +69,9 @@ export interface SignupDetails {
 }
 const signupCallback = () => `${window.location.origin}/app/complete-signup`;
 export async function signUpWithPassword(email: string, password: string, details: SignupDetails): Promise<void> {
-  const response = await fetch("/auth/sign-up/email", {
-    method: "POST", credentials: "same-origin",
-    headers: { "Content-Type": "application/json" },
+  // The provider's own endpoint, before any Jawnix session: no CSRF cookie.
+  const response = await apiFetch("/auth/sign-up/email", {
+    method: "POST", csrf: false,
     body: JSON.stringify({ email, password, name: `${details.first_name} ${details.last_name}`, signupProfile: details, callbackURL: signupCallback() }),
   });
   if (!response.ok) throw new Error("We could not create your account. Check your details, or sign in if you already registered.");

@@ -7,16 +7,15 @@ import {
   useParams,
   useRevalidator,
 } from "react-router";
-import type { LoaderFunctionArgs, ShouldRevalidateFunctionArgs } from "react-router";
 
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
+import { routePath } from "../routePath";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { ConfirmDialog, Dialog } from "../../design-system/primitives/Dialog";
 import { FactList } from "../../design-system/primitives/facts";
 import type { Fact } from "../../design-system/primitives/facts";
 import { Field, Input, Select } from "../../design-system/primitives/form";
-import { Kpi, KpiRow } from "../../design-system/primitives/kpi";
 import {
   Card,
   Cluster,
@@ -33,146 +32,57 @@ import { Heading, Text } from "../../design-system/primitives/typography";
 import {
   formatCount,
   formatDatabase,
-  formatDateTime,
   formatDay,
-  formatRate,
-  formatStates,
-  plural,
-  stageLabel,
 } from "../operator/format";
-import type {
-  CustomerAdminStatus,
-  CustomerNeed,
-  CustomerOpenBatch,
-} from "./AdminCustomers";
 import { errorMessage } from "./AdminCustomers";
-import {
-  ActivityTimeline,
-  loadEntityActivity,
-} from "./AdminActivity";
-import type { ActivityPage } from "./AdminActivity";
+import { ActivityTimeline } from "./AdminActivity";
 import {
   CustomerLifecycleAction,
   RenameCustomerAction,
   SendPasswordResetAction,
 } from "./AdminCustomerActions";
 import { CustomerAvailabilityPanel } from "./AdminCustomerAvailability";
-import type { CustomerAvailabilityView } from "./AdminCustomerAvailability";
 import { CustomerBatchesTab, CustomerReportsTab } from "./AdminCustomerBatches";
-import type { CustomerLeadReportView } from "./AdminCustomerBatches";
 import {
   CustomerBillingSection,
   CustomerCooldownSection,
   CustomerDatabaseSection,
   CustomerExclusionListsSection,
   CustomerNichePolicySection,
-  formatUsdCents,
 } from "./AdminCustomerControls";
-import type {
-  CooldownWindowView,
-  CustomerBillingView,
-  CustomerExclusionListView,
-  NichePolicyView,
-} from "./AdminCustomerControls";
-import { formatAsOf } from "./OperatorNumbers";
+import {
+  CustomerNumbers,
+  Dependencies,
+  NeedsList,
+  RecentActivity,
+  agencyName,
+  describe,
+} from "./AdminCustomerSummary";
+import {
+  CUSTOMER_TABS,
+  adminCustomerDetailsLoader,
+  adminCustomerDetailsShouldRevalidate,
+  blockingDependencies,
+  currentTab,
+  customerTabHref,
+} from "./customerDetailsData";
+import type { CustomerDetailsData } from "./customerDetailsData";
 
 import "./AdminCustomerDetails.css";
 
-export interface UserAccountRecord {
-  auth_user_id: string;
-  email: string;
-  name: string;
-  active: boolean;
-  created_at: string;
-  replaced_at: string | null;
-  replaced_by_auth_user_id: string | null;
-}
-
-/** The Customer page's numbers row and Needs list
- *  (GET /api/admin/customers/{id}/summary), in the Customers table's terms. */
-export interface CustomerSummaryView {
-  customerId: number;
-  database: string;
-  states: string[];
-  customerSince: string | null;
-  needs: CustomerNeed[];
-  balance: {
-    billed: boolean;
-    availableCents: number;
-    heldCents: number;
-    heldFor: number[];
-    rateCentsPerThousand: number | null;
-  };
-  available: { count: number; asOf: string | null } | null;
-  openBatches: { count: number; first: CustomerOpenBatch | null };
-  delivered: { windowDays: number; leads: number; batches: number };
-  lastDeliveryAt: string | null;
-  leadReports: { open: number; total: number };
-}
-
-export interface CustomerDetailsData {
-  activityTimeline: ActivityPage;
-  customer: {
-    id: number;
-    slug: string;
-    name: string;
-    agency_id: number | null;
-    agency: string;
-    active: boolean;
-    licensed_states: string[];
-    status: CustomerAdminStatus;
-    last_activity_at: string | null;
-    lead_database?: "db1" | "db2";
-  };
-  history: {
-    requests: number;
-    distributions: number;
-    outcomes: number;
-    reports: number;
-    first_delivered_at: string | null;
-    last_delivered_at: string | null;
-  };
-  user_account: UserAccountRecord | null;
-  invitation: {
-    id: string;
-    email: string;
-    invited_at: string;
-    replaces_auth_user_id: string | null;
-    status: CustomerAdminStatus;
-  } | null;
-  former_accounts: UserAccountRecord[];
-  activity: {
-    id: string;
-    action: string;
-    label: string;
-    actor: string;
-    reason: string;
-    created_at: string;
-  }[];
-  deletion: {
-    dependencies: Record<string, number>;
-    requires_deactivation: boolean;
-    can_hard_delete: boolean;
-    tombstoned: boolean;
-  };
-  agencies: {
-    id: number;
-    name: string;
-    active: boolean;
-  }[];
-  /** Present on the Customer page; omitted from the agency floating card. */
-  summary?: CustomerSummaryView;
-  billing?: CustomerBillingView;
-  cooldown?: CooldownWindowView;
-  nichePolicy?: NichePolicyView;
-  /** Cached pool availability; omitted when the details payload is reused elsewhere. */
-  availability?: CustomerAvailabilityView;
-  exclusionLists?: CustomerExclusionListView[];
-  leadReports?: CustomerLeadReportView[];
-  /** Sections whose own fetch failed, so the page renders without them.
-   *  An absent section and a broken one look identical otherwise. */
-  unavailableSections?: string[];
-}
+// The page's data, tabs, and loader moved to adminCustomerDetails.ts; these
+// keep the imports that already name this module working.
+export {
+  CUSTOMER_TABS,
+  adminCustomerDetailsLoader,
+  adminCustomerDetailsShouldRevalidate,
+  customerTabHref,
+};
+export type {
+  CustomerDetailsData,
+  CustomerSummaryView,
+  UserAccountRecord,
+} from "./customerDetailsData";
 
 interface AgencyAssignmentPreview {
   customer: {
@@ -215,318 +125,6 @@ interface Failure {
   scope: FailureScope;
   message: string;
   dependencies: Record<string, number> | null;
-}
-
-/** The record's sub-sections (V7). Each is its own address. */
-export const CUSTOMER_TABS = [
-  { key: "summary", label: "Summary" },
-  { key: "batches", label: "Batches" },
-  { key: "billing", label: "Billing" },
-  { key: "rules", label: "Rules" },
-  { key: "reports", label: "Reports" },
-  { key: "access", label: "Access" },
-  { key: "activity", label: "Activity" },
-] as const;
-
-type CustomerTab = (typeof CUSTOMER_TABS)[number]["key"];
-
-function currentTab(value: string | undefined): CustomerTab {
-  return CUSTOMER_TABS.some((tab) => tab.key === value) ? (value as CustomerTab) : "summary";
-}
-
-export function customerTabHref(customerId: number, tab: CustomerTab): string {
-  return tab === "summary"
-    ? `/app/admin/customers/${customerId}`
-    : `/app/admin/customers/${customerId}/${tab}`;
-}
-
-/** The backend counts dependencies with its own storage keys, one of which is
- *  camelCase. Operators read record names, not storage keys. */
-const DEPENDENCY_LABELS: Record<string, string> = {
-  requests: "Batch Requests",
-  distributions: "Distributions",
-  outcomes: "Lead Outcomes",
-  reports: "Lead Reports",
-  dispositions: "Dispositions",
-  profiles: "Profiles",
-  userAccounts: "User Accounts",
-  invitations: "Invitations",
-  agencyMemberships: "Agency memberships",
-  exclusionLists: "Exclusion Lists",
-  creditLedgerEntries: "Credit Ledger entries",
-  creditPurchases: "Credit Purchases",
-  batchHolds: "Batch Holds",
-  accountMigrations: "User Account migration records",
-};
-
-function dependencyLabel(key: string): string {
-  return DEPENDENCY_LABELS[key] ?? key;
-}
-
-/** A blocked hard delete answers 409 with a structured `detail`, which `api`
- *  preserves alongside the flattened message. */
-function blockingDependencies(error: unknown): Record<string, number> | null {
-  const detail = (error as { detail?: { dependencies?: Record<string, number> } })
-    .detail;
-  return detail?.dependencies ?? null;
-}
-
-function routePath(href: string): string {
-  return href.startsWith("/app/") ? href.slice("/app".length) : href;
-}
-
-export async function adminCustomerDetailsLoader({
-  params,
-}: LoaderFunctionArgs): Promise<CustomerDetailsData> {
-  const customerId = params.customerId;
-  const details = await api<
-    Omit<
-      CustomerDetailsData,
-      | "agencies"
-      | "summary"
-      | "billing"
-      | "cooldown"
-      | "nichePolicy"
-      | "availability"
-      | "exclusionLists"
-      | "leadReports"
-      | "activityTimeline"
-      | "unavailableSections"
-    >
-  >(`/api/admin/customers/${customerId}/details`);
-  const [
-    summary,
-    directory,
-    activityTimeline,
-    billing,
-    cooldown,
-    nichePolicy,
-    availability,
-    exclusionLists,
-    leadReports,
-  ] = await Promise.all([
-    api<CustomerSummaryView>(`/api/admin/customers/${customerId}/summary`).catch(
-      () => undefined,
-    ),
-    api<{
-      agencies: { id: number; name: string; active: boolean }[];
-    }>("/api/admin/agencies/directory").catch(() => undefined),
-    loadEntityActivity("customer", customerId).catch(() => undefined),
-    api<CustomerBillingView>(
-      `/api/admin/customers/${customerId}/billing`,
-    ).catch(() => undefined),
-    api<CooldownWindowView>(
-      `/api/admin/customers/${customerId}/cooldown-window`,
-    ).catch(() => undefined),
-    api<NichePolicyView>(
-      `/api/admin/customers/${customerId}/niche-policy`,
-    ).catch(() => undefined),
-    api<CustomerAvailabilityView>(
-      `/api/admin/customers/${customerId}/availability`,
-    ).catch(() => undefined),
-    api<CustomerExclusionListView[]>(
-      `/api/admin/customers/${customerId}/exclusion-lists`,
-    ).catch(() => undefined),
-    api<CustomerLeadReportView[]>(
-      `/api/admin/customers/${customerId}/lead-reports`,
-    ).catch(() => undefined),
-  ]);
-  // A section that failed to load is not a section that does not exist, and
-  // an administrator making a decision needs to know which one they are
-  // looking at. Naming the gap keeps the page usable without letting a
-  // transient error read as "this Customer has no Billing".
-  const unavailableSections = [
-    summary === undefined ? "Numbers" : null,
-    billing === undefined ? "Billing" : null,
-    cooldown === undefined ? "Cooldown window" : null,
-    availability === undefined ? "Availability" : null,
-    nichePolicy === undefined ? "Niche policy" : null,
-    exclusionLists === undefined ? "Exclusion lists" : null,
-    leadReports === undefined ? "Lead reports" : null,
-    activityTimeline === undefined ? "Activity" : null,
-    directory === undefined ? "Agency directory" : null,
-  ].filter((label): label is string => label !== null);
-  return {
-    ...details,
-    activityTimeline: activityTimeline ?? {
-      entries: [],
-      page: 1,
-      pageSize: 25,
-      total: 0,
-      pages: 1,
-    },
-    ...(summary ? { summary } : {}),
-    ...(billing ? { billing } : {}),
-    ...(cooldown ? { cooldown } : {}),
-    ...(nichePolicy ? { nichePolicy } : {}),
-    ...(availability ? { availability } : {}),
-    ...(exclusionLists ? { exclusionLists } : {}),
-    ...(leadReports ? { leadReports } : {}),
-    ...(unavailableSections.length ? { unavailableSections } : {}),
-    agencies: (directory?.agencies ?? []).map(({ id, name, active }) => ({
-      id,
-      name,
-      active,
-    })),
-  };
-}
-
-/**
- * Switching tabs or opening a batch beside the list is not new data: the
- * page keeps what it read. Actions re-read it explicitly, and another
- * Customer reads its own.
- */
-export function adminCustomerDetailsShouldRevalidate({
-  currentUrl,
-  nextUrl,
-  currentParams,
-  nextParams,
-  defaultShouldRevalidate,
-}: ShouldRevalidateFunctionArgs): boolean {
-  if (currentParams.customerId !== nextParams.customerId) return defaultShouldRevalidate;
-  if (currentUrl.href === nextUrl.href) return defaultShouldRevalidate;
-  return false;
-}
-
-function Dependencies({ counts }: { counts: Record<string, number> }) {
-  const blocking = Object.entries(counts).filter(([, count]) => count > 0);
-  if (!blocking.length) return null;
-  return (
-    <ul className="admin-customer-details__dependencies">
-      {blocking.map(([key, count]) => (
-        <li key={key}>
-          {dependencyLabel(key)}: {count.toLocaleString("en-US")}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function heldMeta(summary: CustomerSummaryView): string {
-  const { balance } = summary;
-  if (!balance.billed) return "Billing off";
-  if (!balance.heldCents) return `Nothing held · ${formatRate(balance.rateCentsPerThousand)}`;
-  const batches = balance.heldFor.map((number) => `#${number}`).join(", ");
-  return `${formatUsdCents(balance.heldCents)} held for ${batches}`;
-}
-
-function CustomerNumbers({ summary }: { summary: CustomerSummaryView }) {
-  const now = new Date();
-  const first = summary.openBatches.first;
-  const need = summary.needs[0];
-  return (
-    <KpiRow label="Customer numbers" columns={6}>
-      <Kpi
-        label="Balance"
-        value={summary.balance.billed ? formatUsdCents(summary.balance.availableCents) : "Not billed"}
-        meta={heldMeta(summary)}
-      />
-      <Kpi
-        label="Available now"
-        value={summary.available ? formatCount(summary.available.count) : "Not counted"}
-        meta={
-          summary.available?.asOf
-            ? `${formatDatabase(summary.database)} · as of ${formatAsOf(summary.available.asOf, now)}`
-            : `${formatDatabase(summary.database)} · refresh on Summary`
-        }
-      />
-      <Kpi
-        label="Open batches"
-        value={formatCount(summary.openBatches.count)}
-        meta={first ? `#${first.number} ${stageLabel(first.stage).toLowerCase()}` : "None open"}
-      />
-      <Kpi
-        label={`Delivered · ${summary.delivered.windowDays} days`}
-        value={formatCount(summary.delivered.leads)}
-        meta={plural(summary.delivered.batches, "batch", "batches")}
-      />
-      <Kpi
-        label="Lead reports"
-        value={formatCount(summary.leadReports.open)}
-        meta={
-          summary.leadReports.open
-            ? `${formatCount(summary.leadReports.open)} open of ${formatCount(summary.leadReports.total)}`
-            : summary.leadReports.total
-              ? `None open · ${formatCount(summary.leadReports.total)} in total`
-              : "None open"
-        }
-      />
-      <Kpi
-        label="Needs"
-        value={formatCount(summary.needs.length)}
-        meta={need ? need.label : "Nothing waiting"}
-        alert={summary.needs.length > 0}
-      />
-    </KpiRow>
-  );
-}
-
-function actionWords(action: string): string {
-  const spaced = action.replaceAll("_", " ").trim();
-  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : "Change";
-}
-
-/** The latest few changes, so Summary says what happened lately; the
- *  Activity tab has the whole trail. */
-function RecentActivity({ activity, customerId }: { activity: ActivityPage; customerId: number }) {
-  const entries = activity.entries.slice(0, 3);
-  return (
-    <Panel title="Recent activity">
-      {entries.length ? (
-        <ul className="admin-customer-details__recent">
-          {entries.map((entry) => (
-            <li key={entry.id}>
-              <Text size="sm">{actionWords(entry.action)}</Text>
-              <Text size="xs" tone="muted">
-                {entry.reason ? `${entry.reason} · ` : ""}
-                {formatDateTime(entry.recordedAt)}
-              </Text>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <Text size="sm" tone="muted">
-          No administrator has changed this customer yet.
-        </Text>
-      )}
-      <ActionLink href={customerTabHref(customerId, "activity")}>All activity</ActionLink>
-    </Panel>
-  );
-}
-
-function agencyName(customer: CustomerDetailsData["customer"]): string {
-  return customer.agency_id === null || !customer.agency ? "No agency" : customer.agency;
-}
-
-function describe(data: CustomerDetailsData): string {
-  const { customer, summary } = data;
-  const parts = [
-    agencyName(customer),
-    formatStates(customer.licensed_states),
-    formatDatabase(summary?.database ?? customer.lead_database),
-  ];
-  if (summary?.customerSince) parts.push(`customer since ${formatDay(summary.customerSince)}`);
-  if (!customer.active) parts.push("deactivated");
-  return parts.join(" · ");
-}
-
-function NeedsList({ needs }: { needs: CustomerNeed[] }) {
-  if (!needs.length) {
-    return (
-      <Text size="sm" tone="muted">
-        Nothing is waiting on this customer.
-      </Text>
-    );
-  }
-  return (
-    <ul className="admin-customer-details__needs" aria-label="Needs">
-      {needs.map((need) => (
-        <li key={`${need.kind}-${need.href}-${need.label}`}>
-          <Link to={routePath(need.href)}>{need.label}</Link>
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 export function AdminCustomerDetailsRoute() {

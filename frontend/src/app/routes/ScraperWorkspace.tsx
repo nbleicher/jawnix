@@ -6,7 +6,8 @@ import {
   useRevalidator,
 } from "react-router";
 
-import { api, formatCode, providerAccessToken } from "../auth/adminMFA";
+import { api, apiFetch, csrfToken } from "../api";
+import { formatCode, providerAccessToken } from "../auth/adminMFA";
 import { storeProviderSession } from "../auth/providerSession";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { ActionLink, Button } from "../../design-system/primitives/Button";
@@ -57,14 +58,6 @@ function errorMessage(error: unknown): string {
     : "The request could not be completed.";
 }
 
-function csrf(): string {
-  const item = document.cookie
-    .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith("jawnix_csrf="));
-  return decodeURIComponent(item?.split("=", 2)[1] ?? "");
-}
-
 /** One verification per sign-in: a live grant goes straight to the
  *  workspace, and only a sign-in without one is asked for a code. */
 export async function scraperEntryLoader(): Promise<ScraperEntryData> {
@@ -76,9 +69,8 @@ export async function scraperEntryLoader(): Promise<ScraperEntryData> {
 }
 
 export async function scraperWorkspaceLoader(): Promise<ScraperWorkspaceData> {
-  const response = await fetch("/api/admin/scraper/workspace", {
-    credentials: "same-origin",
-    headers: { "X-CSRF-Token": csrf() },
+  const response = await apiFetch("/api/admin/scraper/workspace", {
+    headers: { "X-CSRF-Token": csrfToken() },
   });
   const body = (await response.json().catch(() => ({}))) as {
     detail?: string;

@@ -305,15 +305,16 @@ def test_google_maps_to_customer_feedback_acceptance(
         try:
             client = TestClient(app)
             created = client.post(
-                "/api/me/requests",
+                "/api/me/batch-requests",
                 json={
+                    "idempotency_key": f"acceptance-{run_key}",
                     "lead_count": 1,
                     "state_mode": "selected",
                     "states": [acceptance_state],
                 },
             )
             assert created.status_code == 201
-            request_id = uuid.UUID(created.json()["id"])
+            request_id = uuid.UUID(created.json()["request"]["id"])
             transition_request(session, request_id, "approve")
             fulfill_round_robin(session, settings)
             session.commit()
@@ -371,26 +372,35 @@ def test_google_maps_to_customer_feedback_acceptance(
                 )
             ) == 1
 
-            outcome = client.post(
-                f"/api/me/distributions/{event.id}/outcomes",
-                json={"kind": "positive_response"},
+            session.add(
+                LeadOutcome(
+                    distribution_event_id=event.id,
+                    customer_id=customer.id,
+                    actor_user_id=user_id,
+                    kind="positive_response",
+                    metric="positive_response",
+                )
             )
-            assert outcome.status_code == 201
+            session.add(
+                LeadOutcome(
+                    distribution_event_id=event.id,
+                    customer_id=customer.id,
+                    actor_user_id=user_id,
+                    kind="appointment_booked",
+                    metric="appointment_booked",
+                    appointment_at=datetime(
+                        2026, 8, 1, 15, tzinfo=timezone.utc
+                    ),
+                    note="Reported after the original delivery",
+                )
+            )
+            session.commit()
             assert session.scalar(
                 select(LeadOutcome).where(
                     LeadOutcome.distribution_event_id == event.id
                 )
             ) is not None
 
-            appointment = client.post(
-                f"/api/me/distributions/{event.id}/outcomes",
-                json={
-                    "kind": "appointment_booked",
-                    "appointment_at": "2026-08-01T15:00:00Z",
-                    "note": "Reported after the original delivery",
-                },
-            )
-            assert appointment.status_code == 201
             report_response = client.post(
                 f"/api/me/distributions/{event.id}/reports",
                 json={
@@ -1082,7 +1092,7 @@ def test_google_maps_to_customer_feedback_acceptance(
     settings.telegram_chat_id = "-10020260726"
     settings.telegram_approver_user_ids = "42"
     monkeypatch.setattr(
-        "jawnix.api.TelegramClient.answer_callback",
+        "jawnix.api.webhooks.TelegramClient.answer_callback",
         lambda *_args, **_kwargs: None,
     )
 

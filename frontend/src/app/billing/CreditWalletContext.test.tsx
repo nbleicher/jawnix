@@ -31,6 +31,15 @@ function Probe() {
   return <div>{wallet ? wallet.balanceCents : "missing"}</div>;
 }
 
+function setTabHidden(value: boolean) {
+  Object.defineProperty(document, "hidden", { configurable: true, value });
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: value ? "hidden" : "visible",
+  });
+  document.dispatchEvent(new Event("visibilitychange"));
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -131,5 +140,45 @@ describe("CreditWalletProvider", () => {
       await vi.advanceTimersByTimeAsync(2_500);
     });
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("pauses the processing-purchase poll while the tab is hidden", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(PROCESSING),
+      } as Response),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <CreditWalletProvider>
+        <Probe />
+      </CreditWalletProvider>,
+    );
+    await act(async () => Promise.resolve());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_500);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Hidden: no timer is armed and the poll budget is not spent.
+    await act(async () => setTabHidden(true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Visible again: the poll resumes on its usual cadence.
+    await act(async () => setTabHidden(false));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_500);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    setTabHidden(false);
   });
 });

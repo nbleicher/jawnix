@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 
 import type { CustomerDetailsData } from "./AdminCustomerDetails";
 import {
@@ -12,7 +12,7 @@ import {
   adminCustomerDetailsShouldRevalidate,
 } from "./AdminCustomerDetails";
 
-vi.mock("../auth/adminMFA", () => ({ api: vi.fn() }));
+vi.mock("../api", () => ({ api: vi.fn() }));
 
 const ACCOUNT = {
   auth_user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -141,6 +141,38 @@ describe("administrator Customer details", () => {
   beforeEach(() => {
     vi.mocked(api).mockReset();
     vi.mocked(api).mockResolvedValue({});
+  });
+
+  it("reads the record and every section in one parallel batch", async () => {
+    const finish: Array<() => void> = [];
+    vi.mocked(api).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish.push(() => resolve({}));
+        }),
+    );
+
+    const pending = adminCustomerDetailsLoader({
+      params: { customerId: "7" },
+    } as unknown as Parameters<typeof adminCustomerDetailsLoader>[0]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Details plus its nine sections go out together: the sections do not
+    // wait a round trip on the details payload.
+    expect(vi.mocked(api).mock.calls.map(([path]) => path)).toEqual([
+      "/api/admin/customers/7/details",
+      "/api/admin/customers/7/summary",
+      "/api/admin/agencies/directory",
+      "/api/admin/activity?entityType=customer&entityId=7",
+      "/api/admin/customers/7/billing",
+      "/api/admin/customers/7/cooldown-window",
+      "/api/admin/customers/7/niche-policy",
+      "/api/admin/customers/7/availability",
+      "/api/admin/customers/7/exclusion-lists",
+      "/api/admin/customers/7/lead-reports",
+    ]);
+    finish.forEach((resolve) => resolve());
+    await pending;
   });
 
   it("keeps core Customer details available when an ancillary endpoint fails", async () => {
