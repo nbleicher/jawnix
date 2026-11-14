@@ -6,6 +6,8 @@
  * global scope — a denied list still protects its uploader.
  */
 
+import { apiFetch } from "../api";
+
 export interface ExclusionListStatus {
   id: string;
   type: string;
@@ -55,14 +57,6 @@ interface ErrorBody {
   detail?: string | { msg?: string }[];
 }
 
-function csrf(): string {
-  const item = document.cookie
-    .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith("jawnix_csrf="));
-  return decodeURIComponent(item?.split("=", 2)[1] ?? "");
-}
-
 function refusal(body: ErrorBody, fallback: string): string {
   if (typeof body.detail === "string") return body.detail;
   const first = Array.isArray(body.detail) ? body.detail[0]?.msg : undefined;
@@ -81,9 +75,7 @@ async function parse<T>(response: Response, fallback: string): Promise<T> {
 }
 
 export async function listMyExclusionLists(): Promise<ExclusionListStatus[]> {
-  const response = await fetch("/api/me/exclusion-lists", {
-    credentials: "same-origin",
-  });
+  const response = await apiFetch("/api/me/exclusion-lists");
   const body = await parse<unknown>(
     response,
     "Your Exclusion Lists could not be loaded.",
@@ -98,10 +90,8 @@ export async function uploadMyExclusionList(
   const body = new FormData();
   body.append("file", file);
   body.append("type", type);
-  const response = await fetch("/api/me/exclusion-lists", {
+  const response = await apiFetch("/api/me/exclusion-lists", {
     method: "POST",
-    headers: { "X-CSRF-Token": csrf() },
-    credentials: "same-origin",
     body,
   });
   return parse(response, "The Exclusion List could not be uploaded.");

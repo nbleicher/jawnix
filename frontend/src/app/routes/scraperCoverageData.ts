@@ -2,6 +2,7 @@ import { redirect } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 
 import { PrivilegedSessionExpired } from "./scraperMonitoring";
+import { apiFetch, csrfToken } from "../api";
 
 export type CoverageStatus = "covered" | "partial" | "uncovered";
 export type CellStatus = "posted" | "reserved" | "failed" | "uncovered";
@@ -63,18 +64,9 @@ export interface StateCoverageDetail {
 
 const BASE = "/api/admin/scraper/coverage";
 
-function csrf(): string {
-  const item = document.cookie
-    .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith("jawnix_csrf="));
-  return decodeURIComponent(item?.split("=", 2)[1] ?? "");
-}
-
 async function read<T>(path: string): Promise<T> {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    headers: { "X-CSRF-Token": csrf() },
+  const response = await apiFetch(path, {
+    headers: { "X-CSRF-Token": csrfToken() },
   });
   if (response.status === 401 || response.status === 403) {
     throw new PrivilegedSessionExpired();

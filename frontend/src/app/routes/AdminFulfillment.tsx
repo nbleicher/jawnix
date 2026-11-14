@@ -11,13 +11,16 @@ import { Page, Section } from "../../design-system/primitives/layout";
 import { StatusBadge } from "../../design-system/primitives/status";
 import type { StatusTone } from "../../design-system/primitives/status";
 import { Mono, Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
+import { routePath } from "../routePath";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { ControlActionBar, conflictEndpoint, postReason } from "../operator/actions";
 import type { ControlAction } from "../operator/actions";
 import { formatDateTime } from "../operator/format";
 import type { ActivityPage } from "./AdminActivity";
 import type { MilestoneGraphData } from "./batchRequests";
+
+export { routePath };
 
 /**
  * Fulfillment contracts and the Inventory Conflict page (#57).
@@ -310,12 +313,6 @@ function statusLabel(status: string): string {
 
 function statusTone(status: string): StatusTone {
   return STATUS_TONES[status] ?? "neutral";
-}
-
-/** Server hrefs are absolute so they work outside the shell too. Inside it the
- *  router owns the `/app` basename, so it has to come back off. */
-export function routePath(href: string): string {
-  return href.startsWith("/app/") ? href.slice("/app".length) : href;
 }
 
 const REPORT_TONES: Record<string, StatusTone> = {

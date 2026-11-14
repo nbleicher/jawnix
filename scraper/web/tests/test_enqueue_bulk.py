@@ -64,6 +64,32 @@ def test_pause_stops_before_the_next_batch(tmp_path,monkeypatch):
     assert len(calls)==1
 
 
+def test_permanently_skipped_head_batch_does_not_starve_insertable_jobs(monkeypatch):
+    # The server permanently skips category-covered jobs, so jobs[0:100] insert
+    # nothing. The cycle must advance to the insertable jobs below the head.
+    candidates=jobs(250)
+    calls=[]
+    def insert(api,batch,*args):
+        calls.append(batch)
+        return (0 if len(calls)==1 else len(batch)),None
+    monkeypatch.setattr(enqueue,"insert_batch",insert)
+    assert enqueue.top_up("http://queue.test",candidates,0,150,150,Ledger(),date.today(),{}) == (250,150,0)
+    assert list(map(len,calls)) == [100,100,50]
+
+
+def test_fully_skipped_candidates_end_the_cycle_bounded(monkeypatch):
+    candidates=jobs(100*(enqueue.MAX_BATCHES_PER_CYCLE+2))
+    calls=[]
+    def insert(api,batch,*args):
+        calls.append(batch)
+        return 0,None
+    monkeypatch.setattr(enqueue,"insert_batch",insert)
+    cursor,inserted,depth=enqueue.top_up("http://queue.test",candidates,0,100,100,Ledger(),date.today(),{})
+    assert (inserted,depth) == (0,0)
+    assert len(calls) == enqueue.MAX_BATCHES_PER_CYCLE
+    assert cursor == 100*enqueue.MAX_BATCHES_PER_CYCLE
+
+
 def test_bulk_http_contract_keeps_day_key_and_coverage(monkeypatch):
     captured=[]
     class Response(io.BytesIO):

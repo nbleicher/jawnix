@@ -9,7 +9,8 @@ import {
 } from "react-router";
 import type { LoaderFunctionArgs, ShouldRevalidateFunctionArgs } from "react-router";
 
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
+import { routePath } from "../routePath";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import { ActionLink, Button } from "../../design-system/primitives/Button";
 import { Dialog } from "../../design-system/primitives/Dialog";
@@ -162,10 +163,6 @@ export function formatAdminDate(value: string | null): string {
 /** The directory's href is absolute so it is usable anywhere. Inside the shell
  *  we navigate through the router instead, so the loader, the pending
  *  indicator, and the route announcer all still run. */
-function routePath(href: string): string {
-  return href.startsWith("/app/") ? href.slice("/app".length) : href;
-}
-
 export function errorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message

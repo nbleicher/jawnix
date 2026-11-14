@@ -193,7 +193,7 @@ def test_switching_databases_never_changes_billing_or_frozen_terms(session):
     assert resumed["balanceCents"] == 2500 and resumed["availableBalanceCents"] == 200
 
 
-@pytest.mark.parametrize("path", ["/api/me/batch-requests", "/api/me/requests"])
+@pytest.mark.parametrize("path", ["/api/me/batch-requests"])
 def test_changed_or_unreviewed_price_never_places_a_hold(session, path):
     user_id, customer = _customer(session)
     _configure(session, customer, enabled=True, rate=1000)

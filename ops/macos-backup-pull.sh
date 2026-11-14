@@ -1,4 +1,9 @@
 #!/bin/zsh
+# SUPERSEDED: the R2 offsite copy in ops/backup.sh (see docs/OFFSITE-BACKUP-R2.md)
+# is now the primary offsite backup. This Mac pull is retained as an optional
+# third copy, but its default JAWNIX_VPS_SSH_TARGET still points at the legacy
+# host whose backups stopped 2026-10-02. To reactivate it as a third copy,
+# set JAWNIX_VPS_SSH_TARGET to the production host before running.
 set -eu
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"

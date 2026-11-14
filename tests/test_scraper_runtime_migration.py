@@ -10,18 +10,16 @@ from alembic.operations import Operations
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import DatabaseError
 
-from jawnix.database import Base
-
 
 def load_revision():
     path = (
         Path(__file__).parents[1]
         / "alembic"
         / "versions"
-        / "20260729_0029_scraper_runtime_configuration_revisions.py"
+        / "20261109_0055_baseline.py"
     )
     spec = importlib.util.spec_from_file_location(
-        "scraper_runtime_revision_0029",
+        "baseline_0055",
         path,
     )
     assert spec is not None and spec.loader is not None
@@ -33,7 +31,6 @@ def load_revision():
 def test_runtime_configuration_revision_is_append_only(tmp_path):
     database = tmp_path / "runtime-revisions.db"
     engine = create_engine(f"sqlite:///{database}")
-    Base.metadata.create_all(engine)
     revision = load_revision()
     with engine.begin() as connection:
         context = MigrationContext.configure(connection)

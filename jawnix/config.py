@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     support_email: str = Field(default="noah@jawnix.com", alias="JAWNIX_SUPPORT_EMAIL")
     batch_dir: Path = Field(default=Path("./batches"), alias="JAWNIX_BATCH_DIR")
     batch_retention_days: int = Field(default=30, alias="JAWNIX_BATCH_RETENTION_DAYS")
+    job_retention_days: int = Field(default=30, ge=1, alias="JAWNIX_JOB_RETENTION_DAYS")
     global_cooldown_days: int = Field(default=7, alias="JAWNIX_GLOBAL_COOLDOWN_DAYS")
     worker_poll_seconds: float = Field(default=2.0, alias="JAWNIX_WORKER_POLL_SECONDS")
     worker_id: str = Field(default="worker-1", alias="JAWNIX_WORKER_ID")
