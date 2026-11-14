@@ -12,10 +12,6 @@
 		reverse_proxy api:8001
 	}
 
-	handle /admin/scraper* {
-		reverse_proxy api:8001
-	}
-
 	# Redesigned React shell. FastAPI owns the whole prefix so it can serve
 	# content-hashed assets immutably and return the shell document for direct
 	# navigation to any application route.
@@ -63,14 +59,10 @@
 	encode zstd gzip
 
 	# The operator UI lives in the branded React shell. The dedicated origin
-	# keeps the legacy authenticated proxy paths, but its entry opens the
-	# native workspace and its existing administrator/MFA checks.
+	# only redirects its entry to the native workspace, which runs under the
+	# primary origin's administrator/MFA checks.
 	@workspace_entry path / /index.html
 	redir @workspace_entry {$JAWNIX_PUBLIC_BASE_URL:https://jawnix.com}/app/admin/acquisition/scraper 302
-
-	handle /admin/scraper* {
-		reverse_proxy api:8001
-	}
 
 	respond 404
 

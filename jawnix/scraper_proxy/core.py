@@ -16,9 +16,6 @@ from ..scraper_operations import HTTPScraperOperations, ScraperOperations
 
 logger = logging.getLogger(__name__)
 
-MOUNT_PREFIX = "/admin/scraper"
-SCRAPER_SESSION_COOKIE = "jawnix_scraper_session"
-HANDOFF_MAX_AGE_SECONDS = 60
 SCRAPER_GRANT_COOKIE = "jawnix_scraper_grant"
 #: How long one Scraper health read answers Today. Today re-reads on every
 #: visit and after every decision; the Scraper is asked at most this often.
@@ -46,20 +43,6 @@ native_router = APIRouter(
     prefix="/api/admin/scraper",
     tags=["scraper-operations"],
 )
-
-
-def _scraper_serializer(settings: Settings) -> URLSafeTimedSerializer:
-    return URLSafeTimedSerializer(
-        settings.session_secret,
-        salt="jawnix-scraper-session-v1",
-    )
-
-
-def _handoff_serializer(settings: Settings) -> URLSafeTimedSerializer:
-    return URLSafeTimedSerializer(
-        settings.session_secret,
-        salt="jawnix-scraper-handoff-v1",
-    )
 
 
 def _grant_serializer(settings: Settings) -> URLSafeTimedSerializer:
