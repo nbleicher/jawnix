@@ -358,12 +358,19 @@ export const router = createBrowserRouter(
           ],
         },
 
-        // The design-system gallery renders every primitive in both themes. It
-        // is the fixture the accessibility and visual-regression gates in #70
-        // run against.
-        { path: "design-system", lazy: lazyPage("DesignSystem", "DesignSystemRoute") },
+        // Development-only surfaces. The design-system gallery renders every
+        // primitive in both themes; it never ships in the production bundle.
         ...(import.meta.env.DEV
           ? [
+              {
+                path: "design-system",
+                lazy: async () => {
+                  const { DesignSystemRoute } = await import(
+                    "./routes/DesignSystem"
+                  );
+                  return { Component: DesignSystemRoute };
+                },
+              },
               {
                 path: "prototype/typeface",
                 lazy: async () => {
