@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from .config import Settings, get_settings
 from .database import get_db
-from .mfa_provider import BetterAuthMFAProvider, MFAProviderError, get_mfa_provider
+from .mfa_provider import MFAProviderError, get_mfa_provider
 from .models import AdminMFAState
 
 
@@ -43,7 +43,7 @@ def _serializer(settings: Settings) -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(settings.session_secret, salt="jawnix-vps-session-v1")
 
 
-async def verify_supabase_token(access_token: str, settings: Settings) -> dict:
+async def verify_access_token(access_token: str, settings: Settings) -> dict:
     try:
         user, claims = await get_mfa_provider(settings).user_for_token(access_token)
     except MFAProviderError as exc:
@@ -79,7 +79,7 @@ def issue_session(
             "generation": session_generation,
             "factor_id": str(factor_id) if factor_id else None,
             "csrf": csrf,
-            "provider": settings.auth_provider,
+            "provider": "better-auth",
             "provider_sid": claims.get("sessionId"),
         }
     )
@@ -115,7 +115,7 @@ def principal_from_request(request: Request, settings: Settings) -> Principal:
         raise HTTPException(status_code=401, detail="Login required.")
     try:
         payload = _serializer(settings).loads(token, max_age=settings.session_ttl_seconds)
-        if payload.get("provider", "supabase") != settings.auth_provider:
+        if payload.get("provider", "better-auth") != "better-auth":
             raise ValueError("Identity provider changed")
         retired = payload.get("role") == RETIRED_MANAGER_ROLE
         principal = Principal(
@@ -191,12 +191,9 @@ async def require_administrator_assurance(principal: Principal, settings: Settin
         )
     try:
         provider = get_mfa_provider(settings)
-        if isinstance(provider, BetterAuthMFAProvider):
-            if not principal.provider_session_id:
-                raise MFAProviderError(expired_session=True)
-            factors = await provider.list_factors(principal.user_id, session_id=principal.provider_session_id)
-        else:
-            factors = await provider.list_factors(principal.user_id)
+        if not principal.provider_session_id:
+            raise MFAProviderError(expired_session=True)
+        factors = await provider.list_factors(principal.user_id, session_id=principal.provider_session_id)
     except MFAProviderError as error:
         if error.expired_session:
             raise HTTPException(status_code=401, detail="This administrator session is no longer valid.") from None

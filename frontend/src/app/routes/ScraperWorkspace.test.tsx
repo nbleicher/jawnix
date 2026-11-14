@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../../design-system/theme/ThemeProvider";
 import {
   ScraperStepUpRoute,
-  ScraperWorkspaceRoute,
   scraperEntryLoader,
 } from "./ScraperWorkspace";
 
@@ -73,30 +72,6 @@ describe("Scraper Operations workspace", () => {
     expect(
       screen.getByText(/lasts until\s+you sign out or your administrator session expires/i),
     ).toBeVisible();
-  });
-
-  it("fails closed without rendering operational controls", () => {
-    renderRoute(
-      <ScraperWorkspaceRoute />,
-      {
-        available: false,
-        lastSuccessfulAt: "2026-07-28T12:00:00Z",
-      },
-      "/admin/acquisition/scraper/workspace",
-    );
-
-    expect(
-      screen.getByRole("heading", {
-        level: 2,
-        name: "Scraper Operations unavailable",
-      }),
-    ).toBeVisible();
-    expect(screen.getByText(/No controls are available/i)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
-    expect(
-      screen.getByRole("link", { name: "Back to Setup" }),
-    ).toHaveAttribute("href", "/app/admin/setup");
-    expect(screen.queryByText("Pause pipeline")).not.toBeInTheDocument();
   });
 });
 

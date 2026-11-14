@@ -320,10 +320,10 @@ class UserAccountInvitation(Base):
 class AdminMFAState(Base):
     """Jawnix-owned state around provider-managed administrator factors.
 
-    Supabase owns every TOTP secret and challenge.  Jawnix stores only the
-    coordination state that Supabase cannot express: which factors pre-dated a
-    resumable enrollment, challenge throttling, and a generation used to revoke
-    all signed Jawnix sessions after a security change.
+    The identity provider owns every TOTP secret and challenge.  Jawnix stores
+    only the coordination state that the provider cannot express: which factors
+    pre-dated a resumable enrollment, challenge throttling, and a generation
+    used to revoke all signed Jawnix sessions after a security change.
     """
 
     __tablename__ = "admin_mfa_states"
@@ -1654,6 +1654,7 @@ class KeywordGenerationDraftRecord(Base):
         index=True,
         nullable=False,
     )
+    failure_detail: Mapped[str | None] = mapped_column(String(300))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,
@@ -1675,7 +1676,7 @@ class KeywordGenerationDraftRecord(Base):
             name="ck_keyword_generation_drafts_mode",
         ),
         CheckConstraint(
-            "acceptance_status IN ('pending', 'accepted')",
+            "acceptance_status IN ('generating', 'pending', 'accepted', 'failed')",
             name="ck_keyword_generation_drafts_acceptance_status",
         ),
         CheckConstraint(

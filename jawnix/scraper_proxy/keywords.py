@@ -7,29 +7,29 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.responses import Response
 from itsdangerous import BadSignature, SignatureExpired
 from sqlalchemy.orm import Session
-from starlette.concurrency import run_in_threadpool
 
-import jawnix.scraper_proxy as _scraper_proxy
 from ..activity import record_activity
 from ..auth import Principal, require_admin
 from ..config import Settings, get_settings
 from ..database import get_db
 from ..keyword_generation import (
+    KEYWORD_GENERATION_REQUEST_STALE,
     GenerationErrorCode,
-    KeywordGenerationError,
     accept_generation_draft,
-    create_generation_draft,
-    exclusion_metrics,
     generation_error,
-    keyword_history_terms,
-    purge_generation_drafts,
+    generation_in_progress,
+    request_generation_draft,
+    stale_generating_drafts,
     valid_generation_draft,
 )
 from ..keyword_history import observe_keyword_history
+from ..models import KeywordGenerationDraftRecord
 from ..scraper_keywords import (
     KeywordDiff,
     KeywordGenerateRequest,
+    KeywordGenerationAccepted,
     KeywordGenerationDraft,
+    KeywordGenerationStatus,
     KeywordRollover,
     KeywordRolloverRequest,
     KeywordSaveRequest,
@@ -389,9 +389,10 @@ async def save_scraper_keywords(
 
 @native_router.post(
     "/keywords/generate",
-    response_model=KeywordGenerationDraft,
+    status_code=202,
+    response_model=KeywordGenerationAccepted,
 )
-async def generate_scraper_keywords(
+def generate_scraper_keywords(
     payload: KeywordGenerateRequest,
     request: Request,
     response: Response,
@@ -399,7 +400,11 @@ async def generate_scraper_keywords(
     settings: Settings = Depends(get_settings),
     db: Session = Depends(get_db),
 ):
-    """Create a Jawnix-owned, review-only keyword draft."""
+    """Queue a Jawnix-owned, review-only keyword draft.
+
+    The provider call can take minutes, so the keyword worker owns it; this
+    route only records the request and the client polls for the draft.
+    """
 
     _require_scraper_grant(request, response, principal, settings)
     provider = _generation_provider(request, settings)
@@ -420,7 +425,11 @@ async def generate_scraper_keywords(
             status_code=error.status_code,
             detail=error.message,
         )
-    if not _scraper_proxy.try_generation_lock(db):
+    now = _workspace_now(request)
+    for stale in stale_generating_drafts(db, now=now):
+        stale.acceptance_status = "failed"
+        stale.failure_detail = "Keyword generation did not complete; try again"
+    if generation_in_progress(db):
         error = generation_error(GenerationErrorCode.CONFLICT)
         _audit_keyword_failure(
             db,
@@ -437,150 +446,100 @@ async def generate_scraper_keywords(
             status_code=error.status_code,
             detail=error.message,
         )
-    try:
-        operations = _scraper_operations(request, settings)
-        workspace, winners = await asyncio.gather(
-            operations.list_keywords(),
-            operations.keyword_winners(),
-        )
-    except ScraperOperationsError as error:
-        _audit_keyword_failure(
-            db,
-            principal=principal,
-            action="scraper_keyword_generation_failed",
-            reason="Keyword exclusions could not be read from Scraper Operations",
-            details={
-                "mode": payload.mode,
-                "seedKeyword": payload.seed_keyword,
-                "outcome": "upstream_unavailable",
-                "transportError": error.transport_error,
-            },
-        )
-        return _native_unavailable(_state(request, settings))
-
-    _mark_operations_success(request, settings)
-    if payload.mode == "adjacent" and (
-        not payload.seed_keyword
-        or payload.seed_keyword.casefold()
-        not in {winner.keyword.casefold() for winner in winners}
-    ):
-        error = generation_error(GenerationErrorCode.INVALID_SEED)
-        _audit_keyword_failure(
-            db,
-            principal=principal,
-            action="scraper_keyword_generation_failed",
-            reason="Jawnix keyword generation returned no review draft",
-            details={
-                "mode": payload.mode,
-                "seedKeyword": payload.seed_keyword,
-                "outcome": error.code.value,
-            },
-        )
-        raise HTTPException(
-            status_code=error.status_code,
-            detail=error.message,
-        )
-
-    history = keyword_history_terms(db)
-    observed_at = _workspace_now(request)
-    observe_keyword_history(
-        db,
-        workspace.current,
-        origin="active_list",
-        observed_at=observed_at,
-    )
-    observe_keyword_history(
-        db,
-        (winner.keyword for winner in winners),
-        origin="winner",
-        observed_at=observed_at,
-    )
-    exclusions, exclusion_counts = exclusion_metrics(
-        active=workspace.current,
-        winners=(winner.keyword for winner in winners),
-        history=history,
-    )
-    try:
-        result = await run_in_threadpool(
-            provider.generate_keywords,
-            mode=payload.mode,
-            excluded_keywords=exclusions,
-            seed_keyword=payload.seed_keyword,
-        )
-        if len(result.terms) != 25:
-            error = generation_error(
-                GenerationErrorCode.INSUFFICIENT_CANDIDATES
-            )
-            error.metrics = {
-                **result.candidate_metrics,
-                "acceptedCount": len(result.terms),
-            }
-            raise error
-    except KeywordGenerationError as error:
-        _audit_keyword_failure(
-            db,
-            principal=principal,
-            action="scraper_keyword_generation_failed",
-            reason="Jawnix keyword generation returned no review draft",
-            details={
-                "mode": payload.mode,
-                "seedKeyword": payload.seed_keyword,
-                "outcome": error.code.value,
-                "statusCode": error.status_code,
-                "candidateMetrics": error.metrics,
-            },
-        )
-        raise HTTPException(
-            status_code=error.status_code,
-            detail=error.message,
-        ) from None
-
-    now = _workspace_now(request)
-    purge_generation_drafts(db, now=now)
-    draft = create_generation_draft(
+    draft = request_generation_draft(
         db,
         administrator_id=principal.user_id,
         mode=payload.mode,
         seed_keyword=payload.seed_keyword,
         model=provider.model,
-        result=result,
-        exclusion_metrics=exclusion_counts,
         now=now,
-    )
-    label = (
-        f"keywords adjacent to {payload.seed_keyword}"
-        if payload.mode == "adjacent"
-        else "broad local-business keywords"
-    )
-    notice = (
-        f"Draft ready: 25 {label}. Review below; nothing has been saved or "
-        f"enqueued. {result.excluded_count} candidates were filtered."
     )
     record_activity(
         db,
-        action="scraper_keyword_generation_created",
+        action="scraper_keyword_generation_requested",
         target_type="scraper_keyword_generation",
         target_id=draft.id,
         actor_id=principal.user_id,
-        reason="Generated Scraper keywords for human review",
+        reason="Queued Scraper keyword generation for human review",
         details={
             "mode": payload.mode,
             "seedKeyword": payload.seed_keyword,
-            "keywordCount": len(result.terms),
-            "excludedCount": result.excluded_count,
-            "exclusionMetrics": exclusion_counts,
-            "candidateMetrics": result.candidate_metrics,
-            "activeConfigurationChanged": False,
         },
     )
     db.commit()
-    return KeywordGenerationDraft(
+    return KeywordGenerationAccepted(generation_id=str(draft.id))
+
+
+def _generation_notice(draft: KeywordGenerationDraftRecord) -> str:
+    label = (
+        f"keywords adjacent to {draft.seed_keyword}"
+        if draft.mode == "adjacent"
+        else "broad local-business keywords"
+    )
+    return (
+        f"Draft ready: {len(draft.terms)} {label}. Review below; nothing has "
+        f"been saved or enqueued. {draft.excluded_count} candidates were "
+        "filtered."
+    )
+
+
+@native_router.get(
+    "/keywords/generate/{generation_id}",
+    response_model=KeywordGenerationStatus,
+)
+def keyword_generation_status(
+    generation_id: str,
+    request: Request,
+    response: Response,
+    principal: Principal = Depends(require_admin),
+    settings: Settings = Depends(get_settings),
+    db: Session = Depends(get_db),
+):
+    """The queued generation's progress; the draft itself once it is ready."""
+
+    _require_scraper_grant(request, response, principal, settings)
+    try:
+        draft_id = uuid.UUID(generation_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=404, detail="Keyword generation was not found."
+        ) from None
+    draft = db.get(KeywordGenerationDraftRecord, draft_id)
+    if draft is None or draft.administrator_id != principal.user_id:
+        raise HTTPException(
+            status_code=404, detail="Keyword generation was not found."
+        )
+    if draft.acceptance_status == "generating":
+        if (
+            draft.created_at
+            < _workspace_now(request) - KEYWORD_GENERATION_REQUEST_STALE
+        ):
+            draft.acceptance_status = "failed"
+            draft.failure_detail = "Keyword generation did not complete; try again"
+            db.commit()
+        else:
+            return KeywordGenerationStatus(
+                status="generating",
+                generation_id=str(draft.id),
+            )
+    if draft.acceptance_status == "failed":
+        return KeywordGenerationStatus(
+            status="failed",
+            generation_id=str(draft.id),
+            detail=draft.failure_detail
+            or generation_error(GenerationErrorCode.FAILED).message,
+        )
+    return KeywordGenerationStatus(
+        status="ready",
         generation_id=str(draft.id),
-        mode=payload.mode,
-        seed_keyword=payload.seed_keyword,
-        keywords=result.terms,
-        excluded_count=result.excluded_count,
-        notice=notice,
+        draft=KeywordGenerationDraft(
+            generation_id=str(draft.id),
+            mode=draft.mode,
+            seed_keyword=draft.seed_keyword,
+            keywords=draft.terms,
+            excluded_count=draft.excluded_count,
+            notice=_generation_notice(draft),
+        ),
     )
 
 

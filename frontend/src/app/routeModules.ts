@@ -34,7 +34,6 @@ const pages = {
   CustomerBatches: () => import("./routes/CustomerBatches"),
   CustomerAuth: () => import("./routes/CustomerAuth"),
   CustomerSignup: () => import("./routes/CustomerSignup"),
-  DesignSystem: () => import("./routes/DesignSystem"),
 };
 type PageName = keyof typeof pages;
 type PageModule = Record<string, unknown>;

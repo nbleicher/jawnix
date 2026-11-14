@@ -22,7 +22,7 @@ def signup(session, settings, monkeypatch):
         return identity
     def database():
         yield session
-    monkeypatch.setattr("jawnix.api.verify_supabase_token", verified)
+    monkeypatch.setattr("jawnix.api.verify_access_token", verified)
     app.dependency_overrides[get_db] = database
     app.dependency_overrides[get_settings] = lambda: settings
     client = TestClient(app)

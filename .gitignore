@@ -1,6 +1,3 @@
-# On the VPS, Caddy renders /config.js from the environment and no file
-# exists on disk; ignore any locally rendered copy.
-config.js
 .env
 invoices/
 batches/

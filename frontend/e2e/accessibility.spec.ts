@@ -117,7 +117,6 @@ const ROUTES = [
   "./admin/mfa/enroll",
   "./admin/mfa/challenge",
   "./admin/mfa/recover",
-  "./design-system",
 ];
 
 test.beforeEach(async ({ page }) => {
@@ -185,16 +184,6 @@ test.describe("Automated WCAG 2.2 AA sweep", () => {
       expect(results.violations).toEqual([]);
     });
   }
-
-  test("the design-system gallery is clean in the dark scheme", async ({ page }) => {
-    await page.goto("./design-system");
-    await page.getByRole("button", { name: "Switch to dark desk" }).click();
-    await expect(page.locator("html")).toHaveAttribute("data-scheme", "dark");
-
-    const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
-
-    expect(results.violations).toEqual([]);
-  });
 
   test("the open global search results have no accessibility violations", async ({ page }) => {
     await page.goto("./admin/today");
@@ -380,63 +369,6 @@ test.describe("Keyboard operation", () => {
 
     await expect(page.getByRole("heading", { level: 1, name: "New request" })).toBeVisible();
   });
-
-  test("focus is visible on interactive controls", async ({ page }) => {
-    await page.goto("./design-system");
-
-    const button = page.getByRole("button", { name: "Primary" });
-    await button.focus();
-
-    const outlineWidth = await button.evaluate((element) => getComputedStyle(element).outlineWidth);
-    expect(parseFloat(outlineWidth)).toBeGreaterThanOrEqual(2);
-  });
-});
-
-test.describe("Dialog", () => {
-  test("traps focus, closes on Escape, and restores focus to its opener", async ({ page }) => {
-    await page.goto("./design-system");
-
-    const opener = page.getByRole("button", { name: "Open dialog" });
-    await opener.click();
-
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toHaveAccessibleName("Batch Request details");
-
-    // The page behind a modal must be inert: tabbing repeatedly may pass through
-    // the document body (native <dialog> cycling does that) but must never reach
-    // an interactive control outside the dialog.
-    const escapees: string[] = [];
-    for (let index = 0; index < 12; index += 1) {
-      await page.keyboard.press("Tab");
-      const escapee = await page.evaluate(() => {
-        const active = document.activeElement as HTMLElement | null;
-        const openDialog = document.querySelector("dialog[open]");
-        if (!active || !openDialog) return null;
-        if (openDialog.contains(active)) return null;
-        if (!active.matches("a[href], button, input, select, textarea, [tabindex]")) return null;
-        return `${active.tagName}:${active.textContent?.trim().slice(0, 30) ?? ""}`;
-      });
-      if (escapee) escapees.push(escapee);
-    }
-    expect(escapees).toEqual([]);
-
-    await page.keyboard.press("Escape");
-    await expect(dialog).toBeHidden();
-    await expect(opener).toBeFocused();
-  });
-
-  test("a destructive confirmation states its consequence and survives a backdrop click", async ({ page }) => {
-    await page.goto("./design-system");
-
-    await page.getByRole("button", { name: "Open confirmation" }).click();
-    const dialog = page.getByRole("dialog");
-    await expect(dialog).toHaveAccessibleDescription(/Cancelling is permanent/);
-
-    // Click the top-left corner, which is backdrop rather than panel.
-    await page.mouse.click(4, 4);
-    await expect(dialog).toBeVisible();
-  });
 });
 
 test.describe("Touch targets", () => {
@@ -460,15 +392,6 @@ test.describe("Touch targets", () => {
     }
     return undersized;
   }
-
-  test("gallery controls meet the 44px minimum", async ({ page }) => {
-    await page.goto("./design-system");
-    // The gallery renders its sections after load; measure once they are there.
-    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    await expect(page.locator("button").first()).toBeVisible();
-
-    expect(await undersizedTargets(page, "button")).toEqual([]);
-  });
 
   test("navigation links meet the 44px minimum", async ({ page }) => {
     // The real mobile targets: measured on a shell route, not the gallery.
@@ -496,21 +419,6 @@ test.describe("Reduced motion", () => {
     await expect
       .poll(() => page.evaluate(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches))
       .toBe(true);
-  });
-
-  test("progress and loading remain understandable without animation", async ({ page }) => {
-    await page.goto("./design-system");
-
-    // The loading state keeps its announcement and its reserved space; only the
-    // movement is dropped.
-    const status = page.getByRole("status").first();
-    await expect(status).toBeAttached();
-
-    const animation = await page
-      .locator(".jx-loading__spinner")
-      .first()
-      .evaluate((element) => getComputedStyle(element).animationName);
-    expect(animation).toBe("none");
   });
 
   test("the shell is still fully navigable", async ({ page }) => {

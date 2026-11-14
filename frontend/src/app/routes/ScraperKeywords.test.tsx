@@ -266,7 +266,19 @@ describe("keyword parity", () => {
     const calls = mockRequests([
       {
         path: "/api/admin/scraper/keywords/generate",
-        body: generated,
+        body: {
+          generation_id: generated.generation_id,
+          status: "generating",
+        },
+      },
+      {
+        path: `/api/admin/scraper/keywords/generate/${generated.generation_id}`,
+        body: {
+          status: "ready",
+          generation_id: generated.generation_id,
+          draft: generated,
+          detail: null,
+        },
       },
     ]);
     renderKeywords();
@@ -283,7 +295,7 @@ describe("keyword parity", () => {
       }) as HTMLTextAreaElement).value,
     ).toContain("Unused Service 25");
     expect(screen.getByRole("button", { name: "Save reviewed list" })).toBeDisabled();
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
   });
 
   it("generates adjacent keywords only from the selected winner", async () => {
@@ -299,7 +311,19 @@ describe("keyword parity", () => {
     const calls = mockRequests([
       {
         path: "/api/admin/scraper/keywords/generate",
-        body: generated,
+        body: {
+          generation_id: generated.generation_id,
+          status: "generating",
+        },
+      },
+      {
+        path: `/api/admin/scraper/keywords/generate/${generated.generation_id}`,
+        body: {
+          status: "ready",
+          generation_id: generated.generation_id,
+          draft: generated,
+          detail: null,
+        },
       },
     ]);
     renderKeywords();

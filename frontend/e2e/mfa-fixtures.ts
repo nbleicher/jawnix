@@ -325,7 +325,22 @@ export async function mockAdminMFA(
       });
     }
     if (path.endsWith("/keywords/generate")) {
-      return json(route, KEYWORD_GENERATION);
+      return json(
+        route,
+        {
+          generation_id: KEYWORD_GENERATION.generation_id,
+          status: "generating",
+        },
+        202,
+      );
+    }
+    if (path.includes("/keywords/generate/")) {
+      return json(route, {
+        status: "ready",
+        generation_id: KEYWORD_GENERATION.generation_id,
+        draft: KEYWORD_GENERATION,
+        detail: null,
+      });
     }
     if (path.endsWith("/keywords/rollover")) {
       return json(route, {

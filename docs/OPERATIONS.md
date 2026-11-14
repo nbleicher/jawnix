@@ -1,27 +1,18 @@
-# VPS deployment, migration, cutover, and rollback
+# VPS deployment, migration, and operations
 
-## Protected baseline
-
-The pre-refactor production baseline is commit `119d072bcf1a3ccc961847702e8a16ce1c109d52`, tagged and pushed as `backup/pre-vps-batch-platform-20260721T190329Z`. The linked feature worktree was at `6a338a184b555dcab97680088f3a6b59af0cfd4d`.
-
-The verified local recovery set is outside Git at:
-
-```text
-.context/backups/20260721T190329Z/
-```
-
-It contains a verified `git bundle --all`, source archives, encrypted Railway variables, an encrypted Supabase application-data export, source checksums, and restore instructions. Its encryption password is in the macOS Keychain service `jawnix-backup-20260721T190329Z`, account `noahbleicher`. Supabase Auth was not exported or changed.
-
-Do not stop Railway or delete old Supabase application tables during provisioning, migration, cutover, or the first 48 hours after cutover.
+The Railway-era protected baseline, cutover, and rollback runbooks are retired
+— Railway is decommissioned and the legacy Supabase project is no longer the
+identity provider. They are archived verbatim at
+[archive/OPERATIONS-legacy.md](archive/OPERATIONS-legacy.md).
 
 ## VPS provisioning
 
 1. Provision a Linux VPS with Docker Engine, the Compose plugin, SSH-key access, and a firewall allowing only TCP 22/80/443 and UDP 443.
 2. Clone this branch, copy `.env.example` to `.env`, and replace every placeholder. Generate independent database, session, and Restic passwords. On the shared production VPS only, also uncomment the `COMPOSE_FILE` line so compose can never omit the edge adapter (see below).
 3. Configure the Telegram webhook at `https://jawnix.com/api/integrations/telegram/webhook` with the bot token, random webhook secret, destination chat ID, and comma-separated authorized Telegram user IDs. Register it with Telegram's `setWebhook` API using the same `secret_token`.
-4. Verify `jawnix.com` in Resend, configure `Jawnix <hai@jawnix.com>`, and set the webhook to `https://jawnix.com/api/integrations/resend/webhook` for delivered, bounced, complained, and failed events.
+4. Verify `jawnix.com` in Resend, configure `Noah Bleicher (Jawnix) <noah@jawnix.com>`, and set the webhook to `https://jawnix.com/api/integrations/resend/webhook` for delivered, bounced, complained, and failed events.
 5. Configure a private encrypted Restic repository and credentials. Do not reuse the database or session secret as its password. The backup service creates separate database/base and WAL snapshots so a large WAL archive cannot block the daily logical dump. It creates a physical base backup on the configured UTC weekday and expires VPS material after 14 days. Configure the Cloudflare R2 offsite copy per `docs/OFFSITE-BACKUP-R2.md` so every local snapshot is mirrored off-host automatically. `ops/macos-backup-pull.sh` (installed via `ops/com.jawnix.external-backup.plist`) is superseded by the R2 copy and retained only as an optional third copy under `/Volumes/Peely SSD/Jawnix Backups`.
-6. Run `docker compose config` and `docker compose build`. (`/config.js` is rendered by Caddy from the environment — there is no file to generate.)
+6. Run `docker compose config` and `docker compose build`.
 7. Run `docker compose up -d postgres`, `docker compose run --rm migrate`, then `docker compose up -d`.
 8. Confirm `/api/healthz`, `/api/readyz`, container health/logs, PostgreSQL `archive_mode`, and a Restic snapshot before importing production data. Force one initial physical base backup with `docker compose run --rm -e JAWNIX_FORCE_BASEBACKUP=true backup /app/ops/backup.sh`.
 
@@ -55,10 +46,7 @@ JAWNIX_DOMAIN=staging.jawnix.com docker compose up -d
 
 Set `JAWNIX_SCRAPER_OPS_DOMAIN` to the staging Scraper hostname in the same way. Nothing else differs from production.
 
-`/config.js` is rendered by Caddy from the environment and contains only
-browser-public values: the Supabase URL and publishable/anon key, the Scraper
-Operations origin, and the billing flag. Service-role, Telegram, Resend,
-PostgreSQL, and Restic secrets remain server-side.
+Service-role, Telegram, Resend, PostgreSQL, and Restic secrets remain server-side; no browser-facing configuration file is served.
 
 ## Deploying the application host
 
@@ -171,19 +159,13 @@ itemized `rsync --dry-run` first and requires the exact confirmation shown in
 the prompt before repeating the same sync without `--dry-run`.
 
 The sync uses `--delete`, but its pinned excludes protect the production
-`.env`, `config.js`, `batches/`, `backups/`, `invoices/`, `monitoring/`,
+`.env`, `batches/`, `backups/`, `invoices/`, `monitoring/`,
 `restic-repository/`, `migration/`, and `user-account-migration/`. These paths
 contain host-owned configuration, datasets, generated invoices, monitoring
 state, backup material, or migration evidence and must never be removed or
 replaced by an application deploy. The backup, monitoring, and migration
 directories are normally siblings of `/srv/jawnix/app`; keeping them excluded
 also protects legacy or accidentally nested copies.
-
-`config.js` is gitignored and therefore absent from the deploy source, so
-`--delete` would remove the host's copy. Caddy has rendered `/config.js` from
-the environment since #103 and the on-disk file is no longer read, but it
-holds real Supabase credentials and is host-owned, so the deploy leaves it
-alone rather than destroying it as a side effect.
 
 The excludes also cover build artifacts that exist only on the host —
 `.venv/`, `jawnix_vps.egg-info/`, and a stray `jawnix-dev.db`. Nothing
@@ -213,12 +195,13 @@ Prerequisites:
    authorizer must be different named people.
 3. Open an incident or support ticket containing the reason, identity evidence,
    authorizer approval, and intended execution time.
-4. Confirm a current database backup and access to the Supabase service-role
-   credential. Never place that credential in the command line, ticket, or
-   application configuration.
+4. Confirm a current database backup and that the deployment carries the
+   Better Auth bridge secret (`JAWNIX_AUTH_BRIDGE_SECRET`), which the
+   break-glass command uses for provider administration. Never place that
+   credential in the command line, ticket, or application configuration.
 
 From the deployed revision, run the command in a one-off API container. Replace
-every example value and copy the immutable Supabase Auth user UUID from the
+every example value and copy the immutable provider identity UUID from the
 verified operator record:
 
 ```sh
@@ -256,7 +239,7 @@ exposes only `/admin/scraper/*`, uses a separate host-only session and
 proxy-scoped CSRF token, rewrites dashboard and HTMX paths, and injects the
 Scraper Basic Auth credential server-side. This origin separation prevents
 Scraper HTML or JavaScript from accessing native Jawnix sessions and APIs. Do
-not expose either credential in `config.js` or any browser-facing environment
+not expose either credential in any browser-facing environment
 value.
 
 Connect the two VPS hosts with WireGuard before enabling the mount:
@@ -492,8 +475,9 @@ configuration, and verified backups remain rollback-only material through
 Production DNS cut over to the VPS on 2026-07-25 at approximately 03:33 UTC.
 `jawnix.com`, `www.jawnix.com`, and `staging.jawnix.com` resolve to
 `159.195.15.51`; production and staging are served by the same application
-stack. Railway and the legacy Supabase project remain live for rollback through
-the observation window.
+stack. The Railway and legacy Supabase rollback window has expired; the
+retired runbooks are archived at
+[archive/OPERATIONS-legacy.md](archive/OPERATIONS-legacy.md).
 
 Current reconciled production totals are 9,244,326 unique inventory phones,
 9,541,530 provenance rows, 4,588,286 distribution events, 16 profiles, one
@@ -725,11 +709,11 @@ database untouched unless download, parsing, and validation all succeed.
 
 ## Customer mapping and acceptance
 
-Sign in with an existing Supabase admin, open Recipients, and synchronize Supabase users. Every proposed customer-to-agent mapping starts unconfirmed. Manually select and confirm each agent; requests remain blocked until confirmation.
+Sign in with an existing administrator account, open Recipients, and synchronize identity-provider users. Every proposed customer-to-agent mapping starts unconfirmed. Manually select and confirm each agent; requests remain blocked until confirmation.
 
 Before cutover, prove:
 
-- invited-user Supabase login and VPS session exchange against the clean Auth project;
+- invited-user Better Auth login and VPS session exchange against the identity service;
 - profile state save and all/subset request validation;
 - 1 and 100,000-row boundaries;
 - Telegram Approve/Reject, webhook-secret and authorized-user checks, replay behavior, and duplicate clicks;
@@ -828,32 +812,11 @@ Keep this timer active after the 48-hour window as basic availability
 monitoring. It supplements rather than replaces review of failed jobs, email
 events, database storage, backup results, and application logs.
 
-## Cutover
+## Cutover and rollback (retired)
 
-The initial production cutover completed on 2026-07-25. Preserve this checklist
-for future migrations or a repeated cutover after rollback.
-
-1. Keep Railway live while the VPS is populated and tested.
-2. Rotate all credentials disclosed during staging and update only the VPS and required provider configurations. Recheck health before continuing.
-3. Register and test the Resend delivery/failure webhook, confirm the collector command if applicable, activate customer logins, and complete the Peely SSD snapshot copy.
-4. Lower DNS TTL at least one previous TTL window before cutover.
-5. Announce a short request/redistribution pause. Disable only new requests and local redistribution; leave login and history available.
-6. Export/import the final Supabase and source-data delta, reconcile counts, and verify every active customer mapping.
-7. Take and verify a VPS database backup and Restic snapshot.
-8. Change the `jawnix.com` A/AAAA records to the VPS only after explicit approval. Confirm Caddy certificate issuance and the complete login → request → Telegram approval → CSV email → delivered flow.
-9. Re-enable requests and monitor API errors, worker failures, queued/running jobs, PostgreSQL locks/storage, Telegram notifications, Resend bounces/complaints, backups, and DNS from multiple resolvers for 48 hours.
-10. After 48 clean hours, Railway may be scaled down only after explicit approval. Do not delete Railway, Supabase tables, the rollback tag, or the recovery bundle as part of this change.
-
-## Rollback
-
-1. Pause new VPS requests and worker processing.
-2. Restore the prior `jawnix.com` DNS records for Railway.
-3. If Railway configuration changed, decrypt and restore `railway-variables.json.enc` from the protected recovery set.
-4. Redeploy `backup/pre-vps-batch-platform-20260721T190329Z` (or restore from the verified bundle/archive).
-5. Verify login, admin, requests, and legacy Supabase data on Railway.
-6. Preserve the VPS database and logs for reconciliation; do not merge them back into Supabase automatically.
-
-The VPS migration is additive. Rollback does not overwrite or delete old Supabase application data.
+The Railway-era cutover checklist and DNS rollback runbook expired with their
+rollback windows and now live in
+[archive/OPERATIONS-legacy.md](archive/OPERATIONS-legacy.md).
 
 ## UI cutover (#71)
 
@@ -915,8 +878,8 @@ approved. Deleted `index.html`, `login.html`, `portal.html`,
 their `/srv/static` bind mounts from `docker-compose.yml`; and rewrote the
 Caddyfile so the legacy-URL redirects are unconditional (no longer gated on
 `JAWNIX_ENABLE_NEW_UI`) with a catch-all sending every other non-shell path to
-`/app`. `/config.js` is untouched — it is rendered by Caddy from the
-environment and the React shell still reads `window.JAWNIX_CONFIG`.
+`/app`. The `/config.js` browser-config chain was retired later once nothing
+in the React shell read `window.JAWNIX_CONFIG` anymore.
 
 Still pending, and deliberately **not** part of that change: remove
 `$JAWNIX_PUBLIC_BASE_URL/portal-accept.html` from the Supabase Auth redirect

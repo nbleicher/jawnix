@@ -70,7 +70,6 @@ def test_provider_enrollment_step_up_and_password_reset_revoke_app_sessions(
 ):
     fixture = better_auth_server
     config = Settings(
-        JAWNIX_AUTH_PROVIDER="better-auth",
         JAWNIX_BETTER_AUTH_URL=fixture["url"],
         JAWNIX_AUTH_BRIDGE_SECRET=fixture["bridgeSecret"],
         JAWNIX_COOKIE_SECURE=False,
@@ -198,7 +197,7 @@ def test_provider_enrollment_step_up_and_password_reset_revoke_app_sessions(
 
 def test_public_verification_creates_customer_and_a_retired_manager_cannot_sign_in(session, settings, better_auth_server):
     fixture = better_auth_server
-    config = Settings(JAWNIX_AUTH_PROVIDER="better-auth", JAWNIX_BETTER_AUTH_URL=fixture["url"],
+    config = Settings(JAWNIX_BETTER_AUTH_URL=fixture["url"],
                       JAWNIX_AUTH_BRIDGE_SECRET=fixture["bridgeSecret"], JAWNIX_COOKIE_SECURE=False,
                       JAWNIX_SESSION_SECRET=settings.session_secret, JAWNIX_BATCH_DIR=settings.batch_dir)
     app.dependency_overrides[get_settings] = lambda: config

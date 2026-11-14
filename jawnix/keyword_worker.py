@@ -9,7 +9,11 @@ import time
 
 from .config import get_settings
 from .database import SessionLocal
-from .keyword_rollover import refill_keyword_reserve, run_automatic_keyword_rollover
+from .keyword_rollover import (
+    refill_keyword_reserve,
+    run_automatic_keyword_rollover,
+    run_pending_keyword_generations,
+)
 
 log = logging.getLogger("jawnix.keyword-worker")
 POLL_SECONDS = 5
@@ -23,6 +27,14 @@ def run(lane: str = "activate") -> None:
     log.info("Keyword %s process started", lane)
     while True:
         if settings.scraper_ops_url:
+            try:
+                queued = asyncio.run(
+                    run_pending_keyword_generations(SessionLocal, settings)
+                )
+                if queued["outcome"] not in {"idle", "locked"}:
+                    log.info("Keyword generation outcome: %s", queued["outcome"])
+            except Exception:
+                log.exception("Queued keyword generation check failed")
             try:
                 if lane == "refill":
                     result = asyncio.run(refill_keyword_reserve(SessionLocal, settings))

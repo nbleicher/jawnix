@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from pathlib import Path
-from fastapi import HTTPException, UploadFile
+from fastapi import HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 from ..auth import Principal
 from ..config import Settings
@@ -21,6 +21,12 @@ class UploadTooLargeError(ValueError):
 
 
 log = logging.getLogger("jawnix.api")
+
+
+async def raw_body(request: Request) -> bytes:
+    """Read the request body on the event loop so the route itself can stay a
+    plain ``def`` and run its blocking work in the threadpool."""
+    return await request.body()
 
 
 def _current_customer_profile(

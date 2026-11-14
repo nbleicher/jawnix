@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from .mfa_provider import MFAProviderError, SupabaseMFAProvider
+from .mfa_provider import BetterAuthMFAProvider, MFAProviderError
 from .models import AdminMFAState, AuditEntry
 
 
@@ -51,7 +51,7 @@ def _details(request: BreakGlassRequest, *, status: str) -> dict:
 
 async def perform_break_glass(
     db: Session,
-    provider: SupabaseMFAProvider,
+    provider: BetterAuthMFAProvider,
     request: BreakGlassRequest,
 ) -> dict:
     """Revoke first, then remove factors, preserving evidence across failures."""

@@ -24,10 +24,11 @@ from .keyword_generation import (
     exclusion_metrics,
     generation_error,
     keyword_history_terms,
+    purge_generation_drafts,
     validated_keyword_terms,
 )
 from .keyword_history import observe_keyword_history
-from .models import KeywordCandidatePool
+from .models import KeywordCandidatePool, KeywordGenerationDraftRecord
 from .scraper_keywords import (
     KeywordRolloverEventRequest,
     KeywordSaveRequest,
@@ -167,6 +168,165 @@ def _utc(value):
     )
 
 
+async def run_pending_keyword_generations(
+    session_factory,
+    settings: Settings,
+    *,
+    operations: ScraperOperations | None = None,
+    provider=None,
+    now: datetime | None = None,
+) -> dict:
+    """Run the oldest queued administrator keyword generation, if any.
+
+    The route only queues the request; this drain owns the provider call,
+    which can take minutes, so no API request stays open for it.
+    """
+    started_at = now or datetime.now(timezone.utc)
+    with _generation_lock(session_factory) as acquired:
+        if not acquired:
+            return {"outcome": "locked"}
+        with session_factory.begin() as session:
+            draft = session.scalar(
+                select(KeywordGenerationDraftRecord)
+                .where(
+                    KeywordGenerationDraftRecord.acceptance_status == "generating"
+                )
+                .order_by(KeywordGenerationDraftRecord.created_at)
+                .limit(1)
+            )
+            if draft is None:
+                return {"outcome": "idle"}
+            draft_id = draft.id
+            administrator_id = draft.administrator_id
+            mode = draft.mode
+            seed_keyword = draft.seed_keyword
+
+        provider = provider or build_generation_provider(
+            settings, session_factory=session_factory
+        )
+        operations = operations or HTTPScraperOperations(settings)
+        failure: KeywordGenerationError | None = None
+        failure_details: dict[str, object] = {}
+        result = None
+        exclusion_counts: dict[str, object] = {}
+        try:
+            workspace = await operations.list_keywords()
+            winners = await operations.keyword_winners()
+        except ScraperOperationsError as error:
+            failure = KeywordGenerationError(
+                GenerationErrorCode.PROVIDER_UNAVAILABLE,
+                "Scraper Operations is unavailable.",
+            )
+            failure_details = {
+                "outcome": "upstream_unavailable",
+                "transportError": error.transport_error,
+            }
+        else:
+            if mode == "adjacent" and (
+                not seed_keyword
+                or seed_keyword.casefold()
+                not in {winner.keyword.casefold() for winner in winners}
+            ):
+                failure = generation_error(GenerationErrorCode.INVALID_SEED)
+                failure_details = {"outcome": failure.code.value}
+        if failure is None:
+            with session_factory.begin() as session:
+                history = keyword_history_terms(session)
+                observe_keyword_history(
+                    session,
+                    workspace.current,
+                    origin="active_list",
+                    observed_at=started_at,
+                )
+                observe_keyword_history(
+                    session,
+                    (winner.keyword for winner in winners),
+                    origin="winner",
+                    observed_at=started_at,
+                )
+                exclusions, exclusion_counts = exclusion_metrics(
+                    active=workspace.current,
+                    winners=(winner.keyword for winner in winners),
+                    history=history,
+                )
+            if not provider.available:
+                failure = generation_error(GenerationErrorCode.NOT_CONFIGURED)
+                failure_details = {"outcome": failure.code.value}
+            else:
+                try:
+                    result = provider.generate_keywords(
+                        mode=mode,
+                        excluded_keywords=exclusions,
+                        seed_keyword=seed_keyword,
+                    )
+                    if len(result.terms) != 25:
+                        failure = generation_error(
+                            GenerationErrorCode.INSUFFICIENT_CANDIDATES
+                        )
+                        failure.metrics = {
+                            **result.candidate_metrics,
+                            "acceptedCount": len(result.terms),
+                        }
+                        result = None
+                except KeywordGenerationError as error:
+                    failure = error
+        finished_at = started_at
+        with session_factory.begin() as session:
+            purge_generation_drafts(session, now=finished_at)
+            draft = session.get(KeywordGenerationDraftRecord, draft_id)
+            if draft is None:
+                return {"outcome": "idle"}
+            if failure is not None:
+                draft.acceptance_status = "failed"
+                draft.failure_detail = failure.message[:300]
+                record_activity(
+                    session,
+                    action="scraper_keyword_generation_failed",
+                    target_type="scraper_keywords",
+                    target_id="primary",
+                    actor_id=administrator_id,
+                    reason="Jawnix keyword generation returned no review draft",
+                    details={
+                        "mode": mode,
+                        "seedKeyword": seed_keyword,
+                        **(
+                            {
+                                "outcome": failure.code.value,
+                                "statusCode": failure.status_code,
+                                "candidateMetrics": failure.metrics,
+                            }
+                            if not failure_details
+                            else failure_details
+                        ),
+                    },
+                )
+                return {"outcome": "failed", "code": failure.code.value}
+            draft.terms = result.terms
+            draft.exclusion_metrics = exclusion_counts
+            draft.candidate_metrics = result.candidate_metrics
+            draft.excluded_count = result.excluded_count
+            draft.model = provider.model
+            draft.acceptance_status = "pending"
+            record_activity(
+                session,
+                action="scraper_keyword_generation_created",
+                target_type="scraper_keyword_generation",
+                target_id=draft.id,
+                actor_id=administrator_id,
+                reason="Generated Scraper keywords for human review",
+                details={
+                    "mode": mode,
+                    "seedKeyword": seed_keyword,
+                    "keywordCount": len(result.terms),
+                    "excludedCount": result.excluded_count,
+                    "exclusionMetrics": exclusion_counts,
+                    "candidateMetrics": result.candidate_metrics,
+                    "activeConfigurationChanged": False,
+                },
+            )
+            return {"outcome": "generated", "generationId": str(draft.id)}
+
+
 async def run_automatic_keyword_rollover(
     session: Session,
     settings: Settings,
@@ -250,10 +410,10 @@ async def refill_keyword_reserve(
             if focus is None:
                 return {"outcome": "cooldown", "available": available}
             pending = [item["term"] for item in pool.candidates]
-            requested = min(25 if settings.keyword_generation_provider == "anthropic" else KEYWORD_CANDIDATE_BATCH_SIZE, POOL_TARGET - available)
+            requested = min(KEYWORD_CANDIDATE_BATCH_SIZE, POOL_TARGET - available)
 
         # Neither the pool row nor a database transaction is held here.
-        provider = provider or build_generation_provider(settings, session_factory=session_factory)
+        provider = provider or build_generation_provider(settings)
         failure = None
         if not provider.available:
             failure = generation_error(GenerationErrorCode.INVALID_API_KEY)
@@ -354,7 +514,7 @@ async def refill_keyword_reserve(
                         "candidateMetrics": metrics, "available": len(pool.candidates)})
             else:
                 message = (
-                    f"{'Anthropic' if settings.keyword_generation_provider == 'anthropic' else 'OpenRouter'} is not configured for automatic rollover"
+                    "OpenRouter is not configured for automatic rollover"
                     if not provider.available
                     else (
                         failure.message

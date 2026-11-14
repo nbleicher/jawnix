@@ -9,6 +9,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      brand-shots:
+        description: "Also run the brand-shots screenshot harness and upload the PNGs"
+        type: boolean
+        default: false
 
 # A newer push to the same branch makes an in-flight run obsolete.
 concurrency:
@@ -92,8 +97,24 @@ jobs:
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
 
+      # brand-shots is a screenshot harness with no assertions — 68 runs that
+      # only write PNGs nobody reads on a PR. It is excluded from the default
+      # e2e run and runs only via the `brand-shots` workflow_dispatch input,
+      # mirroring the manual-only pattern in regen-snapshots.yml.
       - name: End-to-end tests
-        run: npm run test:e2e
+        run: npm run test:e2e -- --grep-invert "brand shots"
+
+      - name: Brand shots (opt-in)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs['brand-shots'] }}
+        run: npx playwright test e2e/brand-shots.spec.ts --reporter=list
+
+      - name: Upload brand shots
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs['brand-shots'] }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: brand-shots
+          path: brand/before-after/after
+          retention-days: 7
 
       - name: Upload Playwright report on failure
         if: failure()

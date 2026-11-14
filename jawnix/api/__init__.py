@@ -5,8 +5,6 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
-from urllib.parse import urlencode
-import httpx
 from fastapi import (
     Depends,
     FastAPI,
@@ -28,7 +26,7 @@ from ..auth import (
     issue_session,
     require_admin,
     require_principal,
-    verify_supabase_token,
+    verify_access_token,
 )
 from ..admin_mfa_api import router as admin_mfa_router
 from ..billing import initialize_customer_billing
@@ -119,7 +117,7 @@ async def create_session(
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
-    user = await verify_supabase_token(payload.access_token, settings)
+    user = await verify_access_token(payload.access_token, settings)
     role = str((user.get("app_metadata") or {}).get("jawnix_role") or "customer")
     if role == RETIRED_MANAGER_ROLE:
         raise HTTPException(status_code=403, detail=RETIRED_MANAGER_MESSAGE)
@@ -375,31 +373,6 @@ def create_scraper_configuration(
     return _configuration_dict(item)
 
 
-async def _supabase_admin(settings: Settings, method: str, path: str, payload: dict | None = None):
-    if settings.auth_provider == "better-auth":
-        provider = get_mfa_provider(settings)
-        try:
-            page = int(path.split("page=", 1)[1].split("&", 1)[0])
-            return await provider.request("users", page=page)
-        except (MFAProviderError, ValueError, IndexError):
-            raise HTTPException(status_code=502, detail="Identity administration failed.") from None
-    if not settings.supabase_url or not settings.supabase_service_role_key:
-        raise HTTPException(status_code=503, detail="Supabase administration is not configured.")
-    headers = {
-        "apikey": settings.supabase_service_role_key,
-        "Authorization": f"Bearer {settings.supabase_service_role_key}",
-    }
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.request(method, f"{settings.supabase_url.rstrip('/')}{path}", headers=headers, json=payload)
-    if response.status_code >= 300:
-        raise HTTPException(status_code=502, detail=f"Supabase administration failed: {response.text}")
-    return response.json()
-
-
-def _customer_invitation_redirect(settings: Settings) -> str:
-    return f"{settings.public_base_url.rstrip('/')}/app/accept-invitation"
-
-
 async def _dispatch_invitation(settings: Settings, payload) -> uuid.UUID:
     """Ask the provider to invite an email and return its identity.
 
@@ -407,58 +380,26 @@ async def _dispatch_invitation(settings: Settings, payload) -> uuid.UUID:
     link and the password behind it; all that comes back here is the
     authentication identity to attach to a Customer.
     """
-    if settings.auth_provider == "better-auth":
-        provider = get_mfa_provider(settings)
-        try:
-            email = str(payload.email).lower()
-            created = await provider.request("provision-user", email=email, name=f"{payload.first_name} {payload.last_name}".strip())
-            await provider.request("reset-user", email=email)
-            return uuid.UUID(created["id"])
-        except MFAProviderError:
-            raise HTTPException(status_code=502, detail="The invitation could not be sent.") from None
-    redirect_to = _customer_invitation_redirect(settings)
-    created = await _supabase_admin(
-        settings,
-        "POST",
-        f"/auth/v1/invite?{urlencode({'redirect_to': redirect_to})}",
-        {
-            "email": str(payload.email).lower(),
-            "data": {
-                "first_name": payload.first_name,
-                "last_name": payload.last_name,
-            },
-        },
-    )
-    return uuid.UUID(str(created["id"]))
+    provider = get_mfa_provider(settings)
+    try:
+        email = str(payload.email).lower()
+        created = await provider.request("provision-user", email=email, name=f"{payload.first_name} {payload.last_name}".strip())
+        await provider.request("reset-user", email=email)
+        return uuid.UUID(created["id"])
+    except MFAProviderError:
+        raise HTTPException(status_code=502, detail="The invitation could not be sent.") from None
 
 
 async def _send_password_reset(settings: Settings, email: str) -> None:
-    if settings.auth_provider == "better-auth":
-        try:
-            # "reset" lands on the password reset page rather than the
-            # invitation page; an older identity service ignores it.
-            await get_mfa_provider(settings).request(
-                "reset-user", email=email, purpose="reset"
-            )
-            return
-        except MFAProviderError:
-            raise HTTPException(status_code=502, detail="Password recovery could not be sent.") from None
-    if not settings.supabase_url or not settings.supabase_anon_key:
-        raise HTTPException(status_code=503, detail="Supabase password recovery is not configured.")
-    redirect_to = _customer_invitation_redirect(settings)
-    headers = {
-        "apikey": settings.supabase_anon_key,
-        "Authorization": f"Bearer {settings.supabase_anon_key}",
-    }
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            f"{settings.supabase_url.rstrip('/')}/auth/v1/recover",
-            params={"redirect_to": redirect_to},
-            headers=headers,
-            json={"email": email},
+    try:
+        # "reset" lands on the password reset page rather than the
+        # invitation page; an older identity service ignores it.
+        await get_mfa_provider(settings).request(
+            "reset-user", email=email, purpose="reset"
         )
-    if response.status_code >= 300:
-        raise HTTPException(status_code=502, detail=f"Supabase password recovery failed: {response.text}")
+        return
+    except MFAProviderError:
+        raise HTTPException(status_code=502, detail="Password recovery could not be sent.") from None
 
 
 @app.post("/api/admin/user-accounts/{user_id}/send-password-reset")

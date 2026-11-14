@@ -167,30 +167,6 @@ def test_registering_the_shell_adds_no_route_outside_the_app_prefix():
     assert all(path.startswith("/app") for path in added), added
 
 
-def test_config_js_renderer_covers_the_browser_contract():
-    """Caddy's served config.js must cover the checked-in browser contract.
-    The legacy Railway renderer was removed with the dead Railway app.
-    """
-    import re
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parent.parent
-    example = (root / "config.example.js").read_text()
-    contract_fields = set(re.findall(r"^  ([a-zA-Z]+):", example, re.M))
-
-    caddyfile = (root / "Caddyfile").read_text()
-    block = caddyfile[caddyfile.index("handle /config.js") :]
-    block = block[: block.index("` 200")]
-    caddy_fields = set(re.findall(r"^  ([a-zA-Z]+):", block, re.M))
-
-    assert contract_fields
-    assert caddy_fields == contract_fields, (
-        "Caddy's served config.js disagrees with config.example.js: "
-        f"missing {contract_fields - caddy_fields}, extra {caddy_fields - contract_fields}"
-    )
-    assert "billingEnabled: '{$JAWNIX_ENABLE_BILLING:false}' === 'true'" in block
-
-
 def test_the_production_edge_adapter_exists_and_names_the_upstream():
     """jawnix.com TLS terminates in another product's Caddy (buzz-prod-caddy-1),
     which proxies to a container named `jawnix-caddy` on :8080.

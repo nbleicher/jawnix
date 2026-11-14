@@ -10,7 +10,11 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Parallel-safe in CI: every spec mocks its API traffic per page with
+  // `page.route`, there is no shared DB or storageState, and the only fixed
+  // port is the single webServer shared read-only across workers. Screenshot
+  // flakes from CPU contention are absorbed by the retries above.
+  workers: process.env.CI ? 4 : undefined,
   // "github" alone writes annotations and no report directory, so the CI step
   // that uploads frontend/playwright-report had nothing to upload and produced
   // no artifact — which made every CI visual-regression failure undiagnosable:
@@ -36,7 +40,11 @@ export default defineConfig({
     // `--host 127.0.0.1` is required: vite preview otherwise binds only to
     // `localhost`, which resolves to ::1 here, and the readiness poll below
     // uses the IPv4 address.
-    command: `npm run build && npx vite preview --port ${PORT} --strictPort --host 127.0.0.1`,
+    // CI builds the bundle in its own step before running Playwright, so the
+    // webServer only previews it; rebuilding here would compile the app twice.
+    command: process.env.CI
+      ? `npx vite preview --port ${PORT} --strictPort --host 127.0.0.1`
+      : `npm run build && npx vite preview --port ${PORT} --strictPort --host 127.0.0.1`,
     url: `${BASE_URL}/app/`,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
