@@ -21,6 +21,7 @@ import { useDocumentTitle } from "../shell/useDocumentTitle";
 
 import {
   KeywordRequestError,
+  fetchKeywordGeneration,
   fetchKeywordWorkspace,
   generateKeywords,
   previewKeywords,
@@ -29,6 +30,7 @@ import {
 } from "./scraperKeywordApi";
 import type {
   KeywordDiff,
+  KeywordGenerationDraft,
   KeywordRollover,
   KeywordWorkspace,
 } from "./scraperKeywordApi";
@@ -40,6 +42,39 @@ import {
 import "./ScraperKeywords.css";
 
 const MAX_IMPORT_BYTES = 1_000_000;
+
+
+const GENERATION_POLL_MS = 2_000;
+const GENERATION_POLL_ATTEMPTS = 100;
+
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+
+async function pollGeneration(
+  generationId: string,
+): Promise<KeywordGenerationDraft> {
+  // The keyword worker owns the provider call, which can take minutes.
+  for (let attempt = 0; attempt < GENERATION_POLL_ATTEMPTS; attempt += 1) {
+    const status = await fetchKeywordGeneration(generationId);
+    if (status.status === "ready" && status.draft) {
+      return status.draft;
+    }
+    if (status.status === "failed") {
+      throw new KeywordRequestError(
+        status.detail || "Keyword generation failed; try again",
+        503,
+      );
+    }
+    await pause(GENERATION_POLL_MS);
+  }
+  throw new KeywordRequestError(
+    "Keyword generation is taking too long; try again",
+    503,
+  );
+}
 
 
 function message(error: unknown): string {
@@ -293,7 +328,8 @@ export function ScraperKeywordsRoute() {
     setFailure("");
     setOutcome("");
     try {
-      const draft = await generateKeywords(mode, seed);
+      const accepted = await generateKeywords(mode, seed);
+      const draft = await pollGeneration(accepted.generation_id);
       setText(draft.keywords.join("\n"));
       setGenerationId(draft.generation_id);
       setGenerationNotice(

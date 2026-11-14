@@ -72,6 +72,18 @@ export interface KeywordGenerationDraft {
   notice: string;
 }
 
+export interface KeywordGenerationAccepted {
+  generation_id: string;
+  status: "generating";
+}
+
+export interface KeywordGenerationStatus {
+  status: "generating" | "ready" | "failed";
+  generation_id: string;
+  draft: KeywordGenerationDraft | null;
+  detail: string | null;
+}
+
 export class KeywordRequestError extends Error {
   constructor(
     message: string,
@@ -136,8 +148,8 @@ export function saveKeywords(input: {
 export function generateKeywords(
   mode: "broad" | "adjacent",
   seedKeyword?: string,
-): Promise<KeywordGenerationDraft> {
-  return request<KeywordGenerationDraft>(
+): Promise<KeywordGenerationAccepted> {
+  return request<KeywordGenerationAccepted>(
     "/api/admin/scraper/keywords/generate",
     {
       method: "POST",
@@ -146,6 +158,14 @@ export function generateKeywords(
         seed_keyword: seedKeyword ?? null,
       }),
     },
+  );
+}
+
+export function fetchKeywordGeneration(
+  generationId: string,
+): Promise<KeywordGenerationStatus> {
+  return request<KeywordGenerationStatus>(
+    `/api/admin/scraper/keywords/generate/${generationId}`,
   );
 }
 

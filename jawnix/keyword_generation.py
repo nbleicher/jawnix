@@ -61,6 +61,9 @@ KEYWORD_SUBFAMILIES = (
 NICHE_PROPOSAL_MAX_ATTEMPTS = 3
 KEYWORD_DRAFT_TTL = timedelta(hours=24)
 KEYWORD_DRAFT_RETENTION = timedelta(days=90)
+#: A queued generation older than this is treated as abandoned (worker down),
+#: so a stopped worker cannot block new requests forever.
+KEYWORD_GENERATION_REQUEST_STALE = timedelta(minutes=10)
 _GENERATION_LOCK_NAMESPACE = 0x4A41574E  # "JAWN", shared convention.
 _GENERATION_LOCK_RESOURCE = 0x4B574745  # "KWGE", keyword generation.
 _PROMPT_REJECTION_LIMIT = 100
@@ -1015,6 +1018,60 @@ def try_generation_lock(session: Session) -> bool:
 
 def keyword_history_terms(session: Session) -> list[str]:
     return list(session.scalars(select(KeywordHistory.term).distinct()))
+
+
+def request_generation_draft(
+    session: Session,
+    *,
+    administrator_id: uuid.UUID,
+    mode: Literal["broad", "adjacent"],
+    seed_keyword: str | None,
+    model: str,
+    now: datetime | None = None,
+) -> KeywordGenerationDraftRecord:
+    """Queue a generation the keyword worker will run; no terms yet."""
+    now = now or datetime.now(timezone.utc)
+    draft = KeywordGenerationDraftRecord(
+        administrator_id=administrator_id,
+        mode=mode,
+        seed_keyword=seed_keyword,
+        model=model,
+        terms=[],
+        exclusion_metrics={},
+        candidate_metrics={},
+        excluded_count=0,
+        acceptance_status="generating",
+        created_at=now,
+        expires_at=now + KEYWORD_DRAFT_TTL,
+    )
+    session.add(draft)
+    session.flush()
+    return draft
+
+
+def stale_generating_drafts(
+    session: Session,
+    *,
+    now: datetime | None = None,
+) -> list[KeywordGenerationDraftRecord]:
+    """Queued generations the worker abandoned, so they stop blocking new ones."""
+    cutoff = (now or datetime.now(timezone.utc)) - KEYWORD_GENERATION_REQUEST_STALE
+    return list(
+        session.scalars(
+            select(KeywordGenerationDraftRecord).where(
+                KeywordGenerationDraftRecord.acceptance_status == "generating",
+                KeywordGenerationDraftRecord.created_at < cutoff,
+            )
+        )
+    )
+
+
+def generation_in_progress(session: Session) -> bool:
+    return session.scalar(
+        select(KeywordGenerationDraftRecord.id)
+        .where(KeywordGenerationDraftRecord.acceptance_status == "generating")
+        .limit(1)
+    ) is not None
 
 
 def create_generation_draft(

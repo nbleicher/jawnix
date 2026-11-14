@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
 
 from jawnix.api import app
 from jawnix.keyword_generation import (
@@ -12,6 +14,7 @@ from jawnix.keyword_generation import (
     KeywordGenerationResult,
     generation_error,
 )
+from jawnix.keyword_rollover import run_pending_keyword_generations
 from jawnix.models import (
     Agent,
     AuditEntry,
@@ -116,6 +119,33 @@ def post(client, csrf, path, body):
         headers={"X-CSRF-Token": csrf},
         json=body,
     )
+
+
+def drain_generation(session, workspace_settings):
+    """Run the keyword worker's queued-generation drain against this test's DB."""
+    factory = sessionmaker(bind=session.get_bind(), expire_on_commit=False)
+    clock = getattr(app.state, "scraper_workspace_clock", None)
+    outcome = asyncio.run(
+        run_pending_keyword_generations(
+            factory,
+            workspace_settings,
+            operations=app.state.scraper_operations,
+            provider=app.state.keyword_generation_provider,
+            now=clock() if clock else None,
+        )
+    )
+    session.expire_all()
+    return outcome
+
+
+def generate_reviewed_draft(client, csrf, session, workspace_settings, body):
+    """Queue a generation, run the worker drain, and read the result."""
+    queued = post(client, csrf, "/api/admin/scraper/keywords/generate", body)
+    assert queued.status_code == 202
+    generation_id = queued.json()["generation_id"]
+    assert queued.json()["status"] == "generating"
+    drain_generation(session, workspace_settings)
+    return client.get(f"/api/admin/scraper/keywords/generate/{generation_id}")
 
 
 def test_keyword_workspace_projects_editor_rankings_and_rollover(
@@ -382,20 +412,23 @@ def test_concurrent_change_is_refused_and_can_be_previewed_again(
 def test_ai_generation_creates_only_a_review_draft(
     workspace_client,
     session,
+    workspace_settings,
     mode,
     seed,
 ):
     client, csrf, fake = privileged(workspace_client)
 
-    response = post(
+    response = generate_reviewed_draft(
         client,
         csrf,
-        "/api/admin/scraper/keywords/generate",
+        session,
+        workspace_settings,
         {"mode": mode, "seed_keyword": seed},
     )
 
     assert response.status_code == 200
-    body = response.json()
+    assert response.json()["status"] == "ready"
+    body = response.json()["draft"]
     assert body["mode"] == mode
     assert body["seed_keyword"] == seed
     assert len(body["keywords"]) == 25
@@ -409,6 +442,11 @@ def test_ai_generation_creates_only_a_review_draft(
         )
     ).one()
     assert entry.details["activeConfigurationChanged"] is False
+    session.scalars(
+        select(AuditEntry).where(
+            AuditEntry.action == "scraper_keyword_generation_requested"
+        )
+    ).one()
     stored = session.get(
         KeywordGenerationDraftRecord,
         uuid.UUID(body["generation_id"]),
@@ -430,14 +468,16 @@ def test_ai_generation_creates_only_a_review_draft(
 def test_generated_draft_is_accepted_only_by_a_later_reviewed_save(
     workspace_client,
     session,
+    workspace_settings,
 ):
     client, csrf, fake = privileged(workspace_client)
-    generated = post(
+    generated = generate_reviewed_draft(
         client,
         csrf,
-        "/api/admin/scraper/keywords/generate",
+        session,
+        workspace_settings,
         {"mode": "broad"},
-    ).json()
+    ).json()["draft"]
     text = "\n".join(generated["keywords"][:-1])
     preview = post(
         client,
@@ -478,14 +518,16 @@ def test_generated_draft_is_accepted_only_by_a_later_reviewed_save(
 def test_generation_draft_stays_pending_when_the_final_save_fails(
     workspace_client,
     session,
+    workspace_settings,
 ):
     client, csrf, _ = privileged(workspace_client)
-    generated = post(
+    generated = generate_reviewed_draft(
         client,
         csrf,
-        "/api/admin/scraper/keywords/generate",
+        session,
+        workspace_settings,
         {"mode": "broad"},
-    ).json()
+    ).json()["draft"]
     text = "\n".join(generated["keywords"])
     preview = post(
         client,
@@ -516,17 +558,21 @@ def test_generation_draft_stays_pending_when_the_final_save_fails(
     assert stored.accepted_at is None
 
 
-def test_generation_lock_conflict_keeps_the_existing_retryable_409(
+def test_generation_conflict_keeps_the_existing_retryable_409(
     workspace_client,
-    monkeypatch,
+    session,
+    workspace_settings,
 ):
     client, csrf, _ = privileged(workspace_client)
     generator = arm_generation(GenerationFake())
-    monkeypatch.setattr(
-        "jawnix.scraper_proxy.try_generation_lock",
-        lambda _session: False,
-    )
 
+    queued = post(
+        client,
+        csrf,
+        "/api/admin/scraper/keywords/generate",
+        {"mode": "broad"},
+    )
+    assert queued.status_code == 202
     response = post(
         client,
         csrf,
@@ -540,9 +586,17 @@ def test_generation_lock_conflict_keeps_the_existing_retryable_409(
     )
     assert generator.calls == []
 
+    drain_generation(session, workspace_settings)
+    ready = client.get(
+        f"/api/admin/scraper/keywords/generate/{queued.json()['generation_id']}"
+    )
+    assert ready.json()["status"] == "ready"
+
 
 def test_generation_endpoint_never_returns_a_partial_provider_result(
     workspace_client,
+    session,
+    workspace_settings,
 ):
     client, csrf, _ = privileged(workspace_client)
 
@@ -556,14 +610,16 @@ def test_generation_endpoint_never_returns_a_partial_provider_result(
 
     arm_generation(PartialGenerationFake())
 
-    response = post(
+    response = generate_reviewed_draft(
         client,
         csrf,
-        "/api/admin/scraper/keywords/generate",
+        session,
+        workspace_settings,
         {"mode": "broad"},
     )
 
-    assert response.status_code == 503
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
     assert response.json()["detail"] == (
         "AI could not produce 25 sufficiently distinct keywords; try again"
     )
@@ -572,6 +628,7 @@ def test_generation_endpoint_never_returns_a_partial_provider_result(
 def test_ai_unavailable_and_provider_failure_are_recoverable_and_audited(
     workspace_client,
     session,
+    workspace_settings,
 ):
     client, csrf, _ = privileged(
         workspace_client,
@@ -592,13 +649,14 @@ def test_ai_unavailable_and_provider_failure_are_recoverable_and_audited(
             error=generation_error(GenerationErrorCode.PROVIDER_UNAVAILABLE)
         )
     )
-    failed = post(
+    failed = generate_reviewed_draft(
         client,
         csrf,
-        "/api/admin/scraper/keywords/generate",
+        session,
+        workspace_settings,
         {"mode": "broad"},
     )
-    assert failed.status_code == 503
+    assert failed.json()["status"] == "failed"
     assert "temporarily unavailable" in failed.json()["detail"]
     assert len(failing.calls) == 1
     assert len(
@@ -613,23 +671,24 @@ def test_ai_unavailable_and_provider_failure_are_recoverable_and_audited(
 def test_generation_timeout_is_diagnosable_and_audited(
     workspace_client,
     session,
+    workspace_settings,
 ):
     client, csrf, _ = privileged(workspace_client)
     arm_generation(
         GenerationFake(error=generation_error(GenerationErrorCode.TIMEOUT))
     )
 
-    response = post(
+    response = generate_reviewed_draft(
         client,
         csrf,
-        "/api/admin/scraper/keywords/generate",
+        session,
+        workspace_settings,
         {"mode": "broad"},
     )
 
-    assert response.status_code == 503
-    assert response.json() == {
-        "detail": "The AI provider timed out; try again"
-    }
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert response.json()["detail"] == "The AI provider timed out; try again"
     entry = session.scalars(
         select(AuditEntry).where(
             AuditEntry.action == "scraper_keyword_generation_failed"
@@ -662,17 +721,21 @@ def test_preview_transport_failure_is_audited(workspace_client, session):
 
 def test_winner_must_still_be_ranked_when_adjacent_generation_starts(
     workspace_client,
+    session,
+    workspace_settings,
 ):
     client, csrf, fake = privileged(workspace_client)
 
-    response = post(
+    response = generate_reviewed_draft(
         client,
         csrf,
-        "/api/admin/scraper/keywords/generate",
+        session,
+        workspace_settings,
         {"mode": "adjacent", "seed_keyword": "not a winner"},
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
     assert response.json()["detail"] == "The selected winner is unavailable"
     assert fake.keyword_writes == []
 
@@ -735,6 +798,11 @@ def test_rollover_controls_keep_state_metrics_and_audit(
             "post",
             "/api/admin/scraper/keywords/generate",
             {"mode": "broad"},
+        ),
+        (
+            "get",
+            "/api/admin/scraper/keywords/generate/33333333-3333-4333-8333-333333333333",
+            None,
         ),
         (
             "post",

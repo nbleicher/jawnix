@@ -185,6 +185,20 @@ class KeywordGenerationDraft(BaseModel):
     notice: str
 
 
+class KeywordGenerationAccepted(BaseModel):
+    """The generation request is queued; the keyword worker owns the draft."""
+
+    generation_id: str
+    status: Literal["generating"] = "generating"
+
+
+class KeywordGenerationStatus(BaseModel):
+    status: Literal["generating", "ready", "failed"]
+    generation_id: str
+    draft: KeywordGenerationDraft | None = None
+    detail: str | None = None
+
+
 def parse_keyword_text(text: str) -> list[str]:
     """Apply the Scraper's supported text-file format exactly.
 

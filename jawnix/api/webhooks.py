@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from fastapi import (
     BackgroundTasks,
     Depends,
@@ -33,6 +34,7 @@ from ..telegram import (
     parse_recommendation_callback_data,
     verify_telegram_secret,
 )
+from ._shared import raw_body
 from fastapi import APIRouter
 
 
@@ -40,9 +42,10 @@ router = APIRouter()
 
 
 @router.post("/api/integrations/telegram/webhook")
-async def telegram_webhook(
+def telegram_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
+    body: bytes = Depends(raw_body),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -52,7 +55,7 @@ async def telegram_webhook(
     ):
         raise HTTPException(status_code=401, detail="Invalid Telegram webhook secret.")
     try:
-        payload = await request.json()
+        payload = json.loads(body)
         update_id = str(payload["update_id"])
         callback = payload.get("callback_query")
     except (KeyError, ValueError):
@@ -214,8 +217,7 @@ async def telegram_webhook(
 
 
 @router.post("/api/integrations/resend/webhook")
-async def resend_webhook(request: Request, db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
-    body = await request.body()
+def resend_webhook(request: Request, body: bytes = Depends(raw_body), db: Session = Depends(get_db), settings: Settings = Depends(get_settings)):
     if not settings.resend_webhook_secret:
         raise HTTPException(status_code=503, detail="Resend webhook verification is not configured.")
     try:
