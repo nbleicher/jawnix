@@ -55,7 +55,7 @@ class ScraperMFAProvider:
             {"sub": str(ADMIN_ID), "aal": "aal2"},
         )
 
-    async def list_factors(self, _user_id: uuid.UUID):
+    async def list_factors(self, _user_id: uuid.UUID, *, session_id: str | None = None):
         return list(self.factors)
 
     async def challenge(self, _access_token: str, _factor_id: uuid.UUID):
@@ -67,6 +67,8 @@ class ScraperMFAProvider:
         _factor_id: uuid.UUID,
         _challenge_id: uuid.UUID,
         _code: str,
+        *,
+        method: str = "totp",
     ):
         self.verify_calls += 1
         return ProviderSession(
@@ -114,6 +116,7 @@ def workspace_client(
             "generation": 1,
             "factor_id": str(PRIMARY_ID),
             "csrf": csrf,
+            "provider_sid": "test-provider-session",
         }
     )
 
@@ -268,6 +271,7 @@ def test_scraper_grant_has_no_idle_limit_and_ends_with_the_sign_in(
             "generation": 1,
             "factor_id": str(PRIMARY_ID),
             "csrf": other_csrf,
+            "provider_sid": "test-provider-session",
         }
     )
     client.cookies.set(SESSION_COOKIE, later)
@@ -309,6 +313,7 @@ def test_scraper_grant_expires_with_the_administrator_session(
             "generation": 1,
             "factor_id": str(PRIMARY_ID),
             "csrf": csrf,
+            "provider_sid": "test-provider-session",
         }
     )
     client.cookies.set(SESSION_COOKIE, renewed)

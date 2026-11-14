@@ -4,7 +4,6 @@ import csv
 import hashlib
 import json
 import sqlite3
-import uuid
 from collections.abc import Iterable
 from datetime import date, datetime, time, timezone
 from pathlib import Path
@@ -16,16 +15,13 @@ from jawnix.activity import record_activity
 from jawnix.models import (
     Agency,
     Agent,
-    CustomerProfile,
     DistributionEvent,
     Lead,
     LeadCorrectionEvent,
     LeadSource,
     ListingObservation,
-    LeadRequest,
     MigrationAudit,
     QuarantinedRow,
-    RequestStatus,
 )
 from jawnix.states import US_STATES, normalize_phone
 
@@ -1004,61 +1000,6 @@ def import_scraper_sqlite(session: Session, path: Path, expected_checksum: str |
         "quarantined": quarantined,
         "observations": observations,
         "checksum": checksum,
-    }
-
-
-def import_supabase_jsonl(session: Session, directory: Path) -> dict:
-    import gzip
-
-    profiles_path = directory / "jawnix_profiles.jsonl.gz"
-    requests_path = directory / "jawnix_lead_requests.jsonl.gz"
-    profile_count = request_count = request_skipped_unmapped = 0
-    if profiles_path.exists():
-        with gzip.open(profiles_path, "rt", encoding="utf-8") as stream:
-            for line in stream:
-                row = json.loads(line)
-                user_id = uuid.UUID(str(row["user_id"]))
-                profile = session.get(CustomerProfile, user_id)
-                if profile is None:
-                    profile = CustomerProfile(user_id=user_id, email=str(row.get("email") or "").lower())
-                    session.add(profile)
-                profile.email = str(row.get("email") or profile.email).lower()
-                profile.first_name = str(row.get("first_name") or "")
-                profile.last_name = str(row.get("last_name") or "")
-                profile.phone = str(row.get("phone") or "")
-                profile.licensed_states = [s for s in row.get("licensed_states") or [] if s in US_STATES]
-                profile_count += 1
-    session.flush()
-    if requests_path.exists():
-        with gzip.open(requests_path, "rt", encoding="utf-8") as stream:
-            for line in stream:
-                row = json.loads(line)
-                profile = session.get(CustomerProfile, uuid.UUID(str(row["user_id"])))
-                if profile is None or profile.customer_id is None:
-                    request_skipped_unmapped += 1
-                    continue
-                legacy_id = uuid.UUID(str(row["id"]))
-                if session.get(LeadRequest, legacy_id):
-                    continue
-                status = RequestStatus.delivered.value if row.get("status") == "fulfilled" else RequestStatus.pending.value
-                session.add(
-                    LeadRequest(
-                        id=legacy_id,
-                        user_id=profile.user_id,
-                        agent_id=profile.customer_id,
-                        lead_count=int(row["lead_count"]),
-                        state_mode="all_saved",
-                        states_snapshot=row.get("states_snapshot") or profile.licensed_states,
-                        delivery_email=profile.email,
-                        status=status,
-                        status_message="Imported from Supabase.",
-                    )
-                )
-                request_count += 1
-    return {
-        "profiles": profile_count,
-        "requests": request_count,
-        "requestsSkippedUnmapped": request_skipped_unmapped,
     }
 
 

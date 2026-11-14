@@ -320,10 +320,10 @@ class UserAccountInvitation(Base):
 class AdminMFAState(Base):
     """Jawnix-owned state around provider-managed administrator factors.
 
-    Supabase owns every TOTP secret and challenge.  Jawnix stores only the
-    coordination state that Supabase cannot express: which factors pre-dated a
-    resumable enrollment, challenge throttling, and a generation used to revoke
-    all signed Jawnix sessions after a security change.
+    The identity provider owns every TOTP secret and challenge.  Jawnix stores
+    only the coordination state that the provider cannot express: which factors
+    pre-dated a resumable enrollment, challenge throttling, and a generation
+    used to revoke all signed Jawnix sessions after a security change.
     """
 
     __tablename__ = "admin_mfa_states"

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -30,10 +29,6 @@ class Settings(BaseSettings):
     frontend_dist_dir: Path = Field(default=Path("./frontend/dist"), alias="JAWNIX_FRONTEND_DIST_DIR")
     public_base_url: str = Field(default="http://localhost:8080", alias="JAWNIX_PUBLIC_BASE_URL")
 
-    supabase_url: str = Field(default="", alias="JAWNIX_SUPABASE_URL")
-    supabase_anon_key: str = Field(default="", alias="JAWNIX_SUPABASE_ANON_KEY")
-    supabase_service_role_key: str = Field(default="", alias="SUPABASE_SERVICE_ROLE_KEY")
-    auth_provider: Literal["supabase", "better-auth"] = Field(default="supabase", alias="JAWNIX_AUTH_PROVIDER")
     better_auth_url: str = Field(default="", alias="JAWNIX_BETTER_AUTH_URL")
     auth_bridge_secret: SecretStr = Field(default=SecretStr(""), alias="JAWNIX_AUTH_BRIDGE_SECRET")
     admin_mfa_max_attempts: int = Field(
@@ -122,17 +117,6 @@ class Settings(BaseSettings):
         alias="OPENROUTER_API_KEY",
     )
     keyword_catalogue_enabled: bool = Field(default=False, alias="JAWNIX_KEYWORD_CATALOGUE_ENABLED")
-    keyword_generation_provider: Literal["openrouter", "anthropic"] = Field(
-        default="openrouter", alias="JAWNIX_KEYWORD_GENERATION_PROVIDER"
-    )
-    anthropic_api_key: SecretStr | None = Field(default=None, alias="ANTHROPIC_API_KEY")
-    anthropic_workspace_id: str = Field(default="", alias="ANTHROPIC_WORKSPACE_ID")
-    keyword_daily_spend_usd: Decimal = Field(
-        default=Decimal("1"), ge=0, alias="JAWNIX_KEYWORD_DAILY_SPEND_USD"
-    )
-    keyword_budget_timezone: str = Field(
-        default="UTC", alias="JAWNIX_KEYWORD_BUDGET_TIMEZONE"
-    )
     openrouter_model: str = Field(
         default="deepseek/deepseek-v4-flash",
         alias="OPENROUTER_MODEL",
