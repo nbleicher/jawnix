@@ -60,15 +60,7 @@ from ..models import (
 )
 from ..mfa_provider import MFAProviderError, get_mfa_provider
 from ..schemas import CustomerCreate, SessionExchange, ScraperConfigurationCreate
-from ..scraper_proxy import (
-    accept_scraper_handoff,
-    clear_scraper_session,
-    forward_scraper_request,
-    native_router as native_scraper_router,
-    request_is_scraper_origin,
-    scraper_handoff_response,
-    scraper_principal_from_request,
-)
+from ..scraper_proxy import native_router as native_scraper_router
 from ..request_updates import request_events, request_updates_lifespan
 from ..lead_upload_api import router as lead_upload_router
 from ..acquisition_yield_api import router as acquisition_yield_router
@@ -118,53 +110,6 @@ async def redact_sensitive_validation_error(
 
 # The React shell at /app is the only UI (legacy static pages retired in P8).
 register_frontend_shell(app)
-
-
-@app.post("/admin/scraper/session")
-async def scraper_operations_session(
-    request: Request,
-    settings: Settings = Depends(get_settings),
-):
-    return await accept_scraper_handoff(request, settings)
-
-
-@app.post("/admin/scraper/logout")
-def scraper_operations_logout(
-    request: Request,
-    settings: Settings = Depends(get_settings),
-):
-    return clear_scraper_session(request, settings)
-
-
-@app.api_route(
-    "/admin/scraper",
-    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
-)
-@app.api_route(
-    "/admin/scraper/{path:path}",
-    methods=["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"],
-)
-async def scraper_operations(
-    request: Request,
-    path: str = "",
-    settings: Settings = Depends(get_settings),
-    db: Session = Depends(get_db),
-):
-    if request_is_scraper_origin(request, settings):
-        principal = scraper_principal_from_request(request, settings)
-    else:
-        principal = await require_admin(
-            require_principal(request, settings),
-            settings,
-            db,
-        )
-        return scraper_handoff_response(principal, settings)
-    return await forward_scraper_request(
-        request,
-        path,
-        principal,
-        settings,
-    )
 
 
 @app.post("/api/auth/session")
