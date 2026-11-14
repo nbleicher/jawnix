@@ -373,11 +373,14 @@ test.describe("Keyboard operation", () => {
 
 test.describe("Touch targets", () => {
   /** Measures every visible control matching `selector`, naming any that fall
-   *  below the 44px rule in either dimension. */
+   *  below the 44px rule in either dimension. Waits for the first render:
+   *  `goto` resolves before the shell's loader-gated first paint. */
   async function undersizedTargets(page: Page, selector: string) {
     const controls = page.locator(selector);
+    await expect
+      .poll(() => controls.count(), { message: `expected to find controls matching ${selector}` })
+      .toBeGreaterThan(0);
     const count = await controls.count();
-    expect(count, `expected to find controls matching ${selector}`).toBeGreaterThan(0);
 
     const undersized: string[] = [];
     for (let index = 0; index < count; index += 1) {
