@@ -1,8 +1,8 @@
 # Jawnix VPS batch platform
 
-Jawnix is a customer batch-request portal live at `https://jawnix.com`, backed by FastAPI and private PostgreSQL on the VPS. Supabase remains the identity provider; application data lives on the VPS. Telegram handles approval and Resend delivers an exact `phone,title` CSV from `Jawnix <hai@jawnix.com>`.
+Jawnix is a customer batch-request portal live at `https://jawnix.com`, backed by FastAPI and private PostgreSQL on the VPS. Better Auth is the identity provider — Caddy proxies `/auth/*` to the dedicated auth service, and the retired Supabase settings remain only for rollback. Application data lives on the VPS. Telegram handles approval and Resend delivers an exact `phone,title,state` CSV from `Noah Bleicher (Jawnix) <noah@jawnix.com>` (batches generated before the state column keep the original `phone,title` layout).
 
-Billing, invoice, Stripe, and finance code remains in the repository for rollback, but the VPS application does not serve those routes and the new UI does not expose them. Keep `JAWNIX_ENABLE_BILLING=false`.
+Billing is live as per-Customer prepaid credits (ADR 0018): production runs `JAWNIX_ENABLE_BILLING=true`, Customers top up a Credit Wallet through Stripe Checkout, and a billed request places a Batch Hold at submission and captures when distribution commits. The flag still gates the Stripe purchase flow and each new Customer's billing default.
 
 Customer feedback is intentionally lightweight: quality, positive-response,
 and appointment milestones are retained with correction history and summarized
@@ -12,7 +12,7 @@ by Google Maps Source Segment.
 
 - Caddy: public HTTP/HTTPS and static portal; proxies `/api`, `/admin/scraper`, and `/app` to FastAPI
 - FastAPI: session, profile, request, admin, Telegram, and Resend APIs, plus the redesigned React shell at `/app`
-- Worker: durable approval, allocation, Telegram, and delivery jobs
+- Workers: durable approval, allocation, Telegram, and delivery jobs, split across the maintenance (default), fulfillment, notifications, imports, keyword, and keyword-refill lanes
 - PostgreSQL 18: private inventory and permanent allocation history
 - Scheduler: nightly Google Maps dataset synchronization, Nightly Review, waiting-request retry, and 30-day CSV cleanup
 - Backup worker: encrypted Restic PostgreSQL, WAL, and persistent Scraper Dataset backup with 14-day retention
@@ -26,11 +26,10 @@ The rebuilt React interface lives in [`frontend/`](frontend/README.md) and is se
 `/app`. It is the only UI — the legacy static pages were retired in P8, and Caddy redirects their
 former URLs to `/app`. The Docker image builds the bundle in a separate Node stage and ships it.
 
-Supabase Auth's allowed redirect URLs must include
-`$JAWNIX_PUBLIC_BASE_URL/app/accept-invitation`, which is where new invitations
-and password-recovery emails now point. The legacy
-`$JAWNIX_PUBLIC_BASE_URL/portal-accept.html` entry can be removed once every
-invitation issued before the cutover has been accepted or expired.
+Invitation and password-recovery email are dispatched by the Better Auth
+service; the shell completes them at `/app/accept-invitation` and
+`/app/reset-password`. The retired Supabase project's redirect allow-list is
+no longer consulted.
 
 ## Local verification
 
@@ -82,4 +81,4 @@ Migration and production operations are documented in [OPERATIONS.md](docs/OPERA
 
 ## Allocation rules
 
-Allocation is all-or-nothing and transactionally locks rows with `SKIP LOCKED`. A phone is never repeated to an agent; members of one agency share permanent no-repeat history. Other recipients may receive it only after the seven-day global cooldown. Never-distributed rows sort first, followed by the oldest distribution date. A retry after generation reuses the same events and CSV.
+Allocation is all-or-nothing and transactionally locks rows with `SKIP LOCKED`. A phone is never repeated to an agent; members of one agency share permanent no-repeat history. Another recipient may draw the phone once its latest delivery is older than that recipient's Cooldown Window — a per-customer, administrator-set minimum age (default seven days, minimum one; ADR 0019). Never-distributed rows sort first, followed by the oldest distribution date. A retry after generation reuses the same events and CSV.
