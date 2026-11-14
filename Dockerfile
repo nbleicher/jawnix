@@ -29,7 +29,14 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 COPY --from=postgres-client /usr/lib/postgresql/18 /usr/lib/postgresql/18
-RUN for tool in pg_dump pg_restore pg_basebackup psql pg_isready createdb dropdb; do \
+# Debian's postgresql-client pulls in libpq 17, whose PQfullProtocolVersion is
+# missing, so the PostgreSQL 18 tools fail at runtime ("psql: symbol lookup
+# error"). Ship the matching libpq 18 over it.
+COPY --from=postgres-client /usr/lib/*-linux-gnu/libpq.so.5* /usr/local/lib/libpq18/
+RUN libdir="$(echo /usr/lib/*-linux-gnu)" \
+  && cp -a /usr/local/lib/libpq18/. "$libdir/" \
+  && rm -rf /usr/local/lib/libpq18 \
+  && for tool in pg_dump pg_restore pg_basebackup psql pg_isready createdb dropdb; do \
       ln -sf "/usr/lib/postgresql/18/bin/$tool" "/usr/local/bin/$tool"; \
     done
 
