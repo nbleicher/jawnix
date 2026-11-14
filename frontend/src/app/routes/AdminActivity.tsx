@@ -435,27 +435,26 @@ export function AdminActivityRoute() {
   useDocumentTitle("Activity");
 
   // Controls follow the address being loaded, so a filter reads as changed
-  // the moment it is picked rather than when its results arrive.
+  // the moment it is picked rather than when its results arrive. The pending
+  // location still carries the router basename, hence the suffix test.
   const navigation = useNavigation();
-  const shown =
-    navigation.location?.pathname === "/admin/activity"
-      ? new URLSearchParams(navigation.location.search)
-      : params;
+  const pending = navigation.location?.pathname.endsWith("/admin/activity")
+    ? new URLSearchParams(navigation.location.search)
+    : null;
+  const shown = pending ?? params;
   const refused = shown.get("refused") === "true";
   const [refusedChecked, setRefusedChecked] = useState(refused);
   useEffect(() => setRefusedChecked(refused), [refused]);
 
   function setFilter(key: string, value: string | null) {
-    setParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        if (value) next.set(key, value);
-        else next.delete(key);
-        if (key !== "page") next.delete("page");
-        return next;
-      },
-      { replace: true, preventScrollReset: true },
-    );
+    // Build on the address being loaded (`shown`), not the last committed one:
+    // a change made while the previous navigation is still fetching must keep
+    // the previous change's params.
+    const next = new URLSearchParams(shown);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    if (key !== "page") next.delete("page");
+    setParams(next, { replace: true, preventScrollReset: true });
   }
 
   const entityTypes = activity.filters?.entityTypes ?? [];
