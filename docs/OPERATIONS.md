@@ -11,7 +11,7 @@ identity provider. They are archived verbatim at
 2. Clone this branch, copy `.env.example` to `.env`, and replace every placeholder. Generate independent database, session, and Restic passwords. On the shared production VPS only, also uncomment the `COMPOSE_FILE` line so compose can never omit the edge adapter (see below).
 3. Configure the Telegram webhook at `https://jawnix.com/api/integrations/telegram/webhook` with the bot token, random webhook secret, destination chat ID, and comma-separated authorized Telegram user IDs. Register it with Telegram's `setWebhook` API using the same `secret_token`.
 4. Verify `jawnix.com` in Resend, configure `Noah Bleicher (Jawnix) <noah@jawnix.com>`, and set the webhook to `https://jawnix.com/api/integrations/resend/webhook` for delivered, bounced, complained, and failed events.
-5. Configure a private encrypted Restic repository and credentials. Do not reuse the database or session secret as its password. The backup service creates separate database/base and WAL snapshots so a large WAL archive cannot block the daily logical dump. It creates a physical base backup on the configured UTC weekday and expires VPS material after 14 days. Install `ops/com.jawnix.external-backup.plist` on the Mac so `ops/macos-backup-pull.sh` creates the second encrypted copy under `/Volumes/Peely SSD/Jawnix Backups`.
+5. Configure a private encrypted Restic repository and credentials. Do not reuse the database or session secret as its password. The backup service creates separate database/base and WAL snapshots so a large WAL archive cannot block the daily logical dump. It creates a physical base backup on the configured UTC weekday and expires VPS material after 14 days. Configure the Cloudflare R2 offsite copy per `docs/OFFSITE-BACKUP-R2.md` so every local snapshot is mirrored off-host automatically. `ops/macos-backup-pull.sh` (installed via `ops/com.jawnix.external-backup.plist`) is superseded by the R2 copy and retained only as an optional third copy under `/Volumes/Peely SSD/Jawnix Backups`.
 6. Run `docker compose config` and `docker compose build`. (`/config.js` is rendered by Caddy from the environment — there is no file to generate.)
 7. Run `docker compose up -d postgres`, `docker compose run --rm migrate`, then `docker compose up -d`.
 8. Confirm `/api/healthz`, `/api/readyz`, container health/logs, PostgreSQL `archive_mode`, and a Restic snapshot before importing production data. Force one initial physical base backup with `docker compose run --rm -e JAWNIX_FORCE_BASEBACKUP=true backup /app/ops/backup.sh`.
@@ -88,9 +88,52 @@ after migrating, it downgrades to the previous revision with the new image and
 restores the previous images, saving every service's logs first. The `backup`
 service, Caddy, and Postgres are never touched.
 
+After a successful activation, `release-activate.py` prunes all but the newest
+three releases: it removes their `release-stage-<sha7>` folders and their
+`jawnix-release:<sha7>` / `jawnix-<service>:rollback-<sha7>` image tags. The
+evidence under `backups/release-<sha7>` is kept. A pruning failure never fails
+an otherwise successful release. `ops/host-cleanup.sh` is the one-time,
+dry-run-by-default counterpart for catching up an already-cluttered host.
+
 Afterwards, deploy `auth-service/` separately when it changed:
 `vercel deploy --prod --scope pro-build-momentum` from that folder (project
 `jawnix-auth`). `vercel link` writes a `.env.local` with secrets; delete it.
+
+### Alembic baseline
+
+Revisions 0001-0055 are squashed into a single baseline whose revision ID
+equals the former chain head, `20261109_0055`. Its `upgrade()` builds the
+schema from the current models and installs the append-only triggers
+(`audit_entries`, `lead_report_resolutions`, `credit_ledger_entries`,
+`scraper_runtime_configuration_revisions`,
+`user_account_migration_artifacts`) that SQLAlchemy metadata cannot
+express. A database already stamped `20261109_0055` is up to date:
+`alembic upgrade head` is a no-op and `release-activate.py`'s head check
+passes unchanged.
+
+Deploy steps for a database already at head (production):
+
+1. Deploy as usual. `release-activate.py` runs `alembic upgrade head`;
+   with the database stamped `20261109_0055` this applies nothing.
+
+A database stamped at a revision older than `20261109_0055` cannot run
+any alembic command against the squashed tree (`Can't locate revision`).
+Bring it to head BEFORE deploying the squashed code:
+
+1. Activate the last pre-squash release and let `alembic upgrade head`
+   advance the database to `20261109_0055`.
+2. Verify: `SELECT version_num FROM alembic_version` → `20261109_0055`.
+3. Deploy the squashed release.
+
+Pre-existing drift, kept intentionally: databases built by the old chain
+carry a redundant named constraint `uq_nightly_reviews_review_date` on
+`nightly_reviews.review_date` in addition to the model's unique index
+`ix_nightly_reviews_review_date` (revision 0022 added it because its guard
+checked constraints only, not the unique index revision 0001 had already
+created). The baseline does not recreate it on fresh databases; dropping
+it from an existing database is optional and safe
+(`ALTER TABLE nightly_reviews DROP CONSTRAINT uq_nightly_reviews_review_date`),
+since the unique index enforces the same invariant.
 
 ### Syncing the Compose tree
 
@@ -734,7 +777,22 @@ docker compose exec backup restic snapshots
 docker compose exec backup restic check
 ```
 
-Run the installed Mac pull whenever Peely SSD is mounted:
+The primary offsite copy is the Cloudflare R2 Restic repository, maintained
+automatically by `ops/backup.sh` after every local backup. Verify it with:
+
+```sh
+docker compose exec backup sh -c 'restic -r "$R2_RESTIC_REPO" snapshots'
+docker compose exec backup sh -c 'restic -r "$R2_RESTIC_REPO" check'
+```
+
+Setup, seeding, and restore-from-R2 steps are in `docs/OFFSITE-BACKUP-R2.md`.
+A failed R2 copy logs `OFFSITE BACKUP FAILED` and exits the backup non-zero
+while leaving the local repository intact.
+
+The Mac pull to Peely SSD is superseded by the R2 copy. It is retained as an
+optional third copy; its default SSH target still points at the legacy host
+whose backups stopped 2026-10-02, so set `JAWNIX_VPS_SSH_TARGET` to the
+production host before relying on it again:
 
 ```sh
 "$HOME/Library/Application Support/Jawnix/macos-backup-pull.sh"
@@ -747,13 +805,10 @@ interrupted run can be rerun safely. Restic assigns new snapshot IDs in the
 destination repository; verify corresponding timestamps, tags, paths, and
 sizes rather than expecting the VPS snapshot IDs to remain unchanged.
 
-The launch agent runs daily at 01:00 local time but only while the Mac and drive
-are available. A missed run does not affect the VPS repository.
-
 ## Cutover monitoring
 
 The installed `jawnix-cutover-monitor.timer` runs every five minutes. It checks
-production readiness, billing-disable health, and that all six Compose services
+production readiness, application health, and that all eleven Compose services
 are running. Results are written to journald under
 `jawnix-cutover-monitor`; state changes generate Telegram alerts.
 

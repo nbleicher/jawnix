@@ -1,5 +1,7 @@
 import { redirect } from "react-router";
 
+import { apiFetch } from "../api";
+
 export type HistorySort =
   | "keyword"
   | "state"
@@ -139,29 +141,11 @@ export class ScraperRuntimeRequestError extends Error {
   }
 }
 
-function csrf(): string {
-  const item = document.cookie
-    .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith("jawnix_csrf="));
-  return decodeURIComponent(item?.split("=", 2)[1] ?? "");
-}
-
 async function request<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    ...init,
-    headers: {
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
-      ...(init.method && init.method !== "GET"
-        ? { "X-CSRF-Token": csrf() }
-        : {}),
-      ...init.headers,
-    },
-  });
+  const response = await apiFetch(path, init);
   const body = (await response.json().catch(() => ({}))) as {
     detail?: string | Array<{ msg?: string }>;
   };

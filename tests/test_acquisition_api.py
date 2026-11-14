@@ -335,11 +335,15 @@ class TestRecommendationsStayHumanControlled:
         recommendation = recommendation_scenario(session)
         client = as_admin(session, Settings())
         try:
-            body = client.get("/api/admin/source-recommendations").json()
+            body = client.get("/api/admin/acquisition").json()
         finally:
             app.dependency_overrides.clear()
 
-        item = next(row for row in body if row["id"] == str(recommendation.id))
+        item = next(
+            row
+            for row in body["sourceRecommendations"]
+            if row["id"] == str(recommendation.id)
+        )
         assert item["evidence"]["counts"] == {"worked": 120, "rated": 40}
         assert item["evidenceChecksum"] == "e" * 64
         assert item["configurationVersion"] == 4

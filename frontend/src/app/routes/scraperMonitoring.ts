@@ -1,5 +1,7 @@
 import { redirect } from "react-router";
 
+import { apiFetch, csrfToken } from "../api";
+
 /**
  * The native Scraper Operations monitoring contract (#63).
  *
@@ -207,14 +209,6 @@ export interface PipelineCommand {
 
 const BASE = "/api/admin/scraper/monitoring";
 
-function csrf(): string {
-  const item = document.cookie
-    .split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith("jawnix_csrf="));
-  return decodeURIComponent(item?.split("=", 2)[1] ?? "");
-}
-
 /** The privileged session is gone; the step-up gate owns what happens next. */
 export class PrivilegedSessionExpired extends Error {
   constructor() {
@@ -224,9 +218,8 @@ export class PrivilegedSessionExpired extends Error {
 }
 
 export async function scraperOverviewLoader(): Promise<MonitoringSnapshot> {
-  const response = await fetch(`${BASE}?bootstrap=true`, {
-    credentials: "same-origin",
-    headers: { "X-CSRF-Token": csrf() },
+  const response = await apiFetch(`${BASE}?bootstrap=true`, {
+    headers: { "X-CSRF-Token": csrfToken() },
   });
   if (response.status === 401 || response.status === 403) {
     throw redirect("/admin/acquisition/scraper");
@@ -249,9 +242,8 @@ export async function scraperOverviewLoader(): Promise<MonitoringSnapshot> {
 export async function fetchRegion(
   region: RegionKey,
 ): Promise<MonitoringRegion> {
-  const response = await fetch(`${BASE}/${region}`, {
-    credentials: "same-origin",
-    headers: { "X-CSRF-Token": csrf() },
+  const response = await apiFetch(`${BASE}/${region}`, {
+    headers: { "X-CSRF-Token": csrfToken() },
   });
   if (response.status === 401 || response.status === 403) {
     throw new PrivilegedSessionExpired();
@@ -265,13 +257,8 @@ export async function fetchRegion(
 export async function controlPipeline(
   command: PipelineCommand,
 ): Promise<PipelineResult> {
-  const response = await fetch("/api/admin/scraper/pipeline", {
+  const response = await apiFetch("/api/admin/scraper/pipeline", {
     method: "POST",
-    credentials: "same-origin",
-    headers: {
-      "Content-Type": "application/json",
-      "X-CSRF-Token": csrf(),
-    },
     body: JSON.stringify(command),
   });
   if (response.status === 401 || response.status === 403) {

@@ -14,7 +14,7 @@ import type { StatusTone } from "../../design-system/primitives/status";
 import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Text } from "../../design-system/primitives/typography";
-import { api } from "../auth/adminMFA";
+import { api } from "../api";
 import { formatCount, formatDay } from "../operator/format";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
 import "./AdminSourcePerformance.css";

@@ -75,3 +75,40 @@ async def test_one_completed_state_can_refill_without_dropping_other_state(app_c
         await connection.execute("DELETE FROM state_campaign_backlog WHERE keyword='state rollover fixture'")
         await connection.execute("DELETE FROM approved_campaign_keywords WHERE keyword='state rollover fixture'")
         await connection.close()
+
+@pytest.mark.asyncio
+async def test_prepare_never_selects_category_covered_cells(seeded_database):
+    import psycopg2
+    from category_catalogue import category_identity,sync_catalogue
+    conn=psycopg2.connect(os.environ['TEST_DATABASE_URL']);conn.autocommit=True
+    ledger=SimpleNamespace(conn=conn);day=date.today()
+    term='independent covered fixture'
+    cfg={'states':['tn'],'settings':{},'queue':{},'overrides':{}}
+    def build(config,terms):
+        return [{'keyword':t,'state':'tn','geo_coordinates':f"{35+i/100},-86"} for t in terms for i in range(8)]
+    try:
+        register(ledger,[term],['tn'],day,'covered-test')
+        sync_catalogue(ledger,[term],day,origin='approved_campaign')
+        category_id=category_identity(term)[0]
+        # The pilot head is already covered under the category: only the
+        # uncovered remainder may be selected.
+        with conn.cursor() as cur:
+            cur.executemany("INSERT INTO acquisition_category_cells(category_id,state,cell) VALUES(%s,'tn',%s)",
+                [(category_id,f"{35+i/100},-86") for i in range(6)])
+        jobs,_,_=prepare(ledger,cfg,[term],day,day,build,eligible_jobs)
+        assert [job['geo_coordinates'] for job in jobs]==['35.06,-86','35.07,-86']
+        # Once everything is covered the campaign resolves and leaves pending().
+        with conn.cursor() as cur:
+            cur.executemany("INSERT INTO acquisition_category_cells(category_id,state,cell) VALUES(%s,'tn',%s)",
+                [(category_id,f"{35+i/100},-86") for i in (6,7)])
+        jobs,_,_=prepare(ledger,cfg,[term],day,day,build,eligible_jobs)
+        assert jobs==[]
+        assert term not in {row[0] for row in pending(ledger,['tn'])['tn']}
+    finally:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM keyword_yield_evaluations WHERE keyword=%s",(term,))
+            cur.execute("DELETE FROM state_campaign_backlog WHERE keyword=%s",(term,))
+            cur.execute("DELETE FROM approved_campaign_keywords WHERE keyword=%s",(term,))
+            cur.execute("DELETE FROM acquisition_categories WHERE canonical_query=%s",(term,))
+            cur.execute("DELETE FROM keyword_history WHERE keyword=%s",(term,))
+        conn.close()
