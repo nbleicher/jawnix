@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import BigInteger, Column, MetaData, String, Table, Text, Uuid, and_, case, or_, select
+from sqlalchemy import BigInteger, Column, MetaData, String, Table, Text, Uuid, and_, case, func, or_, select
 
 from .models import Lead, LeadDatabaseMembership
 
@@ -21,20 +21,36 @@ db2_inventory = Table(
     Column("owner_id", Uuid, nullable=False),
 )
 
+# Databases filled by CSV uploads. DB3 rows live in the same physical upload
+# store as DB2 rows (the upload's id keys them apart).
+UPLOAD_BACKED_DATABASES = ("db2", "db3")
+# A Clean row sells for 30 days after its scrub date; expires_on is the first
+# day it can no longer sell.
+CLEAN_SHELF_DAYS = 30
 
-def inventory_database(customer) -> str:
-    return customer.lead_database or "db1"
+
+def inventory_database(request) -> str:
+    """A Clean request always draws from DB3; a Standard request from the Customer's Lead Database."""
+    if getattr(request, "clean", False):
+        return "db3"
+    return request.customer.lead_database or "db1"
 
 
 def inventory_scope(query, database: str):
     query = query.select_from(Lead)
-    if database == "db2":
-        return query.join(LeadDatabaseMembership, LeadDatabaseMembership.lead_id == Lead.id)
+    if database in UPLOAD_BACKED_DATABASES:
+        query = query.join(LeadDatabaseMembership, and_(
+            LeadDatabaseMembership.lead_id == Lead.id,
+            LeadDatabaseMembership.inventory_database == database,
+        ))
+        if database == "db3":
+            query = query.where(LeadDatabaseMembership.expires_on > func.current_date())
+        return query
     return query.where(Lead.in_db1.is_(True))
 
 
 def inventory_state(database: str):
-    if database == "db2":
+    if database in UPLOAD_BACKED_DATABASES:
         # A global Lead Correction still outranks source listing information.
         return case((Lead.active_correction_id.is_not(None), Lead.state), else_=LeadDatabaseMembership.state)
     return Lead.state
@@ -51,7 +67,7 @@ class SourceListing:
     niche: str = ""
 
 
-def db2_listings(session, source_keys) -> dict[int, SourceListing]:
+def upload_listings(session, source_keys, *, database: str = "db2") -> dict[int, SourceListing]:
     """Only fetch the exact immutable versions selected with the row locks."""
     keys = list(source_keys)
     result = {}
@@ -66,7 +82,8 @@ def db2_listings(session, source_keys) -> dict[int, SourceListing]:
         for row in rows:
             result[row["lead_id"]] = SourceListing(
                 row["phone"], row["title"], row["state"],
-                {"kind":"csv_upload", "database":"db2", "uploadId":str(row["upload_id"]),
+                {"kind":"csv_upload", "database":database, "uploadId":str(row["upload_id"]),
                  "ownerId":str(row["owner_id"]), "rowNumber":row["row_number"]},
+                segment_key=database,
             )
     return result

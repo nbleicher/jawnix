@@ -244,6 +244,7 @@ def test_reads_never_count_and_refresh_is_queued_once(session):
         assert empty.json() == {
             "db1": None,
             "db2": None,
+            "db3": None,
             "refresh": {"status": "idle", "jobId": None},
         }
 

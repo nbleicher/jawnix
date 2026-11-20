@@ -329,6 +329,7 @@ def test_customer_availability_honors_filters_and_is_cached_with_as_of(
             "asOf": None,
             "available": None,
             "forecast": None,
+            "clean": None,
         }
 
         refreshed = client.post(

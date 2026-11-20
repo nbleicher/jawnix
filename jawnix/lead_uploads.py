@@ -1,4 +1,4 @@
-"""Bounded CSV ingestion and atomic publication of the DB2 eligibility index."""
+"""Bounded CSV ingestion and atomic publication of upload-backed eligibility indexes."""
 from __future__ import annotations
 
 import csv
@@ -6,11 +6,11 @@ import hashlib
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import psycopg
-from sqlalchemy import delete, func, insert, select, text, update
+from sqlalchemy import delete, func, insert, literal, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError
 
@@ -20,8 +20,8 @@ from .db2_setup import db2_url
 from .job_wakeup import postgres_dsn
 from .inventory_snapshots import enqueue_inventory_refresh
 from .jobs import enqueue_job
-from .lead_databases import db2_inventory
-from .models import Customer, CustomerAvailabilitySnapshot, Job, LeadDatabaseMembership, LeadDatabaseSummary, LeadUpload, utcnow
+from .lead_databases import CLEAN_SHELF_DAYS, db2_inventory
+from .models import CustomerAvailabilitySnapshot, Job, LeadDatabaseMembership, LeadDatabaseSummary, LeadUpload, utcnow
 from .states import normalize_phone
 
 IMPORT_JOB = "import_lead_upload"
@@ -49,6 +49,8 @@ class Progress:
 def upload_record(item: LeadUpload) -> dict:
     return {
         "id":str(item.id), "filename":item.filename, "state":item.state, "status":item.status,
+        "database":item.inventory_database,
+        "scrubbedOn":item.scrubbed_on.isoformat() if item.scrubbed_on else None,
         "bytes":item.bytes, "processedRows":item.processed_rows, "validRows":item.valid_rows,
         "rejectedRows":item.rejected_rows, "importedRows":item.imported_rows,
         "updatedRows":item.updated_rows, "duplicateRows":item.duplicate_rows,
@@ -140,18 +142,33 @@ def _publish(upload_id, factory, progress):
         item = session.scalar(select(LeadUpload).where(LeadUpload.id == upload_id).with_for_update())
         if item.status == "complete":
             return upload_record(item)
-        source = select(db2_inventory.c.lead_id, db2_inventory.c.upload_id, db2_inventory.c.state).where(db2_inventory.c.upload_id == upload_id)
+        database = item.inventory_database
         total = int(session.scalar(select(func.count()).select_from(db2_inventory).where(db2_inventory.c.upload_id == upload_id)) or 0)
         updated = int(session.scalar(select(func.count()).select_from(LeadDatabaseMembership).where(
+            LeadDatabaseMembership.inventory_database == database,
             LeadDatabaseMembership.lead_id.in_(select(db2_inventory.c.lead_id).where(db2_inventory.c.upload_id == upload_id))
         )) or 0)
-        statement = pg_insert(LeadDatabaseMembership).from_select(["lead_id", "upload_id", "state"], source)
-        session.execute(statement.on_conflict_do_update(index_elements=["lead_id"], set_={
-            "upload_id":statement.excluded.upload_id, "state":statement.excluded.state}))
-        states = dict(session.execute(select(LeadDatabaseMembership.state, func.count()).group_by(LeadDatabaseMembership.state)).all())
-        session.merge(LeadDatabaseSummary(id="db2", total=sum(states.values()), states=states, updated_at=utcnow()))
-        session.execute(delete(CustomerAvailabilitySnapshot).where(CustomerAvailabilitySnapshot.customer_id.in_(
-            select(Customer.id).where(Customer.lead_database == "db2"))))
+        columns = ["inventory_database", "lead_id", "upload_id", "state"]
+        expressions = [literal(database), db2_inventory.c.lead_id, db2_inventory.c.upload_id, db2_inventory.c.state]
+        if database == "db3":
+            # Sellable for 30 days after the scrub date; expires_on is the
+            # first day the row can no longer sell.
+            expires_on = item.scrubbed_on + timedelta(days=CLEAN_SHELF_DAYS)
+            columns.append("expires_on")
+            expressions.append(literal(expires_on))
+        source = select(*expressions).where(db2_inventory.c.upload_id == upload_id)
+        statement = pg_insert(LeadDatabaseMembership).from_select(columns, source)
+        session.execute(statement.on_conflict_do_update(
+            index_elements=["inventory_database", "lead_id"],
+            set_={"upload_id":statement.excluded.upload_id, "state":statement.excluded.state,
+                  **({"expires_on":statement.excluded.expires_on} if database == "db3" else {})}))
+        states = dict(session.execute(
+            select(LeadDatabaseMembership.state, func.count())
+            .where(LeadDatabaseMembership.inventory_database == database)
+            .group_by(LeadDatabaseMembership.state)).all())
+        session.merge(LeadDatabaseSummary(id=database, total=sum(states.values()), states=states, updated_at=utcnow()))
+        session.execute(delete(CustomerAvailabilitySnapshot).where(
+            CustomerAvailabilitySnapshot.inventory_database == database))
         item.status = "complete"
         item.error = ""
         item.processed_rows, item.valid_rows, item.rejected_rows = progress.processed, progress.valid, progress.rejected
@@ -161,13 +178,15 @@ def _publish(upload_id, factory, progress):
         # Every publication, the operator's too, keeps this original action
         # name so Activity history and its filters stay continuous.
         record_activity(session, action="manager_lead_upload_published", target_type="lead_upload", target_id=item.id,
-                        actor_id=item.uploader_id, reason="Complete CSV inventory published to DB2",
-                        details={"state":item.state, "processed":progress.processed, "imported":item.imported_rows,
+                        actor_id=item.uploader_id, reason=f"Complete CSV inventory published to {database.upper()}",
+                        details={"database":database, "state":item.state, "processed":progress.processed,
+                                 "imported":item.imported_rows,
                                  "updated":updated, "rejected":progress.rejected, "duplicates":item.duplicate_rows,
+                                 "scrubbedOn":item.scrubbed_on.isoformat() if item.scrubbed_on else None,
                                  "sha256":item.sha256})
         enqueue_job(session, "fulfill_round_robin")
         # Visible to a worker only once this publication commits.
-        enqueue_inventory_refresh(session, reason="db2_upload")
+        enqueue_inventory_refresh(session, reason=f"{database}_upload")
         session.flush()
         return upload_record(item)
 

@@ -1,4 +1,4 @@
-"""Usable DB1 and DB2 inventory totals, refreshed by a background job.
+"""Usable DB1, DB2 and DB3 inventory totals, refreshed by a background job.
 
 Usable means not suppressed, no active Eligibility Hold, and not globally
 excluded: the same rule for both Lead Databases (see ``_actively_held`` and
@@ -35,8 +35,8 @@ from .models import (
 log = logging.getLogger(__name__)
 
 REFRESH_INVENTORY_JOB = "refresh_inventory_snapshots"
-DATABASES = ("db1", "db2")
-DATABASE_LABELS = {"db1": "DB1", "db2": "DB2"}
+DATABASES = ("db1", "db2", "db3")
+DATABASE_LABELS = {"db1": "DB1", "db2": "DB2", "db3": "DB3"}
 
 
 def _as_of_iso(value: datetime | None) -> str | None:

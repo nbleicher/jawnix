@@ -102,6 +102,20 @@ def _utc(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=timezone.utc)
 
 
+def _upload_brief(db: Session, membership: LeadDatabaseMembership | None) -> dict | None:
+    if membership is None:
+        return None
+    upload = db.get(LeadUpload, membership.upload_id)
+    if upload is None:
+        return None
+    return {
+        "id": str(upload.id),
+        "filename": upload.filename,
+        "uploadedBy": uploader_name(uploader_names(db, [upload]), upload),
+        "at": _utc(upload.completed_at or upload.created_at),
+    }
+
+
 def _guarded(db: Session, name: str, read: Callable[[], T], fallback: T) -> T:
     """Run a read that touches the DB2 link inside a savepoint.
 
@@ -213,11 +227,12 @@ def _db2_listings(
         upload = uploads.get(upload_id)
         if upload is None:
             continue
+        database = upload.inventory_database
         listings.append(
             {
-                "database": "db2",
+                "database": database,
                 "observedAt": _utc(upload.completed_at or upload.created_at),
-                "source": f"DB2 · {upload.filename} ({uploader_name(names, upload)})",
+                "source": f"{database.upper()} · {upload.filename} ({uploader_name(names, upload)})",
                 "title": title,
                 "state": state,
                 "valid": True,
@@ -643,7 +658,14 @@ def lead_lookup(
             "exclusions": _exclusions(db, normalized) if normalized else [],
         }
 
-    membership = db.get(LeadDatabaseMembership, lead.id)
+    memberships = {
+        row.inventory_database: row
+        for row in db.scalars(
+            select(LeadDatabaseMembership).where(LeadDatabaseMembership.lead_id == lead.id)
+        )
+    }
+    membership = memberships.get("db2")
+    clean_membership = memberships.get("db3")
     events = list(
         db.scalars(
             select(DistributionEvent)
@@ -667,29 +689,31 @@ def lead_lookup(
     complete_uploads = {
         upload.id: upload
         for upload in db.scalars(select(LeadUpload).where(LeadUpload.status == "complete"))
-    } if membership is not None else {}
-    db2_listings = _guarded(
-        db, "DB2 listings", lambda: _db2_listings(db, lead, complete_uploads), None
+    } if memberships else {}
+    upload_listing_rows = _guarded(
+        db, "Upload listings", lambda: _db2_listings(db, lead, complete_uploads), None
     )
-    upload = db.get(LeadUpload, membership.upload_id) if membership is not None else None
-    if db2_listings is None:
-        # Without the DB2 link, the membership still says which upload the
-        # Lead came from; its title stays in DB2.
-        db2_listings = (
-            [
+    if upload_listing_rows is None:
+        # Without the DB2 link, each membership still says which upload the
+        # Lead came from; its title stays in the upload store.
+        upload_listing_rows = []
+        for member in (membership, clean_membership):
+            if member is None:
+                continue
+            upload = db.get(LeadUpload, member.upload_id)
+            if upload is None:
+                continue
+            upload_listing_rows.append(
                 {
-                    "database": "db2",
+                    "database": member.inventory_database,
                     "observedAt": _utc(upload.completed_at or upload.created_at),
-                    "source": f"DB2 · {upload.filename} ({uploader_name(uploader_names(db, [upload]), upload)})",
+                    "source": f"{member.inventory_database.upper()} · {upload.filename} ({uploader_name(uploader_names(db, [upload]), upload)})",
                     "title": "",
-                    "state": membership.state,
+                    "state": member.state,
                     "valid": True,
                 }
-            ]
-            if upload is not None and membership is not None
-            else []
-        )
-    listings = [*_db1_listings(db, lead), *db2_listings]
+            )
+    listings = [*_db1_listings(db, lead), *upload_listing_rows]
     epoch = datetime.min.replace(tzinfo=timezone.utc)
     listings.sort(key=lambda row: row["observedAt"] or epoch, reverse=True)
 
@@ -700,7 +724,8 @@ def lead_lookup(
         LeadEvidence(kind="none", label=_EVIDENCE_LABELS["none"], title="", state=""),
     )
     title = lead.title if lead.in_db1 or lead.active_correction_id else evidence.title
-    state = lead.state if lead.in_db1 or lead.active_correction_id else (evidence.state or (membership.state if membership else ""))
+    state_membership = membership or clean_membership
+    state = lead.state if lead.in_db1 or lead.active_correction_id else (evidence.state or (state_membership.state if state_membership else ""))
 
     actions = [CORRECT_LEAD]
     if lead.active_correction_id is not None:
@@ -735,16 +760,13 @@ def lead_lookup(
             "db2": {
                 "member": membership is not None,
                 "state": membership.state if membership is not None else "",
-                "upload": (
-                    {
-                        "id": str(upload.id),
-                        "filename": upload.filename,
-                        "uploadedBy": uploader_name(uploader_names(db, [upload]), upload),
-                        "at": _utc(upload.completed_at or upload.created_at),
-                    }
-                    if upload is not None
-                    else None
-                ),
+                "upload": _upload_brief(db, membership),
+            },
+            "db3": {
+                "member": clean_membership is not None,
+                "state": clean_membership.state if clean_membership is not None else "",
+                "expiresOn": clean_membership.expires_on.isoformat() if clean_membership is not None and clean_membership.expires_on else None,
+                "upload": _upload_brief(db, clean_membership),
             },
         },
         "deliveries": _deliveries(db, events),

@@ -109,8 +109,9 @@ def stage(item: LeadRequest, *, now: datetime | None = None) -> str:
 def _database_expression():
     """The Lead Database a Batch drew from, or will draw from.
 
-    Committed Distribution Events record their database; before allocation
-    the Customer's current selection decides. One index probe per Batch.
+    Committed Distribution Events record their database; before allocation a
+    Clean request will draw DB3 and a Standard request the Customer's current
+    selection. One index probe per Batch.
     """
     drawn = (
         select(DistributionEvent.inventory_database)
@@ -119,7 +120,10 @@ def _database_expression():
         .correlate(LeadRequest)
         .scalar_subquery()
     )
-    return func.coalesce(drawn, Customer.lead_database)
+    return func.coalesce(
+        drawn,
+        case((LeadRequest.clean.is_(True), "db3"), else_=Customer.lead_database),
+    )
 
 
 def _committed_counts(db: Session, items: list[LeadRequest]) -> dict:
@@ -154,7 +158,8 @@ def _availability_snapshots(db: Session, items: list[LeadRequest]) -> dict:
         row.customer_id: row
         for row in db.scalars(
             select(CustomerAvailabilitySnapshot).where(
-                CustomerAvailabilitySnapshot.customer_id.in_(customer_ids)
+                CustomerAvailabilitySnapshot.customer_id.in_(customer_ids),
+                CustomerAvailabilitySnapshot.inventory_database != "db3",
             )
         )
     }
@@ -270,7 +275,7 @@ def batch_rows(
                 "database": (
                     databases.get(item.id) if databases is not None else None
                 )
-                or item.customer.lead_database
+                or ("db3" if item.clean else item.customer.lead_database)
                 or "db1",
                 "status": item.status,
                 "stage": stage_name,
@@ -380,7 +385,7 @@ def list_batches(
                 )
             )
         )
-    if database in {"db1", "db2"}:
+    if database in {"db1", "db2", "db3"}:
         statement = statement.where(_database_expression() == database)
     if needs_decision:
         statement = statement.where(
@@ -620,7 +625,7 @@ def describe_batch(
         .limit(1)
     )
     snapshot = (
-        db.get(CustomerAvailabilitySnapshot, item.agent_id)
+        db.get(CustomerAvailabilitySnapshot, (item.agent_id, item.customer.lead_database or "db1"))
         if item.status in _UNALLOCATED
         else None
     )
@@ -650,7 +655,7 @@ def describe_batch(
             "href": batch_href(item),
             "stage": stage_name,
             "needsDecision": _needs_decision(stage_name, item.id in conflicts),
-            "database": drawn or customer.lead_database or "db1",
+            "database": drawn or ("db3" if item.clean else customer.lead_database) or "db1",
             "customerRecord": {
                 "id": customer.id,
                 "name": customer.name,

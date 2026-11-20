@@ -126,7 +126,7 @@ def refresh_pool_breakdown(session: Session) -> dict:
     return {"asOf": _as_of_iso(computed_at), "cells": cells}
 
 
-def _projection_request(customer: Customer) -> LeadRequest:
+def _projection_request(customer: Customer, *, clean: bool = False) -> LeadRequest:
     return LeadRequest(
         agent=customer,
         agent_id=customer.id,
@@ -136,6 +136,7 @@ def _projection_request(customer: Customer) -> LeadRequest:
         state_mode="all_saved",
         delivery_email="availability@invalid",
         status=RequestStatus.approved.value,
+        clean=clean,
     )
 
 
@@ -144,6 +145,7 @@ def compute_customer_available(
     customer: Customer,
     settings: Settings,
     *,
+    clean: bool = False,
     niche_policy_rows: list[dict] | None = None,
     as_of: datetime | None = None,
 ) -> int:
@@ -151,16 +153,16 @@ def compute_customer_available(
         return 0
     return inventory_count(
         session,
-        _projection_request(customer),
+        _projection_request(customer, clean=clean),
         settings,
         niche_policy_rows=niche_policy_rows,
         as_of=as_of,
     )
 
 
-def _candidate_base_query(customer: Customer):
+def _candidate_base_query(customer: Customer, *, clean: bool = False):
     """Leads that pass every eligibility filter except the Cooldown Window."""
-    request = _projection_request(customer)
+    request = _projection_request(customer, clean=clean)
     previously_sent = exists(
         select(DistributionEvent.id).where(
             DistributionEvent.lead_id == Lead.id,
@@ -182,7 +184,7 @@ def _candidate_base_query(customer: Customer):
         )
     )
     niche = effective_niche_expression()
-    database = inventory_database(customer)
+    database = inventory_database(request)
     return inventory_scope(
         select(Lead)
         .outerjoin(
@@ -213,6 +215,7 @@ def compute_cooldown_forecast(
     customer: Customer,
     settings: Settings,
     *,
+    clean: bool = False,
     as_of: datetime | None = None,
 ) -> tuple[int, list[dict]]:
     """Eligible today plus newly becoming-eligible counts for the next 14 days."""
@@ -235,7 +238,7 @@ def compute_cooldown_forecast(
     # the wall clock while bucketing the rest against `as_of` puts a Lead
     # whose Cooldown Window lapses between the two reads in both or neither.
     available = compute_customer_available(
-        session, customer, settings, as_of=as_of
+        session, customer, settings, clean=clean, as_of=as_of
     )
     cutoff_today = as_of - timedelta(days=cooldown_days)
 
@@ -244,7 +247,7 @@ def compute_cooldown_forecast(
         counts[offset] = 0
 
     last_distributions = session.scalars(
-        _candidate_base_query(customer)
+        _candidate_base_query(customer, clean=clean)
         .with_only_columns(Lead.last_distributed_at)
         .order_by(None)
     )
@@ -273,14 +276,27 @@ def compute_cooldown_forecast(
     return available, forecast
 
 
-def read_customer_availability(session: Session, customer_id: int) -> dict:
-    row = session.get(CustomerAvailabilitySnapshot, customer_id)
+def _availability_view(row: CustomerAvailabilitySnapshot | None) -> dict:
     if row is None:
         return {"asOf": None, "available": None, "forecast": None}
     return {
         "asOf": _as_of_iso(row.computed_at),
         "available": int(row.available),
         "forecast": list(row.forecast),
+    }
+
+
+def read_customer_availability(session: Session, customer_id: int) -> dict:
+    """Standard availability keyed by the Customer's Lead Database, plus Clean."""
+    customer = session.get(Customer, customer_id)
+    standard = session.get(
+        CustomerAvailabilitySnapshot,
+        (customer_id, (customer.lead_database or "db1") if customer else "db1"),
+    )
+    clean = session.get(CustomerAvailabilitySnapshot, (customer_id, "db3"))
+    return {
+        **_availability_view(standard),
+        "clean": _availability_view(clean) if clean is not None else None,
     }
 
 
@@ -296,8 +312,21 @@ def refresh_customer_availability(
     session.merge(
         CustomerAvailabilitySnapshot(
             customer_id=customer.id,
+            inventory_database=customer.lead_database or "db1",
             available=available,
             forecast=forecast,
+            computed_at=as_of,
+        )
+    )
+    clean_available, clean_forecast = compute_cooldown_forecast(
+        session, customer, settings, clean=True, as_of=as_of
+    )
+    session.merge(
+        CustomerAvailabilitySnapshot(
+            customer_id=customer.id,
+            inventory_database="db3",
+            available=clean_available,
+            forecast=clean_forecast,
             computed_at=as_of,
         )
     )
@@ -306,6 +335,11 @@ def refresh_customer_availability(
         "asOf": _as_of_iso(as_of),
         "available": available,
         "forecast": forecast,
+        "clean": {
+            "asOf": _as_of_iso(as_of),
+            "available": clean_available,
+            "forecast": clean_forecast,
+        },
     }
 
 

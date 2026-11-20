@@ -221,7 +221,7 @@ def seeded(session):
     )
     session.add(
         CustomerAvailabilitySnapshot(
-            customer_id=harbor.id, available=412_880,
+            customer_id=harbor.id, inventory_database="db1", available=412_880,
             computed_at=NOW - timedelta(hours=6),
         )
     )
@@ -412,7 +412,7 @@ def test_changing_the_lead_database_is_audited_and_wakes_rotation(session, seede
     session.expire_all()
     assert session.get(Agent, harbor.id).lead_database == "db2"
     # The snapshot counted DB1, so it no longer stands.
-    assert session.get(CustomerAvailabilitySnapshot, harbor.id) is None
+    assert session.get(CustomerAvailabilitySnapshot, (harbor.id, "db1")) is None
     entry = session.scalar(
         select(AuditEntry).where(AuditEntry.action == "customer_lead_database_changed")
     )

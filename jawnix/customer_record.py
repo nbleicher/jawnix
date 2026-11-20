@@ -189,7 +189,8 @@ def customer_figures(
         row.customer_id: row
         for row in db.scalars(
             select(CustomerAvailabilitySnapshot).where(
-                CustomerAvailabilitySnapshot.customer_id.in_(ids)
+                CustomerAvailabilitySnapshot.customer_id.in_(ids),
+                CustomerAvailabilitySnapshot.inventory_database != "db3",
             )
         )
     }
@@ -654,7 +655,8 @@ def change_lead_database(
     )
     db.execute(
         delete(CustomerAvailabilitySnapshot).where(
-            CustomerAvailabilitySnapshot.customer_id == customer.id
+            CustomerAvailabilitySnapshot.customer_id == customer.id,
+            CustomerAvailabilitySnapshot.inventory_database != "db3",
         )
     )
     enqueue_job(db, "fulfill_round_robin")

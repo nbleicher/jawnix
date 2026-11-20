@@ -15,6 +15,7 @@ from .delivery import deliver_request, mark_delivery_failed
 from .billing import release_batch_hold
 from .jobs import FULFILLMENT_JOB_KINDS, claim_next_job, enqueue_job
 from .job_wakeup import JobWakeup
+from .clean_inventory import EXPIRE_CLEAN_INVENTORY_JOB, expire_clean_inventory
 from .inventory_snapshots import (
     REFRESH_INVENTORY_JOB,
     refresh_inventory_snapshots,
@@ -467,6 +468,8 @@ def process_job(job_id: int) -> None:
                 )
             elif job.kind == REFRESH_INVENTORY_JOB:
                 refresh_inventory_snapshots(session)
+            elif job.kind == EXPIRE_CLEAN_INVENTORY_JOB:
+                expire_clean_inventory(session, settings)
             elif job.kind == "ingest_exclusion_list":
                 from .exclusions import ingest_exclusion_list
 

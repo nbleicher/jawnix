@@ -177,14 +177,14 @@ def test_interrupted_publication_keeps_old_inventory_then_retries_committed_vers
         import_lead_upload(second_id,settings,session_factory=factory)
     with factory() as db:
         lead = db.scalar(select(Lead).where(Lead.phone == phone))
-        assert db.get(LeadDatabaseMembership,lead.id).upload_id == first_id
+        assert db.get(LeadDatabaseMembership,("db2",lead.id)).upload_id == first_id
     monkeypatch.setattr(lead_uploads,"_publish",publish)
     # The physically committed source version is sufficient for recovery.
     (tmp_path / "second.csv").unlink()
     result = import_lead_upload(second_id,settings,session_factory=factory)
     assert result["status"] == "complete" and result["updatedRows"] == 1
     with factory() as db:
-        assert db.get(LeadDatabaseMembership,lead.id).upload_id == second_id
+        assert db.get(LeadDatabaseMembership,("db2",lead.id)).upload_id == second_id
 
 
 def test_invalid_csv_never_publishes_a_prefix(stores, tmp_path):

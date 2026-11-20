@@ -165,7 +165,8 @@ def _batch_decisions(db: Session) -> list[dict[str, object]]:
             select(CustomerAvailabilitySnapshot).where(
                 CustomerAvailabilitySnapshot.customer_id.in_(
                     {item.agent_id for item in items}
-                )
+                ),
+                CustomerAvailabilitySnapshot.inventory_database != "db3",
             )
         )
     } if items else {}
