@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .activity import record_activity
-from .config import Settings
+from .config import Settings, get_settings
 from .models import (
     BatchHold,
     CreditLedgerEntry,
@@ -101,10 +101,12 @@ def _purchase_view(purchase: CreditPurchase) -> dict[str, object]:
 
 
 def stripe_billing_enabled(customer: Customer) -> bool:
-    """A Billed Customer pays their own Lead Rate for every Batch.
+    """A Billed Customer pays for every Batch.
 
-    Billing belongs to the Customer, not the Lead Database: batches drawn
-    from DB1 and DB2 are priced, held, and charged the same way.
+    Billing belongs to the Customer, not the Lead Database: Standard batches
+    drawn from DB1 and DB2 are priced, held, and charged at the Customer's own
+    rate. Clean (DB3) batches are the exception: they pay the platform Clean
+    rate (ADR 0022).
     """
     return customer.billing_enabled
 
@@ -133,6 +135,7 @@ def wallet_view(db: Session, customer: Customer) -> dict[str, object]:
         "leadRateCentsPerThousand": (
             customer.lead_rate_cents_per_thousand
         ),
+        "cleanRateCentsPerThousand": get_settings().clean_lead_rate_cents_per_thousand,
         "balanceCents": balance,
         "activeHoldsCents": active_holds,
         "availableBalanceCents": available,
@@ -314,6 +317,7 @@ def prepare_submission(
     *,
     customer_id: int,
     lead_count: int,
+    clean: bool = False,
     expected_lead_rate_cents_per_thousand: int | None = None,
 ) -> SubmissionBilling:
     """Freeze billing terms and verify that a new hold can be covered.
@@ -321,6 +325,10 @@ def prepare_submission(
     Locking the Customer serializes hold placement and wallet writes. The
     available-balance check therefore cannot race another billed submission
     on PostgreSQL, even when no prior hold row exists to lock.
+
+    A Clean request pays the platform Clean rate (ADR 0022) instead of the
+    Customer's own rate. Clean is off while the rate is unset, and every Clean
+    buyer is billed: an unbilled Customer is refused.
     """
 
     customer = db.scalar(
@@ -332,6 +340,27 @@ def prepare_submission(
     if customer is None:
         raise BillingError("Customer was not found.", 404)
     billed = stripe_billing_enabled(customer)
+    if clean:
+        clean_rate = get_settings().clean_lead_rate_cents_per_thousand
+        if clean_rate is None:
+            raise BillingError("Clean leads are not on sale yet.", 409)
+        if not billed:
+            raise BillingError("Clean leads are prepaid; ask the operator to turn billing on first.", 409)
+        if clean_rate != expected_lead_rate_cents_per_thousand:
+            raise BillingError("Your lead price changed. Refresh the page, review the updated price, and submit again.")
+        amount = batch_cost_cents(lead_count, clean_rate)
+        _, _, available = _wallet_totals(db, customer.id)
+        if available < amount:
+            raise BillingError(
+                "The Credit Wallet does not have enough available balance for "
+                f"this Batch Hold. Required {amount} cents; available "
+                f"{available} cents."
+            )
+        return SubmissionBilling(
+            is_billed=True,
+            lead_rate_cents_per_thousand=clean_rate,
+            amount_cents=amount,
+        )
     current_rate = customer.lead_rate_cents_per_thousand if billed else None
     if current_rate != expected_lead_rate_cents_per_thousand:
         raise BillingError("Your lead price changed. Refresh the page, review the updated price, and submit again.")

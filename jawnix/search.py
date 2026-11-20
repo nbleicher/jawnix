@@ -18,6 +18,7 @@ from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .batches import batch_href, batch_reference_filter, contains, stage
+from .inventory_snapshots import DATABASE_LABELS
 from .lead_lookup import format_phone, lookup_href, parse_phone
 from .models import (
     Customer,
@@ -133,7 +134,7 @@ def _batches(db: Session, query: str) -> list[dict[str, object]]:
 
 
 def _uploads(db: Session, query: str) -> list[dict[str, object]]:
-    """DB2 Lead Uploads by file name, newest first."""
+    """Lead Uploads by file name, newest first."""
     uploads = list(
         db.scalars(
             select(LeadUpload)
@@ -163,6 +164,8 @@ def _uploads(db: Session, query: str) -> list[dict[str, object]]:
                     managers.get(item.manager_id, "Operator")
                     if item.manager_id
                     else "Operator",
+                    # DB2 rows keep their original detail; only DB3 is marked.
+                    item.inventory_database.upper() if item.inventory_database == "db3" else "",
                     item.state,
                     _date(item.created_at),
                     item.status.replace("_", " ").capitalize(),
@@ -195,14 +198,20 @@ def _leads(db: Session, query: str) -> list[dict[str, object]]:
                 "kind": "lead",
                 "id": phone,
                 "title": format_phone(phone),
-                "detail": "Not in DB1 or DB2",
+                "detail": "Not in DB1, DB2, or DB3",
                 "href": lookup_href(phone),
             }
         ]
-    in_db2 = db.get(LeadDatabaseMembership, lead.id) is not None
-    databases = (
-        "DB1 and DB2" if lead.in_db1 and in_db2 else "DB2" if in_db2 else "DB1"
-    )
+    memberships = {
+        row.inventory_database
+        for row in db.scalars(
+            select(LeadDatabaseMembership).where(LeadDatabaseMembership.lead_id == lead.id)
+        )
+    }
+    present = (["DB1"] if lead.in_db1 else []) + [
+        DATABASE_LABELS[key] for key in ("db2", "db3") if key in memberships
+    ]
+    databases = " and ".join(present)
     held = db.scalar(
         select(
             exists().where(
@@ -266,25 +275,46 @@ def _lead_batches(db: Session, query: str) -> list[dict[str, object]]:
 
 
 def _lead_upload(db: Session, query: str) -> list[dict[str, object]]:
-    """The DB2 upload a phone number's DB2 row came from."""
+    """The uploads a phone number's DB2 or DB3 rows came from."""
     found = _phone_lead(db, query)
     if found is None or found[1] is None:
         return []
-    membership = db.get(LeadDatabaseMembership, found[1].id)
-    upload = db.get(LeadUpload, membership.upload_id) if membership is not None else None
-    if upload is None:
+    memberships = list(db.scalars(
+        select(LeadDatabaseMembership).where(LeadDatabaseMembership.lead_id == found[1].id)
+    ))
+    uploads = [
+        upload
+        for upload in (db.get(LeadUpload, membership.upload_id) for membership in memberships)
+        if upload is not None
+    ]
+    if not uploads:
         return []
-    manager = db.get(ManagedAdmin, upload.manager_id) if upload.manager_id else None
+    managers = {
+        manager.auth_user_id: manager.name
+        for manager in db.scalars(
+            select(ManagedAdmin).where(
+                ManagedAdmin.auth_user_id.in_({u.manager_id for u in uploads if u.manager_id})
+            )
+        )
+    } if any(u.manager_id for u in uploads) else {}
     return [
         {
             "kind": "upload",
             "id": str(upload.id),
             "title": upload.filename,
             "detail": " · ".join(
-                (manager.name if manager else "Operator", _date(upload.completed_at or upload.created_at))
+                part
+                for part in (
+                    managers.get(upload.manager_id, "Operator") if upload.manager_id else "Operator",
+                    # DB2 rows keep their original detail; only DB3 is marked.
+                    upload.inventory_database.upper() if upload.inventory_database == "db3" else "",
+                    _date(upload.completed_at or upload.created_at),
+                )
+                if part
             ),
             "href": UPLOADS_HREF,
         }
+        for upload in uploads
     ]
 
 
@@ -297,7 +327,7 @@ PROVIDERS: tuple[tuple[str, str, Callable[[Session, str], list[dict[str, object]
     ("leadUpload", "Uploaded in", _lead_upload),
     ("customers", "Customers", _customers),
     ("batches", "Batches", _batches),
-    ("uploads", "DB2 uploads", _uploads),
+    ("uploads", "Lead uploads", _uploads),
 )
 
 

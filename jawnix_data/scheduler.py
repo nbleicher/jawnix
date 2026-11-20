@@ -6,7 +6,9 @@ from datetime import date, datetime, timedelta, timezone
 
 from jawnix.config import Settings, get_settings
 from jawnix.database import SessionLocal
+from jawnix.clean_inventory import EXPIRE_CLEAN_INVENTORY_JOB
 from jawnix.inventory_snapshots import enqueue_inventory_refresh
+from jawnix.jobs import enqueue_job
 from jawnix.maintenance import expire_batch_files, purge_retained_records
 from jawnix.models import NightlyReview
 
@@ -54,10 +56,30 @@ def enqueue_nightly_inventory_refresh(
     return now.date()
 
 
+def enqueue_nightly_clean_expiry(
+    settings: Settings,
+    *,
+    now: datetime,
+    last_enqueued: date | None,
+) -> date | None:
+    """Queue the nightly DB3 expiry sweep once per UTC day.
+
+    Clean memberships expire 30 days after their scrub date; the sweep removes
+    them and moves DB3-only phones to DB1.
+    """
+    if now.hour < settings.nightly_review_hour_utc or last_enqueued == now.date():
+        return last_enqueued
+    with SessionLocal.begin() as session:
+        enqueue_job(session, EXPIRE_CLEAN_INVENTORY_JOB)
+    log.info("Queued the nightly Clean inventory expiry")
+    return now.date()
+
+
 def run() -> None:
     settings = get_settings()
     cleaned_date = None
     inventory_refresh_date = None
+    clean_expiry_date = None
     while True:
         try:
             now = datetime.now(timezone.utc)
@@ -97,6 +119,14 @@ def run() -> None:
             )
         except Exception:
             log.exception("Nightly usable-inventory refresh was not queued")
+        try:
+            clean_expiry_date = enqueue_nightly_clean_expiry(
+                settings,
+                now=datetime.now(timezone.utc),
+                last_enqueued=clean_expiry_date,
+            )
+        except Exception:
+            log.exception("Nightly Clean inventory expiry was not queued")
         if cleaned_date != datetime.now(timezone.utc).date():
             try:
                 with SessionLocal.begin() as session:

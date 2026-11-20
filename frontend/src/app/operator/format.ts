@@ -85,7 +85,9 @@ export function formatPhone(phone: string): string {
 }
 
 export function formatDatabase(value: string | null | undefined): string {
-  return value === "db2" ? "DB2" : "DB1";
+  if (value === "db2") return "DB2";
+  if (value === "db3") return "DB3";
+  return "DB1";
 }
 
 /** Where a Batch is, as the backend's `stage` names it. */

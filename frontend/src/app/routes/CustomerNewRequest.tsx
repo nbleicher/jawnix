@@ -147,6 +147,7 @@ function RequestForm({
   const [defaults] = useState(() => formDefaults(draft, workspace));
   const [submissionKey] = useState(newSubmissionKey);
   const [quantity, setQuantity] = useState(defaults.quantity);
+  const [clean, setClean] = useState(false);
   const [chosen, setChosen] = useState<string[]>(defaults.states);
   const [split, setSplit] = useState(defaults.split);
   const [rowsPerFile, setRowsPerFile] = useState(defaults.rowsPerFile);
@@ -172,7 +173,10 @@ function RequestForm({
       ? leadCount
       : null;
   const rows = split ? parseCount(rowsPerFile) : null;
-  const rate = billing?.leadRateCentsPerThousand ?? null;
+  // Clean stays hidden while its rate is unset (Clean off).
+  const cleanRate = limits.clean_rate_cents_per_thousand ?? null;
+  const standardRate = billing?.leadRateCentsPerThousand ?? null;
+  const rate = clean && cleanRate !== null ? cleanRate : standardRate;
   const costCents = rate !== null && validCount !== null ? batchCostCents(validCount, rate) : null;
   const shortCents =
     billing && costCents !== null
@@ -247,6 +251,7 @@ function RequestForm({
         idempotency_key: submissionKey,
         lead_count: validCount,
         ...(rate !== null ? { expected_lead_rate_cents_per_thousand: rate } : {}),
+        ...(clean ? { clean: true } : {}),
         ...(split && rows !== null ? { rows_per_file: rows } : {}),
         state_mode: states.length === limits.licensed_states.length ? "all_saved" : "selected",
         states: states.length === limits.licensed_states.length ? [] : states,
@@ -303,6 +308,9 @@ function RequestForm({
     { term: "Leads", description: validCount !== null ? formatCount(validCount) : "—" },
     { term: "States", description: states.length ? formatStates(states) : "—" },
   ];
+  if (cleanRate !== null) {
+    summary.push({ term: "Source", description: clean ? "Clean (prescrubbed)" : "Standard" });
+  }
   if (billing) {
     summary.push({
       term: "Rate",
@@ -367,6 +375,29 @@ function RequestForm({
               }}
             />
           </Field>
+
+          {cleanRate !== null ? (
+            <Fieldset legend="Leads">
+              <label className="customer-request__choice">
+                <input
+                  type="radio"
+                  name="request-source"
+                  checked={!clean}
+                  onChange={() => setClean(false)}
+                />
+                <span>Standard · you scrub these yourself</span>
+              </label>
+              <label className="customer-request__choice">
+                <input
+                  type="radio"
+                  name="request-source"
+                  checked={clean}
+                  onChange={() => setClean(true)}
+                />
+                <span>{`Clean · prescrubbed, ${formatRatePerThousand(cleanRate)}`}</span>
+              </label>
+            </Fieldset>
+          ) : null}
 
           <Fieldset
             legend="Appointed states"

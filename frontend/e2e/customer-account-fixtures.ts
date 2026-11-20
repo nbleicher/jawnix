@@ -212,6 +212,7 @@ export function northstarBillingAt(now: Date): MockBillingSummary {
     held_cents: 12_500,
     held_for: [held],
     lead_rate_cents_per_thousand: 500,
+    clean_lead_rate_cents_per_thousand: null,
     spent_since: at(30, 9, 41),
     spent_cents: 100_000,
     spent_batches: 3,

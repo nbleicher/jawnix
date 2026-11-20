@@ -547,6 +547,14 @@ class LeadRequest(Base):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Supplied by the Customer application, once per guided submission.
     idempotency_key: Mapped[str | None] = mapped_column(String(64))
+    # Clean requests draw from DB3 at the platform Clean rate; Standard
+    # requests draw from the Customer's own Lead Database at their own rate.
+    clean: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
     # Billing terms are copied from the Customer at submission. Later toggle
     # or Lead Rate changes therefore cannot reprice in-flight work.
     is_billed: Mapped[bool] = mapped_column(
@@ -1337,10 +1345,16 @@ class LeadUpload(Base):
         # The operator uploads into DB2 now. Uploads from the retired managed
         # administrators keep their manager_id, so they still name the uploader.
         CheckConstraint("(manager_id IS NULL) <> (operator_id IS NULL)", name="ck_lead_upload_one_uploader"),
+        CheckConstraint("inventory_database IN ('db2', 'db3')", name="ck_lead_upload_inventory_database"),
+        # DB3 rows carry their own Scrubbed On; the upload's date is the
+        # fallback for files without the column. DB2 uploads never carry one.
+        CheckConstraint("inventory_database = 'db3' OR scrubbed_on IS NULL", name="ck_lead_upload_scrubbed_on"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     manager_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("managed_admins.auth_user_id", ondelete="RESTRICT"), index=True)
     operator_id: Mapped[uuid.UUID | None] = mapped_column()
+    inventory_database: Mapped[str] = mapped_column(String(4), default="db2", server_default="db2", nullable=False)
+    scrubbed_on: Mapped[date | None] = mapped_column(Date)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     state: Mapped[str] = mapped_column(String(2), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="uploading", nullable=False)
@@ -1363,11 +1377,31 @@ class LeadUpload(Base):
 
 
 class LeadDatabaseMembership(Base):
-    """DB2 eligibility index. Listing content remains in the physical DB2."""
+    """Upload-backed eligibility index. Listing content stays in the upload store.
+
+    One membership per Lead per database: a phone can sell from DB2 and DB3 at
+    once. DB3 memberships expire 30 days after the upload's scrub date; DB2
+    memberships never expire.
+    """
     __tablename__ = "lead_database_memberships"
+    inventory_database: Mapped[str] = mapped_column(String(4), default="db2", server_default="db2", primary_key=True)
     lead_id: Mapped[int] = mapped_column(ForeignKey("lead_inventory.id", ondelete="RESTRICT"), primary_key=True)
     upload_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("lead_uploads.id", ondelete="RESTRICT"), nullable=False, index=True)
     state: Mapped[str] = mapped_column(String(2), nullable=False, index=True)
+    expires_on: Mapped[date | None] = mapped_column(Date)
+
+    __table_args__ = (
+        CheckConstraint(
+            "(inventory_database = 'db3') = (expires_on IS NOT NULL)",
+            name="ck_lead_database_membership_expiry",
+        ),
+        Index("ix_lead_database_memberships_database_state", "inventory_database", "state"),
+        Index(
+            "ix_lead_database_memberships_expires_on",
+            "expires_on",
+            postgresql_where=text("inventory_database = 'db3'"),
+        ),
+    )
 
 
 class LeadDatabaseSummary(Base):
@@ -2236,7 +2270,7 @@ class SharedHistoryLeadCount(Base):
 
 
 class InventorySnapshot(Base):
-    """Usable inventory totals for one Lead Database (DB1 or DB2).
+    """Usable inventory totals for one Lead Database (DB1, DB2, or DB3).
 
     Usable means not suppressed, no active Eligibility Hold, and not globally
     excluded. The breakdown buckets are exclusive, in that order of
@@ -2265,7 +2299,7 @@ class InventorySnapshot(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "database IN ('db1', 'db2')",
+            "database IN ('db1', 'db2', 'db3')",
             name="ck_inventory_snapshot_database",
         ),
     )
@@ -2302,6 +2336,9 @@ class CustomerAvailabilitySnapshot(Base):
         ForeignKey("agents.id", ondelete="CASCADE"),
         primary_key=True,
     )
+    #: Standard rows key by the Customer's own Lead Database; a Customer's
+    #: Clean (DB3) availability is cached under "db3".
+    inventory_database: Mapped[str] = mapped_column(String(4), primary_key=True)
     available: Mapped[int] = mapped_column(Integer, nullable=False)
     forecast: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(

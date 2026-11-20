@@ -2,10 +2,11 @@ import { csrfToken } from "../api";
 import { clearReadPrefetch } from "../routeReadCache";
 
 /**
- * The operator's DB2 CSV uploads: /api/admin/lead-uploads.
+ * The operator's CSV uploads: /api/admin/lead-uploads.
  *
- * Every upload adds to one DB2 inventory. Uploads made by the retired
- * managed administrators still name them in `uploadedBy`.
+ * Every upload adds to one DB2 or DB3 inventory; a DB3 upload carries the
+ * date its rows were scrubbed. Uploads made by the retired managed
+ * administrators still name them in `uploadedBy`.
  */
 
 export const LEAD_UPLOADS = "/api/admin/lead-uploads";
@@ -13,6 +14,10 @@ export const LEAD_UPLOADS = "/api/admin/lead-uploads";
 export interface LeadUploadStatus {
   id: string;
   filename: string;
+  /** "db2" or "db3". */
+  database: "db2" | "db3";
+  /** The scrub date every DB3 upload carries; null for DB2. */
+  scrubbedOn: string | null;
   state: string;
   status: "uploading" | "queued" | "processing" | "complete" | "failed";
   bytes: number;
@@ -33,7 +38,12 @@ export interface LeadUploadStatus {
  * Send one CSV with the state it belongs to. XMLHttpRequest rather than fetch
  * so a large file reports upload progress.
  */
-export function submitLeadUpload(file: File, state: string, onProgress: (percent: number) => void) {
+export function submitLeadUpload(
+  file: File,
+  state: string,
+  onProgress: (percent: number) => void,
+  options?: { database?: "db2" | "db3"; scrubbedOn?: string },
+) {
   clearReadPrefetch();
   return new Promise<LeadUploadStatus>((resolve, reject) => {
     const request = new XMLHttpRequest();
@@ -56,6 +66,8 @@ export function submitLeadUpload(file: File, state: string, onProgress: (percent
     const body = new FormData();
     body.append("file", file);
     body.append("state", state);
+    body.append("database", options?.database ?? "db2");
+    if (options?.scrubbedOn) body.append("scrubbedOn", options.scrubbedOn);
     request.send(body);
   });
 }

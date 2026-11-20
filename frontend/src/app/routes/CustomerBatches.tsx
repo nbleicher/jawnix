@@ -164,7 +164,7 @@ export function CustomerBatchesRoute() {
       : `Submitted ${formatDay(batch.submitted_at, now)}`;
     return (
       <span className="customer-batches-table__stacked">
-        <span>{`${plural(batch.lead_count, "lead")} · ${formatStates(batch.states)}`}</span>
+        <span>{`${plural(batch.lead_count, "lead")} · ${formatStates(batch.states)}${batch.clean ? " · Clean" : ""}`}</span>
         <StageBadge batch={batch} now={now} />
         <span>{showCost ? `${when} · ${formatBatchCost(batch.cost)}` : when}</span>
       </span>
@@ -179,6 +179,7 @@ export function CustomerBatchesRoute() {
           <ApplicationLink href={batch.href} aria-label={batchName(batch)}>
             {batchLabel(batch)}
           </ApplicationLink>
+          {batch.clean ? <span>{" · Clean"}</span> : null}
           {stacked(batch)}
         </>
       ),

@@ -207,8 +207,8 @@ def test_usable_by_state_merges_both_databases_largest_first(session):
     seed(session)
     rows = usable_by_state(session)
     assert [row["state"] for row in rows] == ["TX", "FL", "PA", "OH"]
-    assert rows[0] == {"state": "TX", "db1": 1_204_002, "db2": 182_410, "total": 1_386_412}
-    assert rows[3] == {"state": "OH", "db1": 0, "db2": 120_551, "total": 120_551}
+    assert rows[0] == {"state": "TX", "db1": 1_204_002, "db2": 182_410, "db3": 0, "total": 1_386_412}
+    assert rows[3] == {"state": "OH", "db1": 0, "db2": 120_551, "db3": 0, "total": 120_551}
 
 
 def test_usable_by_state_csv_downloads_every_state(session):
@@ -222,8 +222,8 @@ def test_usable_by_state_csv_downloads_every_state(session):
     assert response.headers["content-type"].startswith("text/csv")
     assert 'filename="usable-by-state.csv"' in response.headers["content-disposition"]
     rows = list(csv.reader(io.StringIO(response.text)))
-    assert rows[0] == ["state", "db1_usable", "db2_usable", "total_usable"]
-    assert rows[1] == ["TX", "1204002", "182410", "1386412"]
+    assert rows[0] == ["state", "db1_usable", "db2_usable", "db3_usable", "total_usable"]
+    assert rows[1] == ["TX", "1204002", "182410", "0", "1386412"]
     assert len(rows) == 5
 
 

@@ -177,14 +177,14 @@ def test_interrupted_publication_keeps_old_inventory_then_retries_committed_vers
         import_lead_upload(second_id,settings,session_factory=factory)
     with factory() as db:
         lead = db.scalar(select(Lead).where(Lead.phone == phone))
-        assert db.get(LeadDatabaseMembership,lead.id).upload_id == first_id
+        assert db.get(LeadDatabaseMembership,("db2",lead.id)).upload_id == first_id
     monkeypatch.setattr(lead_uploads,"_publish",publish)
     # The physically committed source version is sufficient for recovery.
     (tmp_path / "second.csv").unlink()
     result = import_lead_upload(second_id,settings,session_factory=factory)
     assert result["status"] == "complete" and result["updatedRows"] == 1
     with factory() as db:
-        assert db.get(LeadDatabaseMembership,lead.id).upload_id == second_id
+        assert db.get(LeadDatabaseMembership,("db2",lead.id)).upload_id == second_id
 
 
 def test_invalid_csv_never_publishes_a_prefix(stores, tmp_path):
@@ -225,3 +225,85 @@ def test_operator_upload_publishes_into_the_shared_db2(stores, tmp_path):
         with pytest.raises(Exception, match="ck_lead_upload_one_uploader"):
             db.add(LeadUpload(manager_id=manager_id, operator_id=operator_id, filename="both.csv", path="both", state="TN"))
             db.flush()
+
+
+# The store and link exactly as origin/main's db2_setup provisioned them before
+# 0057: no scrubbed_on anywhere, owner_id last in the view.
+PRE_0057_STORE = """
+CREATE TABLE uploads (
+ id uuid PRIMARY KEY, manager_id uuid NOT NULL, state varchar(2) NOT NULL,
+ sha256 varchar(64) NOT NULL, status text NOT NULL DEFAULT 'processing',
+ processed_rows bigint NOT NULL DEFAULT 0, valid_rows bigint NOT NULL DEFAULT 0,
+ rejected_rows bigint NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE inventory_rows (
+ upload_id uuid NOT NULL REFERENCES uploads(id) ON DELETE RESTRICT,
+ lead_id bigint NOT NULL, phone varchar(10) NOT NULL, title text NOT NULL,
+ state varchar(2) NOT NULL, row_number bigint NOT NULL,
+ PRIMARY KEY (upload_id, lead_id), UNIQUE (upload_id, phone)
+);
+CREATE OR REPLACE VIEW published_inventory AS
+ SELECT r.lead_id, r.upload_id, r.phone, r.title, r.state, r.row_number, u.manager_id AS owner_id
+ FROM inventory_rows r JOIN uploads u ON u.id=r.upload_id WHERE u.status='ready';
+"""
+PRE_0057_FOREIGN_TABLE = """CREATE FOREIGN TABLE db2_inventory_rows (
+    lead_id bigint, upload_id uuid, phone varchar(10), title text, state varchar(2),
+    row_number bigint, owner_id uuid
+) SERVER %s OPTIONS (schema_name 'public', table_name 'published_inventory', updatable 'false')"""
+
+
+def test_provision_upgrades_a_pre_0057_db2_store(tmp_path):
+    """provision() adds scrubbed_on where 0057 needs it and the link still reads."""
+    from jawnix.lead_databases import upload_listings
+
+    base = make_url(DATABASE_URL)
+    suffix = uuid.uuid4().hex[:16]
+    main_name, source_name = f"jawnix_{suffix}_test", f"jawnix_{suffix}_db2_test"
+    with psycopg.connect(postgres_dsn(DATABASE_URL), autocommit=True) as admin:
+        for name in (main_name, source_name):
+            admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+    main_url = base.set(database=main_name).render_as_string(hide_password=False)
+    source_url = base.set(database=source_name).render_as_string(hide_password=False)
+    settings = Settings(_env_file=None, database_url=main_url, JAWNIX_DB2_DATABASE_URL=source_url, JAWNIX_BATCH_DIR=tmp_path / "batches")
+    try:
+        with psycopg.connect(postgres_dsn(source_url), autocommit=True) as source:
+            source.execute(PRE_0057_STORE)
+        with psycopg.connect(postgres_dsn(main_url), autocommit=True) as main:
+            main.execute("CREATE EXTENSION IF NOT EXISTS postgres_fdw")
+            main.execute(
+                sql.SQL("CREATE SERVER {} FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host {}, port {}, dbname {}, fetch_size '5000')").format(
+                    sql.Identifier("jawnix_db2_inventory"), sql.Literal("127.0.0.1"),
+                    sql.Literal(main.execute("SHOW port").fetchone()[0]), sql.Literal(source_name)))
+            main.execute(
+                sql.SQL("CREATE USER MAPPING FOR CURRENT_USER SERVER {} OPTIONS (user {}, password {})").format(
+                    sql.Identifier("jawnix_db2_inventory"),
+                    sql.Literal(make_url(source_url).username), sql.Literal(make_url(source_url).password or "")))
+            main.execute(PRE_0057_FOREIGN_TABLE % "jawnix_db2_inventory")
+        provision(settings)
+        with psycopg.connect(postgres_dsn(source_url), autocommit=True) as source:
+            columns = [row[1] for row in source.execute(
+                "SELECT ordinal_position, column_name FROM information_schema.columns WHERE table_name='inventory_rows' ORDER BY ordinal_position")]
+            assert "scrubbed_on" in columns
+            view_columns = [row[0] for row in source.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='published_inventory' ORDER BY ordinal_position")]
+            assert view_columns == ["lead_id", "upload_id", "phone", "title", "state", "row_number", "owner_id", "scrubbed_on"]
+            source.execute("INSERT INTO uploads (id,manager_id,state,sha256) VALUES (%s,%s,'TN','abc')",
+                           (uuid.uuid4(), uuid.uuid4()))
+            upload_id = source.execute("SELECT id FROM uploads").fetchone()[0]
+            source.execute("INSERT INTO inventory_rows (upload_id,lead_id,phone,title,state,row_number) VALUES (%s,42,'6155550142','Kept row','TN',1)",
+                           (upload_id,))
+            source.execute("UPDATE uploads SET status='ready' WHERE id=%s", (upload_id,))
+        with psycopg.connect(postgres_dsn(main_url), autocommit=True) as main:
+            foreign_columns = [row[0] for row in main.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name='db2_inventory_rows' ORDER BY ordinal_position")]
+            assert "scrubbed_on" in foreign_columns
+        engine = create_engine(main_url)
+        factory = sessionmaker(engine, expire_on_commit=False)
+        with factory() as db:
+            listing = upload_listings(db, [(42, upload_id)], database="db2")[42]
+            assert (listing.phone, listing.title, listing.state) == ("6155550142", "Kept row", "TN")
+        engine.dispose()
+    finally:
+        with psycopg.connect(postgres_dsn(DATABASE_URL), autocommit=True) as admin:
+            for name in (main_name, source_name):
+                admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))

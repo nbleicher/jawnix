@@ -52,7 +52,7 @@ test.describe("Inventory", () => {
       ["TX", "FL", "CA", "PA", "OH", /.+/, /.+/, /.+/, /.+/, /.+/],
     );
     await expect(table.locator("tfoot")).toContainText("All 51 states");
-    await expect(table.locator("tfoot")).toContainText("10,254,690");
+    await expect(table.locator("tfoot")).toContainText("10,295,890");
     await expect(page.getByRole("link", { name: "Download CSV" })).toHaveAttribute(
       "href",
       "/api/admin/inventory/usable-by-state.csv",
@@ -72,7 +72,7 @@ test.describe("Inventory", () => {
     await page.goto("./admin/inventory");
     const tools = page.getByRole("navigation", { name: "Inventory tools" });
     await expect(tools.getByRole("link")).toHaveText([
-      "DB2 uploads (14)",
+      "Lead uploads (14)",
       "Exclusion lists (1 waiting)",
       "Suppressed leads (42,612)",
       "Niche assignment",
@@ -139,7 +139,7 @@ test.describe("Lead lookup", () => {
 
   test("says when no lead has the number", async ({ page }) => {
     await page.goto("./admin/inventory/lookup?phone=212-555-0100");
-    await expect(page.getByText("No lead in DB1 or DB2 has the number (212) 555-0100.")).toBeVisible();
+    await expect(page.getByText("No lead in DB1, DB2, or DB3 has the number (212) 555-0100.")).toBeVisible();
     await expect(page.getByLabel("Phone number")).toHaveValue("212-555-0100");
   });
 
@@ -164,11 +164,11 @@ test.describe("Phone search", () => {
   });
 });
 
-test.describe("DB2 uploads", () => {
+test.describe("Lead uploads", () => {
   test("the old address lands on Inventory's uploads page", async ({ page }) => {
     await page.goto("./admin/lead-uploads");
     await expect(page).toHaveURL(/\/app\/admin\/inventory\/uploads$/);
-    await expect(page.getByRole("heading", { level: 1, name: "DB2 uploads" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Lead uploads" })).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Administration" }).getByRole("link", { name: "Inventory" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -177,7 +177,7 @@ test.describe("DB2 uploads", () => {
 
   test("lists every upload with its uploader and one action per row", async ({ page }) => {
     await page.goto("./admin/inventory/uploads");
-    const table = page.getByRole("table", { name: "DB2 uploads" });
+    const table = page.getByRole("table", { name: "Lead uploads" });
     await expect(table.locator("tbody tr")).toHaveCount(3);
     await expect(table.getByText("Alex")).toBeVisible();
     await expect(table.getByRole("link", { name: "Download rejected rows" })).toHaveAttribute(
@@ -191,7 +191,7 @@ test.describe("DB2 uploads", () => {
 
   test("uploads a CSV for a chosen state and follows its import to Ready", async ({ page }) => {
     await page.goto("./admin/inventory/uploads");
-    const form = page.getByRole("form", { name: "New DB2 upload" });
+    const form = page.getByRole("form", { name: "New lead upload" });
     await form.getByLabel("CSV file (required)").setInputFiles({
       name: "new.csv",
       mimeType: "text/csv",
@@ -199,7 +199,7 @@ test.describe("DB2 uploads", () => {
     });
     await form.getByLabel("State (required)").selectOption("TN");
     await form.getByRole("button", { name: "Upload CSV" }).click();
-    const row = page.getByRole("table", { name: "DB2 uploads" }).getByRole("row").filter({ hasText: "new.csv" });
+    const row = page.getByRole("table", { name: "Lead uploads" }).getByRole("row").filter({ hasText: "new.csv" });
     await expect(row).toBeVisible();
     await expect(row.getByText("Queued")).toBeVisible();
     await expect(row.getByText("Operator")).toBeVisible();
@@ -213,7 +213,7 @@ test.describe("DB2 uploads", () => {
 
   test("takes a CSV dropped onto the form", async ({ page }) => {
     await page.goto("./admin/inventory/uploads");
-    const form = page.getByRole("form", { name: "New DB2 upload" });
+    const form = page.getByRole("form", { name: "New lead upload" });
     const transfer = await page.evaluateHandle(() => {
       const data = new DataTransfer();
       data.items.add(new File(["Phone,Name\n6155550100,Dropped fixture\n"], "dropped.csv", { type: "text/csv" }));
@@ -223,7 +223,7 @@ test.describe("DB2 uploads", () => {
     await expect(form.getByText("dropped.csv · 0.0 MB", { exact: true })).toBeVisible();
     await form.getByLabel("State (required)").selectOption("FL");
     await form.getByRole("button", { name: "Upload CSV" }).click();
-    await expect(page.getByRole("table", { name: "DB2 uploads" }).getByText("dropped.csv")).toBeVisible();
+    await expect(page.getByRole("table", { name: "Lead uploads" }).getByText("dropped.csv")).toBeVisible();
     const submitted = calls.find((call) => call.method === "POST" && call.url === "/api/admin/lead-uploads");
     expect(String(submitted?.body)).toContain('filename="dropped.csv"');
     expect(String(submitted?.body)).toContain("Dropped fixture");

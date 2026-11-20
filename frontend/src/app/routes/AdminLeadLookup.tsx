@@ -49,7 +49,7 @@ export interface LookupDelivery {
 }
 
 export interface LookupListing {
-  database: "db1" | "db2";
+  database: "db1" | "db2" | "db3";
   observedAt: string | null;
   source: string;
   title: string;
@@ -129,6 +129,12 @@ export interface LeadLookupResult {
     db2: {
       member: boolean;
       state: string;
+      upload: { id: string; filename: string; uploadedBy: string; at: string | null } | null;
+    };
+    db3: {
+      member: boolean;
+      state: string;
+      expiresOn: string | null;
       upload: { id: string; filename: string; uploadedBy: string; at: string | null } | null;
     };
   };
@@ -318,7 +324,7 @@ function NotFound({ result }: { result: LeadLookupResult }) {
   return (
     <Stack gap={4}>
       <Text role="status">
-        No lead in DB1 or DB2 has the number {result.phone ? formatPhone(result.phone) : result.query}.
+        No lead in DB1, DB2, or DB3 has the number {result.phone ? formatPhone(result.phone) : result.query}.
       </Text>
       {result.exclusions.length ? <EvidenceSection result={result} /> : null}
     </Stack>
@@ -332,11 +338,18 @@ function LookupResult({ result }: { result: LeadLookupResult }) {
   const deliveries = result.deliveries ?? [];
   const listings = result.listings ?? [];
   const latest = deliveries[0];
-  const both = databases.db1.member && databases.db2.member;
-  const databaseValue = both ? "DB1 + DB2" : databases.db2.member ? "DB2" : databases.db1.member ? "DB1" : "Neither";
+  const present = [
+    databases.db1.member ? "DB1" : "",
+    databases.db2.member ? "DB2" : "",
+    databases.db3.member ? "DB3" : "",
+  ].filter(Boolean);
+  const databaseValue = present.length ? present.join(" + ") : "Neither";
   const databaseMeta = [
     databases.db1.member ? databases.db1.source : "",
     databases.db2.member && databases.db2.upload ? `CSV upload ${databases.db2.upload.filename}` : "",
+    databases.db3.member && databases.db3.upload
+      ? `Clean upload ${databases.db3.upload.filename}${databases.db3.expiresOn ? `, expires ${databases.db3.expiresOn}` : ""}`
+      : "",
   ]
     .filter(Boolean)
     .join(" and ");

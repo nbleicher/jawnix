@@ -27,7 +27,7 @@ import "./AdminInventory.css";
  */
 
 export interface InventorySnapshot {
-  database: "db1" | "db2";
+  database: "db1" | "db2" | "db3";
   label: string;
   allRows: number;
   suppressed: number;
@@ -46,6 +46,9 @@ export interface RefreshState {
 export interface InventoryData {
   db1: InventorySnapshot | null;
   db2: InventorySnapshot | null;
+  db3: InventorySnapshot | null;
+  /** Sellable DB3 rows expiring within 7 days. */
+  cleanExpiringSoon: number;
   refresh: RefreshState;
   addedLast7Days: number;
   lastUpload: { id: string; filename: string; uploadedBy: string; at: string | null } | null;
@@ -60,6 +63,7 @@ export interface InventoryData {
 interface SnapshotRead {
   db1: InventorySnapshot | null;
   db2: InventorySnapshot | null;
+  db3: InventorySnapshot | null;
   refresh: RefreshState;
 }
 
@@ -67,6 +71,7 @@ export interface StateRow {
   state: string;
   db1: number;
   db2: number;
+  db3: number;
   total: number;
 }
 
@@ -77,16 +82,22 @@ export async function adminInventoryLoader(): Promise<InventoryData> {
   return api<InventoryData>("/api/admin/inventory");
 }
 
-/** Both databases' usable counts per state, largest total first. */
-export function stateRows(db1: InventorySnapshot | null, db2: InventorySnapshot | null): StateRow[] {
+/** Every database's usable counts per state, largest total first. */
+export function stateRows(
+  db1: InventorySnapshot | null,
+  db2: InventorySnapshot | null,
+  db3: InventorySnapshot | null,
+): StateRow[] {
   const one = db1?.usableByState ?? {};
   const two = db2?.usableByState ?? {};
-  const states = new Set([...Object.keys(one), ...Object.keys(two)]);
+  const three = db3?.usableByState ?? {};
+  const states = new Set([...Object.keys(one), ...Object.keys(two), ...Object.keys(three)]);
   return [...states]
     .map((state) => {
       const first = one[state] ?? 0;
       const second = two[state] ?? 0;
-      return { state, db1: first, db2: second, total: first + second };
+      const third = three[state] ?? 0;
+      return { state, db1: first, db2: second, db3: third, total: first + second + third };
     })
     .sort((a, b) => b.total - a.total || a.state.localeCompare(b.state));
 }
@@ -236,11 +247,16 @@ export function AdminInventoryRoute() {
   const now = new Date();
   useDocumentTitle("Inventory");
 
-  const rows = useMemo(() => stateRows(data.db1, data.db2), [data.db1, data.db2]);
+  const rows = useMemo(() => stateRows(data.db1, data.db2, data.db3), [data.db1, data.db2, data.db3]);
   const shown = allStates ? rows : rows.slice(0, TOP_STATES);
   const totals = rows.reduce(
-    (sum, row) => ({ db1: sum.db1 + row.db1, db2: sum.db2 + row.db2, total: sum.total + row.total }),
-    { db1: 0, db2: 0, total: 0 },
+    (sum, row) => ({
+      db1: sum.db1 + row.db1,
+      db2: sum.db2 + row.db2,
+      db3: sum.db3 + row.db3,
+      total: sum.total + row.total,
+    }),
+    { db1: 0, db2: 0, db3: 0, total: 0 },
   );
   const columns: DataColumn<StateRow>[] = [
     {
@@ -262,6 +278,13 @@ export function AdminInventoryRoute() {
       numeric: true,
       cell: (row) => formatCount(row.db2),
       footer: formatCount(totals.db2),
+    },
+    {
+      key: "db3",
+      header: "DB3",
+      numeric: true,
+      cell: (row) => formatCount(row.db3),
+      footer: formatCount(totals.db3),
     },
     {
       key: "total",
@@ -294,7 +317,7 @@ export function AdminInventoryRoute() {
           >
             Refresh counts
           </Button>
-          <ButtonLink href="/app/admin/inventory/uploads">Upload DB2 CSV</ButtonLink>
+          <ButtonLink href="/app/admin/inventory/uploads">Upload CSV</ButtonLink>
         </>
       }
     >
@@ -312,6 +335,12 @@ export function AdminInventoryRoute() {
           title="DB2 · CSV uploads"
           snapshot={data.db2}
           extra={{ term: "Last upload", description: lastUpload }}
+          now={now}
+        />
+        <DatabasePanel
+          title="DB3 · Clean uploads"
+          snapshot={data.db3}
+          extra={{ term: "Expiring within 7 days", description: formatCount(data.cleanExpiringSoon) }}
           now={now}
         />
       </div>
@@ -346,7 +375,7 @@ export function AdminInventoryRoute() {
         <ul className="jx-inventory-tools">
           <li>
             <ActionLink href="/app/admin/inventory/uploads">
-              DB2 uploads ({formatCount(sections.uploads)}
+              Lead uploads ({formatCount(sections.uploads)}
               {sections.uploadsInProgress ? `, ${formatCount(sections.uploadsInProgress)} importing` : ""})
             </ActionLink>
           </li>

@@ -9,6 +9,7 @@ function batch(overrides: Partial<BatchRequest> = {}): BatchRequest {
   return {
     id: "10171017-1017-4017-8017-101710171017",
     number: 1017,
+    clean: false,
     lead_count: 50_000,
     rows_per_file: 10_000,
     states: ["FL", "TX"],

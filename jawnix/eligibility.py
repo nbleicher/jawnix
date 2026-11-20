@@ -48,7 +48,22 @@ from .models import (
     LeadDatabaseMembership,
     LeadUpload,
 )
-from .lead_databases import db2_listings
+from .lead_databases import UPLOAD_BACKED_DATABASES, upload_listings
+
+
+def _upload_membership(db: Session, lead: Lead, database: str | None) -> LeadDatabaseMembership | None:
+    """The Lead's membership in the given upload-backed database.
+
+    With no database named, DB2 wins over DB3: a phone in both keeps its
+    long-lived upload as the listing evidence.
+    """
+    if database in UPLOAD_BACKED_DATABASES:
+        return db.get(LeadDatabaseMembership, (database, lead.id))
+    for candidate in UPLOAD_BACKED_DATABASES:
+        membership = db.get(LeadDatabaseMembership, (candidate, lead.id))
+        if membership is not None:
+            return membership
+    return None
 
 
 class ControlConflict(Exception):
@@ -225,16 +240,16 @@ def lead_evidence(db: Session, lead: Lead, *, database: str | None = None) -> Le
                 source=active.reason,
                 upload_id=active.based_on_upload_id,
             )
-    if database == "db2" or not lead.in_db1:
-        membership = db.get(LeadDatabaseMembership, lead.id)
+    if database in UPLOAD_BACKED_DATABASES or not lead.in_db1:
+        membership = _upload_membership(db, lead, database)
         if membership is not None:
-            source = db2_listings(db, [(lead.id, membership.upload_id)]).get(lead.id)
+            source = upload_listings(db, [(lead.id, membership.upload_id)], database=membership.inventory_database).get(lead.id)
             upload = db.get(LeadUpload, membership.upload_id)
             if source is not None:
-                return LeadEvidence(kind="csv_upload", label=_EVIDENCE_LABELS["csv_upload"],
+                return LeadEvidence(kind="csv_upload", label=f"CSV upload ({membership.inventory_database.upper()})",
                                     title=source.title, state=source.state,
                                     observed_at=upload.created_at if upload else None,
-                                    source=f"DB2 CSV {membership.upload_id}", upload_id=membership.upload_id)
+                                    source=f"{membership.inventory_database.upper()} CSV {membership.upload_id}", upload_id=membership.upload_id)
         return LeadEvidence(kind="none", label=_EVIDENCE_LABELS["none"], title="", state="")
     if lead.current_listing_observation_id is not None:
         observation = db.get(
@@ -284,8 +299,8 @@ def record_correction(
     it were a decision.
     """
     evidence = lead_evidence(db, lead, database=database)
-    current_title = evidence.title if database == "db2" or not lead.in_db1 else lead.title
-    current_state = evidence.state if database == "db2" or not lead.in_db1 else lead.state
+    current_title = evidence.title if database in UPLOAD_BACKED_DATABASES or not lead.in_db1 else lead.title
+    current_state = evidence.state if database in UPLOAD_BACKED_DATABASES or not lead.in_db1 else lead.state
     proposed_title = title.strip() if title is not None else current_title
     proposed_state = state or current_state
     if proposed_title == current_title and proposed_state == current_state:

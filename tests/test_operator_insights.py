@@ -207,7 +207,7 @@ def test_customer_trends_rank_by_delivered_with_reports_and_shortfalls(session):
     waiting = batch(session, ridgeline, "waiting_inventory", lead_count=100_000)
     session.add(
         CustomerAvailabilitySnapshot(
-            customer_id=ridgeline.id, available=68_410, computed_at=NOW
+            customer_id=ridgeline.id, inventory_database="db1", available=68_410, computed_at=NOW
         )
     )
     session.commit()

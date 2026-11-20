@@ -77,7 +77,10 @@ container, image, and environment, dumps the named tables, tags every current
 image `jawnix-<service>:rollback-<sha7>`, and builds `jawnix-release:<sha7>`.
 
 `release-activate.py` stops the app services, runs `alembic upgrade head`,
-starts every service on the new image, and verifies readiness, restart counts,
+provisions the physical DB2 store and its read-only link
+(`python -m jawnix.db2_setup`, idempotent — it adds new columns such as
+`scrubbed_on` to existing stores), starts every service on the new image, and
+verifies readiness, restart counts,
 logs, the main pages, and that each container's environment matches its
 declared Compose configuration exactly. Run it detached as shown so a dropped
 SSH session cannot interrupt it, and follow `activate.log`. If any check fails

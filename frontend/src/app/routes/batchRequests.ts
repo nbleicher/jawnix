@@ -137,6 +137,8 @@ export interface BatchRequest {
   id: string;
   /** "Batch #1042", shared with the operator. */
   number: number;
+  /** True when the batch draws prescrubbed Clean (DB3) leads. */
+  clean: boolean;
   lead_count: number;
   /** Frozen at submission; sizes the CSV parts inside the zip. */
   rows_per_file: number;
@@ -168,6 +170,8 @@ export interface RequestLimits {
   licensed_states: string[];
   /** Full names for the appointed states. */
   state_names: Record<string, string>;
+  /** The platform Clean rate; null while Clean is off and the choice hidden. */
+  clean_rate_cents_per_thousand: number | null;
 }
 
 export interface RequestBlocker {
@@ -201,6 +205,8 @@ export interface BatchRequestSubmission {
   idempotency_key: string;
   lead_count: number;
   expected_lead_rate_cents_per_thousand?: number;
+  /** Clean draws prescrubbed DB3 leads at the platform rate. */
+  clean?: boolean;
   /** Omit for one file; the backend freezes `lead_count` as the part size. */
   rows_per_file?: number | null;
   state_mode: "all_saved" | "selected";

@@ -1,4 +1,4 @@
-"""The operator's DB2 CSV uploads.
+"""The operator's CSV uploads, into DB2 or the pre-scrubbed DB3.
 
 Managed administrators once uploaded here too. Their access is retired, but
 their uploads remain in DB2 and still name them as the uploader.
@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import os
 import uuid
+from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -21,6 +22,7 @@ from .auth import Principal, require_admin
 from .config import Settings, get_settings
 from .database import get_db
 from .jobs import enqueue_job
+from .lead_databases import CLEAN_SHELF_DAYS, UPLOAD_BACKED_DATABASES
 from .lead_uploads import IMPORT_JOB, upload_record
 from .models import LeadDatabaseSummary, LeadUpload, ManagedAdmin
 from .states import US_STATES, US_STATE_OPTIONS
@@ -28,10 +30,14 @@ from .states import US_STATES, US_STATE_OPTIONS
 router = APIRouter()
 
 
+def _database_summary(db, database: str) -> dict:
+    summary = db.get(LeadDatabaseSummary, database)
+    return {"total":summary.total if summary else 0, "states":summary.states if summary else {}, "asOf":summary.updated_at if summary else None}
+
+
 def _upload_workspace(db, records: list[dict]) -> dict:
-    summary = db.get(LeadDatabaseSummary, "db2")
     return {"uploads":records, "states":[{"code":code, "name":name} for code,name in US_STATE_OPTIONS],
-            "inventory":{"total":summary.total if summary else 0, "states":summary.states if summary else {}, "asOf":summary.updated_at if summary else None}}
+            "inventory":{database:_database_summary(db, database) for database in UPLOAD_BACKED_DATABASES}}
 
 
 def _rejected_rows(item: LeadUpload) -> FileResponse:
@@ -50,6 +56,27 @@ def _retry_upload(db, item: LeadUpload) -> None:
     db.commit()
 
 
+def _scrubbed_on(raw, database: str) -> date | None:
+    """The form's fallback scrub date. A DB3 row's own Scrubbed On column wins (D6)."""
+    value = str(raw or "").strip()
+    if database == "db2":
+        if value:
+            raise HTTPException(status_code=422, detail="Only DB3 uploads carry a scrub date.")
+        return None
+    if not value:
+        return None
+    try:
+        scrubbed_on = date.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="The scrub date must be YYYY-MM-DD.") from None
+    today = date.today()
+    if scrubbed_on > today:
+        raise HTTPException(status_code=422, detail="The scrub date cannot be in the future.")
+    if (today - scrubbed_on).days >= CLEAN_SHELF_DAYS:
+        raise HTTPException(status_code=422, detail=f"The scrub date cannot be more than {CLEAN_SHELF_DAYS} days old.")
+    return scrubbed_on
+
+
 async def _receive_upload(request: Request, db: Session, settings: Settings, *, verify_access, owner: dict, action: str) -> LeadUpload:
     # Authenticate before parsing multipart data. UploadFile spools large files
     # to disk; neither the API nor the importer loads the full CSV into memory.
@@ -62,13 +89,17 @@ async def _receive_upload(request: Request, db: Session, settings: Settings, *, 
         if bytes_expected > settings.lead_upload_max_bytes + 65536:
             raise HTTPException(status_code=413, detail="CSV exceeds the upload byte limit.")
     db.close()
-    async with request.form(max_files=1, max_fields=1) as form:
+    async with request.form(max_files=1, max_fields=4) as form:
         file = form.get("file")
         state = str(form.get("state") or "").strip().upper()
+        database = str(form.get("database") or "db2").strip().lower()
+        if database not in UPLOAD_BACKED_DATABASES:
+            raise HTTPException(status_code=422, detail="Choose DB2 or DB3 for this file.")
         if not isinstance(file, UploadFile) or not (file.filename or "").lower().endswith(".csv"):
             raise HTTPException(status_code=422, detail="Choose a CSV file.")
         if state not in US_STATES:
             raise HTTPException(status_code=422, detail="Choose a US state for this file.")
+        scrubbed_on = _scrubbed_on(form.get("scrubbedOn"), database)
         if file.size is not None and file.size > settings.lead_upload_max_bytes:
             raise HTTPException(status_code=413, detail="CSV exceeds the upload byte limit.")
         upload_id = uuid.uuid4()
@@ -91,11 +122,13 @@ async def _receive_upload(request: Request, db: Session, settings: Settings, *, 
             await verify_access()
             os.replace(partial, path)
             item = LeadUpload(id=upload_id, **owner, filename=Path(file.filename).name[:255],
-                              state=state, status="queued", path=str(path), sha256=checksum.hexdigest(), bytes=size)
+                              state=state, status="queued", path=str(path), sha256=checksum.hexdigest(), bytes=size,
+                              inventory_database=database, scrubbed_on=scrubbed_on)
             db.add(item)
             record_activity(db, action=action, target_type="lead_upload", target_id=upload_id,
-                            actor_id=item.uploader_id, reason="CSV submitted for DB2 ingestion",
-                            details={"state":state, "bytes":size, "sha256":item.sha256})
+                            actor_id=item.uploader_id, reason=f"CSV submitted for {database.upper()} ingestion",
+                            details={"database":database, "state":state, "bytes":size, "sha256":item.sha256,
+                                     "scrubbedOn":scrubbed_on.isoformat() if scrubbed_on else None})
             enqueue_job(db, IMPORT_JOB, payload={"upload_id":str(upload_id)})
             db.commit()
             return item

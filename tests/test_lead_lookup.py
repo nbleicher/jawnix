@@ -279,7 +279,7 @@ def test_who_can_receive_it_next_follows_history_cooldown_and_scope(session, set
 
 def test_scope_reasons_name_database_exclusion_and_niche_policy(session, settings):
     records = seed(session)
-    session.delete(session.get(LeadDatabaseMembership, records["lead"].id))
+    session.delete(session.get(LeadDatabaseMembership, ("db2", records["lead"].id)))
     delta = customer(session, "Delta Leads", lead_database="db2")
     careful = customer(session, "Careful Agency", cooldown_window_days=1)
     picky = customer(session, "Picky Benefits", cooldown_window_days=1)

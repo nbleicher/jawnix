@@ -49,6 +49,7 @@ class UsableInventory(ContractModel):
 class InventoryNumbers(ContractModel):
     db1: UsableInventory | None
     db2: UsableInventory | None
+    db3: UsableInventory | None
 
 
 class OpenBatchNumbers(ContractModel):
@@ -328,6 +329,7 @@ def operator_numbers(
         inventory=InventoryNumbers(
             db1=_usable(db, "db1"),
             db2=_usable(db, "db2"),
+            db3=_usable(db, "db3"),
         ),
         open_batches=_open_batches(db),
         delivered=_delivered(db, since),

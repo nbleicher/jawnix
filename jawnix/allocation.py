@@ -14,7 +14,7 @@ from pathlib import Path
 
 from sqlalchemy import and_, exists, func, nullsfirst, or_, select
 from sqlalchemy.orm import Session, load_only
-from .lead_databases import db2_listings, inventory_database, inventory_scope, inventory_state
+from .lead_databases import UPLOAD_BACKED_DATABASES, inventory_database, inventory_scope, inventory_state, upload_listings
 from .models import LeadDatabaseMembership
 
 from .billing import capture_batch_hold
@@ -211,7 +211,7 @@ def eligible_query(
         )
     )
     niche = effective_niche_expression()
-    database = inventory_database(request.customer)
+    database = inventory_database(request)
     source_state = inventory_state(database)
     if niche_policy_rows is None:
         niche_filter = policy_clause(request.customer_id, niche, state_expression=source_state)
@@ -631,7 +631,7 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
     request.status_message = "Selecting eligible inventory."
     session.flush()
 
-    database = inventory_database(request.customer)
+    database = inventory_database(request)
     state = inventory_state(database)
     # Rank each requested state's eligible Leads in the usual order, then take
     # rank 1 from every state, then rank 2, and so on. A state that runs out
@@ -656,9 +656,12 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
     # Leads are locked by an outer query.
     query = select(Lead).join(picked, picked.c.id == Lead.id).order_by(picked.c.state_rank, picked.c.state)
     source_keys = []
-    if database == "db2":
+    if database in UPLOAD_BACKED_DATABASES:
         selected = session.execute(query.add_columns(LeadDatabaseMembership.upload_id)
-                                   .join(LeadDatabaseMembership, LeadDatabaseMembership.lead_id == Lead.id)
+                                   .join(LeadDatabaseMembership, and_(
+                                       LeadDatabaseMembership.lead_id == Lead.id,
+                                       LeadDatabaseMembership.inventory_database == database,
+                                   ))
                                    .with_for_update(skip_locked=True, of=(Lead, LeadDatabaseMembership))).all()
         candidates = [row[0] for row in selected]
         source_keys = [(row[0].id, row[1]) for row in selected]
@@ -674,16 +677,16 @@ def allocate_request(session: Session, request_id: uuid.UUID, settings: Settings
         return AllocationResult(request.status, 0, available)
 
     distributed_at = datetime.now(timezone.utc)
-    sources = db2_listings(session, source_keys) if database == "db2" else {}
-    if database == "db2" and len(sources) != len(candidates):
-        raise RuntimeError("The selected DB2 inventory version is unavailable.")
+    sources = upload_listings(session, source_keys, database=database) if database in UPLOAD_BACKED_DATABASES else {}
+    if database in UPLOAD_BACKED_DATABASES and len(sources) != len(candidates):
+        raise RuntimeError(f"The selected {database.upper()} inventory version is unavailable.")
     lookups = _listing_lookups(session, candidates) if database == "db1" else None
     delivered_rows = []
     for lead in candidates:
-        if database == "db2":
+        if database in UPLOAD_BACKED_DATABASES:
             listing = sources[lead.id]
             if listing.phone != lead.phone:
-                raise RuntimeError("DB2 phone identity does not match its canonical endpoint.")
+                raise RuntimeError("Upload-backed phone identity does not match its canonical endpoint.")
             title = lead.title if lead.active_correction_id else listing.title
             state = lead.state if lead.active_correction_id else listing.state
             provenance = {**listing.provenance, "correction_id":str(lead.active_correction_id) if lead.active_correction_id else None}

@@ -171,7 +171,7 @@ export const SETUP_INCOMPLETE_HOME = today.SETUP_INCOMPLETE_HOME;
 export const NORTHSTAR_WALLET: MockCreditWallet = {
   customerId: 7,
   billingEnabled: true,
-  leadRateCentsPerThousand: 500,
+  leadRateCentsPerThousand: 500, cleanRateCentsPerThousand: null,
   balanceCents: 53_750,
   activeHoldsCents: 12_500,
   availableBalanceCents: 41_250,

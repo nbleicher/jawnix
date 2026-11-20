@@ -18,7 +18,7 @@ import {
 const WALLET: CreditWallet = {
   customerId: 7,
   billingEnabled: true,
-  leadRateCentsPerThousand: 500,
+  cleanRateCentsPerThousand: null, leadRateCentsPerThousand: 500,
   balanceCents: 53_750,
   activeHoldsCents: 12_500,
   availableBalanceCents: 41_250,
@@ -39,7 +39,7 @@ function workspace(overrides: Partial<BatchRequestWorkspace> = {}): BatchRequest
       minimum_lead_count: 1,
       maximum_lead_count: 100_000,
       licensed_states: ["FL", "TX"],
-      state_names: { FL: "Florida", TX: "Texas" },
+      state_names: { FL: "Florida", TX: "Texas" }, clean_rate_cents_per_thousand: null,
     },
     blocker: null,
     requests: [LATEST],

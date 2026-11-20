@@ -27,6 +27,7 @@ const RESULT: LeadLookupResult = {
       state: "TN",
       upload: { id: "u1", filename: "tn-agents-nov.csv", uploadedBy: "Alex", at: "2026-11-06T12:00:00Z" },
     },
+    db3: { member: false, state: "", expiresOn: null, upload: null },
   },
   deliveries: [
     {
@@ -238,7 +239,7 @@ describe("Lead lookup", () => {
       { query: "212-555-0100", phone: "2125550100", valid: true, lead: null, exclusions: [] },
       "/admin/inventory/lookup?phone=212-555-0100",
     );
-    expect(screen.getByText("No lead in DB1 or DB2 has the number (212) 555-0100.")).toBeVisible();
+    expect(screen.getByText("No lead in DB1, DB2, or DB3 has the number (212) 555-0100.")).toBeVisible();
   });
 
   it("invites a phone number when there is none yet", () => {

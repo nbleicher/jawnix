@@ -231,9 +231,10 @@ export function AdminBatchesRoute() {
         </Field>
         <Field label="Database">
           <Select value={database} onChange={(event) => setFilter("database", event.target.value || null)}>
-            <option value="">DB1 and DB2</option>
+            <option value="">DB1, DB2, and DB3</option>
             <option value="db1">DB1</option>
             <option value="db2">DB2</option>
+            <option value="db3">DB3</option>
           </Select>
         </Field>
         <label className="jx-batch-filters__check">

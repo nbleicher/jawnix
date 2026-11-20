@@ -1,4 +1,4 @@
-"""The operator Inventory page: usable DB1 and DB2 leads and the tools beside them.
+"""The operator Inventory page: usable DB1, DB2 and DB3 leads and the tools beside them.
 
 Every figure over the inventory itself comes from the background snapshots in
 ``inventory_snapshots``; this module only reads them and adds small, indexed
@@ -13,7 +13,7 @@ import io
 import math
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from .eligibility import RESTORE_LEAD, RESTORE_NOTICE
@@ -86,6 +86,7 @@ def inventory_overview(db: Session, *, now: datetime | None = None) -> dict[str,
     )
     return {
         **read_inventory_snapshots(db),
+        "cleanExpiringSoon": clean_expiring_soon(db),
         "addedLast7Days": _added_last_week(db, now),
         "lastUpload": _last_upload(db),
         "sections": {
@@ -114,18 +115,20 @@ def inventory_overview(db: Session, *, now: datetime | None = None) -> dict[str,
 
 
 def usable_by_state(db: Session) -> list[dict[str, object]]:
-    """Usable Leads per state in both databases, largest total first."""
+    """Usable Leads per state in each database, largest total first."""
     snapshots = read_inventory_snapshots(db)
     db1 = (snapshots["db1"] or {}).get("usableByState", {})
     db2 = (snapshots["db2"] or {}).get("usableByState", {})
+    db3 = (snapshots["db3"] or {}).get("usableByState", {})
     rows = [
         {
             "state": state,
             "db1": int(db1.get(state, 0)),
             "db2": int(db2.get(state, 0)),
-            "total": int(db1.get(state, 0)) + int(db2.get(state, 0)),
+            "db3": int(db3.get(state, 0)),
+            "total": int(db1.get(state, 0)) + int(db2.get(state, 0)) + int(db3.get(state, 0)),
         }
-        for state in set(db1) | set(db2)
+        for state in set(db1) | set(db2) | set(db3)
     ]
     rows.sort(key=lambda row: (-row["total"], row["state"]))
     return rows
@@ -134,10 +137,21 @@ def usable_by_state(db: Session) -> list[dict[str, object]]:
 def usable_by_state_csv(db: Session) -> str:
     output = io.StringIO()
     writer = csv.writer(output, lineterminator="\r\n")
-    writer.writerow(["state", "db1_usable", "db2_usable", "total_usable"])
+    writer.writerow(["state", "db1_usable", "db2_usable", "db3_usable", "total_usable"])
     for row in usable_by_state(db):
-        writer.writerow([row["state"], row["db1"], row["db2"], row["total"]])
+        writer.writerow([row["state"], row["db1"], row["db2"], row["db3"], row["total"]])
     return output.getvalue()
+
+
+def clean_expiring_soon(db: Session, *, days: int = 7) -> int:
+    """Sellable DB3 memberships whose expiry lands within the week."""
+    return int(db.scalar(
+        select(func.count()).select_from(LeadDatabaseMembership).where(
+            LeadDatabaseMembership.inventory_database == "db3",
+            LeadDatabaseMembership.expires_on > func.current_date(),
+            LeadDatabaseMembership.expires_on <= func.current_date() + days,
+        )
+    ) or 0)
 
 
 def _page_bounds(page: int, page_size: int, total: int) -> tuple[int, int]:
@@ -230,7 +244,10 @@ def suppressed_leads_page(
     page, pages = _page_bounds(page, page_size, total)
     rows = db.execute(
         select(Lead, LeadDatabaseMembership.state)
-        .outerjoin(LeadDatabaseMembership, LeadDatabaseMembership.lead_id == Lead.id)
+        .outerjoin(LeadDatabaseMembership, and_(
+            LeadDatabaseMembership.lead_id == Lead.id,
+            LeadDatabaseMembership.inventory_database == "db2",
+        ))
         .where(Lead.suppressed.is_(True))
         .order_by(Lead.id.desc())
         .offset((page - 1) * page_size)

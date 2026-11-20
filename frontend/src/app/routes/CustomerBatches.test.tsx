@@ -17,6 +17,7 @@ function batch(number: number, overrides: Partial<BatchRequest> = {}): BatchRequ
   return {
     id: `${digits}${digits}-${digits}-4${digits.slice(1)}-8${digits.slice(1)}-${digits.repeat(3)}`,
     number,
+    clean: false,
     lead_count: 50_000,
     rows_per_file: 10_000,
     states: ["FL", "TX"],
@@ -78,7 +79,7 @@ const WORKSPACE: BatchRequestWorkspace = {
     minimum_lead_count: 1,
     maximum_lead_count: 100_000,
     licensed_states: ["FL", "TX"],
-    state_names: { FL: "Florida", TX: "Texas" },
+    state_names: { FL: "Florida", TX: "Texas" }, clean_rate_cents_per_thousand: null,
   },
   blocker: null,
   requests: [WAITING, EXPIRED],

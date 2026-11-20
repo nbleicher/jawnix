@@ -33,6 +33,8 @@ export interface CreditWallet {
   customerId: number;
   billingEnabled: boolean;
   leadRateCentsPerThousand: number | null;
+  /** The platform Clean rate; null while Clean is off. */
+  cleanRateCentsPerThousand: number | null;
   balanceCents: number;
   activeHoldsCents: number;
   availableBalanceCents: number;

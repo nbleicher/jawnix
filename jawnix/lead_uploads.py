@@ -1,4 +1,4 @@
-"""Bounded CSV ingestion and atomic publication of the DB2 eligibility index."""
+"""Bounded CSV ingestion and atomic publication of upload-backed eligibility indexes."""
 from __future__ import annotations
 
 import csv
@@ -6,11 +6,11 @@ import hashlib
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import psycopg
-from sqlalchemy import delete, func, insert, select, text, update
+from sqlalchemy import delete, func, insert, literal, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError
 
@@ -20,8 +20,8 @@ from .db2_setup import db2_url
 from .job_wakeup import postgres_dsn
 from .inventory_snapshots import enqueue_inventory_refresh
 from .jobs import enqueue_job
-from .lead_databases import db2_inventory
-from .models import Customer, CustomerAvailabilitySnapshot, Job, LeadDatabaseMembership, LeadDatabaseSummary, LeadUpload, utcnow
+from .lead_databases import CLEAN_SHELF_DAYS, db2_inventory
+from .models import CustomerAvailabilitySnapshot, Job, LeadDatabaseMembership, LeadDatabaseSummary, LeadUpload, utcnow
 from .states import normalize_phone
 
 IMPORT_JOB = "import_lead_upload"
@@ -29,6 +29,7 @@ CHUNK_ROWS = 5000
 CHUNK_BYTES = 8 * 1024 * 1024
 PHONE_HEADERS = {"phone", "phonenumber", "telephone", "telephonenumber", "mobile", "mobilenumber", "cell", "cellphone", "number"}
 TITLE_HEADERS = {"title", "name", "fullname", "businessname", "company", "companyname"}
+SCRUB_DATE_HEADERS = {"scrubbedon", "scrubdate", "scrubbedat"}
 
 
 class InvalidCSV(ValueError):
@@ -49,6 +50,8 @@ class Progress:
 def upload_record(item: LeadUpload) -> dict:
     return {
         "id":str(item.id), "filename":item.filename, "state":item.state, "status":item.status,
+        "database":item.inventory_database,
+        "scrubbedOn":item.scrubbed_on.isoformat() if item.scrubbed_on else None,
         "bytes":item.bytes, "processedRows":item.processed_rows, "validRows":item.valid_rows,
         "rejectedRows":item.rejected_rows, "importedRows":item.imported_rows,
         "updatedRows":item.updated_rows, "duplicateRows":item.duplicate_rows,
@@ -56,9 +59,28 @@ def upload_record(item: LeadUpload) -> dict:
     }
 
 
-def csv_chunks(path: Path, progress: Progress, errors_path: Path):
+def _row_scrubbed_on(raw: str, fallback: date | None, today: date) -> tuple[date | None, str]:
+    """A DB3 row's scrub date: its own column wins; the form date is the fallback."""
+    value = raw.strip()
+    if not value:
+        if fallback is None:
+            return None, "DB3 rows need a Scrubbed On date."
+        return fallback, ""
+    try:
+        scrubbed_on = date.fromisoformat(value)
+    except ValueError:
+        return None, "Scrub date must be a YYYY-MM-DD date."
+    if scrubbed_on > today:
+        return None, "Scrub date cannot be in the future."
+    if (today - scrubbed_on).days >= CLEAN_SHELF_DAYS:
+        return None, f"Scrub date cannot be more than {CLEAN_SHELF_DAYS} days old."
+    return scrubbed_on, ""
+
+
+def csv_chunks(path: Path, progress: Progress, errors_path: Path, *, database: str = "db2", fallback_scrubbed_on: date | None = None):
     """Stream arbitrary row counts. Bound a chunk by both row count and bytes."""
     csv.field_size_limit(16 * 1024 * 1024)
+    today = date.today()
     with path.open(encoding="utf-8-sig", newline="") as source, errors_path.open("w", encoding="utf-8", newline="") as errors:
         report = csv.writer(errors)
         report.writerow(["row", "phone", "reason"])
@@ -73,6 +95,7 @@ def csv_chunks(path: Path, progress: Progress, errors_path: Path):
         normalized = {name:re.sub(r"[^a-z0-9]", "", name.lower()) for name in fields}
         phone_column = next((name for name in fields if normalized[name] in PHONE_HEADERS), None)
         title_column = next((name for name in fields if normalized[name] in TITLE_HEADERS), None)
+        scrub_column = next((name for name in fields if normalized[name] in SCRUB_DATE_HEADERS), None)
         if phone_column is None:
             raise InvalidCSV("The CSV must contain a Phone or Phone Number column.")
         rows, size = [], 0
@@ -82,6 +105,13 @@ def csv_chunks(path: Path, progress: Progress, errors_path: Path):
             phone = normalize_phone(raw_phone)
             title = str(row.get(title_column) or "") if title_column else ""
             reason = "Phone must normalize to a ten-digit US number." if phone is None else ("Name contains a null byte." if "\0" in title else "")
+            scrubbed_on = None
+            if not reason and database == "db3":
+                scrubbed_on, reason = _row_scrubbed_on(
+                    str(row.get(scrub_column) or "") if scrub_column else "",
+                    fallback_scrubbed_on,
+                    today,
+                )
             if reason:
                 progress.rejected += 1
                 # Prefix formula-like input in the downloadable error report.
@@ -89,7 +119,7 @@ def csv_chunks(path: Path, progress: Progress, errors_path: Path):
                 report.writerow([number, safe_phone, reason])
             else:
                 progress.valid += 1
-                rows.append((phone, title, number))
+                rows.append((phone, title, number, scrubbed_on))
                 size += len(title.encode("utf-8")) + 32
             if len(rows) >= CHUNK_ROWS or size >= CHUNK_BYTES or progress.processed % CHUNK_ROWS == 0:
                 yield rows
@@ -119,13 +149,13 @@ def _retain_chunk(source, upload, rows, progress, factory, job_id):
     with factory.begin() as session:
         ids = _canonical_ids(session, unique) if unique else {}
     with source.transaction():
-        source.execute("CREATE TEMP TABLE csv_import_chunk (lead_id bigint, phone varchar(10), title text, row_number bigint) ON COMMIT DROP")
+        source.execute("CREATE TEMP TABLE csv_import_chunk (lead_id bigint, phone varchar(10), title text, row_number bigint, scrubbed_on date) ON COMMIT DROP")
         with source.cursor().copy("COPY csv_import_chunk FROM STDIN") as copy:
-            for phone, title, number in unique.values():
-                copy.write_row((ids[phone], phone, title, number))
-        source.execute("""INSERT INTO inventory_rows (upload_id,lead_id,phone,title,state,row_number)
-            SELECT %s,lead_id,phone,title,%s,row_number FROM csv_import_chunk
-            ON CONFLICT (upload_id,lead_id) DO UPDATE SET title=EXCLUDED.title,row_number=EXCLUDED.row_number""", (upload.id, upload.state))
+            for phone, title, number, scrubbed_on in unique.values():
+                copy.write_row((ids[phone], phone, title, number, scrubbed_on))
+        source.execute("""INSERT INTO inventory_rows (upload_id,lead_id,phone,title,state,row_number,scrubbed_on)
+            SELECT %s,lead_id,phone,title,%s,row_number,scrubbed_on FROM csv_import_chunk
+            ON CONFLICT (upload_id,lead_id) DO UPDATE SET title=EXCLUDED.title,row_number=EXCLUDED.row_number,scrubbed_on=EXCLUDED.scrubbed_on""", (upload.id, upload.state))
         source.execute("UPDATE uploads SET processed_rows=%s,valid_rows=%s,rejected_rows=%s WHERE id=%s",
                        (progress.processed, progress.valid, progress.rejected, upload.id))
     with factory.begin() as session:
@@ -140,18 +170,32 @@ def _publish(upload_id, factory, progress):
         item = session.scalar(select(LeadUpload).where(LeadUpload.id == upload_id).with_for_update())
         if item.status == "complete":
             return upload_record(item)
-        source = select(db2_inventory.c.lead_id, db2_inventory.c.upload_id, db2_inventory.c.state).where(db2_inventory.c.upload_id == upload_id)
+        database = item.inventory_database
         total = int(session.scalar(select(func.count()).select_from(db2_inventory).where(db2_inventory.c.upload_id == upload_id)) or 0)
         updated = int(session.scalar(select(func.count()).select_from(LeadDatabaseMembership).where(
+            LeadDatabaseMembership.inventory_database == database,
             LeadDatabaseMembership.lead_id.in_(select(db2_inventory.c.lead_id).where(db2_inventory.c.upload_id == upload_id))
         )) or 0)
-        statement = pg_insert(LeadDatabaseMembership).from_select(["lead_id", "upload_id", "state"], source)
-        session.execute(statement.on_conflict_do_update(index_elements=["lead_id"], set_={
-            "upload_id":statement.excluded.upload_id, "state":statement.excluded.state}))
-        states = dict(session.execute(select(LeadDatabaseMembership.state, func.count()).group_by(LeadDatabaseMembership.state)).all())
-        session.merge(LeadDatabaseSummary(id="db2", total=sum(states.values()), states=states, updated_at=utcnow()))
-        session.execute(delete(CustomerAvailabilitySnapshot).where(CustomerAvailabilitySnapshot.customer_id.in_(
-            select(Customer.id).where(Customer.lead_database == "db2"))))
+        columns = ["inventory_database", "lead_id", "upload_id", "state"]
+        expressions = [literal(database), db2_inventory.c.lead_id, db2_inventory.c.upload_id, db2_inventory.c.state]
+        if database == "db3":
+            # Sellable for 30 days after the row's own scrub date; expires_on
+            # is the first day the row can no longer sell.
+            columns.append("expires_on")
+            expressions.append(db2_inventory.c.scrubbed_on + timedelta(days=CLEAN_SHELF_DAYS))
+        source = select(*expressions).where(db2_inventory.c.upload_id == upload_id)
+        statement = pg_insert(LeadDatabaseMembership).from_select(columns, source)
+        session.execute(statement.on_conflict_do_update(
+            index_elements=["inventory_database", "lead_id"],
+            set_={"upload_id":statement.excluded.upload_id, "state":statement.excluded.state,
+                  **({"expires_on":statement.excluded.expires_on} if database == "db3" else {})}))
+        states = dict(session.execute(
+            select(LeadDatabaseMembership.state, func.count())
+            .where(LeadDatabaseMembership.inventory_database == database)
+            .group_by(LeadDatabaseMembership.state)).all())
+        session.merge(LeadDatabaseSummary(id=database, total=sum(states.values()), states=states, updated_at=utcnow()))
+        session.execute(delete(CustomerAvailabilitySnapshot).where(
+            CustomerAvailabilitySnapshot.inventory_database == database))
         item.status = "complete"
         item.error = ""
         item.processed_rows, item.valid_rows, item.rejected_rows = progress.processed, progress.valid, progress.rejected
@@ -161,13 +205,15 @@ def _publish(upload_id, factory, progress):
         # Every publication, the operator's too, keeps this original action
         # name so Activity history and its filters stay continuous.
         record_activity(session, action="manager_lead_upload_published", target_type="lead_upload", target_id=item.id,
-                        actor_id=item.uploader_id, reason="Complete CSV inventory published to DB2",
-                        details={"state":item.state, "processed":progress.processed, "imported":item.imported_rows,
+                        actor_id=item.uploader_id, reason=f"Complete CSV inventory published to {database.upper()}",
+                        details={"database":database, "state":item.state, "processed":progress.processed,
+                                 "imported":item.imported_rows,
                                  "updated":updated, "rejected":progress.rejected, "duplicates":item.duplicate_rows,
+                                 "scrubbedOn":item.scrubbed_on.isoformat() if item.scrubbed_on else None,
                                  "sha256":item.sha256})
         enqueue_job(session, "fulfill_round_robin")
         # Visible to a worker only once this publication commits.
-        enqueue_inventory_refresh(session, reason="db2_upload")
+        enqueue_inventory_refresh(session, reason=f"{database}_upload")
         session.flush()
         return upload_record(item)
 
@@ -201,7 +247,8 @@ def import_lead_upload(upload_id: uuid.UUID, settings, *, session_factory=Sessio
                         checksum.update(block)
                 if checksum.hexdigest() != upload.sha256:
                     raise InvalidCSV("The stored CSV does not match the submitted upload.")
-                for rows in csv_chunks(Path(upload.path), progress, Path(upload.path).with_suffix(".errors.csv")):
+                for rows in csv_chunks(Path(upload.path), progress, Path(upload.path).with_suffix(".errors.csv"),
+                                       database=upload.inventory_database, fallback_scrubbed_on=upload.scrubbed_on):
                     _retain_chunk(source, upload, rows, progress, factory, job_id)
                 if progress.processed == 0:
                     raise InvalidCSV("The CSV contains no lead records.")

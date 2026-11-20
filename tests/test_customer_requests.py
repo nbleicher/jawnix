@@ -386,6 +386,7 @@ def test_workspace_publishes_the_bounds_the_stages_validate_against(session):
         "maximum_lead_count": 100_000,
         "licensed_states": ["FL", "TX"],
         "state_names": {"FL": "Florida", "TX": "Texas"},
+        "clean_rate_cents_per_thousand": None,
     }
     assert body["blocker"] is None
     assert body["requests"] == []

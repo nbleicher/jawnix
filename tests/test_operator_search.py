@@ -228,5 +228,5 @@ def test_an_unknown_phone_number_still_opens_lead_lookup(session):
     result = search(session, "212-555-0100")
     assert groups(result) == {"lead": ["(212) 555-0100"]}
     lead = result["groups"][0]["results"][0]
-    assert lead["detail"] == "Not in DB1 or DB2"
+    assert lead["detail"] == "Not in DB1, DB2, or DB3"
     assert lead["href"] == "/app/admin/inventory/lookup?phone=2125550100"

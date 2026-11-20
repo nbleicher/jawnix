@@ -230,7 +230,7 @@ export function GlobalSearch() {
         ) : null}
         <p className="jx-global-search__hint">
           {results.length ? "Enter opens the highlighted result. " : ""}
-          Searches customer names and emails, batch numbers, DB2 upload files, and phone numbers.
+          Searches customer names and emails, batch numbers, upload files, and phone numbers.
         </p>
       </div>
       <VisuallyHidden id={`${id}-status`} role="status">

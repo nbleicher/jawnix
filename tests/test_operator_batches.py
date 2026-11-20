@@ -156,7 +156,7 @@ def seeded(session):
     canceled = batch(session, keystone, "canceled", hours_ago=5)
     session.add(
         CustomerAvailabilitySnapshot(
-            customer_id=northstar.id, available=1_188_205, computed_at=NOW - timedelta(hours=6)
+            customer_id=northstar.id, inventory_database="db1", available=1_188_205, computed_at=NOW - timedelta(hours=6)
         )
     )
     session.commit()
