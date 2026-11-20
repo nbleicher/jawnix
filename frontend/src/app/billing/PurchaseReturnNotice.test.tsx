@@ -10,7 +10,7 @@ import type { CreditWallet } from "./wallet";
 const COMPLETED: CreditWallet = {
   customerId: 7,
   billingEnabled: true,
-  leadRateCentsPerThousand: 500,
+  cleanRateCentsPerThousand: null, leadRateCentsPerThousand: 500,
   balanceCents: 4_000,
   activeHoldsCents: 0,
   availableBalanceCents: 4_000,

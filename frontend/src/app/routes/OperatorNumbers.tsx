@@ -23,7 +23,7 @@ export interface DecisionKind {
 export interface OperatorNumbersData {
   generatedAt: string;
   windowDays: number;
-  inventory: { db1: UsableInventory | null; db2: UsableInventory | null };
+  inventory: { db1: UsableInventory | null; db2: UsableInventory | null; db3: UsableInventory | null };
   openBatches: {
     total: number;
     awaitingApproval: number;
@@ -126,6 +126,7 @@ export function OperatorNumbers({
     <KpiRow label="Key numbers">
       {usableTile("DB1 usable", "Operator leads", numbers.inventory.db1, now)}
       {usableTile("DB2 usable", "CSV uploads", numbers.inventory.db2, now)}
+      {usableTile("DB3 usable", "Clean uploads", numbers.inventory.db3, now)}
       <Kpi
         label="Open batches"
         value={openBatches.total.toLocaleString()}

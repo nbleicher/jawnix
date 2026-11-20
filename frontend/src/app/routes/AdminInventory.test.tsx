@@ -18,7 +18,7 @@ import type { UploadWorkspace } from "./AdminInventoryUploads";
 
 const STATES = ["TX", "FL", "CA", "PA", "OH", "NY", "GA", "NC", "MI", "NJ", "VA", "WA"];
 
-function snapshot(database: "db1" | "db2", base: number) {
+function snapshot(database: "db1" | "db2" | "db3", base: number) {
   const usableByState = Object.fromEntries(STATES.map((state, index) => [state, base - index * 1_000]));
   const usable = Object.values(usableByState).reduce((sum, value) => sum + value, 0);
   return {
@@ -37,6 +37,8 @@ function snapshot(database: "db1" | "db2", base: number) {
 const INVENTORY: InventoryData = {
   db1: snapshot("db1", 900_000),
   db2: { ...snapshot("db2", 90_000), suppressed: 11_000, held: 0, excluded: 331 },
+  db3: { ...snapshot("db3", 4_000), suppressed: 0, held: 0, excluded: 0 },
+  cleanExpiringSoon: 12_345,
   refresh: { status: "idle", jobId: null },
   addedLast7Days: 96_140,
   lastUpload: { id: "u1", filename: "tn-agents-nov.csv", uploadedBy: "Alex", at: "2026-11-06T15:00:00Z" },
@@ -121,7 +123,7 @@ describe("Inventory", () => {
     const table = screen.getByRole("table", { name: "Usable by state" });
     expect(within(table).getAllByRole("row")).toHaveLength(1 + 10 + 1);
     expect(within(table).getByText("All 12 states")).toBeVisible();
-    const total = stateRows(INVENTORY.db1, INVENTORY.db2).reduce((sum, row) => sum + row.total, 0);
+    const total = stateRows(INVENTORY.db1, INVENTORY.db2, INVENTORY.db3).reduce((sum, row) => sum + row.total, 0);
     expect(within(table).getByText(total.toLocaleString("en-US"))).toBeVisible();
     expect(screen.getByRole("link", { name: "Download CSV" })).toHaveAttribute(
       "href",
@@ -135,7 +137,7 @@ describe("Inventory", () => {
   it("links every inventory tool with its count", () => {
     renderPage("/admin/inventory", <AdminInventoryRoute />, INVENTORY);
     const tools = screen.getByRole("navigation", { name: "Inventory tools" });
-    expect(within(tools).getByRole("link", { name: "DB2 uploads (14)" })).toHaveAttribute("href", "/app/admin/inventory/uploads");
+    expect(within(tools).getByRole("link", { name: "Lead uploads (14)" })).toHaveAttribute("href", "/app/admin/inventory/uploads");
     expect(within(tools).getByRole("link", { name: "Exclusion lists (1 waiting)" })).toBeVisible();
     expect(within(tools).getByRole("link", { name: "Suppressed leads (42,612)" })).toBeVisible();
     expect(within(tools).getByRole("link", { name: "Niche assignment" })).toBeVisible();
@@ -353,12 +355,14 @@ describe("Exclusion lists", () => {
   });
 });
 
-describe("DB2 uploads", () => {
+describe("Lead uploads", () => {
   const UPLOADS: UploadWorkspace = {
     uploads: [
       {
         id: "11111111-aaaa-4aaa-8aaa-111111111111",
         filename: "tn-agents-nov.csv",
+        database: "db2",
+        scrubbedOn: null,
         state: "TN",
         status: "complete",
         bytes: 1_024,
@@ -376,6 +380,8 @@ describe("DB2 uploads", () => {
       {
         id: "22222222-aaaa-4aaa-8aaa-222222222222",
         filename: "broken.csv",
+        database: "db3",
+        scrubbedOn: "2026-11-05",
         state: "KY",
         status: "failed",
         bytes: 10,
@@ -392,7 +398,10 @@ describe("DB2 uploads", () => {
       },
     ],
     states: [{ code: "TN", name: "Tennessee" }],
-    inventory: { total: 1_082_619, states: { TN: 1_082_619 }, asOf: null },
+    inventory: {
+      db2: { total: 1_082_619, states: { TN: 1_082_619 }, asOf: null },
+      db3: { total: 50_000, states: { KY: 50_000 }, asOf: null },
+    },
   };
 
   it("lists every upload with one action per row", async () => {
@@ -400,14 +409,14 @@ describe("DB2 uploads", () => {
     const fetchSpy = respond({ ...UPLOADS.uploads[1], status: "queued", error: "" });
     renderPage("/admin/inventory/uploads", <AdminInventoryUploadsRoute />, UPLOADS);
 
-    const table = screen.getByRole("table", { name: "DB2 uploads" });
+    const table = screen.getByRole("table", { name: "Lead uploads" });
     expect(within(table).getByText("Ready")).toBeVisible();
     expect(within(table).getByText("Failed")).toBeVisible();
     expect(within(table).getByRole("link", { name: "Download rejected rows" })).toHaveAttribute(
       "href",
       `/api/admin/lead-uploads/${UPLOADS.uploads[0]!.id}/rejected`,
     );
-    expect(screen.getByText("1,082,619 phone numbers in DB2 across every upload.")).toBeVisible();
+    expect(screen.getByText("1,082,619 phone numbers in DB2 and 50,000 in DB3 across every upload.")).toBeVisible();
 
     await user.click(within(table).getByRole("button", { name: "Retry import" }));
     await waitFor(() => {
@@ -421,7 +430,7 @@ describe("DB2 uploads", () => {
 
   it("asks for a file and a state before uploading", () => {
     renderPage("/admin/inventory/uploads", <AdminInventoryUploadsRoute />, UPLOADS);
-    const form = screen.getByRole("form", { name: "New DB2 upload" });
+    const form = screen.getByRole("form", { name: "New lead upload" });
     expect(within(form).getByRole("button", { name: "Upload CSV" })).toBeDisabled();
     expect(within(form).getByRole("option", { name: "Tennessee (TN)" })).toBeInTheDocument();
   });

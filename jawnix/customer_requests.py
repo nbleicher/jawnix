@@ -135,6 +135,7 @@ def request_limits(profile: CustomerProfile) -> CustomerRequestLimits:
         maximum_lead_count=MAXIMUM_LEAD_COUNT,
         licensed_states=states,
         state_names={state: _STATE_NAMES.get(state, state) for state in states},
+        clean_rate_cents_per_thousand=get_settings().clean_lead_rate_cents_per_thousand,
     )
 
 
@@ -348,6 +349,7 @@ def request_detail(
     return CustomerRequestDetail(
         id=item.id,
         number=item.number,
+        clean=item.clean,
         lead_count=item.lead_count,
         rows_per_file=item.rows_per_file,
         states=normalize_states(item.states_snapshot),
@@ -633,6 +635,7 @@ def submit_request(
             db,
             customer_id=profile.customer_id,
             lead_count=payload.lead_count,
+            clean=payload.clean,
             expected_lead_rate_cents_per_thousand=payload.expected_lead_rate_cents_per_thousand,
         )
     except BillingError as exc:
@@ -652,6 +655,7 @@ def submit_request(
         status=RequestStatus.pending.value,
         status_message="Awaiting Telegram approval.",
         idempotency_key=payload.idempotency_key,
+        clean=payload.clean,
     )
     db.add(item)
     place_batch_hold(db, request=item, billing=billing)

@@ -701,6 +701,8 @@ class CustomerRequestDetail(BaseModel):
     id: uuid.UUID
     #: "Batch #1042", the name the Customer and the operator share.
     number: int
+    #: True when the batch draws prescrubbed Clean (DB3) leads.
+    clean: bool = False
     lead_count: int
     rows_per_file: int
     states: list[str]
@@ -732,6 +734,9 @@ class CustomerRequestLimits(BaseModel):
     licensed_states: list[str]
     #: Full names for the appointed states ("FL" -> "Florida").
     state_names: dict[str, str] = Field(default_factory=dict)
+    #: The platform Clean rate. None while Clean is off, and the Standard or
+    #: Clean choice stays hidden.
+    clean_rate_cents_per_thousand: int | None = None
 
 
 class CustomerRequestBlocker(BaseModel):
@@ -771,6 +776,9 @@ class CustomerRequestCreate(BaseModel):
     state_mode: Literal["all_saved", "selected"] = "all_saved"
     states: list[str] = Field(default_factory=list)
     expected_lead_rate_cents_per_thousand: int | None = Field(default=None, ge=100, le=2_000)
+    #: Clean draws prescrubbed DB3 leads at the platform rate; Standard draws
+    #: the Customer's own Lead Database.
+    clean: bool = False
 
     @field_validator("states")
     @classmethod

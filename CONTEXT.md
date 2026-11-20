@@ -16,11 +16,15 @@ _Avoid_: Login status, trusted browser
 An authenticator-app credential held by an administrator and verified during enrollment before it can establish Administrator Assurance.
 _Avoid_: Verification code, MFA secret
 
+**Clean**:
+Prescrubbed DB3 inventory sold at the platform Clean Rate. Each Clean row carries its upload's scrub date and sells for 30 days after it; a nightly sweep deletes expired rows and moves a phone that is in no other database into DB1 as a plain lead. On each request the Customer picks Standard or Clean; Clean always draws from DB3, Standard from the Customer's Lead Database. DB1 and DB2 pages, counts, batch CSVs, and lead records never show scrub information.
+_Avoid_: Scrubbed database, verified leads, premium tier
+
 **Lead Database**:
-A Customer's operator-selected inventory source for its next allocation. DB1 contains the operator's inventory; physically separate DB2 stores immutable CSV listing versions from the operator's Lead Uploads. Shared canonical phone endpoints and distribution history enforce exclusions, holds, cooldown, and permanent no-repeat across source switches. Already generated Batches retain their original snapshots and artifacts.
+A Customer's operator-selected inventory source for its next Standard allocation. DB1 contains the operator's inventory; physically separate DB2 stores immutable CSV listing versions from the operator's Lead Uploads. DB3 is not a standing Lead Database: it holds Clean rows and only a Clean request draws from it. Shared canonical phone endpoints and distribution history enforce exclusions, holds, cooldown, and permanent no-repeat across all three. Already generated Batches retain their original snapshots and artifacts.
 
 **Lead Upload**:
-A state-selected CSV import owned by the operator. Records stream into DB2, and its eligibility index becomes visible atomically after the complete file commits. Retries retain the same source version. Invalid or interrupted files never publish a prefix. Uploads made before managed administration was retired keep naming their original uploader.
+A state-selected CSV import owned by the operator, targeted at DB2 or DB3; a DB3 upload also carries the date its rows were scrubbed, which cannot be in the future or more than 30 days old. Records stream into the upload store, and the target's eligibility index becomes visible atomically after the complete file commits. Retries retain the same source version. Invalid or interrupted files never publish a prefix. Uploads made before managed administration was retired keep naming their original uploader.
 
 **Primary Authenticator**:
 The Authenticator Factor an administrator normally uses to establish Administrator Assurance.
@@ -95,7 +99,7 @@ Jawnix's authoritative set of validated, deduplicated leads available for alloca
 _Avoid_: Scraper dataset, leads database
 
 **Usable Inventory**:
-The Leads in one Lead Database (DB1 or DB2) that are not suppressed, have no active Eligibility Hold, and are not globally excluded; the same rule for both databases. It is a background snapshot with an as-of time, recounted after every Inventory Sync, DB2 upload publication, nightly, and on request. Per-Customer rules (Licensed States, Niche Policy, no-repeat, Cooldown Window) narrow it further on the Customer page.
+The Leads in one Lead Database (DB1, DB2, or DB3) that are not suppressed, have no active Eligibility Hold, and are not globally excluded; the same rule for all three, with DB3 additionally limited to rows inside their 30-day shelf life. It is a background snapshot with an as-of time, recounted after every Inventory Sync, upload publication, nightly, and on request. Per-Customer rules (Licensed States, Niche Policy, no-repeat, Cooldown Window) narrow it further on the Customer page.
 _Avoid_: Eligible inventory, available now, raw row count
 
 **Legacy Inventory**:
@@ -259,7 +263,7 @@ A situation where an older Batch Request cannot be fulfilled but a newer request
 _Avoid_: Automatic queue bypass, inventory shortage
 
 **Billed Customer**:
-A Customer whose new Batch Requests must be paid from their Credit Wallet at their own Lead Rate, switched per Customer by the operator with no Agency-level pooling. Billing belongs to the Customer, not the Lead Database: batches drawn from DB1 and DB2 are priced, held, and charged the same way, and changing a Customer's database never changes their billing or rate. Each request's billed-or-free status is frozen at submission and never repriced by later toggle or database changes.
+A Customer whose new Batch Requests must be paid from their Credit Wallet, switched per Customer by the operator with no Agency-level pooling. Billing belongs to the Customer, not the Lead Database: Standard batches drawn from DB1 and DB2 are priced, held, and charged the same way at the Customer's own Lead Rate, and changing a Customer's database never changes their billing or rate. Clean batches pay the platform Clean Rate, and every Clean buyer is billed (ADR 0022). Each request's billed-or-free status is frozen at submission and never repriced by later toggle or database changes.
 _Avoid_: Paid tier, subscriber, agency billing
 
 **Credit Wallet**:
@@ -275,7 +279,7 @@ An arbitrary whole-dollar Credit Wallet top-up through Stripe Checkout, credited
 _Avoid_: Invoice, subscription, redirect-confirmed payment
 
 **Lead Rate**:
-The administrator-set flat per-lead price for one Billed Customer, required when billing is switched on. New Customers receive the configured starting rate when platform billing is enabled, whichever Lead Database they draw from. The operator can override each Customer's rate, which may carry sub-cent precision. Restoring history retains the saved billing configuration.
+The administrator-set flat per-lead price for one Billed Customer's Standard requests, required when billing is switched on. New Customers receive the configured starting rate when platform billing is enabled, whichever Lead Database they draw from. The operator can override each Customer's rate, which may carry sub-cent precision. Clean requests pay the platform Clean Rate instead (ADR 0022). Restoring history retains the saved billing configuration.
 _Avoid_: Global price, tiered pricing, per-batch price
 
 **Batch Hold**:

@@ -24,6 +24,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .billing import _wallet_totals, stripe_billing_enabled
+from .config import get_settings
 from .models import BatchHold, CreditLedgerEntry, Customer, LeadRequest
 
 #: "Spent · 30 days" on the Billing tab.
@@ -65,6 +66,8 @@ class CustomerBilling(BaseModel):
     held_cents: int
     held_for: list[CustomerBillingBatch]
     lead_rate_cents_per_thousand: int | None
+    #: The platform Clean rate, or None while Clean is off.
+    clean_lead_rate_cents_per_thousand: int | None
     spent_since: datetime
     spent_cents: int
     spent_batches: int
@@ -180,6 +183,7 @@ def build_customer_billing(
             if (batch := _batch(hold.request_id, number)) is not None
         ],
         lead_rate_cents_per_thousand=customer.lead_rate_cents_per_thousand,
+        clean_lead_rate_cents_per_thousand=get_settings().clean_lead_rate_cents_per_thousand,
         spent_since=since,
         # Charges are negative ledger entries; spending reads as positive.
         spent_cents=-int(spent or 0),

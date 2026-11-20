@@ -6,7 +6,7 @@ import { FactList } from "../../design-system/primitives/facts";
 import { Panel } from "../../design-system/primitives/panel";
 import { DataTable } from "../../design-system/primitives/table";
 import { Text } from "../../design-system/primitives/typography";
-import { formatCount, formatDay } from "../operator/format";
+import { formatCount, formatDatabase, formatDay } from "../operator/format";
 import { errorMessage } from "./AdminCustomers";
 import { formatAsOf } from "./OperatorNumbers";
 
@@ -22,6 +22,12 @@ export interface CustomerAvailabilityView {
   asOf: string | null;
   available: number | null;
   forecast: AvailabilityForecastDay[] | null;
+  /** The Customer's Clean (DB3) availability, cached apart from Standard. */
+  clean?: {
+    asOf: string | null;
+    available: number | null;
+    forecast: AvailabilityForecastDay[] | null;
+  } | null;
 }
 
 /** "2026-08-04" is a calendar day, not an instant: read it as local noon so
@@ -90,10 +96,22 @@ export function CustomerAvailabilityPanel({
                 ? "Not counted yet"
                 : formatCount(availability.available),
           },
-          { term: "Database", description: database === "db2" ? "DB2" : "DB1" },
+          { term: "Database", description: formatDatabase(database) },
           {
             term: "As of",
             description: availability.asOf ? formatAsOf(availability.asOf, now) : "—",
+          },
+          {
+            term: "Clean available now",
+            description:
+              availability.clean == null || availability.clean.available === null
+                ? "Not counted yet"
+                : formatCount(availability.clean.available),
+          },
+          {
+            term: "Clean as of",
+            description:
+              availability.clean?.asOf ? formatAsOf(availability.clean.asOf, now) : "—",
           },
         ]}
       />

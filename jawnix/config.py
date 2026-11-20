@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     default_lead_rate_cents_per_thousand: int | None = Field(
         default=None, ge=100, le=2000, alias="JAWNIX_DB1_DEFAULT_LEAD_RATE_CENTS_PER_THOUSAND",
     )
+    #: The single platform rate for Clean (DB3) requests. While it is unset
+    #: Clean is off: no Clean request is accepted and the choice stays hidden.
+    clean_lead_rate_cents_per_thousand: int | None = Field(
+        default=None, ge=100, le=2000, alias="JAWNIX_CLEAN_LEAD_RATE_CENTS_PER_THOUSAND",
+    )
     frontend_dist_dir: Path = Field(default=Path("./frontend/dist"), alias="JAWNIX_FRONTEND_DIST_DIR")
     public_base_url: str = Field(default="http://localhost:8080", alias="JAWNIX_PUBLIC_BASE_URL")
 

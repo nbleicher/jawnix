@@ -11,7 +11,7 @@ import { DataTable } from "../../design-system/primitives/table";
 import type { DataColumn } from "../../design-system/primitives/table";
 import { Text } from "../../design-system/primitives/typography";
 import { api } from "../api";
-import { formatCount, formatDateTime } from "../operator/format";
+import { formatCount, formatDatabase, formatDateTime } from "../operator/format";
 import { LEAD_UPLOADS as UPLOADS, submitLeadUpload } from "../operator/leadUploads";
 import type { LeadUploadStatus } from "../operator/leadUploads";
 import { useDocumentTitle } from "../shell/useDocumentTitle";
@@ -19,17 +19,19 @@ import { BackToInventory } from "./AdminInventory";
 import "./AdminInventory.css";
 
 /**
- * DB2 uploads, moved from /admin/lead-uploads into Inventory.
+ * Lead uploads, moved from /admin/lead-uploads into Inventory.
  *
- * Every upload adds to one DB2, so this lists them all, including those the
- * retired managed administrators made. Imports run in the background; rows
- * still importing are re-read every few seconds until they settle.
+ * Every upload adds to one DB2 or DB3 inventory, so this lists them all,
+ * including those the retired managed administrators made. A DB3 upload
+ * carries the date its rows were scrubbed; the rows sell for 30 days after
+ * it. Imports run in the background; rows still importing are re-read every
+ * few seconds until they settle.
  */
 
 export interface UploadWorkspace {
   uploads: LeadUploadStatus[];
   states: { code: string; name: string }[];
-  inventory: { total: number; states: Record<string, number>; asOf: string | null };
+  inventory: Record<"db2" | "db3", { total: number; states: Record<string, number>; asOf: string | null }>;
 }
 
 const POLL_MS = 5_000;
@@ -60,6 +62,8 @@ function UploadForm({
   const revalidator = useRevalidator();
   const [file, setFile] = useState<File | null>(null);
   const [state, setState] = useState("");
+  const [database, setDatabase] = useState<"db2" | "db3">("db2");
+  const [scrubbedOn, setScrubbedOn] = useState(() => new Date().toISOString().slice(0, 10));
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
@@ -93,11 +97,18 @@ function UploadForm({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!file || !state || busy) return;
+    if (database === "db3" && !scrubbedOn) {
+      setError("A DB3 upload needs the date its rows were scrubbed.");
+      return;
+    }
     setBusy(true);
     setProgress(0);
     setError("");
     try {
-      onUploaded(await submitLeadUpload(file, state, setProgress));
+      onUploaded(await submitLeadUpload(file, state, setProgress, {
+        database,
+        ...(database === "db3" ? { scrubbedOn } : {}),
+      }));
       setFile(null);
       if (picker.current) picker.current.value = "";
     } catch (caught) {
@@ -109,7 +120,7 @@ function UploadForm({
   }
 
   return (
-    <form onSubmit={(event) => void submit(event)} aria-label="New DB2 upload">
+    <form onSubmit={(event) => void submit(event)} aria-label="New lead upload">
       <Stack gap={4}>
         <div className="jx-upload-form">
           <div
@@ -145,6 +156,26 @@ function UploadForm({
             ) : null}
           </div>
           <Stack gap={4}>
+            <Field label="Database" required description="DB3 holds prescrubbed rows that sell for 30 days after the scrub date.">
+              <Select
+                value={database}
+                onChange={(event) => setDatabase(event.target.value as "db2" | "db3")}
+                disabled={busy}
+              >
+                <option value="db2">DB2 · Standard uploads</option>
+                <option value="db3">DB3 · Clean uploads</option>
+              </Select>
+            </Field>
+            {database === "db3" ? (
+              <Field label="Scrubbed on" required description="The date this file was scrubbed. Not in the future, not older than 30 days.">
+                <Input
+                  type="date"
+                  value={scrubbedOn}
+                  onChange={(event) => setScrubbedOn(event.target.value)}
+                  disabled={busy}
+                />
+              </Field>
+            ) : null}
             <Field label="State" required description="Every row in the file is filed under this state.">
               <Select value={state} onChange={(event) => setState(event.target.value)} disabled={busy}>
                 <option value="">Choose a state</option>
@@ -189,7 +220,7 @@ export function AdminInventoryUploadsRoute() {
   const [uploads, setUploads] = useState(initial.uploads);
   const [error, setError] = useState("");
   const revisions = useRef<Record<string, number>>({});
-  useDocumentTitle("DB2 uploads");
+  useDocumentTitle("Lead uploads");
 
   useEffect(() => {
     setUploads((current) => {
@@ -258,6 +289,12 @@ export function AdminInventoryUploadsRoute() {
         </Stack>
       ),
     },
+    { key: "database", header: "DB", cell: (row) => formatDatabase(row.database) },
+    {
+      key: "scrubbed",
+      header: "Scrubbed",
+      cell: (row) => (row.scrubbedOn ? row.scrubbedOn : "—"),
+    },
     { key: "state", header: "State", cell: (row) => row.state },
     { key: "by", header: "Uploaded by", cell: (row) => row.uploadedBy ?? "Operator" },
     {
@@ -298,10 +335,10 @@ export function AdminInventoryUploadsRoute() {
 
   return (
     <Page
-      title="DB2 uploads"
+      title="Lead uploads"
       width="data"
       density="data"
-      description="Add CSV leads to DB2. Every upload adds to one inventory."
+      description="Add CSV leads to DB2, or prescrubbed leads to DB3. Every upload adds to one inventory."
     >
       <Section title="New upload">
         <UploadForm
@@ -311,7 +348,7 @@ export function AdminInventoryUploadsRoute() {
       </Section>
       <Section
         title="Uploads"
-        description={`${formatCount(initial.inventory.total)} phone numbers in DB2 across every upload.`}
+        description={`${formatCount(initial.inventory.db2.total)} phone numbers in DB2 and ${formatCount(initial.inventory.db3.total)} in DB3 across every upload.`}
       >
         {error ? (
           <Text role="alert" tone="danger">
@@ -319,12 +356,12 @@ export function AdminInventoryUploadsRoute() {
           </Text>
         ) : null}
         <DataTable
-          label="DB2 uploads"
+          label="Lead uploads"
           columns={columns}
           rows={uploads}
           rowKey={(row) => row.id}
           hasActions
-          empty="No uploads yet. Upload a CSV to start building DB2."
+          empty="No uploads yet. Upload a CSV to start building DB2 or DB3."
         />
       </Section>
       <BackToInventory />

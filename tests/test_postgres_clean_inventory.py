@@ -8,11 +8,14 @@ from sqlalchemy import func, select
 
 from conftest import make_request
 from jawnix.allocation import allocate_request, fulfill_round_robin, inventory_count
+from jawnix.billing import BillingError, SubmissionBilling, place_batch_hold, prepare_submission
 from jawnix.clean_inventory import PROMOTE_DB2_ONLY_LEADS_ON_CLEAN_EXPIRY, expire_clean_inventory
+from jawnix.config import get_settings
 from jawnix.lead_databases import CLEAN_SHELF_DAYS
 from jawnix.lead_uploads import import_lead_upload
 from jawnix.models import (
     AuditEntry,
+    CreditLedgerEntry,
     Customer,
     CustomerAvailabilitySnapshot,
     DistributionEvent,
@@ -26,9 +29,10 @@ from jawnix.models import (
 )
 from jawnix.pool_analytics import refresh_customer_availability
 
-from test_postgres_lead_databases import stores, upload
+from test_postgres_lead_databases import DATABASE_URL, stores, upload
 
 
+pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="requires disposable PostgreSQL")
 assert stores is not None  # fixture import
 
 
@@ -75,6 +79,84 @@ def csv_rows(*rows: tuple[str, str]) -> bytes:
 
 def membership(db, database: str, lead_id: int) -> LeadDatabaseMembership | None:
     return db.get(LeadDatabaseMembership, (database, lead_id))
+
+
+@pytest.fixture
+def clean_rate(monkeypatch):
+    monkeypatch.setenv("JAWNIX_CLEAN_LEAD_RATE_CENTS_PER_THOUSAND", "500")
+    get_settings.cache_clear()
+    yield 500
+    get_settings.cache_clear()
+
+
+def test_a_clean_request_picks_only_db3_and_freezes_the_clean_rate(stores, tmp_path, clean_rate):
+    """T3: Clean draws DB3 at 500 cents per 1,000, frozen on the request."""
+    settings, factory, owner = stores
+    clean_phones = [phone(), phone()]
+    with factory.begin() as db:
+        db.add(Lead(phone=phone(), title="Standard only", state="TN", in_db1=True))
+        buyer = Customer(slug=str(uuid.uuid4()), name="Clean buyer", licensed_states=["TN"],
+                         billing_enabled=True, lead_rate_cents_per_thousand=150)
+        db.add(buyer)
+        db.flush()
+        customer_id = buyer.id
+        db.add(CreditLedgerEntry(customer_id=customer_id, kind="admin_adjustment", amount_cents=10_000,
+                                 reason="Opening credit", actor_user_id="operator"))
+    upload_id = upload3(factory, owner, tmp_path / "clean.csv",
+                        csv_rows((clean_phones[0], "First"), (clean_phones[1], "Second")))
+    assert import_lead_upload(upload_id, settings, session_factory=factory)["status"] == "complete"
+    with factory.begin() as db:
+        billing = prepare_submission(db, customer_id=customer_id, lead_count=2, clean=True,
+                                     expected_lead_rate_cents_per_thousand=500)
+        assert billing == SubmissionBilling(is_billed=True, lead_rate_cents_per_thousand=500, amount_cents=1)
+        item = clean_request(db, db.get(Customer, customer_id), 2, ["TN"])
+        place_batch_hold(db, request=item, billing=billing)
+        db.flush()
+        assert allocate_request(db, item.id, settings).allocated == 2
+        request_id = item.id
+    with factory() as db:
+        item = db.get(LeadRequest, request_id)
+        assert item.clean and item.lead_rate_cents_per_thousand == 500
+        events = list(db.scalars(select(DistributionEvent).where(DistributionEvent.request_id == request_id)))
+        assert {event.inventory_database for event in events} == {"db3"}
+        assert {event.phone for event in events} == set(clean_phones)
+        charge = db.scalar(select(CreditLedgerEntry).where(CreditLedgerEntry.batch_request_id == request_id))
+        assert (charge.kind, charge.amount_cents) == ("batch_charge", -1)
+
+
+def test_a_clean_request_is_refused_without_clean_billing_or_the_rate(stores, tmp_path, monkeypatch):
+    """T5: Clean off, an unbilled customer, or a stale expected rate all refuse."""
+    settings, factory, _ = stores
+    with factory.begin() as db:
+        billed = Customer(slug=str(uuid.uuid4()), name="Billed", licensed_states=["TN"],
+                          billing_enabled=True, lead_rate_cents_per_thousand=150)
+        unbilled = Customer(slug=str(uuid.uuid4()), name="Unbilled", licensed_states=["TN"])
+        db.add_all([billed, unbilled])
+        db.flush()
+        billed_id, unbilled_id = billed.id, unbilled.id
+        db.add(CreditLedgerEntry(customer_id=billed_id, kind="admin_adjustment", amount_cents=10_000,
+                                 reason="Opening credit", actor_user_id="operator"))
+    # Clean is off while the rate is unset.
+    monkeypatch.delenv("JAWNIX_CLEAN_LEAD_RATE_CENTS_PER_THOUSAND", raising=False)
+    get_settings.cache_clear()
+    with factory.begin() as db:
+        with pytest.raises(BillingError, match="not on sale"):
+            prepare_submission(db, customer_id=billed_id, lead_count=1000, clean=True,
+                               expected_lead_rate_cents_per_thousand=500)
+    monkeypatch.setenv("JAWNIX_CLEAN_LEAD_RATE_CENTS_PER_THOUSAND", "500")
+    get_settings.cache_clear()
+    with factory.begin() as db:
+        with pytest.raises(BillingError, match="billing"):
+            prepare_submission(db, customer_id=unbilled_id, lead_count=1000, clean=True,
+                               expected_lead_rate_cents_per_thousand=500)
+        with pytest.raises(BillingError, match="price changed"):
+            prepare_submission(db, customer_id=billed_id, lead_count=1000, clean=True,
+                               expected_lead_rate_cents_per_thousand=150)
+        # The customer's own rate is untouched by the Clean rate.
+        standard = prepare_submission(db, customer_id=billed_id, lead_count=1000,
+                                      expected_lead_rate_cents_per_thousand=150)
+        assert standard.lead_rate_cents_per_thousand == 150
+    get_settings.cache_clear()
 
 
 def test_a_db3_upload_leaves_db1_and_db2_status_unchanged(stores, tmp_path):

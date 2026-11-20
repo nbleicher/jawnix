@@ -24,6 +24,7 @@ function operatorNumbers(
     inventory: {
       db1: { usable: 9183402, asOf: local(6, 0) },
       db2: { usable: 1071288, asOf: local(6, 0) },
+      db3: { usable: 50123, asOf: local(6, 0) },
     },
     openBatches: { total: 4, awaitingApproval: 1, shortOfInventory: 1 },
     delivered: { leads: 2069666, batches: 33, customers: 13 },
@@ -52,6 +53,7 @@ describe("OperatorNumbers", () => {
     expect(within(row).getAllByRole("term").map((item) => item.textContent)).toEqual([
       "DB1 usable",
       "DB2 usable",
+      "DB3 usable",
       "Open batches",
       "Delivered · 30 days",
       "Active customers",
@@ -97,7 +99,7 @@ describe("OperatorNumbers", () => {
   it("says a snapshot was never counted instead of showing zero", () => {
     render(
       <OperatorNumbers
-        numbers={operatorNumbers({ inventory: { db1: null, db2: null } })}
+        numbers={operatorNumbers({ inventory: { db1: null, db2: null, db3: null } })}
         now={NOW}
       />,
     );
