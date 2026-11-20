@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS inventory_rows (
 );
 ALTER TABLE inventory_rows ADD COLUMN IF NOT EXISTS scrubbed_on date;
 CREATE OR REPLACE VIEW published_inventory AS
- SELECT r.lead_id, r.upload_id, r.phone, r.title, r.state, r.row_number, r.scrubbed_on, u.manager_id AS owner_id
+ SELECT r.lead_id, r.upload_id, r.phone, r.title, r.state, r.row_number, u.manager_id AS owner_id, r.scrubbed_on
  FROM inventory_rows r JOIN uploads u ON u.id=r.upload_id WHERE u.status='ready';
 CREATE OR REPLACE FUNCTION protect_csv_inventory() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

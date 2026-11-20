@@ -3,7 +3,7 @@
 Usage on the host (after release-prepare.py): python3 release-activate.py <full sha>
 Run it detached so a dropped SSH session cannot interrupt it:
     setsid nohup python3 release-activate.py <sha> > backups/release-<sha7>/activate.log 2>&1 < /dev/null &
-Order: stop the app services, migrate to head, start them on the new image, verify.
+Order: stop the app services, migrate to head, provision DB2 (idempotent), start them on the new image, verify.
 If anything fails after migrating, downgrade to the previous revision with the new image,
 then restore the previous images. A successful activation prunes all but the newest
 KEEP_RELEASES releases' staging folders and rollback/release images.
@@ -148,6 +148,9 @@ def main():
         heads = compose("run", "--rm", "--no-deps", "-T", "api", "alembic", "heads").split()
         head = heads[0]
         assert sql("SELECT version_num FROM alembic_version") == head
+        # DB2's store and read-only link live outside Alembic; provisioning is
+        # idempotent and additive (scrubbed_on, 0057), so every release runs it.
+        compose("run", "--rm", "--no-deps", "-T", "api", "python", "-m", "jawnix.db2_setup")
         compose("up", "-d", "--no-deps", *services)
         for attempt in range(90):
             if get("/api/readyz")[0] == 200:
