@@ -23,11 +23,12 @@ CREATE TABLE IF NOT EXISTS uploads (
 CREATE TABLE IF NOT EXISTS inventory_rows (
  upload_id uuid NOT NULL REFERENCES uploads(id) ON DELETE RESTRICT,
  lead_id bigint NOT NULL, phone varchar(10) NOT NULL, title text NOT NULL,
- state varchar(2) NOT NULL, row_number bigint NOT NULL,
+ state varchar(2) NOT NULL, row_number bigint NOT NULL, scrubbed_on date,
  PRIMARY KEY (upload_id, lead_id), UNIQUE (upload_id, phone)
 );
+ALTER TABLE inventory_rows ADD COLUMN IF NOT EXISTS scrubbed_on date;
 CREATE OR REPLACE VIEW published_inventory AS
- SELECT r.lead_id, r.upload_id, r.phone, r.title, r.state, r.row_number, u.manager_id AS owner_id
+ SELECT r.lead_id, r.upload_id, r.phone, r.title, r.state, r.row_number, r.scrubbed_on, u.manager_id AS owner_id
  FROM inventory_rows r JOIN uploads u ON u.id=r.upload_id WHERE u.status='ready';
 CREATE OR REPLACE FUNCTION protect_csv_inventory() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -92,6 +93,8 @@ def provision(settings=None) -> None:
             lead_id bigint, upload_id uuid, phone varchar(10), title text, state varchar(2),
             row_number bigint, owner_id uuid
         ) SERVER {} OPTIONS (schema_name 'public', table_name 'published_inventory', updatable 'false')""").format(sql.Identifier(SERVER_NAME)))
+        # Existing deployments gain the scrub date without a recreate.
+        db.execute("ALTER FOREIGN TABLE db2_inventory_rows ADD COLUMN IF NOT EXISTS scrubbed_on date")
 
 
 if __name__ == "__main__":

@@ -57,14 +57,14 @@ def _retry_upload(db, item: LeadUpload) -> None:
 
 
 def _scrubbed_on(raw, database: str) -> date | None:
-    """Every DB3 upload carries a scrub date; DB2 uploads never do (D6)."""
+    """The form's fallback scrub date. A DB3 row's own Scrubbed On column wins (D6)."""
     value = str(raw or "").strip()
     if database == "db2":
         if value:
             raise HTTPException(status_code=422, detail="Only DB3 uploads carry a scrub date.")
         return None
     if not value:
-        raise HTTPException(status_code=422, detail="A DB3 upload needs the date its rows were scrubbed.")
+        return None
     try:
         scrubbed_on = date.fromisoformat(value)
     except ValueError:

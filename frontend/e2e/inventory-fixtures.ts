@@ -65,6 +65,10 @@ const DB2_STATES = byState(
   { TX: 182_410, FL: 240_118, CA: 98_402, PA: 0, OH: 120_551 },
   1_071_288,
 );
+const DB3_STATES = byState(
+  { TX: 12_410, FL: 20_118, TN: 8_402 },
+  41_200,
+);
 
 export const INVENTORY = {
   db1: {
@@ -89,6 +93,18 @@ export const INVENTORY = {
     usableByState: DB2_STATES,
     computedAt: todayAt(6),
   },
+  db3: {
+    database: "db3",
+    label: "DB3",
+    allRows: 41_200,
+    suppressed: 0,
+    held: 0,
+    excluded: 0,
+    usable: 41_200,
+    usableByState: DB3_STATES,
+    computedAt: todayAt(6),
+  },
+  cleanExpiringSoon: 3_812,
   refresh: { status: "idle", jobId: null },
   addedLast7Days: 96_140,
   lastUpload: {
@@ -144,6 +160,8 @@ function upload(overrides: Record<string, unknown>) {
   return {
     id: READY_UPLOAD_ID,
     filename: "tn-agents-nov.csv",
+    database: "db2",
+    scrubbedOn: null,
     state: "TN",
     status: "complete",
     bytes: 4_200_000,
@@ -196,7 +214,10 @@ export const UPLOADS = {
     { code: "TN", name: "Tennessee" },
     { code: "TX", name: "Texas" },
   ],
-  inventory: { total: 1_082_619, states: { TN: 412_000, FL: 670_619 }, asOf: hoursAgo(71.8) },
+  inventory: {
+    db2: { total: 1_082_619, states: { TN: 412_000, FL: 670_619 }, asOf: hoursAgo(71.8) },
+    db3: { total: 41_200, states: { TN: 8_402, TX: 12_410, FL: 20_118 }, asOf: hoursAgo(71.8) },
+  },
 };
 
 function exclusion(overrides: Record<string, unknown>) {
@@ -319,6 +340,7 @@ export const LOOKUP = {
       state: "TN",
       upload: { id: READY_UPLOAD_ID, filename: "tn-agents-nov.csv", uploadedBy: "Alex", at: daysAgo(3) },
     },
+    db3: { member: false, state: "", expiresOn: null, upload: null },
   },
   deliveries: [
     {
@@ -450,9 +472,9 @@ export async function mockInventory(page: Page): Promise<RecordedCall[]> {
   await page.route(/\/api\/admin\/inventory-snapshots(\/refresh)?$/, (route) => {
     if (route.request().method() === "POST") {
       record(route);
-      return json(route, { db1: INVENTORY.db1, db2: INVENTORY.db2, refresh: { status: "queued", jobId: 41 } }, 202);
+      return json(route, { db1: INVENTORY.db1, db2: INVENTORY.db2, db3: INVENTORY.db3, refresh: { status: "queued", jobId: 41 } }, 202);
     }
-    return json(route, { db1: INVENTORY.db1, db2: INVENTORY.db2, refresh: { status: "queued", jobId: 41 } });
+    return json(route, { db1: INVENTORY.db1, db2: INVENTORY.db2, db3: INVENTORY.db3, refresh: { status: "queued", jobId: 41 } });
   });
 
   // The operator's upload is queued, then finishes on its first status read.
@@ -471,6 +493,8 @@ export async function mockInventory(page: Page): Promise<RecordedCall[]> {
       submitted = upload({
         id: NEW_UPLOAD_ID,
         filename: /filename="([^"]+)"/.exec(body)?.[1] ?? "new.csv",
+        database: /name="database"\r\n\r\n(db[23])/.exec(body)?.[1] ?? "db2",
+        scrubbedOn: /name="scrubbedOn"\r\n\r\n([0-9-]{10})/.exec(body)?.[1] ?? null,
         state: /name="state"\r\n\r\n([A-Z]{2})/.exec(body)?.[1] ?? "",
         status: "queued",
         bytes: 32,

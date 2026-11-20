@@ -4,6 +4,7 @@ export interface MockCreditWallet {
   customerId: number;
   billingEnabled: boolean;
   leadRateCentsPerThousand: number | null;
+  cleanRateCentsPerThousand: number | null;
   balanceCents: number;
   activeHoldsCents: number;
   availableBalanceCents: number;
@@ -36,7 +37,7 @@ function json(route: Route, value: unknown, status = 200) {
 export const FREE_CUSTOMER_WALLET: MockCreditWallet = {
   customerId: 7,
   billingEnabled: false,
-  leadRateCentsPerThousand: null,
+  leadRateCentsPerThousand: null, cleanRateCentsPerThousand: null,
   balanceCents: 0,
   activeHoldsCents: 0,
   availableBalanceCents: 0,
@@ -47,7 +48,7 @@ export const FREE_CUSTOMER_WALLET: MockCreditWallet = {
 export const BILLED_CUSTOMER_WALLET: MockCreditWallet = {
   customerId: 7,
   billingEnabled: true,
-  leadRateCentsPerThousand: 500,
+  leadRateCentsPerThousand: 500, cleanRateCentsPerThousand: null,
   balanceCents: 10_000,
   activeHoldsCents: 375,
   availableBalanceCents: 9_625,
@@ -118,6 +119,7 @@ export interface MockBillingSummary {
   held_cents: number;
   held_for: Array<{ id: string; number: number; href: string }>;
   lead_rate_cents_per_thousand: number | null;
+  clean_lead_rate_cents_per_thousand: number | null;
   spent_since: string;
   spent_cents: number;
   spent_batches: number;
@@ -178,6 +180,7 @@ export function billingSummaryFor(wallet: MockCreditWallet): MockBillingSummary 
     held_cents: wallet.activeHoldsCents,
     held_for: held,
     lead_rate_cents_per_thousand: wallet.leadRateCentsPerThousand,
+    clean_lead_rate_cents_per_thousand: wallet.cleanRateCentsPerThousand,
     spent_since: "2026-07-04T00:00:00Z",
     spent_cents: -charges.reduce((sum, entry) => sum + entry.amountCents, 0),
     spent_batches: charges.length,

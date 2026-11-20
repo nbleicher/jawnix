@@ -3,7 +3,14 @@
 Status, updated 2026-11-20:
 - **P0 is done.** The match script is written, and a one-state pilot passed with 0 rejected rows (see "P0 result").
 - **Jawnix never scrubs.** All scrubbing happens in Textro. Jawnix only matches and uploads the clean files.
-- **P1–P3 are not built.**
+- **P1 and P2 are built** in PR #252 (branch `nbleicher/clean-data-db3-p0`, commits P0 `0eaf3f4`, P1 `97237e0`, P2 `5598a57`). It is not merged and not released.
+  - D15 is built as assumed. The switch is `PROMOTE_DB2_ONLY_LEADS_ON_CLEAN_EXPIRY = False` in `jawnix/clean_inventory.py`.
+  - 0057 also widens the `inventory_snapshots` check constraint to allow `db3`. The plan's migration list had missed this.
+- **PR #252 has three problems to fix before merge** (found 2026-11-20):
+  - **CI backend fails.** In `tests/test_migration_bootstrap.py`, migration 0057 creates `ck_lead_upload_inventory_database`, and that constraint already exists on a fresh database. The 0055 baseline builds the schema from the current models, so every step in 0057 must check first, the way 0056 does. Only column adds are checked today. Constraints, primary key swaps and indexes are not.
+  - **CI e2e fails.** 36 tests fail across inventory, lead lookup, DB2 uploads, Today, shell and accessibility, on both mobile and desktop. The e2e mocks (`frontend/e2e/inventory-fixtures.ts` and the other fixtures) were never given the new `db3` and `cleanExpiringSoon` fields, so the Inventory pages don't render. On main, both jobs pass at `c74bd6d`.
+  - **D6 and T9 are not as planned.** A DB3 upload uses one form date (`lead_uploads.scrubbed_on`) for every row and ignores the per-row `Scrubbed On` column. The build's T9 tests per-database availability snapshots instead. It said the plan only had T1–T8, but the plan it committed has T9.
+- **P3 is not started.**
 - **Code references** are checked against `origin/main` of `nbleicher/jawnix` at `c74bd6d` (#251). The newest migration there is `20261112_0056`.
 
 ## Goal

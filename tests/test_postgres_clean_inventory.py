@@ -366,8 +366,40 @@ def test_a_phone_moved_into_db1_keeps_its_delivery_history(stores, tmp_path):
         assert inventory_count(db, later, settings) == 1
 
 
+def test_a_db3_upload_uses_each_rows_scrubbed_on(stores, tmp_path):
+    """T9: per-row dates win, the form date is the fallback, stale dates reject."""
+    settings, factory, owner = stores
+    today = date.today()
+    five_days, future, stale, unreadable, blank = (phone() for _ in range(5))
+    fallback = today - timedelta(days=2)
+    rows = [
+        (five_days, "Fresh", (today - timedelta(days=5)).isoformat()),
+        (future, "Future", (today + timedelta(days=1)).isoformat()),
+        (stale, "Stale", (today - timedelta(days=CLEAN_SHELF_DAYS + 1)).isoformat()),
+        (unreadable, "Unreadable", "last Tuesday"),
+        (blank, "Fallback", ""),
+    ]
+    content = ("Phone,Company,Scrubbed On\n" + "".join(f"{number},{name},{when}\n" for number, name, when in rows)).encode()
+    upload_id = upload3(factory, owner, tmp_path / "dated.csv", content, scrubbed_on=fallback)
+    result = import_lead_upload(upload_id, settings, session_factory=factory)
+    assert result["status"] == "complete"
+    assert (result["processedRows"], result["validRows"], result["rejectedRows"]) == (5, 2, 3)
+    with factory() as db:
+        fresh = db.scalar(select(Lead).where(Lead.phone == five_days))
+        assert membership(db, "db3", fresh.id).expires_on == today - timedelta(days=5) + timedelta(days=CLEAN_SHELF_DAYS)
+        blanked = db.scalar(select(Lead).where(Lead.phone == blank))
+        assert membership(db, "db3", blanked.id).expires_on == fallback + timedelta(days=CLEAN_SHELF_DAYS)
+        for number in (future, stale, unreadable):
+            rejected = db.scalar(select(Lead).where(Lead.phone == number))
+            assert rejected is None or membership(db, "db3", rejected.id) is None
+    report = (tmp_path / "dated.errors.csv").read_text()
+    assert "Scrub date cannot be in the future." in report
+    assert f"Scrub date cannot be more than {CLEAN_SHELF_DAYS} days old." in report
+    assert "Scrub date must be a YYYY-MM-DD date." in report
+
+
 def test_availability_snapshots_are_keyed_per_database(stores, tmp_path):
-    """T9: a DB3 publication clears Clean availability and leaves Standard alone."""
+    """T10: a DB3 publication clears Clean availability and leaves Standard alone."""
     settings, factory, owner = stores
     with factory.begin() as db:
         buyer = customer(db, "CSV buyer", database="db2")

@@ -54,6 +54,7 @@ export const OPERATOR_NUMBERS = {
   inventory: {
     db1: { usable: 9_183_402, asOf: todayAt(6) },
     db2: { usable: 1_071_288, asOf: todayAt(6) },
+    db3: { usable: 41_200, asOf: todayAt(6) },
   },
   openBatches: { total: 4, awaitingApproval: 1, shortOfInventory: 1 },
   delivered: { leads: 2_069_666, batches: 33, customers: 13 },

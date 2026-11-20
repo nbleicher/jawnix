@@ -21,7 +21,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.describe("Today", () => {
-  test("starts with the eight numbers and last night's run", async ({ page }) => {
+  test("starts with the nine numbers and last night's run", async ({ page }) => {
     await page.goto("./admin/today");
 
     await expect(page.getByRole("heading", { level: 1, name: "Today" })).toBeVisible();
@@ -29,6 +29,7 @@ test.describe("Today", () => {
     await expect(numbers.getByRole("term")).toHaveText([
       "DB1 usable",
       "DB2 usable",
+      "DB3 usable",
       "Open batches",
       "Delivered · 30 days",
       "Active customers",
@@ -36,7 +37,7 @@ test.describe("Today", () => {
       "Credits used · 30 days",
       "Decisions waiting",
     ]);
-    for (const text of ["9,183,402", "1,071,288", "2,069,666", "$8,412.50", "$10,348.33", "Oldest 2d"]) {
+    for (const text of ["9,183,402", "1,071,288", "41,200", "2,069,666", "$8,412.50", "$10,348.33", "Oldest 2d"]) {
       await expect(numbers.getByText(text, { exact: true })).toBeVisible();
     }
     const lastNight = page.getByRole("region", { name: "Last night" });

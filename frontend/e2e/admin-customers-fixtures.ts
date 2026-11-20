@@ -586,7 +586,7 @@ const PENDING_INVITATION = {
 const BILLING = {
   customerId: 7,
   billingEnabled: true,
-  leadRateCentsPerThousand: 500 as number | null,
+  leadRateCentsPerThousand: 500 as number | null, cleanRateCentsPerThousand: null as number | null,
   balanceCents: 148_200,
   activeHoldsCents: 25_000,
   availableBalanceCents: 123_200,

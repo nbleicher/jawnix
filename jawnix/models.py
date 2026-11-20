@@ -1346,9 +1346,9 @@ class LeadUpload(Base):
         # administrators keep their manager_id, so they still name the uploader.
         CheckConstraint("(manager_id IS NULL) <> (operator_id IS NULL)", name="ck_lead_upload_one_uploader"),
         CheckConstraint("inventory_database IN ('db2', 'db3')", name="ck_lead_upload_inventory_database"),
-        # DB3 rows are pre-scrubbed and sellable for 30 days after it; DB2
-        # uploads carry no scrub date.
-        CheckConstraint("(inventory_database = 'db3') = (scrubbed_on IS NOT NULL)", name="ck_lead_upload_scrubbed_on"),
+        # DB3 rows carry their own Scrubbed On; the upload's date is the
+        # fallback for files without the column. DB2 uploads never carry one.
+        CheckConstraint("inventory_database = 'db3' OR scrubbed_on IS NULL", name="ck_lead_upload_scrubbed_on"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     manager_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("managed_admins.auth_user_id", ondelete="RESTRICT"), index=True)

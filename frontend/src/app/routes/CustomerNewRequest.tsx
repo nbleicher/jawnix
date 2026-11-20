@@ -174,7 +174,7 @@ function RequestForm({
       : null;
   const rows = split ? parseCount(rowsPerFile) : null;
   // Clean stays hidden while its rate is unset (Clean off).
-  const cleanRate = limits.clean_rate_cents_per_thousand;
+  const cleanRate = limits.clean_rate_cents_per_thousand ?? null;
   const standardRate = billing?.leadRateCentsPerThousand ?? null;
   const rate = clean && cleanRate !== null ? cleanRate : standardRate;
   const costCents = rate !== null && validCount !== null ? batchCostCents(validCount, rate) : null;

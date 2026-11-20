@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import BigInteger, Column, MetaData, String, Table, Text, Uuid, and_, case, func, or_, select
+from sqlalchemy import BigInteger, Column, Date, MetaData, String, Table, Text, Uuid, and_, case, func, or_, select
 
 from .models import Lead, LeadDatabaseMembership
 
@@ -19,6 +19,7 @@ db2_inventory = Table(
     Column("state", String(2), nullable=False),
     Column("row_number", BigInteger, nullable=False),
     Column("owner_id", Uuid, nullable=False),
+    Column("scrubbed_on", Date),
 )
 
 # Databases filled by CSV uploads. DB3 rows live in the same physical upload

@@ -302,6 +302,7 @@ export const BATCH_REQUEST_WORKSPACE = {
     minimum_lead_count: 1,
     maximum_lead_count: 100_000,
     licensed_states: ["FL", "TX"],
+    clean_rate_cents_per_thousand: null,
     state_names: { FL: "Florida", TX: "Texas" },
   },
   blocker: null,
@@ -352,6 +353,7 @@ export const BLOCKED_BATCH_REQUEST_WORKSPACE = {
     minimum_lead_count: 1,
     maximum_lead_count: 100_000,
     licensed_states: [],
+    clean_rate_cents_per_thousand: null,
     state_names: {},
   },
   blocker: {

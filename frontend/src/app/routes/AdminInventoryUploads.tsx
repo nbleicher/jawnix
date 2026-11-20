@@ -97,17 +97,13 @@ function UploadForm({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!file || !state || busy) return;
-    if (database === "db3" && !scrubbedOn) {
-      setError("A DB3 upload needs the date its rows were scrubbed.");
-      return;
-    }
     setBusy(true);
     setProgress(0);
     setError("");
     try {
       onUploaded(await submitLeadUpload(file, state, setProgress, {
         database,
-        ...(database === "db3" ? { scrubbedOn } : {}),
+        ...(database === "db3" && scrubbedOn ? { scrubbedOn } : {}),
       }));
       setFile(null);
       if (picker.current) picker.current.value = "";
@@ -167,7 +163,7 @@ function UploadForm({
               </Select>
             </Field>
             {database === "db3" ? (
-              <Field label="Scrubbed on" required description="The date this file was scrubbed. Not in the future, not older than 30 days.">
+              <Field label="Scrubbed on" description="The fallback date for rows without a Scrubbed On column. Not in the future, not older than 30 days.">
                 <Input
                   type="date"
                   value={scrubbedOn}

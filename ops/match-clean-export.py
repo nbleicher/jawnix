@@ -54,7 +54,7 @@ def main() -> int:
     args = parser.parse_args()
 
     from jawnix.database import SessionLocal
-    from jawnix.lead_databases import db2_listings
+    from jawnix.lead_databases import upload_listings
     from jawnix.lead_uploads import PHONE_HEADERS, TITLE_HEADERS
     from jawnix.models import Lead, LeadDatabaseMembership
     from jawnix.states import US_STATES, US_STATE_OPTIONS, normalize_phone
@@ -141,10 +141,13 @@ def main() -> int:
                     ]
                     memberships = {
                         row.lead_id: row for row in session.scalars(
-                            select(LeadDatabaseMembership).where(LeadDatabaseMembership.lead_id.in_(db2_ids))
+                            select(LeadDatabaseMembership).where(
+                                LeadDatabaseMembership.inventory_database == "db2",
+                                LeadDatabaseMembership.lead_id.in_(db2_ids),
+                            )
                         )
                     } if db2_ids else {}
-                    listings = db2_listings(session, [
+                    listings = upload_listings(session, [
                         (lead_id, membership.upload_id) for lead_id, membership in memberships.items()
                     ]) if memberships else {}
                     for number, phone, company, state, scrubbed_on in pending:
